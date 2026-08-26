@@ -6,6 +6,7 @@ import { CanvasManager } from "./canvas/CanvasManager";
 import { Ruler } from "./canvas/Ruler";
 import { ContextualToolbar } from "./toolbar/ContextualToolbar";
 import { ElementActionBar } from "./toolbar/ElementActionBar";
+import { RotationBadge } from "./toolbar/RotationBadge";
 
 export interface DesignerCanvasProps {
   zoom: number;
@@ -145,6 +146,13 @@ export function DesignerCanvas({
               zoom={zoom}
             />
           )}
+
+          {/* Canva Live Rotation Badge floating over the rotating element */}
+          <RotationBadge
+            canvasManager={canvasManager || null}
+            selected={selected}
+            zoom={zoom}
+          />
         </div>
       </div>
     </div>
