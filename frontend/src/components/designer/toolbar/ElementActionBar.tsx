@@ -116,7 +116,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
         top: `${coords.y}px`,
         transform: 'translateX(-50%)',
       }}
-      className="z-10 flex items-center gap-1 bg-white/95 backdrop-blur-md px-1.5 py-1 rounded-full shadow-lg border border-gray-200/90 text-gray-700 animate-in fade-in zoom-in-95 duration-100 select-none"
+      className="z-10 flex items-center gap-1 bg-white px-1.5 py-1 rounded-full shadow-lg border border-gray-200 text-gray-700 animate-in fade-in zoom-in-95 duration-100 select-none"
     >
       {/* Lock / Unlock */}
       <button

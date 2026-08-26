@@ -70,7 +70,7 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
     <div
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 bg-white/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/80 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-3.5 text-gray-800"
+      className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-3.5 text-gray-800"
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-100 pb-2">

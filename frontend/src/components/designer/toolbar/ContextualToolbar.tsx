@@ -210,7 +210,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       ref={toolbarRef}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-white/98 backdrop-blur-md px-2.5 py-1.5 rounded-2xl shadow-xl border border-gray-200/90 text-gray-700 animate-in fade-in slide-in-from-top-2 duration-150 select-none max-w-[95vw] overflow-visible"
+      className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-2xl shadow-xl border border-gray-200/90 text-gray-700 animate-in fade-in slide-in-from-top-2 duration-150 select-none max-w-[95vw] overflow-visible"
     >
       {/* ================================================================ */}
       {/* 0. ACTIVE DRAWING MODE CONTROLS (Illustrator Draw / Brush)       */}
@@ -308,7 +308,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </button>
 
             {activePopover === 'color' && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
                 <ColorPicker
                   label="Brush Print Ink (CMYK & RGB)"
                   value={brushSettings.color || '#2563eb'}
@@ -480,7 +480,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </button>
 
             {activePopover === 'color' && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
                 <ColorPicker
                   label="Text Color"
                   value={selected.fill || '#0f172a'}
@@ -734,7 +734,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </button>
 
             {activePopover === 'color' && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
                 <ColorPicker
                   label="Shape Fill Color"
                   value={selected.fill || '#2563eb'}
@@ -764,7 +764,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </button>
 
             {activePopover === 'strokeColor' && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
                 <ColorPicker
                   label="Border Color"
                   value={selected.stroke || '#000000'}
@@ -878,7 +878,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </button>
 
             {activePopover === 'color' && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
                 <ColorPicker
                   label="Path Stroke Color"
                   value={selected.stroke || selected.fill || '#2563eb'}

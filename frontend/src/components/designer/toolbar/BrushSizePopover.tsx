@@ -21,7 +21,7 @@ export const BrushSizePopover: React.FC<BrushSizePopoverProps> = ({
     <div
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-full left-0 mt-2 w-64 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-3.5"
+      className="absolute top-full left-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-3.5"
     >
       <div className="flex items-center justify-between border-b border-gray-100 pb-2">
         <span className="text-xs font-bold text-gray-900">Brush Size / Width</span>
