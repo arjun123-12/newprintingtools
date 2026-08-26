@@ -21,17 +21,8 @@ import {
   FileCode,
   Image as ImageIcon,
   History,
-  FlipHorizontal,
-  FlipVertical,
-  Lock,
-  Unlock,
-  Copy,
-  Trash2,
-  ChevronsUp,
-  ChevronUp,
-  ChevronsDown,
 } from 'lucide-react';
-import { DocumentSettings, SelectedObjectState } from '@/types/designer';
+import { DocumentSettings } from '@/types/designer';
 import { ZoomControls } from './controls/ZoomControls';
 import { CanvasManager } from './canvas/CanvasManager';
 import { PreflightBadge } from './controls/PreflightBadge';
@@ -66,7 +57,6 @@ interface DesignerToolbarProps {
   onExportPsd?: () => void;
   canvasManager?: CanvasManager | null;
   preflightReport?: PreflightReport | null;
-  selected?: SelectedObjectState | null;
 }
 
 export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
@@ -98,20 +88,11 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
   onExportPsd,
   canvasManager = null,
   preflightReport = null,
-  selected = null,
 }) => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [activeMenu, setActiveMenu] = useState<'file' | 'view' | 'export' | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
-
-  const handleUpdateSelected = <K extends keyof SelectedObjectState>(
-    prop: K,
-    value: SelectedObjectState[K]
-  ) => {
-    if (!canvasManager) return;
-    canvasManager.updateSelectedProperty(prop, value);
-  };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -343,206 +324,6 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
           )}
         </div>
       </div>
-
-      {/* Contextual Transform & Object Actions Bar (Compact icon-driven toolbar) */}
-      {selected && (
-        <div className="hidden sm:flex items-center gap-1 px-2 py-1 bg-gray-50/90 border border-gray-200/90 rounded-xl shadow-2xs animate-in fade-in zoom-in-95 duration-150 overflow-x-auto max-w-full custom-scrollbar">
-          {/* Coordinates: X & Y */}
-          <div className="flex items-center gap-1">
-            <div
-              className="flex items-center gap-1 bg-white border border-gray-200 rounded-md px-1.5 py-0.5"
-              title="X Position (px)"
-            >
-              <span className="text-[10px] font-bold text-gray-400 select-none">X</span>
-              <input
-                type="number"
-                value={Math.round(selected.left || 0)}
-                onChange={(e) => handleUpdateSelected('left', Number(e.target.value))}
-                className="w-10 bg-transparent text-xs font-mono text-gray-800 focus:outline-none"
-              />
-            </div>
-            <div
-              className="flex items-center gap-1 bg-white border border-gray-200 rounded-md px-1.5 py-0.5"
-              title="Y Position (px)"
-            >
-              <span className="text-[10px] font-bold text-gray-400 select-none">Y</span>
-              <input
-                type="number"
-                value={Math.round(selected.top || 0)}
-                onChange={(e) => handleUpdateSelected('top', Number(e.target.value))}
-                className="w-10 bg-transparent text-xs font-mono text-gray-800 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Dimensions: W & H */}
-          <div className="flex items-center gap-1">
-            <div
-              className="flex items-center gap-1 bg-white border border-gray-200 rounded-md px-1.5 py-0.5"
-              title="Width (px)"
-            >
-              <span className="text-[10px] font-bold text-gray-400 select-none">W</span>
-              <input
-                type="number"
-                value={Math.round(selected.width || 0)}
-                onChange={(e) => handleUpdateSelected('width', Number(e.target.value))}
-                className="w-10 bg-transparent text-xs font-mono text-gray-800 focus:outline-none"
-              />
-            </div>
-            <div
-              className="flex items-center gap-1 bg-white border border-gray-200 rounded-md px-1.5 py-0.5"
-              title="Height (px)"
-            >
-              <span className="text-[10px] font-bold text-gray-400 select-none">H</span>
-              <input
-                type="number"
-                value={Math.round(selected.height || 0)}
-                onChange={(e) => handleUpdateSelected('height', Number(e.target.value))}
-                className="w-10 bg-transparent text-xs font-mono text-gray-800 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Rotation & Opacity */}
-          <div className="hidden lg:flex items-center gap-1">
-            <div
-              className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-md px-1.5 py-0.5"
-              title="Rotation Angle (°)"
-            >
-              <span className="text-[10px] font-bold text-gray-400 select-none">∠</span>
-              <input
-                type="number"
-                min="0"
-                max="360"
-                value={Math.round(selected.angle || 0)}
-                onChange={(e) => handleUpdateSelected('angle', Number(e.target.value))}
-                className="w-8 bg-transparent text-xs font-mono text-gray-800 focus:outline-none text-right"
-              />
-              <span className="text-[10px] text-gray-400">°</span>
-            </div>
-            <div
-              className="flex items-center gap-0.5 bg-white border border-gray-200 rounded-md px-1.5 py-0.5"
-              title="Opacity (%)"
-            >
-              <span className="text-[10px] font-bold text-gray-400 select-none">Op</span>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={Math.round((selected.opacity !== undefined ? selected.opacity : 1) * 100)}
-                onChange={(e) => handleUpdateSelected('opacity', Number(e.target.value) / 100)}
-                className="w-7 bg-transparent text-xs font-mono text-gray-800 focus:outline-none text-right"
-              />
-              <span className="text-[10px] text-gray-400">%</span>
-            </div>
-          </div>
-
-          <div className="h-4 w-px bg-gray-200 mx-0.5" />
-
-          {/* Flip Horizontal & Vertical */}
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => handleUpdateSelected('flipX', !selected.flipX)}
-              title="Flip Horizontal"
-              className={`p-1.5 rounded-md border transition ${
-                selected.flipX
-                  ? 'bg-blue-50 border-blue-300 text-blue-600'
-                  : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-              }`}
-            >
-              <FlipHorizontal className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleUpdateSelected('flipY', !selected.flipY)}
-              title="Flip Vertical"
-              className={`p-1.5 rounded-md border transition ${
-                selected.flipY
-                  ? 'bg-blue-50 border-blue-300 text-blue-600'
-                  : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-              }`}
-            >
-              <FlipVertical className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Lock & Duplicate */}
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => handleUpdateSelected('isLocked', !selected.isLocked)}
-              title={selected.isLocked ? 'Unlock Object' : 'Lock Object'}
-              className={`p-1.5 rounded-md border transition ${
-                selected.isLocked
-                  ? 'bg-amber-50 border-amber-300 text-amber-600'
-                  : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-              }`}
-            >
-              {selected.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => canvasManager?.duplicateSelected()}
-              title="Duplicate (Ctrl+D)"
-              className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
-            >
-              <Copy className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="h-4 w-px bg-gray-200 mx-0.5" />
-
-          {/* Layer Stacking Order */}
-          <div className="flex items-center gap-0.5">
-            <button
-              type="button"
-              onClick={() => canvasManager?.bringToFront()}
-              title="Bring to Front"
-              className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
-            >
-              <ChevronsUp className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => canvasManager?.bringForward()}
-              title="Bring Forward"
-              className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
-            >
-              <ChevronUp className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => canvasManager?.sendBackward()}
-              title="Send Backward"
-              className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
-            >
-              <ChevronDown className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => canvasManager?.sendToBack()}
-              title="Send to Back"
-              className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
-            >
-              <ChevronsDown className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="h-4 w-px bg-gray-200 mx-0.5" />
-
-          {/* Delete Object */}
-          <button
-            type="button"
-            onClick={() => canvasManager?.deleteSelected()}
-            title="Delete Object (Del / Backspace)"
-            className="p-1.5 rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 transition"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
 
       {/* Center Section: Undo/Redo, Mode Toggles, Guides & Zoom */}
       <div className="flex items-center gap-1.5">

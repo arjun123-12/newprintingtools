@@ -376,7 +376,6 @@ export default function Designer({
         onExportPsd={handleExportPsd}
         canvasManager={canvasManagerRef.current}
         preflightReport={preflightReport}
-        selected={selected}
       />
 
       {/* Main Workspace Area (Sidebar + Canvas + Properties) */}

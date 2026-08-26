@@ -4,11 +4,8 @@ import React, { useState } from 'react';
 import {
   SelectedObjectState,
   DocumentSettings,
-  AlignmentType,
 } from '@/types/designer';
 import { CanvasManager } from './canvas/CanvasManager';
-import { TransformControls } from './controls/TransformControls';
-import { AlignmentControls } from './controls/AlignmentControls';
 import { ColorPicker } from './controls/ColorPicker';
 import { TextControls } from './controls/TextControls';
 import { ImageControls } from './controls/ImageControls';
@@ -48,11 +45,6 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
   ) => {
     if (!canvasManager) return;
     canvasManager.updateSelectedProperty(prop, value);
-  };
-
-  const handleAlign = (type: AlignmentType) => {
-    if (!canvasManager) return;
-    canvasManager.alignSelected(type);
   };
 
   const handleFillChange = (color: string) => {
@@ -185,25 +177,6 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                 />
               </div>
             )}
-
-            {/* Transform & Coordinates */}
-            <div className="border-t border-gray-100 pt-4">
-              <TransformControls
-                selected={selected}
-                onUpdate={handleUpdateSelected}
-                onBringForward={() => canvasManager?.bringForward()}
-                onSendBackward={() => canvasManager?.sendBackward()}
-                onBringToFront={() => canvasManager?.bringToFront()}
-                onSendToBack={() => canvasManager?.sendToBack()}
-                onDuplicate={() => canvasManager?.duplicateSelected()}
-                onDelete={() => canvasManager?.deleteSelected()}
-              />
-            </div>
-
-            {/* Alignment */}
-            <div className="border-t border-gray-100 pt-4">
-              <AlignmentControls onAlign={handleAlign} />
-            </div>
           </div>
         ) : (
           /* Document & Canvas Properties (No Selection) */
