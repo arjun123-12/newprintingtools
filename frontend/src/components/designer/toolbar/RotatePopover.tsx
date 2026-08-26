@@ -141,11 +141,10 @@ export const RotatePopover: React.FC<RotatePopoverProps> = ({
                 key={a.label}
                 type="button"
                 onClick={() => handleAngleChange(a.val)}
-                className={`py-1 px-2 text-xs font-semibold rounded-lg border transition ${
-                  isSelected
+                className={`py-1 px-2 text-xs font-semibold rounded-lg border transition ${isSelected
                     ? 'bg-blue-600 border-blue-600 text-white shadow-2xs'
                     : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
+                  }`}
               >
                 {a.label}
               </button>
@@ -166,14 +165,13 @@ export const RotatePopover: React.FC<RotatePopoverProps> = ({
               if (!canvasManager) return;
               canvasManager.updateSelectedProperty('flipX', !selected.flipX);
             }}
-            className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl border text-xs font-semibold transition ${
-              selected.flipX
+            className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl border text-xs font-semibold transition ${selected.flipX
                 ? 'bg-blue-50 border-blue-300 text-blue-600'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-            }`}
+              }`}
           >
             <FlipHorizontal className="w-3.5 h-3.5" />
-            <span>Flip H</span>
+            <span></span>
           </button>
           <button
             type="button"
@@ -181,14 +179,13 @@ export const RotatePopover: React.FC<RotatePopoverProps> = ({
               if (!canvasManager) return;
               canvasManager.updateSelectedProperty('flipY', !selected.flipY);
             }}
-            className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl border text-xs font-semibold transition ${
-              selected.flipY
+            className={`flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-xl border text-xs font-semibold transition ${selected.flipY
                 ? 'bg-blue-50 border-blue-300 text-blue-600'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-            }`}
+              }`}
           >
             <FlipVertical className="w-3.5 h-3.5" />
-            <span>Flip V</span>
+            <span></span>
           </button>
         </div>
       </div>

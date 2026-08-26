@@ -22,6 +22,7 @@ import { UploadsPanel } from './panels/UploadsPanel';
 import { BrushPanel } from './panels/BrushPanel';
 import { LayersPanel } from './panels/LayersPanel';
 import { BackgroundPanel } from './panels/BackgroundPanel';
+import { BorderPanel } from './panels/BorderPanel';
 
 interface DesignerSidebarProps {
   activeTab: ActiveSidebarTab;
@@ -164,6 +165,9 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
             {activeTab === 'background' && <BackgroundPanel canvasManager={canvasManager} />}
             {activeTab === 'layers' && (
               <LayersPanel canvasManager={canvasManager} selected={selected} />
+            )}
+            {activeTab === 'border' && (
+              <BorderPanel canvasManager={canvasManager} selected={selected} />
             )}
           </div>
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { CanvasDimensions, SelectedObjectState } from "@/types/designer";
+import { CanvasDimensions, SelectedObjectState, ActiveSidebarTab } from "@/types/designer";
 import { CanvasManager } from "./canvas/CanvasManager";
 import { Ruler } from "./canvas/Ruler";
 import { ContextualToolbar } from "./toolbar/ContextualToolbar";
@@ -21,6 +21,7 @@ export interface DesignerCanvasProps {
   ) => (() => void) | void;
   onContainerResize?: (width: number, height: number) => void;
   showRulers?: boolean;
+  onSelectSidebarTab?: (tab: ActiveSidebarTab) => void;
 }
 
 export function DesignerCanvas({
@@ -32,6 +33,7 @@ export function DesignerCanvas({
   onCanvasReady,
   onContainerResize,
   showRulers = true,
+  onSelectSidebarTab,
 }: DesignerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const paperRef = useRef<HTMLDivElement | null>(null);
@@ -118,6 +120,7 @@ export function DesignerCanvas({
         selected={selected}
         canvasManager={canvasManager || null}
         zoom={zoom}
+        onSelectSidebarTab={onSelectSidebarTab}
       />
 
       {/* Workspace Canvas Container with Rulers */}

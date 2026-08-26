@@ -24,7 +24,7 @@ import {
   Sparkles,
   RotateCw,
 } from 'lucide-react';
-import { SelectedObjectState, BrushSettings, BrushType } from '@/types/designer';
+import { SelectedObjectState, BrushSettings, BrushType, ActiveSidebarTab } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { FontPickerPopover } from './FontPickerPopover';
 import { TextSpacingPopover } from './TextSpacingPopover';
@@ -43,6 +43,7 @@ interface ContextualToolbarProps {
   selected: SelectedObjectState | null;
   canvasManager: CanvasManager | null;
   zoom: number;
+  onSelectSidebarTab?: (tab: ActiveSidebarTab) => void;
 }
 
 type ActivePopoverType =
@@ -65,6 +66,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   selected,
   canvasManager,
   zoom,
+  onSelectSidebarTab,
 }) => {
   const [activePopover, setActivePopover] = useState<ActivePopoverType>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -614,7 +616,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           <div className="relative">
             <button
               type="button"
-              onClick={() => togglePopover('borderStyle')}
+              onClick={() => {
+                if (onSelectSidebarTab) {
+                  onSelectSidebarTab('border');
+                  setActivePopover(null);
+                } else {
+                  togglePopover('borderStyle');
+                }
+              }}
               title="Text Border & Outline"
               className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
                 activePopover === 'borderStyle'
@@ -682,7 +691,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           <div className="relative">
             <button
               type="button"
-              onClick={() => togglePopover('borderStyle')}
+              onClick={() => {
+                if (onSelectSidebarTab) {
+                  onSelectSidebarTab('border');
+                  setActivePopover(null);
+                } else {
+                  togglePopover('borderStyle');
+                }
+              }}
               title="Border Style & Corner Rounding"
               className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
                 activePopover === 'borderStyle'
@@ -781,7 +797,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           <div className="relative">
             <button
               type="button"
-              onClick={() => togglePopover('borderStyle')}
+              onClick={() => {
+                if (onSelectSidebarTab) {
+                  onSelectSidebarTab('border');
+                  setActivePopover(null);
+                } else {
+                  togglePopover('borderStyle');
+                }
+              }}
               title="Border Style & Corner Rounding"
               className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
                 activePopover === 'borderStyle'
@@ -898,7 +921,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           <div className="relative">
             <button
               type="button"
-              onClick={() => togglePopover('borderStyle')}
+              onClick={() => {
+                if (onSelectSidebarTab) {
+                  onSelectSidebarTab('border');
+                  setActivePopover(null);
+                } else {
+                  togglePopover('borderStyle');
+                }
+              }}
               title="Stroke Border Style & Pattern"
               className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
                 activePopover === 'borderStyle'

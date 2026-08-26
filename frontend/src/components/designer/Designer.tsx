@@ -406,6 +406,7 @@ export default function Designer({
             onContainerResize={handleContainerResize}
             showRulers={true}
             selected={selected}
+            onSelectSidebarTab={setActiveSidebarTab}
           />
 
           {/* Floating Ready for Print Preflight Checklist Card in Bottom-Right */}

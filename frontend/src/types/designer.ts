@@ -250,6 +250,7 @@ export type ActiveSidebarTab =
   | 'layers'
   | 'background'
   | 'settings'
+  | 'border'
   | null;
 
 export type AlignmentType =
