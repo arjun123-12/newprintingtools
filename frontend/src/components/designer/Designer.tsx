@@ -68,6 +68,8 @@ export default function Designer({
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [isCustomSizeOpen, setIsCustomSizeOpen] = useState<boolean>(false);
   const [isAutoFit, setIsAutoFit] = useState<boolean>(true);
+  const [canUndo, setCanUndo] = useState<boolean>(false);
+  const [canRedo, setCanRedo] = useState<boolean>(false);
 
   const canvasManagerRef = useRef<CanvasManager | null>(null);
   const dimensionsRef = useRef<CanvasDimensions>(dimensions);
@@ -275,6 +277,12 @@ export default function Designer({
         setPreflightReport(report);
       });
 
+      // Listen for history events (Undo / Redo status)
+      const unsubscribeHistory = manager.onHistoryChange((u, r) => {
+        setCanUndo(u);
+        setCanRedo(r);
+      });
+
       // Initial fit to screen with full visible canvas
       const fitZ = calculateFitZoom(currentDims.widthPx, currentDims.heightPx, containerW, containerH, 32, 48);
       manager.setZoom(fitZ);
@@ -284,6 +292,7 @@ export default function Designer({
         unsubscribeZoom();
         unsubscribeGuides();
         unsubscribePreflight();
+        unsubscribeHistory();
         manager.dispose();
         canvasManagerRef.current = null;
       };
@@ -335,6 +344,16 @@ export default function Designer({
       } else if ((e.ctrlKey || e.metaKey) && (e.key === ';' || e.key === ':')) {
         e.preventDefault();
         handleToggleGuides();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          manager.redo();
+        } else {
+          manager.undo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        manager.redo();
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
         e.preventDefault();
         setIsPreviewOpen((prev) => !prev);
@@ -363,6 +382,10 @@ export default function Designer({
         onZoomOut={handleZoomOut}
         onResetZoom={handleResetZoom}
         onFitCanvas={handleFitCanvas}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={() => canvasManagerRef.current?.undo()}
+        onRedo={() => canvasManagerRef.current?.redo()}
         isPropertiesOpen={isPropertiesOpen}
         onToggleProperties={() => setIsPropertiesOpen((prev) => !prev)}
         showGuides={showGuides}

@@ -120,6 +120,14 @@ export class CanvasManager {
   private drawingModeListeners: Set<DrawingModeEventCallback> = new Set();
   private brushSettingsListeners: Set<BrushSettingsEventCallback> = new Set();
   private backgroundListeners: Set<BackgroundEventCallback> = new Set();
+  private historyListeners: Set<(canUndo: boolean, canRedo: boolean) => void> = new Set();
+
+  // History / Undo & Redo Stack
+  private undoStack: string[] = [];
+  private redoStack: string[] = [];
+  private isProcessingHistory: boolean = false;
+  private maxHistoryLength: number = 50;
+  private historyDebounceTimer: NodeJS.Timeout | null = null;
 
   constructor(dimensions: CanvasDimensions, initialGuidesSettings?: Partial<PrintGuidesSettings>) {
     this.dimensions = dimensions;
@@ -166,6 +174,11 @@ export class CanvasManager {
     this.guides.attach(canvas);
     this.snapping.attach(canvas);
     this.bindEvents();
+
+    // Initialize history baseline
+    this.undoStack = [];
+    this.redoStack = [];
+    this.saveHistoryState();
 
     return canvas;
   }
@@ -1881,6 +1894,134 @@ export class CanvasManager {
   private notifyChange(): void {
     this.changeListeners.forEach((cb) => cb());
     this.notifyPreflight();
+    this.scheduleHistorySave();
+  }
+
+  // --- History Engine (Undo / Redo) ---
+
+  public saveHistoryState(): void {
+    if (!this.canvas || this.isProcessingHistory) return;
+    try {
+      const stateJson = JSON.stringify(
+        this.canvas.toObject([
+          'name',
+          'id',
+          'isBrushPath',
+          'brushType',
+          'originalSrc',
+          'naturalWidth',
+          'naturalHeight',
+          'fileSizeBytes',
+          'cropX',
+          'cropY',
+          'cropWidth',
+          'cropHeight',
+          'isFrame',
+          'frameShape',
+          'rx',
+          'ry',
+          'strokeDashArray',
+          'strokeUniform',
+          'lockMovementX',
+          'lockMovementY',
+          'lockRotation',
+          'lockScalingX',
+          'lockScalingY',
+          'hasControls',
+        ])
+      );
+
+      // Prevent duplicate identical states
+      if (this.undoStack.length > 0 && this.undoStack[this.undoStack.length - 1] === stateJson) {
+        return;
+      }
+
+      this.undoStack.push(stateJson);
+      if (this.undoStack.length > this.maxHistoryLength) {
+        this.undoStack.shift();
+      }
+      this.redoStack = [];
+      this.notifyHistory();
+    } catch (e) {
+      console.warn('Failed to save history state:', e);
+    }
+  }
+
+  public scheduleHistorySave(): void {
+    if (this.historyDebounceTimer) {
+      clearTimeout(this.historyDebounceTimer);
+    }
+    this.historyDebounceTimer = setTimeout(() => {
+      this.saveHistoryState();
+    }, 250);
+  }
+
+  public async undo(): Promise<void> {
+    if (!this.canvas || this.undoStack.length <= 1 || this.isProcessingHistory) return;
+    try {
+      this.isProcessingHistory = true;
+      const currentState = this.undoStack.pop();
+      if (currentState) {
+        this.redoStack.push(currentState);
+      }
+
+      const previousState = this.undoStack[this.undoStack.length - 1];
+      if (previousState) {
+        await this.canvas.loadFromJSON(JSON.parse(previousState));
+        this.canvas.requestRenderAll();
+        this.notifySelection();
+        this.notifyLayers();
+        this.notifyPreflight();
+        this.changeListeners.forEach((cb) => cb());
+      }
+    } catch (e) {
+      console.warn('Failed to undo:', e);
+    } finally {
+      this.isProcessingHistory = false;
+      this.notifyHistory();
+    }
+  }
+
+  public async redo(): Promise<void> {
+    if (!this.canvas || this.redoStack.length === 0 || this.isProcessingHistory) return;
+    try {
+      this.isProcessingHistory = true;
+      const nextState = this.redoStack.pop();
+      if (nextState) {
+        this.undoStack.push(nextState);
+        await this.canvas.loadFromJSON(JSON.parse(nextState));
+        this.canvas.requestRenderAll();
+        this.notifySelection();
+        this.notifyLayers();
+        this.notifyPreflight();
+        this.changeListeners.forEach((cb) => cb());
+      }
+    } catch (e) {
+      console.warn('Failed to redo:', e);
+    } finally {
+      this.isProcessingHistory = false;
+      this.notifyHistory();
+    }
+  }
+
+  public canUndo(): boolean {
+    return this.undoStack.length > 1;
+  }
+
+  public canRedo(): boolean {
+    return this.redoStack.length > 0;
+  }
+
+  public onHistoryChange(cb: (canUndo: boolean, canRedo: boolean) => void): () => void {
+    this.historyListeners.add(cb);
+    cb(this.canUndo(), this.canRedo());
+    return () => this.historyListeners.delete(cb);
+  }
+
+  private notifyHistory(): void {
+    const canU = this.canUndo();
+    const canR = this.canRedo();
+    this.historyListeners.forEach((cb) => cb(canU, canR));
   }
 
   public extractSelectedState(): SelectedObjectState | null {
