@@ -200,7 +200,7 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
         </button>
 
         {activeSubmenu === 'layer' && (
-          <div className="absolute left-full top-0 ml-1.5 w-48 bg-white/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/80 p-1.5 z-60 animate-in fade-in zoom-in-95 duration-100 space-y-0.5">
+          <div className="absolute left-45 top-2 ml-1.5 w-48 bg-white backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/80 p-1.5 z-60 animate-in fade-in zoom-in-95 duration-100 space-y-0.5">
             <button
               type="button"
               onClick={() => handleAction(() => canvasManager?.bringToFront())}
@@ -238,7 +238,7 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
       </div>
 
       {/* 8. Align to Page Submenu */}
-      <div className="relative">
+      {/* <div className="relative">
         <button
           type="button"
           onClick={() =>
@@ -305,7 +305,7 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
             </button>
           </div>
         )}
-      </div>
+      </div> */}
     </div>
   );
 };

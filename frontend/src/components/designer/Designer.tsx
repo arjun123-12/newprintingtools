@@ -391,9 +391,9 @@ export default function Designer({
         {/* Center Canvas Area with Live Safe Margin Banner */}
         <div className="relative flex-1 h-full w-full min-h-0 min-w-0 overflow-hidden flex flex-col">
           {preflightReport?.hasSafeZoneViolation && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 bg-amber-500/95 text-white px-4 py-1.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold backdrop-blur-xs border border-amber-400 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-amber-500/95 text-white px-4 py-1.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold backdrop-blur-xs border border-amber-400 animate-in fade-in slide-in-from-top-2 duration-200">
               <AlertTriangle className="w-4 h-4 text-amber-100 flex-shrink-0" />
-              <span>Safe Margin Alert: Elements extend outside the 3mm safe print margin.</span>
+              <span>Cutting Area Alert: This area may be cut during printing. Please do not place important text or elements here.</span>
             </div>
           )}
 
