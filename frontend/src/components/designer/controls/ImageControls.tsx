@@ -132,7 +132,7 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
       </div>
 
       {/* Quick Flip Controls */}
-      <div className="space-y-1.5 pt-2 border-t border-gray-100">
+      {/* <div className="space-y-1.5 pt-2 border-t border-gray-100">
         <label className="text-[11px] font-semibold text-gray-600 block">
           Flip Orientation
         </label>
@@ -163,7 +163,7 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
             <span>Flip Y</span>
           </button>
         </div>
-      </div>
+      </div> */}
     </div>
   );
 };

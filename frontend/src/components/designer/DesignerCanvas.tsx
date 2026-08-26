@@ -113,13 +113,11 @@ export function DesignerCanvas({
       className="relative flex-1 h-full w-full min-h-0 min-w-0 overflow-hidden bg-[#eef1f6] bg-[radial-gradient(#cbd5e1_1.2px,transparent_1.2px)] [background-size:20px_20px] select-none flex items-center justify-center p-4"
     >
       {/* Floating Canva Contextual Toolbar (Top of Workspace) */}
-      {selected && (
-        <ContextualToolbar
-          selected={selected}
-          canvasManager={canvasManager || null}
-          zoom={zoom}
-        />
-      )}
+      <ContextualToolbar
+        selected={selected}
+        canvasManager={canvasManager || null}
+        zoom={zoom}
+      />
 
       {/* Workspace Canvas Container with Rulers */}
       <div className="relative flex-shrink-0">
