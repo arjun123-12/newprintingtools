@@ -1445,9 +1445,11 @@ export class CanvasManager {
     else if (prop === 'stroke') {
       active.set('stroke', value as string);
       active.set('strokeUniform', true);
+      active.set('paintFirst', 'fill');
     } else if (prop === 'strokeWidth') {
       active.set('strokeWidth', value as number);
       active.set('strokeUniform', true);
+      active.set('paintFirst', 'fill');
     } else if (prop === 'strokeLineCap') active.set('strokeLineCap', value as 'round' | 'square' | 'butt');
     else if (prop === 'strokeLineJoin') active.set('strokeLineJoin', value as 'round' | 'bevel' | 'miter');
     else if (prop === 'flipX') active.set('flipX', value as boolean);
@@ -1460,11 +1462,15 @@ export class CanvasManager {
         if (radius > 0) {
           const w = active.width || 400;
           const h = active.height || 300;
+          const scaleX = active.scaleX || 1;
+          const scaleY = active.scaleY || 1;
+          const unscaledRx = radius / Math.max(scaleX, 0.001);
+          const unscaledRy = radius / Math.max(scaleY, 0.001);
           active.clipPath = new Rect({
             width: w,
             height: h,
-            rx: radius,
-            ry: radius,
+            rx: unscaledRx,
+            ry: unscaledRy,
             originX: 'center',
             originY: 'center',
           });

@@ -100,11 +100,10 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
               handleUpdate('strokeWidth', 0);
               handleUpdate('strokeDashArray', null);
             }}
-            className={`p-2.5 rounded-xl border flex items-center justify-center transition ${
-              strokeWidth === 0
-                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
-                : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
-            }`}
+            className={`p-2.5 rounded-xl border flex items-center justify-center transition ${strokeWidth === 0
+              ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
+              : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
+              }`}
           >
             <span className="text-xs font-bold">None</span>
           </button>
@@ -117,11 +116,10 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
               handleUpdate('strokeDashArray', null);
             }}
             title="Solid Line"
-            className={`p-2.5 rounded-xl border flex items-center justify-center transition ${
-              strokeWidth > 0 && isSolid
-                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
-                : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
-            }`}
+            className={`p-2.5 rounded-xl border flex items-center justify-center transition ${strokeWidth > 0 && isSolid
+              ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
+              : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
+              }`}
           >
             <div className="w-8 h-1 bg-current rounded-full" />
           </button>
@@ -134,11 +132,10 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
               handleUpdate('strokeDashArray', [8, 6]);
             }}
             title="Dashed Line"
-            className={`p-2.5 rounded-xl border flex items-center justify-center transition ${
-              strokeWidth > 0 && isDashed
-                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
-                : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
-            }`}
+            className={`p-2.5 rounded-xl border flex items-center justify-center transition ${strokeWidth > 0 && isDashed
+              ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
+              : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
+              }`}
           >
             <div className="w-8 border-t-2 border-dashed border-current" />
           </button>
@@ -151,11 +148,10 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
               handleUpdate('strokeDashArray', [2, 4]);
             }}
             title="Dotted Line"
-            className={`p-2.5 rounded-xl border flex items-center justify-center transition ${
-              strokeWidth > 0 && isDotted
-                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
-                : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
-            }`}
+            className={`p-2.5 rounded-xl border flex items-center justify-center transition ${strokeWidth > 0 && isDotted
+              ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
+              : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
+              }`}
           >
             <div className="w-8 border-t-2 border-dotted border-current" />
           </button>
@@ -210,7 +206,7 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
         />
 
         {/* Quick Weight Pills */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+        {/* <div className="flex flex-wrap items-center gap-1.5 pt-1">
           {WEIGHT_PRESETS.map((w) => (
             <button
               key={w}
@@ -225,7 +221,7 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
               {w === 0 ? '0' : `${w}px`}
             </button>
           ))}
-        </div>
+        </div> */}
       </div>
 
       {/* 3. Border Color */}
@@ -268,11 +264,10 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
               type="button"
               onClick={() => handleColorChange(c.hex)}
               title={c.name}
-              className={`w-8 h-8 rounded-xl border transition shadow-2xs ${
-                stroke?.toLowerCase() === c.hex.toLowerCase()
-                  ? 'ring-2 ring-blue-500 ring-offset-1 scale-110 z-10'
-                  : 'border-gray-200 hover:scale-105'
-              }`}
+              className={`w-8 h-8 rounded-xl border transition shadow-2xs ${stroke?.toLowerCase() === c.hex.toLowerCase()
+                ? 'ring-2 ring-blue-500 ring-offset-1 scale-110 z-10'
+                : 'border-gray-200 hover:scale-105'
+                }`}
               style={{ backgroundColor: c.hex }}
             />
           ))}
@@ -334,7 +329,7 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
         />
 
         {/* Quick Radius Pills */}
-        <div className="flex items-center justify-between gap-1 pt-1">
+        {/* <div className="flex items-center justify-between gap-1 pt-1">
           {[
             { label: '0', val: 0 },
             { label: '4px', val: 4 },
@@ -351,16 +346,15 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
                 handleUpdate('rx', r.val);
                 handleUpdate('ry', r.val);
               }}
-              className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition ${
-                rx === r.val
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition ${rx === r.val
                   ? 'bg-blue-600 border-blue-600 text-white shadow-2xs'
                   : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-              }`}
+                }`}
             >
               {r.label}
             </button>
           ))}
-        </div>
+        </div> */}
       </div>
     </div>
   );
