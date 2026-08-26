@@ -1,15 +1,18 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { CanvasDimensions } from "@/types/designer";
+import { CanvasDimensions, SelectedObjectState } from "@/types/designer";
 import { CanvasManager } from "./canvas/CanvasManager";
 import { Ruler } from "./canvas/Ruler";
+import { ContextualToolbar } from "./toolbar/ContextualToolbar";
+import { ElementActionBar } from "./toolbar/ElementActionBar";
 
 export interface DesignerCanvasProps {
   zoom: number;
   setZoom?: (zoom: number) => void;
   dimensions?: CanvasDimensions;
   canvasManager?: CanvasManager | null;
+  selected?: SelectedObjectState | null;
   onCanvasReady?: (
     canvasEl: HTMLCanvasElement,
     containerW: number,
@@ -24,6 +27,7 @@ export function DesignerCanvas({
   setZoom,
   dimensions,
   canvasManager,
+  selected = null,
   onCanvasReady,
   onContainerResize,
   showRulers = true,
@@ -108,6 +112,15 @@ export function DesignerCanvas({
       onDrop={handleDrop}
       className="relative flex-1 h-full w-full min-h-0 min-w-0 overflow-hidden bg-[#eef1f6] bg-[radial-gradient(#cbd5e1_1.2px,transparent_1.2px)] [background-size:20px_20px] select-none flex items-center justify-center p-4"
     >
+      {/* Floating Canva Contextual Toolbar (Top of Workspace) */}
+      {selected && (
+        <ContextualToolbar
+          selected={selected}
+          canvasManager={canvasManager || null}
+          zoom={zoom}
+        />
+      )}
+
       {/* Workspace Canvas Container with Rulers */}
       <div className="relative flex-shrink-0">
         {showRulers && dimensions && (
@@ -125,7 +138,16 @@ export function DesignerCanvas({
           ref={paperRef}
           style={{ margin: showRulers ? '24px' : '0px' }}
           className="relative bg-white shadow-2xl rounded-xs ring-1 ring-black/15 flex-shrink-0"
-        />
+        >
+          {/* Floating Element Action Bar attached directly to the active element */}
+          {selected && (
+            <ElementActionBar
+              selected={selected}
+              canvasManager={canvasManager || null}
+              zoom={zoom}
+            />
+          )}
+        </div>
       </div>
     </div>
   );

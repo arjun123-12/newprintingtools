@@ -406,6 +406,7 @@ export default function Designer({
             onCanvasReady={handleCanvasReady}
             onContainerResize={handleContainerResize}
             showRulers={true}
+            selected={selected}
           />
 
           {/* Floating Ready for Print Preflight Checklist Card in Bottom-Right */}

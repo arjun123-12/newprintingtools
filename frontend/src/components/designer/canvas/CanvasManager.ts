@@ -1488,6 +1488,83 @@ export class CanvasManager {
     this.notifyLayers();
   }
 
+  public getActiveObjectBoundingRect(): { left: number; top: number; width: number; height: number } | null {
+    if (!this.canvas) return null;
+    const active = this.canvas.getActiveObject();
+    if (!active) return null;
+    return active.getBoundingRect();
+  }
+
+  public applyEffect(effectType: 'none' | 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon'): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+
+    if (effectType === 'shadow') {
+      active.set('shadow', new Shadow({ color: 'rgba(0, 0, 0, 0.4)', blur: 12, offsetX: 6, offsetY: 6 }));
+    } else if (effectType === 'lift') {
+      active.set('shadow', new Shadow({ color: 'rgba(0, 0, 0, 0.3)', blur: 24, offsetX: 0, offsetY: 10 }));
+    } else if (effectType === 'glow') {
+      active.set('shadow', new Shadow({ color: 'rgba(37, 99, 235, 0.8)', blur: 20, offsetX: 0, offsetY: 0 }));
+    } else if (effectType === 'outline') {
+      active.set({
+        stroke: '#000000',
+        strokeWidth: 2,
+        shadow: null,
+      });
+    } else if (effectType === 'hollow') {
+      active.set({
+        fill: 'transparent',
+        stroke: typeof active.fill === 'string' && active.fill !== 'transparent' ? active.fill : '#000000',
+        strokeWidth: 2,
+        shadow: null,
+      });
+    } else if (effectType === 'neon') {
+      active.set({
+        stroke: '#ec4899',
+        strokeWidth: 1,
+        shadow: new Shadow({ color: '#ec4899', blur: 30, offsetX: 0, offsetY: 0 }),
+      });
+    } else {
+      // none
+      active.set({
+        shadow: null,
+        strokeWidth: 0,
+      });
+    }
+
+    active.setCoords();
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+    this.notifyLayers();
+  }
+
+  public toggleBulletList(): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active || !(active instanceof Textbox || active instanceof IText)) return;
+
+    const currentText = active.text || '';
+    const lines = currentText.split('\n');
+    const hasBullets = lines.every((l) => l.trim().startsWith('• ') || l.trim() === '');
+
+    const newLines = lines.map((line) => {
+      if (hasBullets) {
+        return line.replace(/^•\s*/, '');
+      } else {
+        return line.trim() ? `• ${line}` : line;
+      }
+    });
+
+    active.set('text', newLines.join('\n'));
+    active.setCoords();
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+    this.notifyLayers();
+  }
+
   // --- Layer Order ---
 
   public bringForward(): void {
