@@ -1434,7 +1434,15 @@ export class CanvasManager {
     else if (prop === 'strokeLineJoin') active.set('strokeLineJoin', value as 'round' | 'bevel' | 'miter');
     else if (prop === 'flipX') active.set('flipX', value as boolean);
     else if (prop === 'flipY') active.set('flipY', value as boolean);
-    else if (prop === 'isLocked') {
+    else if (prop === 'rx') {
+      active.set({ rx: Number(value), ry: Number(value) } as any);
+    } else if (prop === 'ry') {
+      active.set('ry' as any, Number(value));
+    } else if (prop === 'strokeDashArray') {
+      active.set('strokeDashArray', value ? (value as number[]) : null);
+    } else if (prop === 'strokeUniform') {
+      active.set('strokeUniform', Boolean(value));
+    } else if (prop === 'isLocked') {
       const locked = value as boolean;
       active.set({
         lockMovementX: locked,
@@ -1936,6 +1944,9 @@ export class CanvasManager {
       frameShape,
       isBrushPath,
       brushType,
+      rx: (active as any).rx || 0,
+      ry: (active as any).ry || 0,
+      strokeDashArray: active.strokeDashArray || undefined,
       // Text
       text: textObj ? textObj.text : undefined,
       fontSize: textObj ? textObj.fontSize : undefined,

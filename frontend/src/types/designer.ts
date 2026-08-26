@@ -136,6 +136,11 @@ export interface SelectedObjectState {
   brushType?: BrushType;
   strokeLineCap?: 'round' | 'square' | 'butt';
   strokeLineJoin?: 'round' | 'bevel' | 'miter';
+  // Border & Corner Radius properties
+  rx?: number;
+  ry?: number;
+  strokeDashArray?: number[];
+  strokeUniform?: boolean;
 }
 
 export interface UploadedAsset {

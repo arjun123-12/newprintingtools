@@ -34,6 +34,7 @@ import { MoreMenuPopover } from './MoreMenuPopover';
 import { BrushTypePopover, BRUSH_TOOLS_LIST } from './BrushTypePopover';
 import { BrushSizePopover } from './BrushSizePopover';
 import { BrushCapsPopover } from './BrushCapsPopover';
+import { BorderStylePopover } from './BorderStylePopover';
 import { ColorPicker } from '../controls/ColorPicker';
 
 interface ContextualToolbarProps {
@@ -54,6 +55,7 @@ type ActivePopoverType =
   | 'brushTool'
   | 'brushSize'
   | 'brushCaps'
+  | 'borderStyle'
   | null;
 
 export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
@@ -641,6 +643,37 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             <FlipVertical className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Flip V</span>
           </button>
+
+          {/* Border & Corner Rounding Button for Images */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => togglePopover('borderStyle')}
+              title="Border Style & Corner Rounding"
+              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
+                activePopover === 'borderStyle'
+                  ? 'bg-blue-50 border-blue-400 text-blue-700'
+                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <div className="w-3.5 h-3.5 rounded-md border-2 border-current" />
+              <span>Border</span>
+            </button>
+
+            {activePopover === 'borderStyle' && (
+              <BorderStylePopover
+                strokeWidth={selected.strokeWidth || 0}
+                stroke={selected.stroke || '#000000'}
+                rx={selected.rx || 0}
+                strokeDashArray={selected.strokeDashArray}
+                showCornerRadius={true}
+                onStrokeWidthChange={(w) => handleUpdate('strokeWidth', w)}
+                onStrokeDashArrayChange={(dash) => handleUpdate('strokeDashArray', dash as any)}
+                onCornerRadiusChange={(r) => handleUpdate('rx', r)}
+                onClose={() => setActivePopover(null)}
+              />
+            )}
+          </div>
         </>
       )}
 
@@ -695,7 +728,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 className="w-4 h-4 rounded-md border-2 border-current"
                 style={{ color: selected.stroke || '#000000' }}
               />
-              <span>Border</span>
+              <span>Border Color</span>
             </button>
 
             {activePopover === 'strokeColor' && (
@@ -706,6 +739,37 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                   onChange={(color) => handleUpdate('stroke', color)}
                 />
               </div>
+            )}
+          </div>
+
+          {/* Border Style & Corner Rounding for Shapes */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => togglePopover('borderStyle')}
+              title="Border Style & Corner Rounding"
+              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
+                activePopover === 'borderStyle'
+                  ? 'bg-blue-50 border-blue-400 text-blue-700'
+                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <div className="w-3.5 h-3.5 rounded-xs border-2 border-current" />
+              <span>Border Style</span>
+            </button>
+
+            {activePopover === 'borderStyle' && (
+              <BorderStylePopover
+                strokeWidth={selected.strokeWidth || 0}
+                stroke={selected.stroke || '#000000'}
+                rx={selected.rx || 0}
+                strokeDashArray={selected.strokeDashArray}
+                showCornerRadius={selected.type === 'rect' || selected.type === 'shape'}
+                onStrokeWidthChange={(w) => handleUpdate('strokeWidth', w)}
+                onStrokeDashArrayChange={(dash) => handleUpdate('strokeDashArray', dash as any)}
+                onCornerRadiusChange={(r) => handleUpdate('rx', r)}
+                onClose={() => setActivePopover(null)}
+              />
             )}
           </div>
         </>
