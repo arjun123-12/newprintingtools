@@ -7,10 +7,8 @@ import {
 } from '@/types/designer';
 import { CanvasManager } from './canvas/CanvasManager';
 import { ColorPicker } from './controls/ColorPicker';
-import { TextControls } from './controls/TextControls';
 import { ImageControls } from './controls/ImageControls';
 import { ImageCropModal } from './controls/ImageCropModal';
-import { BrushPathControls } from './controls/BrushPathControls';
 import {
   Sliders,
   FileSpreadsheet,
@@ -135,20 +133,6 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                 </button>
               </div>
             </div>
-
-            {/* Typography Controls (if text object) */}
-            {isText && !selected.isMultiple && (
-              <div className="pb-2">
-                <TextControls selected={selected} onUpdate={handleUpdateSelected} />
-              </div>
-            )}
-
-            {/* Vector Brush Path Controls (if drawn path) */}
-            {isPath && !selected.isMultiple && (
-              <div className="pb-2">
-                <BrushPathControls selected={selected} onUpdate={handleUpdateSelected} />
-              </div>
-            )}
 
             {/* Image Controls & DPI Inspector (if image object) */}
             {isImage && !selected.isMultiple && (

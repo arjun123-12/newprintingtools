@@ -62,7 +62,7 @@ export default function Designer({
   const [isPanMode, setIsPanMode] = useState<boolean>(false);
   const [activeSidebarTab, setActiveSidebarTab] = useState<ActiveSidebarTab>(null);
   const [selected, setSelected] = useState<SelectedObjectState | null>(null);
-  const [isPropertiesOpen, setIsPropertiesOpen] = useState<boolean>(true);
+  const [isPropertiesOpen, setIsPropertiesOpen] = useState<boolean>(false);
   const [showGuides, setShowGuides] = useState<boolean>(true);
   const [preflightReport, setPreflightReport] = useState<PreflightReport | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
