@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Lock, Unlock, Copy, Trash2, MoreHorizontal } from 'lucide-react';
 import { SelectedObjectState } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
+import { MoreMenuPopover } from './MoreMenuPopover';
 
 interface ElementActionBarProps {
   selected: SelectedObjectState;
@@ -19,7 +20,19 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
   onOpenMore,
 }) => {
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
+
+  // Close popover when clicked outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (barRef.current && !barRef.current.contains(e.target as Node)) {
+        setIsMoreOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Update floating bar coordinates on selection change, zoom, or canvas events
   const updatePosition = () => {
@@ -86,6 +99,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
 
   const handleMore = (e: React.MouseEvent) => {
     e.stopPropagation();
+    setIsMoreOpen((prev) => !prev);
     if (onOpenMore) {
       onOpenMore();
     }
@@ -137,14 +151,27 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
       </button>
 
       {/* More */}
-      <button
-        type="button"
-        onClick={handleMore}
-        title="More actions"
-        className="p-1.5 rounded-full hover:bg-gray-100 text-gray-600 hover:text-gray-900 transition"
-      >
-        <MoreHorizontal className="w-3.5 h-3.5" />
-      </button>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={handleMore}
+          title="More actions"
+          className={`p-1.5 rounded-full hover:bg-gray-100 transition ${
+            isMoreOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <MoreHorizontal className="w-3.5 h-3.5" />
+        </button>
+
+        {isMoreOpen && (
+          <MoreMenuPopover
+            selected={selected}
+            canvasManager={canvasManager}
+            onClose={() => setIsMoreOpen(false)}
+            align="left"
+          />
+        )}
+      </div>
     </div>
   );
 };
