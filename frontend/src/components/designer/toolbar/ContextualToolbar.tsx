@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   MousePointer,
   Sparkles,
+  RotateCw,
 } from 'lucide-react';
 import { SelectedObjectState, BrushSettings, BrushType } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -30,6 +31,7 @@ import { TextSpacingPopover } from './TextSpacingPopover';
 import { TransparencyPopover } from './TransparencyPopover';
 import { EffectsPopover } from './EffectsPopover';
 import { PositionPopover } from './PositionPopover';
+import { RotatePopover } from './RotatePopover';
 import { MoreMenuPopover } from './MoreMenuPopover';
 import { BrushTypePopover, BRUSH_TOOLS_LIST } from './BrushTypePopover';
 import { BrushSizePopover } from './BrushSizePopover';
@@ -51,6 +53,7 @@ type ActivePopoverType =
   | 'opacity'
   | 'effects'
   | 'position'
+  | 'rotate'
   | 'more'
   | 'brushTool'
   | 'brushSize'
@@ -1014,6 +1017,31 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             )}
           </div>
 
+          {/* Rotate Popover Button */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => togglePopover('rotate')}
+              title="Rotate & Angle"
+              className={`h-8 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
+                activePopover === 'rotate'
+                  ? 'bg-blue-50 border-blue-400 text-blue-700'
+                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <RotateCw className="w-3.5 h-3.5 text-gray-600" />
+              <span>{Math.round(selected.angle || 0)}°</span>
+            </button>
+
+            {activePopover === 'rotate' && (
+              <RotatePopover
+                selected={selected}
+                canvasManager={canvasManager}
+                onClose={() => setActivePopover(null)}
+              />
+            )}
+          </div>
+
           {/* Position Popover Button */}
           <div className="relative">
             <button
@@ -1031,6 +1059,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
 
             {activePopover === 'position' && (
               <PositionPopover
+                selected={selected}
                 canvasManager={canvasManager}
                 onClose={() => setActivePopover(null)}
               />

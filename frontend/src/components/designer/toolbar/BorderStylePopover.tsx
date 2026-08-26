@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Minus } from 'lucide-react';
 
 interface BorderStylePopoverProps {
   strokeWidth: number;
@@ -35,6 +35,8 @@ const PALETTE_COLORS = [
   { name: 'Teal', hex: '#14b8a6' },
 ];
 
+const WEIGHT_PRESETS = [0, 1, 2, 3, 4, 5, 8, 10, 15];
+
 export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
   strokeWidth,
   stroke = '#000000',
@@ -66,15 +68,25 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
     }
   };
 
+  const handleStepWidth = (delta: number) => {
+    onStrokeWidthChange(Math.max(0, strokeWidth + delta));
+  };
+
+  const handleStepRadius = (delta: number) => {
+    if (onCornerRadiusChange) {
+      onCornerRadiusChange(Math.max(0, Math.min(100, rx + delta)));
+    }
+  };
+
   return (
     <div
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-3.5 text-gray-800"
+      className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-76 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-3.5 text-gray-800"
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-        <span className="text-xs font-bold text-gray-900">Border Style</span>
+        <span className="text-xs font-bold text-gray-900">Border Style & Stroke</span>
       </div>
 
       {/* 1. Border Style Selector (None, Solid, Dashed, Dotted) */}
@@ -93,7 +105,7 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
             title="None"
             className={`p-2 rounded-xl border flex items-center justify-center transition ${
               strokeWidth === 0
-                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs'
+                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
                 : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
             }`}
           >
@@ -110,7 +122,7 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
             title="Solid Line"
             className={`p-2 rounded-xl border flex items-center justify-center transition ${
               strokeWidth > 0 && isSolid
-                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs'
+                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
                 : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
             }`}
           >
@@ -127,7 +139,7 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
             title="Dashed Line"
             className={`p-2 rounded-xl border flex items-center justify-center transition ${
               strokeWidth > 0 && isDashed
-                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs'
+                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
                 : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
             }`}
           >
@@ -144,7 +156,7 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
             title="Dotted Line"
             className={`p-2 rounded-xl border flex items-center justify-center transition ${
               strokeWidth > 0 && isDotted
-                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs'
+                ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-2xs font-bold'
                 : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
             }`}
           >
@@ -153,22 +165,42 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
         </div>
       </div>
 
-      {/* 2. Border Weight / Width */}
+      {/* 2. Border Weight / Width with Stepper [-] 2 px [+] */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-xs">
           <span className="text-gray-600 font-medium text-[11px]">Border weight</span>
-          <div className="flex items-center gap-0.5 bg-gray-100 px-2 py-0.5 rounded-lg border border-gray-200/60 shadow-2xs">
-            <input
-              type="number"
-              min="0"
-              max="50"
-              value={strokeWidth}
-              onChange={(e) => onStrokeWidthChange(Number(e.target.value))}
-              className="w-7 bg-transparent text-xs font-mono font-bold text-gray-800 focus:outline-none text-right"
-            />
-            <span className="text-[10px] text-gray-500 font-bold">px</span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => handleStepWidth(-1)}
+              title="Decrease width"
+              className="p-1 rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600 transition"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <div className="flex items-center gap-0.5 bg-gray-100 px-2 py-0.5 rounded-lg border border-gray-200/60 shadow-2xs">
+              <input
+                type="number"
+                min="0"
+                max="50"
+                value={strokeWidth}
+                onChange={(e) => onStrokeWidthChange(Math.max(0, Number(e.target.value)))}
+                className="w-7 bg-transparent text-xs font-mono font-bold text-gray-800 focus:outline-none text-right"
+              />
+              <span className="text-[10px] text-gray-500 font-bold">px</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleStepWidth(1)}
+              title="Increase width"
+              className="p-1 rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600 transition"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
           </div>
         </div>
+
+        {/* Continuous Width Slider */}
         <input
           type="range"
           min="0"
@@ -178,9 +210,9 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
           className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
         />
 
-        {/* Quick Weight Pills */}
-        <div className="flex items-center justify-between gap-1 pt-0.5">
-          {[0, 1, 2, 4, 8, 16, 24].map((w) => (
+        {/* Quick Weight Pills (Requirement 3: 0px, 1px, 2px, 3px, 4px, 5px, 8px, 10px, 15px) */}
+        <div className="flex flex-wrap items-center gap-1 pt-0.5">
+          {WEIGHT_PRESETS.map((w) => (
             <button
               key={w}
               type="button"
@@ -197,7 +229,7 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
         </div>
       </div>
 
-      {/* 3. Sleek & Compact Border Color Picker */}
+      {/* 3. Sleek & Compact Canva-Style Stroke Color Picker (Requirement 2) */}
       {onStrokeColorChange && (
         <div className="space-y-2 border-t border-gray-100 pt-3">
           <div className="flex items-center justify-between">
@@ -250,23 +282,42 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
         </div>
       )}
 
-      {/* 4. Corner Rounding / Radius (for shapes / rects / frames / images) */}
+      {/* 4. Corner Rounding / Radius (Requirement 5: Stepper [-] 8 px [+], slider, presets) */}
       {showCornerRadius && onCornerRadiusChange && (
         <div className="space-y-1.5 border-t border-gray-100 pt-3">
           <div className="flex items-center justify-between text-xs">
             <span className="text-gray-600 font-medium text-[11px]">Corner rounding</span>
-            <div className="flex items-center gap-0.5 bg-gray-100 px-2 py-0.5 rounded-lg border border-gray-200/60 shadow-2xs">
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={rx}
-                onChange={(e) => onCornerRadiusChange(Number(e.target.value))}
-                className="w-8 bg-transparent text-xs font-mono font-bold text-gray-800 focus:outline-none text-right"
-              />
-              <span className="text-[10px] text-gray-500 font-bold">px</span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleStepRadius(-1)}
+                title="Decrease corner radius"
+                className="p-1 rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600 transition"
+              >
+                <Minus className="w-3 h-3" />
+              </button>
+              <div className="flex items-center gap-0.5 bg-gray-100 px-2 py-0.5 rounded-lg border border-gray-200/60 shadow-2xs">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={rx}
+                  onChange={(e) => onCornerRadiusChange(Math.max(0, Number(e.target.value)))}
+                  className="w-8 bg-transparent text-xs font-mono font-bold text-gray-800 focus:outline-none text-right"
+                />
+                <span className="text-[10px] text-gray-500 font-bold">px</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleStepRadius(1)}
+                title="Increase corner radius"
+                className="p-1 rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600 transition"
+              >
+                <Plus className="w-3 h-3" />
+              </button>
             </div>
           </div>
+
           <input
             type="range"
             min="0"
@@ -280,10 +331,11 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
           <div className="flex items-center justify-between gap-1 pt-0.5">
             {[
               { label: '0', val: 0 },
-              { label: '8', val: 8 },
-              { label: '16', val: 16 },
-              { label: '32', val: 32 },
-              { label: '64', val: 64 },
+              { label: '4px', val: 4 },
+              { label: '8px', val: 8 },
+              { label: '16px', val: 16 },
+              { label: '32px', val: 32 },
+              { label: '64px', val: 64 },
               { label: 'Max', val: 100 },
             ].map((r) => (
               <button
