@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Palette, ChevronDown, ChevronUp } from 'lucide-react';
-import { ColorPicker } from '../controls/ColorPicker';
+import React from 'react';
+import { Plus } from 'lucide-react';
 
 interface BorderStylePopoverProps {
   strokeWidth: number;
@@ -17,20 +16,23 @@ interface BorderStylePopoverProps {
   onClose: () => void;
 }
 
-const PRESET_BORDER_COLORS = [
+const PALETTE_COLORS = [
   { name: 'Black', hex: '#000000' },
   { name: 'Charcoal', hex: '#334155' },
-  { name: 'Gray', hex: '#94a3b8' },
+  { name: 'Slate', hex: '#64748b' },
   { name: 'White', hex: '#ffffff' },
-  { name: 'Blue', hex: '#2563eb' },
-  { name: 'Indigo', hex: '#4f46e5' },
-  { name: 'Purple', hex: '#9333ea' },
-  { name: 'Pink', hex: '#db2777' },
-  { name: 'Red', hex: '#dc2626' },
-  { name: 'Orange', hex: '#ea580c' },
-  { name: 'Amber', hex: '#d97706' },
-  { name: 'Emerald', hex: '#059669' },
-  { name: 'Cyan', hex: '#0891b2' },
+  { name: 'Red', hex: '#ef4444' },
+  { name: 'Orange', hex: '#f97316' },
+  { name: 'Amber', hex: '#f59e0b' },
+  { name: 'Emerald', hex: '#10b981' },
+  { name: 'Cyan', hex: '#06b6d4' },
+  { name: 'Blue', hex: '#3b82f6' },
+  { name: 'Indigo', hex: '#6366f1' },
+  { name: 'Purple', hex: '#a855f7' },
+  { name: 'Pink', hex: '#ec4899' },
+  { name: 'Rose', hex: '#f43f5e' },
+  { name: 'Gold', hex: '#eab308' },
+  { name: 'Teal', hex: '#14b8a6' },
 ];
 
 export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
@@ -45,8 +47,6 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
   onStrokeColorChange,
   onClose,
 }) => {
-  const [showColorAdvanced, setShowColorAdvanced] = useState(false);
-
   const isDashed =
     Array.isArray(strokeDashArray) &&
     strokeDashArray.length > 0 &&
@@ -57,15 +57,24 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
     strokeDashArray[0] <= 4;
   const isSolid = !strokeDashArray || strokeDashArray.length === 0;
 
+  const currentHex = (stroke || '#000000').toUpperCase();
+
+  const handleColorChange = (hex: string) => {
+    if (onStrokeColorChange) {
+      onStrokeColorChange(hex);
+      if (strokeWidth === 0) onStrokeWidthChange(2);
+    }
+  };
+
   return (
     <div
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-80 max-h-[85vh] overflow-y-auto custom-scrollbar bg-white/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/80 p-4 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-4 text-gray-800"
+      className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-72 bg-white/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/80 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-3.5 text-gray-800"
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-        <span className="text-xs font-bold text-gray-900">Border & Corner Rounding</span>
+        <span className="text-xs font-bold text-gray-900">Border Style</span>
       </div>
 
       {/* 1. Border Style Selector (None, Solid, Dashed, Dotted) */}
@@ -188,60 +197,56 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
         </div>
       </div>
 
-      {/* 3. Border Color Picker */}
+      {/* 3. Sleek & Compact Border Color Picker */}
       {onStrokeColorChange && (
         <div className="space-y-2 border-t border-gray-100 pt-3">
           <div className="flex items-center justify-between">
             <span className="text-gray-600 font-medium text-[11px]">Border Color</span>
-            <button
-              type="button"
-              onClick={() => setShowColorAdvanced((prev) => !prev)}
-              className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 transition"
-            >
-              <Palette className="w-3 h-3" />
-              <span>{showColorAdvanced ? 'Simple' : 'CMYK & Custom'}</span>
-              {showColorAdvanced ? (
-                <ChevronUp className="w-3 h-3" />
-              ) : (
-                <ChevronDown className="w-3 h-3" />
-              )}
-            </button>
+            {/* Custom Hex + Color Wheel Picker */}
+            <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-lg shadow-2xs">
+              <span className="text-[10px] font-mono font-bold text-gray-700">{currentHex}</span>
+              <div className="relative w-4 h-4 rounded-full overflow-hidden border border-gray-300 cursor-pointer shadow-2xs hover:scale-110 transition">
+                <input
+                  type="color"
+                  value={stroke || '#000000'}
+                  onChange={(e) => handleColorChange(e.target.value)}
+                  className="absolute -top-2 -left-2 w-8 h-8 cursor-pointer opacity-0"
+                />
+                <div className="w-full h-full" style={{ backgroundColor: stroke || '#000000' }} />
+              </div>
+            </div>
           </div>
 
-          {/* Quick Swatches */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            {PRESET_BORDER_COLORS.map((c) => (
+          {/* Compact Swatches Grid (2 rows of 8 colors) */}
+          <div className="grid grid-cols-8 gap-1.5">
+            {/* Custom Color Trigger Button with Rainbow Plus */}
+            <div className="relative w-6 h-6 rounded-lg border border-dashed border-gray-300 hover:border-blue-500 bg-gray-50 flex items-center justify-center cursor-pointer transition hover:scale-105">
+              <input
+                type="color"
+                value={stroke || '#000000'}
+                onChange={(e) => handleColorChange(e.target.value)}
+                className="absolute inset-0 w-full h-full cursor-pointer opacity-0 z-10"
+                title="Pick Custom Color"
+              />
+              <Plus className="w-3 h-3 text-gray-500" />
+            </div>
+
+            {/* Curated Color Swatches */}
+            {PALETTE_COLORS.slice(0, 15).map((c) => (
               <button
                 key={c.hex}
                 type="button"
-                onClick={() => {
-                  onStrokeColorChange(c.hex);
-                  if (strokeWidth === 0) onStrokeWidthChange(2);
-                }}
+                onClick={() => handleColorChange(c.hex)}
                 title={c.name}
-                className={`w-5 h-5 rounded-lg border transition shadow-2xs ${
+                className={`w-6 h-6 rounded-lg border transition shadow-2xs ${
                   stroke?.toLowerCase() === c.hex.toLowerCase()
-                    ? 'ring-2 ring-blue-500 ring-offset-1 scale-110'
-                    : 'border-gray-300 hover:scale-105'
+                    ? 'ring-2 ring-blue-500 ring-offset-1 scale-110 z-10'
+                    : 'border-gray-200/90 hover:scale-105'
                 }`}
                 style={{ backgroundColor: c.hex }}
               />
             ))}
           </div>
-
-          {/* Advanced CMYK & Hex Color Picker Dropdown */}
-          {showColorAdvanced && (
-            <div className="pt-2">
-              <ColorPicker
-                label="Border Color (CMYK)"
-                value={stroke || '#000000'}
-                onChange={(c) => {
-                  onStrokeColorChange(c);
-                  if (strokeWidth === 0) onStrokeWidthChange(2);
-                }}
-              />
-            </div>
-          )}
         </div>
       )}
 
