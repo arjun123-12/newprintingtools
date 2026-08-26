@@ -260,7 +260,8 @@ export type AlignmentType =
   | 'middle'
   | 'bottom'
   | 'center-h'
-  | 'center-v';
+  | 'center-v'
+  | 'center-both';
 
 export interface DesignerCanvasState {
   version: string;

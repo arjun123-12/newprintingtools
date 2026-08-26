@@ -55,9 +55,8 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
     <div
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className={`absolute top-full ${
-        align === 'left' ? 'left-0' : 'right-0'
-      } mt-2 w-60 bg-white/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/80 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none text-xs text-gray-800 space-y-0.5`}
+      className={`absolute top-full ${align === 'left' ? 'left-0' : 'right-0'
+        } mt-2 w-60 bg-white backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/80 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none text-xs text-gray-800 space-y-0.5`}
     >
       {/* 1. Copy */}
       <button
@@ -255,7 +254,7 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
         </button>
 
         {activeSubmenu === 'align' && (
-          <div className="absolute left-full top-0 ml-1.5 w-44 bg-white/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/80 p-2 z-60 animate-in fade-in zoom-in-95 duration-100 grid grid-cols-3 gap-1">
+          <div className="absolute left-10 top-0 ml-1.5 w-44 bg-white backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/80 p-2 z-60 animate-in fade-in zoom-in-95 duration-100 grid grid-cols-3 gap-1">
             <button
               type="button"
               onClick={() => handleAlign('top')}

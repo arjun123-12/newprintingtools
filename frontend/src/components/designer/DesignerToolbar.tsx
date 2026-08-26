@@ -21,6 +21,13 @@ import {
   FileCode,
   Image as ImageIcon,
   History,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  Move,
 } from 'lucide-react';
 import { DocumentSettings } from '@/types/designer';
 import { ZoomControls } from './controls/ZoomControls';
@@ -90,9 +97,10 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
   preflightReport = null,
 }) => {
   const [isEditingName, setIsEditingName] = useState(false);
-  const [activeMenu, setActiveMenu] = useState<'file' | 'view' | 'export' | null>(null);
+  const [activeMenu, setActiveMenu] = useState<'file' | 'view' | 'export' | 'align' | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const alignMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -101,7 +109,9 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
         menuRef.current &&
         !menuRef.current.contains(target) &&
         exportMenuRef.current &&
-        !exportMenuRef.current.contains(target)
+        !exportMenuRef.current.contains(target) &&
+        alignMenuRef.current &&
+        !alignMenuRef.current.contains(target)
       ) {
         setActiveMenu(null);
       }
@@ -390,6 +400,142 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
         >
           <Layers className="w-4 h-4" />
         </button>
+
+        {/* Element Alignment Dropdown Menu */}
+        <div className="relative" ref={alignMenuRef}>
+          <button
+            type="button"
+            onClick={() => setActiveMenu(activeMenu === 'align' ? null : 'align')}
+            title="Align Elements to Canvas (Left, Center, Right, Top, Middle, Bottom)"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition ${
+              activeMenu === 'align'
+                ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-2xs'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <AlignCenter className="w-3.5 h-3.5 text-gray-600" />
+            <span className="hidden sm:inline">Align</span>
+            <ChevronDown className="w-3 h-3 text-gray-400" />
+          </button>
+
+          {activeMenu === 'align' && (
+            <div
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 bg-white/98 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/80 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-3"
+            >
+              <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                  <AlignCenter className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Align to Canvas</span>
+                </span>
+              </div>
+
+              {/* Horizontal Alignment */}
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
+                  Horizontal
+                </span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      canvasManager?.alignSelected('left');
+                      setActiveMenu(null);
+                    }}
+                    title="Align Left"
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-[11px] font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
+                  >
+                    <AlignLeft className="w-4 h-4" />
+                    <span>Left</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      canvasManager?.alignSelected('center');
+                      setActiveMenu(null);
+                    }}
+                    title="Center Horizontally"
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-[11px] font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
+                  >
+                    <AlignCenter className="w-4 h-4" />
+                    <span>Center</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      canvasManager?.alignSelected('right');
+                      setActiveMenu(null);
+                    }}
+                    title="Align Right"
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-[11px] font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
+                  >
+                    <AlignRight className="w-4 h-4" />
+                    <span>Right</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Vertical Alignment */}
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
+                  Vertical
+                </span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      canvasManager?.alignSelected('top');
+                      setActiveMenu(null);
+                    }}
+                    title="Align Top"
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-[11px] font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
+                  >
+                    <AlignStartVertical className="w-4 h-4" />
+                    <span>Top</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      canvasManager?.alignSelected('middle');
+                      setActiveMenu(null);
+                    }}
+                    title="Center Vertically"
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-[11px] font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
+                  >
+                    <AlignCenterVertical className="w-4 h-4" />
+                    <span>Middle</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      canvasManager?.alignSelected('bottom');
+                      setActiveMenu(null);
+                    }}
+                    title="Align Bottom"
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-[11px] font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
+                  >
+                    <AlignEndVertical className="w-4 h-4" />
+                    <span>Bottom</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Center in Canvas (Both) */}
+              <button
+                type="button"
+                onClick={() => {
+                  canvasManager?.alignSelected('center-both');
+                  setActiveMenu(null);
+                }}
+                className="w-full py-2 px-3 rounded-xl border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-2xs"
+              >
+                <Move className="w-3.5 h-3.5" />
+                <span>Center in Canvas</span>
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Zoom Controls (Compact in top toolbar) */}
         <ZoomControls

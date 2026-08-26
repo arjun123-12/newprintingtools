@@ -116,16 +116,15 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
         top: `${coords.y}px`,
         transform: 'translateX(-50%)',
       }}
-      className="z-40 flex items-center gap-1 bg-white/95 backdrop-blur-md px-1.5 py-1 rounded-full shadow-lg border border-gray-200/90 text-gray-700 animate-in fade-in zoom-in-95 duration-100 select-none"
+      className="z-10 flex items-center gap-1 bg-white/95 backdrop-blur-md px-1.5 py-1 rounded-full shadow-lg border border-gray-200/90 text-gray-700 animate-in fade-in zoom-in-95 duration-100 select-none"
     >
       {/* Lock / Unlock */}
       <button
         type="button"
         onClick={handleToggleLock}
         title={selected.isLocked ? 'Unlock (Ctrl+L)' : 'Lock (Ctrl+L)'}
-        className={`p-1.5 rounded-full hover:bg-gray-100 transition ${
-          selected.isLocked ? 'text-amber-600 bg-amber-50' : 'text-gray-600 hover:text-gray-900'
-        }`}
+        className={`p-1.5 rounded-full hover:bg-gray-100 transition ${selected.isLocked ? 'text-amber-600 bg-amber-50' : 'text-gray-600 hover:text-gray-900'
+          }`}
       >
         {selected.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
       </button>
@@ -151,7 +150,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
       </button>
 
       {/* More */}
-      <div className="relative">
+      {/* <div className="relative">
         <button
           type="button"
           onClick={handleMore}
@@ -171,7 +170,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
             align="left"
           />
         )}
-      </div>
+      </div> */}
     </div>
   );
 };

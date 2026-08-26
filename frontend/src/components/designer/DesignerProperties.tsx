@@ -64,15 +64,15 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
   const isText =
     Boolean(
       selected &&
-        (selected.type === 'textbox' ||
-          selected.type === 'i-text' ||
-          selected.type === 'text' ||
-          selected.text !== undefined)
+      (selected.type === 'textbox' ||
+        selected.type === 'i-text' ||
+        selected.type === 'text' ||
+        selected.text !== undefined)
     );
 
   const isPath = Boolean(
     selected &&
-      (selected.type === 'path' || selected.type === 'brush' || selected.isBrushPath)
+    (selected.type === 'path' || selected.type === 'brush' || selected.isBrushPath)
   );
 
   const isImage = Boolean(
@@ -90,11 +90,11 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
 
   return (
     <>
-      <aside className="w-80 flex-shrink-0 min-h-0 bg-white border-l border-gray-200 flex flex-col h-full overflow-y-auto select-none custom-scrollbar z-30 shadow-xs">
+      {/* <aside className="w-80 flex-shrink-0 min-h-0 bg-white border-l border-gray-200 flex flex-col h-full overflow-y-auto select-none custom-scrollbar z-30 shadow-xs">
         {selected ? (
-          /* Selected Object Properties */
+        
           <div className="p-4 space-y-5 animate-in fade-in duration-150">
-            {/* Header with Close / Deselect button */}
+          
             <div className="flex items-center justify-between border-b border-gray-200 pb-3">
               <div className="flex items-center gap-2">
                 {isText ? (
@@ -134,7 +134,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
               </div>
             </div>
 
-            {/* Image Controls & DPI Inspector (if image object) */}
+            
             {isImage && !selected.isMultiple && (
               <div className="pb-2">
                 <ImageControls
@@ -146,7 +146,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
               </div>
             )}
 
-            {/* Color Controls (for generic shapes/non-text/non-image/non-path objects) */}
+           
             {!isText && !isImage && !isPath && !selected.isMultiple && (
               <div className="space-y-3.5">
                 <ColorPicker
@@ -163,9 +163,9 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
             )}
           </div>
         ) : (
-          /* Document & Canvas Properties (No Selection) */
+        
           <div className="p-4 space-y-5 animate-in fade-in duration-150">
-            {/* Header with Close / Collapse button */}
+          
             <div className="flex items-center justify-between border-b border-gray-200 pb-3">
               <div className="flex items-center gap-2">
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
@@ -185,7 +185,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
               )}
             </div>
 
-            {/* Document Dimensions Card */}
+        
             <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/80 space-y-3 shadow-2xs">
               <div className="flex justify-between items-center text-xs">
                 <span className="text-gray-500 font-medium">Target Print Size:</span>
@@ -216,7 +216,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
               </div>
             </div>
 
-            {/* Canvas Background Color */}
+         
             <div className="border-t border-gray-100 pt-4">
               <ColorPicker
                 label="Canvas Background"
@@ -225,7 +225,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
               />
             </div>
 
-            {/* Print Standards Guide */}
+         
             <div className="border-t border-gray-100 pt-4 space-y-2.5">
               <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">
                 Print Specifications
@@ -253,7 +253,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
             </div>
           </div>
         )}
-      </aside>
+      </aside> */}
 
       {/* Non-Destructive Image Crop Modal */}
       {isCropOpen && selected && (

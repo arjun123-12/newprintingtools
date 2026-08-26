@@ -1649,6 +1649,12 @@ export class CanvasManager {
       case 'bottom':
         active.set('top', canvasHeight - objHeight);
         break;
+      case 'center-both':
+        active.set({
+          left: (canvasWidth - objWidth) / 2,
+          top: (canvasHeight - objHeight) / 2,
+        });
+        break;
     }
 
     active.setCoords();
