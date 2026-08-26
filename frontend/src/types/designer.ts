@@ -136,9 +136,10 @@ export interface SelectedObjectState {
   brushType?: BrushType;
   strokeLineCap?: 'round' | 'square' | 'butt';
   strokeLineJoin?: 'round' | 'bevel' | 'miter';
-  // Border & Corner Radius properties
+  // Border & Corner Radius & Curve properties
   rx?: number;
   ry?: number;
+  curve?: number;
   strokeDashArray?: number[];
   strokeUniform?: boolean;
 }

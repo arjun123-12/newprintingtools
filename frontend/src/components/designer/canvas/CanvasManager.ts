@@ -1480,6 +1480,26 @@ export class CanvasManager {
       } else {
         active.set({ rx: radius, ry: radius } as any);
       }
+    } else if (prop === 'curve') {
+      const curveVal = Number(value) || 0;
+      (active as any).curve = curveVal;
+      if (isText) {
+        const textObj = active as Textbox | IText;
+        if (Math.abs(curveVal) < 1) {
+          textObj.set('path', null as any);
+        } else {
+          const w = Math.max(textObj.width || 200, 100);
+          const absC = Math.abs(curveVal);
+          const radius = Math.max(40, (100 / absC) * (w * 0.7));
+          const sweepFlag = curveVal > 0 ? 1 : 0;
+          const arcPath = new Path(`M 0 ${radius} A ${radius} ${radius} 0 0 ${sweepFlag} ${w} ${radius}`, {
+            visible: false,
+            fill: '',
+            stroke: '',
+          });
+          textObj.set('path', arcPath);
+        }
+      }
     } else if (prop === 'strokeDashArray') {
       active.set('strokeDashArray', value ? (value as number[]) : null);
     } else if (prop === 'strokeUniform') {
@@ -2122,6 +2142,7 @@ export class CanvasManager {
       brushType,
       rx: (active as any).rx || 0,
       ry: (active as any).ry || 0,
+      curve: (active as any).curve || 0,
       strokeDashArray: active.strokeDashArray || undefined,
       // Text
       text: textObj ? textObj.text : undefined,

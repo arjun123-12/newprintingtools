@@ -1041,6 +1041,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
 
             {activePopover === 'effects' && (
               <EffectsPopover
+                selected={selected}
                 canvasManager={canvasManager}
                 onClose={() => setActivePopover(null)}
               />
