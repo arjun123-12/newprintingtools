@@ -1406,6 +1406,7 @@ export class CanvasManager {
     if (!active) return;
 
     const isText = active instanceof Textbox || active instanceof IText;
+    const isImage = active instanceof FabricImage || active.type === 'image';
 
     if (prop === 'left') active.set('left', value as number);
     else if (prop === 'top') active.set('top', value as number);
@@ -1428,16 +1429,38 @@ export class CanvasManager {
     } else if (prop === 'angle') active.set('angle', value as number);
     else if (prop === 'opacity') active.set('opacity', value as number);
     else if (prop === 'fill') active.set('fill', value as string);
-    else if (prop === 'stroke') active.set('stroke', value as string);
-    else if (prop === 'strokeWidth') active.set('strokeWidth', value as number);
-    else if (prop === 'strokeLineCap') active.set('strokeLineCap', value as 'round' | 'square' | 'butt');
+    else if (prop === 'stroke') {
+      active.set('stroke', value as string);
+      active.set('strokeUniform', true);
+    } else if (prop === 'strokeWidth') {
+      active.set('strokeWidth', value as number);
+      active.set('strokeUniform', true);
+    } else if (prop === 'strokeLineCap') active.set('strokeLineCap', value as 'round' | 'square' | 'butt');
     else if (prop === 'strokeLineJoin') active.set('strokeLineJoin', value as 'round' | 'bevel' | 'miter');
     else if (prop === 'flipX') active.set('flipX', value as boolean);
     else if (prop === 'flipY') active.set('flipY', value as boolean);
-    else if (prop === 'rx') {
-      active.set({ rx: Number(value), ry: Number(value) } as any);
-    } else if (prop === 'ry') {
-      active.set('ry' as any, Number(value));
+    else if (prop === 'rx' || prop === 'ry') {
+      const radius = Number(value);
+      (active as any).rx = radius;
+      (active as any).ry = radius;
+      if (isImage) {
+        if (radius > 0) {
+          const w = active.width || 400;
+          const h = active.height || 300;
+          active.clipPath = new Rect({
+            width: w,
+            height: h,
+            rx: radius,
+            ry: radius,
+            originX: 'center',
+            originY: 'center',
+          });
+        } else {
+          active.clipPath = undefined;
+        }
+      } else {
+        active.set({ rx: radius, ry: radius } as any);
+      }
     } else if (prop === 'strokeDashArray') {
       active.set('strokeDashArray', value ? (value as number[]) : null);
     } else if (prop === 'strokeUniform') {

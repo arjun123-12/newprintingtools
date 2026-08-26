@@ -1,7 +1,7 @@
 'use client';
 
-import React from 'react';
-import { Plus, Minus } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Plus, Minus, GripHorizontal, ArrowLeftRight, X } from 'lucide-react';
 
 interface BorderStylePopoverProps {
   strokeWidth: number;
@@ -49,6 +49,16 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
   onStrokeColorChange,
   onClose,
 }) => {
+  // Draggable offset so the customer can move the popover away from their image
+  const [offset, setOffset] = useState<{ x: number; y: number }>({ x: -140, y: 8 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ startX: number; startY: number; initX: number; initY: number }>({
+    startX: 0,
+    startY: 0,
+    initX: -140,
+    initY: 8,
+  });
+
   const isDashed =
     Array.isArray(strokeDashArray) &&
     strokeDashArray.length > 0 &&
@@ -78,15 +88,91 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
     }
   };
 
+  // Dragging interaction handlers
+  const handleMouseDownHeader = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDragging(true);
+    dragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initX: offset.x,
+      initY: offset.y,
+    };
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      const dx = e.clientX - dragStartRef.current.startX;
+      const dy = e.clientY - dragStartRef.current.startY;
+      setOffset({
+        x: dragStartRef.current.initX + dx,
+        y: dragStartRef.current.initY + dy,
+      });
+    };
+
+    const handleMouseUp = () => {
+      if (isDragging) setIsDragging(false);
+    };
+
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const toggleSide = () => {
+    setOffset((prev) => ({
+      x: prev.x < 0 ? 160 : -280,
+      y: prev.y,
+    }));
+  };
+
   return (
     <div
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-76 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-3.5 text-gray-800"
+      style={{
+        position: 'absolute',
+        top: '100%',
+        left: '0px',
+        transform: `translate(${offset.x}px, ${offset.y}px)`,
+      }}
+      className="w-76 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-3.5 text-gray-800"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-        <span className="text-xs font-bold text-gray-900">Border Style & Stroke</span>
+      {/* Draggable Header with Side Dock Button */}
+      <div
+        onMouseDown={handleMouseDownHeader}
+        className="flex items-center justify-between border-b border-gray-100 pb-2 cursor-grab active:cursor-grabbing group"
+        title="Click and drag to move panel away from artwork"
+      >
+        <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
+          <GripHorizontal className="w-3.5 h-3.5 text-gray-400 group-hover:text-blue-600 transition" />
+          <span>Border & Stroke</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={toggleSide}
+            title="Move to opposite side"
+            className="p-1 rounded-md text-gray-400 hover:text-gray-800 hover:bg-gray-100 transition"
+          >
+            <ArrowLeftRight className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close panel"
+            className="p-1 rounded-md text-gray-400 hover:text-gray-800 hover:bg-gray-100 transition"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* 1. Border Style Selector (None, Solid, Dashed, Dotted) */}
@@ -210,7 +296,7 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
           className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
         />
 
-        {/* Quick Weight Pills (Requirement 3: 0px, 1px, 2px, 3px, 4px, 5px, 8px, 10px, 15px) */}
+        {/* Quick Weight Pills */}
         <div className="flex flex-wrap items-center gap-1 pt-0.5">
           {WEIGHT_PRESETS.map((w) => (
             <button
@@ -229,7 +315,7 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
         </div>
       </div>
 
-      {/* 3. Sleek & Compact Canva-Style Stroke Color Picker (Requirement 2) */}
+      {/* 3. Sleek & Compact Canva-Style Stroke Color Picker */}
       {onStrokeColorChange && (
         <div className="space-y-2 border-t border-gray-100 pt-3">
           <div className="flex items-center justify-between">
@@ -282,7 +368,7 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
         </div>
       )}
 
-      {/* 4. Corner Rounding / Radius (Requirement 5: Stepper [-] 8 px [+], slider, presets) */}
+      {/* 4. Corner Rounding / Radius (with Stepper [-] 8 px [+], slider, presets) */}
       {showCornerRadius && onCornerRadiusChange && (
         <div className="space-y-1.5 border-t border-gray-100 pt-3">
           <div className="flex items-center justify-between text-xs">
