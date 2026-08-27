@@ -12,7 +12,7 @@ export function pixelsToMm(pixels: number, dpi: number = STANDARD_PRINT_DPI): nu
 export function calculateCanvasTotalDimensions(
   trimWidthMm: number,
   trimHeightMm: number,
-  bleedMm: number = 2
+  bleedMm: number = 5
 ) {
   const totalWidthMm = trimWidthMm + bleedMm * 2;
   const totalHeightMm = trimHeightMm + bleedMm * 2;

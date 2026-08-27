@@ -22,9 +22,10 @@ import { ColorPicker } from './ColorPicker';
 interface TextControlsProps {
   selected: SelectedObjectState;
   onUpdate: <K extends keyof SelectedObjectState>(prop: K, value: SelectedObjectState[K]) => void;
+  canvasManager?: any;
 }
 
-export const TextControls: React.FC<TextControlsProps> = ({ selected, onUpdate }) => {
+export const TextControls: React.FC<TextControlsProps> = ({ selected, onUpdate, canvasManager }) => {
   const [isColorOpen, setIsColorOpen] = useState(false);
   const fontSize = selected.fontSize || 32;
   const isBold = selected.fontWeight === 'bold' || selected.fontWeight === 700 || selected.fontWeight === '700';
@@ -63,60 +64,57 @@ export const TextControls: React.FC<TextControlsProps> = ({ selected, onUpdate }
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 select-none">
       {/* Font Family Selector */}
-      <FontSelector
-        value={selected.fontFamily || 'Inter, sans-serif'}
-        onChange={(family) => onUpdate('fontFamily', family)}
-      />
+      <div className="space-y-1.5">
+        <label className="text-[11px] font-semibold text-gray-600 block">Typography</label>
+        <FontSelector
+          value={selected.fontFamily || 'Inter, sans-serif'}
+          onChange={(family) => onUpdate('fontFamily', family)}
+        />
+      </div>
 
-      {/* Font Size & Style Row */}
+      {/* Font Size & Color Row */}
       <div className="grid grid-cols-2 gap-2.5">
-        {/* Font Size Stepper */}
-        <div>
-          <label className="text-[11px] font-semibold text-gray-600 block mb-1">
-            Font Size (pt)
-          </label>
-          <div className="flex items-center border border-gray-200 rounded-lg bg-white overflow-hidden shadow-2xs">
+        {/* Size Slider & Input */}
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-semibold text-gray-600 block">Size (pt)</label>
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => handleFontSizeChange(fontSize - 2)}
-              className="p-2 hover:bg-gray-100 text-gray-600 transition"
-              title="Decrease Font Size"
+              onClick={() => onUpdate('fontSize', Math.max(fontSize - 2, 6))}
+              className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600"
             >
               <Minus className="w-3.5 h-3.5" />
             </button>
             <input
               type="number"
-              value={fontSize}
               min={6}
-              max={300}
-              onChange={(e) => handleFontSizeChange(Number(e.target.value))}
-              className="w-full text-center text-xs font-semibold text-gray-800 focus:outline-none py-1.5"
+              max={200}
+              value={Math.round(fontSize)}
+              onChange={(e) => onUpdate('fontSize', Number(e.target.value))}
+              className="w-full text-center text-xs font-bold border border-gray-200 rounded-lg py-1 bg-white font-mono"
             />
             <button
               type="button"
-              onClick={() => handleFontSizeChange(fontSize + 2)}
-              className="p-2 hover:bg-gray-100 text-gray-600 transition"
-              title="Increase Font Size"
+              onClick={() => onUpdate('fontSize', Math.min(fontSize + 2, 200))}
+              className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
-        {/* Text Color Trigger */}
-        <div>
-          <label className="text-[11px] font-semibold text-gray-600 block mb-1">
-            Text Color (CMYK)
-          </label>
+        {/* Color Popover Button */}
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-semibold text-gray-600 block">Text Color</label>
           <button
             type="button"
             onClick={() => setIsColorOpen(!isColorOpen)}
-            className="w-full flex items-center justify-between border border-gray-200 rounded-lg p-1.5 bg-white shadow-2xs h-[34px] hover:border-blue-400 transition"
+            className="w-full flex items-center justify-between px-2.5 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition shadow-2xs"
           >
             <div
-              className="w-5 h-5 rounded border border-gray-300 shadow-2xs"
+              className="w-5 h-5 rounded-md border border-black/10 shadow-2xs"
               style={{ backgroundColor: selected.fill || '#0f172a' }}
             />
             <span className="text-[10px] font-mono font-bold text-gray-700 uppercase">
@@ -128,11 +126,13 @@ export const TextControls: React.FC<TextControlsProps> = ({ selected, onUpdate }
 
       {/* Expandable CMYK Color Controls */}
       {isColorOpen && (
-        <div className="p-3 bg-gray-50/90 border border-gray-200 rounded-xl shadow-inner animate-in fade-in zoom-in-95 duration-100">
+        <div className="p-1 bg-gray-50/90 border border-gray-200 rounded-2xl shadow-inner animate-in fade-in zoom-in-95 duration-100 flex justify-center">
           <ColorPicker
-            label="Text Print Color"
+            label="Text Color"
             value={selected.fill || '#0f172a'}
             onChange={(color) => onUpdate('fill', color)}
+            canvasManager={canvasManager}
+            onClose={() => setIsColorOpen(false)}
           />
         </div>
       )}

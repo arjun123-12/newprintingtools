@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   Maximize2,
   FileCode,
+  FileText,
   Image as ImageIcon,
   History,
   AlignLeft,
@@ -59,6 +60,7 @@ interface DesignerToolbarProps {
   onSaveVersion?: () => void;
   onOpenPreview?: () => void;
   onOpenCustomSize?: () => void;
+  onExportPdf?: () => void;
   onExportPng?: () => void;
   onExportJpg?: () => void;
   onExportPsd?: () => void;
@@ -90,6 +92,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
   onSaveVersion,
   onOpenPreview,
   onOpenCustomSize,
+  onExportPdf,
   onExportPng,
   onExportJpg,
   onExportPsd,
@@ -365,11 +368,10 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
             type="button"
             onClick={onTogglePanMode}
             title="Select & Move Objects (V)"
-            className={`p-1.5 rounded-md transition ${
-              !isPanMode
+            className={`p-1.5 rounded-md transition ${!isPanMode
                 ? 'bg-white text-blue-600 shadow-xs font-semibold'
                 : 'text-gray-600 hover:text-gray-900'
-            }`}
+              }`}
           >
             <MousePointer className="w-4 h-4" />
           </button>
@@ -377,11 +379,10 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
             type="button"
             onClick={onTogglePanMode}
             title="Pan Hand Tool (H)"
-            className={`p-1.5 rounded-md transition ${
-              isPanMode
+            className={`p-1.5 rounded-md transition ${isPanMode
                 ? 'bg-white text-blue-600 shadow-xs font-semibold'
                 : 'text-gray-600 hover:text-gray-900'
-            }`}
+              }`}
           >
             <Hand className="w-4 h-4" />
           </button>
@@ -392,18 +393,17 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
           type="button"
           onClick={onToggleGuides}
           title={`Toggle Print Safe Zone & Bleed Guides (Ctrl+;) - Currently ${showGuides ? 'ON' : 'OFF'}`}
-          className={`p-2 rounded-lg border transition ${
-            showGuides
+          className={`p-2 rounded-lg border transition ${showGuides
               ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-2xs'
               : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
-          }`}
+            }`}
         >
           <Layers className="w-4 h-4" />
         </button>
 
         {/* Element Alignment Dropdown Menu */}
         <div className="relative" ref={alignMenuRef}>
-          <button
+          {/* <button
             type="button"
             onClick={() => setActiveMenu(activeMenu === 'align' ? null : 'align')}
             title="Align Elements to Canvas (Left, Center, Right, Top, Middle, Bottom)"
@@ -416,7 +416,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
             <AlignCenter className="w-3.5 h-3.5 text-gray-600" />
             <span className="hidden sm:inline">Align</span>
             <ChevronDown className="w-3 h-3 text-gray-400" />
-          </button>
+          </button> */}
 
           {activeMenu === 'align' && (
             <div
@@ -561,11 +561,10 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
             type="button"
             onClick={onToggleProperties}
             title={isPropertiesOpen ? 'Hide Inspector Panel' : 'Show Inspector Panel'}
-            className={`p-2 rounded-lg border transition ${
-              isPropertiesOpen
+            className={`p-2 rounded-lg border transition ${isPropertiesOpen
                 ? 'bg-blue-50 border-blue-200 text-blue-600 shadow-2xs'
                 : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-            }`}
+              }`}
           >
             <Sliders className="w-4 h-4" />
           </button>
@@ -601,6 +600,23 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
               <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
                 High-Resolution Print Files
               </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onExportPdf) onExportPdf();
+                  setActiveMenu(null);
+                }}
+                className="w-full px-3.5 py-2 text-left text-xs text-gray-800 hover:bg-red-50/70 hover:text-red-700 flex items-center justify-between group transition"
+              >
+                <span className="flex items-center gap-2 font-bold">
+                  <FileText className="w-4 h-4 text-red-600" />
+                  <span>Download Vector PDF</span>
+                </span>
+                <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-semibold">
+                  Vector (Print)
+                </span>
+              </button>
 
               <button
                 type="button"

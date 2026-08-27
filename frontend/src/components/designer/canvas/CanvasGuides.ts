@@ -12,9 +12,9 @@ export const DEFAULT_GUIDES_SETTINGS: PrintGuidesSettings = {
   showBleed: true,
   showSafeZone: true,
   showTrim: true,
-  bleedColor: 'rgba(239, 68, 68, 0.75)', // Coral / Red dashed
-  safeZoneColor: 'rgba(16, 185, 129, 0.75)', // Emerald / Green dashed
-  trimColor: 'rgba(59, 130, 246, 0.4)', // Subtle Blue boundary
+  bleedColor: 'rgba(239, 68, 68, 0.85)', // Coral / Red dashed
+  safeZoneColor: 'rgba(16, 185, 129, 0.85)', // Emerald / Green dashed
+  trimColor: '#000000', // Dark Black Trim Line
 };
 
 export class CanvasGuides {
@@ -134,25 +134,34 @@ export class CanvasGuides {
 
     const width = this.dimensions.widthPx || 1063;
     const height = this.dimensions.heightPx || 591;
+    const bleedMm = this.dimensions.bleedMm !== undefined ? this.dimensions.bleedMm : 5;
     const bleedPx = this.dimensions.bleedPx || 0;
     const safeZonePx = this.dimensions.safeZonePx || 0;
+
+    // Calculate trim box boundaries based on bleed
+    const trimX = bleedPx > 0 ? bleedPx : 0;
+    const trimY = bleedPx > 0 ? bleedPx : 0;
+    const trimW = bleedPx > 0 ? Math.max(width - bleedPx * 2, 10) : width;
+    const trimH = bleedPx > 0 ? Math.max(height - bleedPx * 2, 10) : height;
 
     ctx.save();
     // Scale context to match canvas viewport zoom
     ctx.scale(zoom, zoom);
 
-    // 1. Bleed Area Margin (Red dashed line - outer print bleed boundary)
-    if (this.settings.showBleed && (bleedPx > 0 || this.dimensions.bleedMm > 0)) {
+    // =========================================================================
+    // 1. BLEED AREA (Red dashed line - outer print bleed boundary)
+    // =========================================================================
+    if (this.settings.showBleed && (bleedPx > 0 || bleedMm > 0)) {
       ctx.save();
       ctx.strokeStyle = this.settings.bleedColor || 'rgba(239, 68, 68, 0.85)';
       ctx.lineWidth = Math.max(1.5 / zoom, 1);
       ctx.setLineDash([6 / zoom, 4 / zoom]);
-      
-      // Draw visible red dashed bleed rectangle along the canvas boundary
+
+      // Draw visible red dashed bleed rectangle along the outer canvas boundary
       ctx.strokeRect(1 / zoom, 1 / zoom, width - 2 / zoom, height - 2 / zoom);
 
-      // Corner crop / bleed tick marks at all 4 corners
-      const tickLen = Math.min(16 / zoom, width * 0.06, height * 0.06);
+      // Corner crop / bleed tick marks at all 4 outer corners
+      const tickLen = Math.min(14 / zoom, width * 0.05, height * 0.05);
       ctx.setLineDash([]);
       ctx.beginPath();
       // Top-Left
@@ -178,22 +187,69 @@ export class CanvasGuides {
       ctx.stroke();
 
       // Bleed Area Tag in Top-Right
-      const bleedMm = this.dimensions.bleedMm || 3;
-      const bleedText = `Bleed (${bleedMm}mm)`;
-      ctx.font = `600 ${Math.max(10 / zoom, 8.5)}px sans-serif`;
+      const bleedText = '';
+      ctx.font = `bold ${Math.max(9.5 / zoom, 8)}px sans-serif`;
       const textWidth = ctx.measureText(bleedText).width;
       ctx.fillStyle = 'rgba(239, 68, 68, 0.9)';
       ctx.fillText(bleedText, width - textWidth - 8 / zoom, 14 / zoom);
       ctx.restore();
     }
 
-    // 2. Safe Area Margin (Green dashed line - inner margin to protect text/logos)
+    // =========================================================================
+    // 2. TRIM LINE IN DARK BLACK (Exact Machine / Guillotine Cut Line)
+    // =========================================================================
+    if (this.settings.showTrim) {
+      ctx.save();
+      // Solid crisp dark black stroke
+      ctx.strokeStyle = this.settings.trimColor || '#000000';
+      ctx.lineWidth = Math.max(1.5 / zoom, 1.2);
+      ctx.setLineDash([]);
+
+      // Draw dark black cut boundary
+      ctx.strokeRect(trimX, trimY, trimW, trimH);
+
+      // Corner Trim / Crop marks in Dark Black at trim line corners
+      const cropLen = Math.min(18 / zoom, trimW * 0.08, trimH * 0.08);
+      ctx.beginPath();
+      // Top-Left Trim Corner
+      ctx.moveTo(trimX, trimY - cropLen);
+      ctx.lineTo(trimX, trimY);
+      ctx.lineTo(trimX - cropLen, trimY);
+
+      // Top-Right Trim Corner
+      ctx.moveTo(trimX + trimW, trimY - cropLen);
+      ctx.lineTo(trimX + trimW, trimY);
+      ctx.lineTo(trimX + trimW + cropLen, trimY);
+
+      // Bottom-Left Trim Corner
+      ctx.moveTo(trimX, trimY + trimH + cropLen);
+      ctx.lineTo(trimX, trimY + trimH);
+      ctx.lineTo(trimX - cropLen, trimY + trimH);
+
+      // Bottom-Right Trim Corner
+      ctx.moveTo(trimX + trimW, trimY + trimH + cropLen);
+      ctx.lineTo(trimX + trimW, trimY + trimH);
+      ctx.lineTo(trimX + trimW + cropLen, trimY + trimH);
+
+      ctx.stroke();
+
+      // Trim Line Badge / Label
+      const trimText = '';
+      ctx.font = `bold ${Math.max(9 / zoom, 7.5)}px sans-serif`;
+      ctx.fillStyle = '#000000';
+      ctx.fillText(trimText, trimX + 6 / zoom, trimY + 12 / zoom);
+      ctx.restore();
+    }
+
+    // =========================================================================
+    // 3. SAFE AREA MARGIN (Green dashed line - inner margin to protect text/logos)
+    // =========================================================================
     if (this.settings.showSafeZone && (safeZonePx > 0 || this.dimensions.safeZoneMm > 0)) {
       const safeOffset = safeZonePx > 0 ? safeZonePx : 35;
-      const safeLeft = safeOffset;
-      const safeTop = safeOffset;
-      const safeWidth = Math.max(width - safeOffset * 2, 10);
-      const safeHeight = Math.max(height - safeOffset * 2, 10);
+      const safeLeft = trimX + safeOffset;
+      const safeTop = trimY + safeOffset;
+      const safeWidth = Math.max(trimW - safeOffset * 2, 10);
+      const safeHeight = Math.max(trimH - safeOffset * 2, 10);
 
       ctx.save();
       ctx.strokeStyle = this.settings.safeZoneColor || 'rgba(16, 185, 129, 0.85)';
@@ -201,26 +257,18 @@ export class CanvasGuides {
       ctx.setLineDash([5 / zoom, 5 / zoom]);
       ctx.strokeRect(safeLeft, safeTop, safeWidth, safeHeight);
 
-      // Safe Zone Tag in Top-Left
+      // Safe Zone Tag
       const safeMm = this.dimensions.safeZoneMm || 3;
-      const safeText = `Safe Area (${safeMm}mm)`;
-      ctx.font = `600 ${Math.max(10 / zoom, 8.5)}px sans-serif`;
+      const safeText = '';
+      ctx.font = `bold ${Math.max(9 / zoom, 7.5)}px sans-serif`;
       ctx.fillStyle = 'rgba(16, 185, 129, 0.9)';
-      ctx.fillText(safeText, safeLeft + 6 / zoom, safeTop + 14 / zoom);
+      ctx.fillText(safeText, safeLeft + 6 / zoom, safeTop + 12 / zoom);
       ctx.restore();
     }
 
-    // 3. Trim Line (Exact Cut Boundary)
-    if (this.settings.showTrim) {
-      ctx.save();
-      ctx.strokeStyle = this.settings.trimColor || 'rgba(59, 130, 246, 0.4)';
-      ctx.lineWidth = Math.max(1 / zoom, 0.75);
-      ctx.setLineDash([]);
-      ctx.strokeRect(0, 0, width, height);
-      ctx.restore();
-    }
-
-    // 4. User-created Interactive Ruler Guidelines (Cyan/Blue)
+    // =========================================================================
+    // 4. USER-CREATED INTERACTIVE RULER GUIDELINES (Cyan/Blue)
+    // =========================================================================
     if (this.userGuides.length > 0) {
       ctx.strokeStyle = 'rgba(6, 182, 212, 0.9)'; // Cyan 500
       ctx.lineWidth = Math.max(1 / zoom, 1);

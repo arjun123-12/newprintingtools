@@ -17,9 +17,15 @@ import {
   Maximize2,
   Minimize2,
   StretchHorizontal,
+  ArrowLeftRight,
+  Plus,
+  Trash2,
+  CircleDot,
+  Compass,
 } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { BackgroundSettings } from '@/types/designer';
+import { ColorPicker } from '../controls/ColorPicker';
 import {
   BACKGROUND_CATEGORIES,
   SOLID_COLOR_PALETTES,
@@ -44,6 +50,10 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
   const [customColor, setCustomColor] = useState<string>('#ffffff');
   const [gradientAngle, setGradientAngle] = useState<number>(135);
   const [gradientType, setGradientType] = useState<'linear' | 'radial'>('linear');
+  const [gradientStops, setGradientStops] = useState<Array<{ offset: number; color: string }>>([
+    { offset: 0, color: '#f97316' },
+    { offset: 1, color: '#ec4899' },
+  ]);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -60,6 +70,9 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
       if (settings.type === 'gradient' && settings.gradient) {
         setGradientAngle(settings.gradient.angle);
         setGradientType(settings.gradient.type);
+        if (settings.gradient.stops && settings.gradient.stops.length > 0) {
+          setGradientStops(settings.gradient.stops);
+        }
       }
     });
 
@@ -87,26 +100,69 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
     canvasManager.setBackgroundColor(color);
   };
 
-  const handleSelectGradient = (preset: GradientPreset) => {
+  const applyGradient = (
+    type: 'linear' | 'radial',
+    angle: number,
+    stops: Array<{ offset: number; color: string }>
+  ) => {
     if (!canvasManager) return;
-    setGradientAngle(preset.angle);
-    setGradientType(preset.type);
+    setGradientType(type);
+    setGradientAngle(angle);
+    setGradientStops(stops);
     canvasManager.setBackgroundGradient({
-      type: preset.type,
-      angle: preset.angle,
-      stops: preset.stops,
+      type,
+      angle,
+      stops,
     });
   };
 
+  const handleSelectGradient = (preset: GradientPreset) => {
+    applyGradient(preset.type, preset.angle, preset.stops);
+  };
+
+  const handleUpdateStopColor = (index: number, newColor: string) => {
+    const updated = gradientStops.map((stop, i) =>
+      i === index ? { ...stop, color: newColor } : stop
+    );
+    applyGradient(gradientType, gradientAngle, updated);
+  };
+
+  const handleSwapGradientColors = () => {
+    const updated = [...gradientStops].reverse().map((stop, i) => ({
+      ...stop,
+      offset: i === 0 ? 0 : i === gradientStops.length - 1 ? 1 : stop.offset,
+    }));
+    applyGradient(gradientType, gradientAngle, updated);
+  };
+
+  const handleAddMiddleStop = () => {
+    if (gradientStops.length >= 3) return;
+    const midColor = '#3b82f6';
+    const updated = [
+      gradientStops[0],
+      { offset: 0.5, color: midColor },
+      gradientStops[gradientStops.length - 1],
+    ];
+    applyGradient(gradientType, gradientAngle, updated);
+  };
+
+  const handleRemoveStop = (index: number) => {
+    if (gradientStops.length <= 2) return;
+    const updated = gradientStops
+      .filter((_, i) => i !== index)
+      .map((s, i, arr) => ({
+        ...s,
+        offset: i === 0 ? 0 : i === arr.length - 1 ? 1 : 0.5,
+      }));
+    applyGradient(gradientType, gradientAngle, updated);
+  };
+
   const handleCustomGradientAngleChange = (angle: number) => {
-    if (!canvasManager) return;
-    setGradientAngle(angle);
-    if (bgSettings.type === 'gradient' && bgSettings.gradient) {
-      canvasManager.setBackgroundGradient({
-        ...bgSettings.gradient,
-        angle,
-      });
-    }
+    applyGradient(gradientType, angle, gradientStops);
+  };
+
+  const handleToggleGradientType = (type: 'linear' | 'radial') => {
+    applyGradient(type, gradientAngle, gradientStops);
   };
 
   const handleSelectImage = async (item: BackgroundImageItem) => {
@@ -352,65 +408,178 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
         {/* ========================================================================= */}
         {activeSubTab === 'colors' && (
           <div className="space-y-4">
-            {/* Custom Color Picker Card */}
-            <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
-              <label className="font-semibold text-gray-700 block text-[11px]">
-                Custom Color Picker
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={customColor}
-                  onChange={(e) => handleSelectColor(e.target.value)}
-                  className="w-8 h-8 rounded-md border border-gray-300 cursor-pointer bg-white p-0.5"
-                />
-                <input
-                  type="text"
-                  value={customColor.toUpperCase()}
-                  onChange={(e) => handleSelectColor(e.target.value)}
-                  className="flex-1 px-2.5 py-1.5 bg-white border border-gray-300 rounded-md font-mono text-xs uppercase"
-                />
-              </div>
+            {/* Canva-Style Complete Color Picker */}
+            <div className="rounded-2xl overflow-hidden">
+              <ColorPicker
+                label="Background Colour"
+                value={bgSettings.type === 'color' && bgSettings.color ? bgSettings.color : customColor}
+                onChange={(color) => handleSelectColor(color)}
+                canvasManager={canvasManager}
+              />
             </div>
 
-            {/* Curated Solid Color Palettes */}
-            {SOLID_COLOR_PALETTES.map((palette) => (
-              <div key={palette.name} className="space-y-1.5">
-                <span className="font-semibold text-gray-600 text-[11px]">{palette.name}</span>
-                <div className="grid grid-cols-9 gap-1.5">
-                  {palette.colors.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => handleSelectColor(c)}
-                      style={{ backgroundColor: c }}
-                      title={c}
-                      className={`h-6 rounded-md border transition relative ${
-                        bgSettings.type === 'color' && bgSettings.color?.toLowerCase() === c.toLowerCase()
-                          ? 'border-blue-600 ring-2 ring-blue-500/40 shadow-xs'
-                          : 'border-gray-200 hover:scale-110'
-                      }`}
-                    >
-                      {bgSettings.type === 'color' && bgSettings.color?.toLowerCase() === c.toLowerCase() && (
-                        <Check
-                          className={`w-3 h-3 absolute inset-0 m-auto ${
-                            c.toLowerCase() === '#ffffff' || c.toLowerCase() === '#f8fafc'
-                              ? 'text-gray-900'
-                              : 'text-white'
-                          }`}
-                        />
-                      )}
-                    </button>
-                  ))}
+            {/* Custom Editable Gradient Editor */}
+            <div className="space-y-3 pt-2 border-t border-gray-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Palette className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="font-semibold text-gray-800 text-[11px]">Custom Gradient Editor</span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 uppercase">
+                  {gradientType} • {gradientAngle}°
+                </span>
+              </div>
+
+              {/* Live Gradient Preview Bar */}
+              <div
+                className="w-full h-10 rounded-lg border border-gray-200 shadow-inner transition-all flex items-center justify-center relative overflow-hidden"
+                style={{
+                  background:
+                    gradientType === 'linear'
+                      ? `linear-gradient(${gradientAngle}deg, ${gradientStops.map((s) => `${s.color} ${Math.round(s.offset * 100)}%`).join(', ')})`
+                      : `radial-gradient(circle, ${gradientStops.map((s) => `${s.color} ${Math.round(s.offset * 100)}%`).join(', ')})`,
+                }}
+              >
+                <div className="px-2 py-0.5 rounded-full bg-black/40 text-white backdrop-blur-xs text-[10px] font-semibold tracking-wider">
+                  Live Preview
                 </div>
               </div>
-            ))}
+
+              {/* Linear vs Radial Style Toggle & Swap Button */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 grid grid-cols-2 gap-1 bg-gray-100 p-0.5 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleGradientType('linear')}
+                    className={`py-1 text-[11px] font-semibold rounded-md transition ${
+                      gradientType === 'linear'
+                        ? 'bg-white text-blue-700 shadow-xs'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Linear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleGradientType('radial')}
+                    className={`py-1 text-[11px] font-semibold rounded-md transition ${
+                      gradientType === 'radial'
+                        ? 'bg-white text-blue-700 shadow-xs'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Radial
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSwapGradientColors}
+                  title="Reverse Color Stops"
+                  className="px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-gray-500" />
+                  <span className="text-[11px]">Flip</span>
+                </button>
+              </div>
+
+              {/* Color Stops Input Rows */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    Gradient Color Stops
+                  </span>
+                  {gradientStops.length < 3 && (
+                    <button
+                      type="button"
+                      onClick={handleAddMiddleStop}
+                      className="text-[10px] text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-0.5 transition"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Add Middle Color</span>
+                    </button>
+                  )}
+                </div>
+
+                {gradientStops.map((stop, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-2 p-2 bg-gray-50 border border-gray-200 rounded-lg"
+                  >
+                    <span className="text-[10px] font-bold text-gray-400 w-12 shrink-0">
+                      {idx === 0
+                        ? 'Start'
+                        : idx === gradientStops.length - 1
+                        ? 'End'
+                        : 'Mid'}
+                    </span>
+                    <input
+                      type="color"
+                      value={stop.color}
+                      onChange={(e) => handleUpdateStopColor(idx, e.target.value)}
+                      className="w-7 h-7 rounded-md border border-gray-300 cursor-pointer bg-white p-0.5 shrink-0"
+                    />
+                    <input
+                      type="text"
+                      value={stop.color.toUpperCase()}
+                      onChange={(e) => handleUpdateStopColor(idx, e.target.value)}
+                      className="flex-1 px-2 py-1 bg-white border border-gray-300 rounded-md font-mono text-xs uppercase text-gray-800 focus:outline-hidden focus:border-blue-500"
+                    />
+                    {gradientStops.length > 2 && idx === 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveStop(idx)}
+                        title="Remove Color Stop"
+                        className="p-1 text-gray-400 hover:text-red-500 transition"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Gradient Angle Slider (Only for Linear) */}
+              {gradientType === 'linear' && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex justify-between text-[10px] text-gray-500 font-medium">
+                    <span>Gradient Angle</span>
+                    <span className="font-bold text-gray-700">{gradientAngle}°</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="360"
+                    value={gradientAngle}
+                    onChange={(e) => handleCustomGradientAngleChange(Number(e.target.value))}
+                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                  {/* Quick Angle Chips */}
+                  <div className="flex items-center justify-between gap-1 pt-1">
+                    {[0, 45, 90, 135, 180, 270].map((deg) => (
+                      <button
+                        key={deg}
+                        type="button"
+                        onClick={() => handleCustomGradientAngleChange(deg)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border transition ${
+                          gradientAngle === deg
+                            ? 'bg-blue-50 border-blue-400 text-blue-700'
+                            : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+                        }`}
+                      >
+                        {deg}°
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Gradient Presets */}
-            <div className="space-y-2 pt-2 border-t border-gray-200">
+            <div className="space-y-2 pt-3 border-t border-gray-200">
               <div className="flex items-center justify-between">
-                <span className="font-semibold text-gray-700 text-[11px]">Designer Gradients</span>
-                <span className="text-[10px] text-gray-400">{gradientAngle}° Angle</span>
+                <span className="font-semibold text-gray-700 text-[11px]">Designer Gradient Presets</span>
+                <span className="text-[10px] text-gray-400">Click to customize</span>
               </div>
 
               <div className="grid grid-cols-4 gap-2">
@@ -434,22 +603,6 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                       )}
                   </button>
                 ))}
-              </div>
-
-              {/* Gradient Angle Slider */}
-              <div className="pt-2 space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-500 font-medium">
-                  <span>Gradient Direction Angle</span>
-                  <span>{gradientAngle}°</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="360"
-                  value={gradientAngle}
-                  onChange={(e) => handleCustomGradientAngleChange(Number(e.target.value))}
-                  className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                />
               </div>
             </div>
           </div>

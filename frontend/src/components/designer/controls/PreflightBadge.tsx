@@ -5,11 +5,14 @@ import {
   ShieldCheck,
   AlertTriangle,
   AlertCircle,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Scissors,
+  Shield,
+  Frame,
+  ExternalLink,
 } from 'lucide-react';
-import { PreflightReport, PreflightCheckItem } from '../utils/preflightCheck';
+import { PreflightReport, PreflightCheckItem, AlertMessage } from '../utils/preflightCheck';
 import { CanvasManager } from '../canvas/CanvasManager';
 
 interface PreflightBadgeProps {
@@ -27,6 +30,11 @@ export const PreflightBadge: React.FC<PreflightBadgeProps> = ({
     if (!canvasManager || !check.offendingObjectIds || check.offendingObjectIds.length === 0) return;
     const firstId = check.offendingObjectIds[0];
     canvasManager.selectObjectById(firstId);
+  };
+
+  const handleSelectAlert = (alert: AlertMessage) => {
+    if (!canvasManager || !alert.objectIds || alert.objectIds.length === 0) return;
+    canvasManager.selectObjectById(alert.objectIds[0]);
   };
 
   const getHeaderStyle = () => {
@@ -47,20 +55,16 @@ export const PreflightBadge: React.FC<PreflightBadgeProps> = ({
       };
     }
     return {
-      bg: 'bg-[#00875a]', // Exact Canva/Print Preflight Emerald Green
+      bg: 'bg-[#00875a]',
       title: 'READY FOR PRINT',
-      badge: 'Check',
+      badge: 'All Clear',
       badgeBg: 'bg-[#006644] text-white',
     };
   };
 
   const header = getHeaderStyle();
 
-  // Exactly match user screenshot layout:
-  // Col 1: Safe Margin, Bleed Area, Missing Images, Missing QR
-  // Col 2: Trim Line, Low Resolution, Missing Logo, Empty Text
-  const col1Ids = ['safe-margin', 'bleed-area', 'trim-line'];
-  // const col2Ids = [];
+  const col1Ids = ['safe-margin', 'trim-line', 'bleed-area'];
 
   const getCheckById = (id: string): PreflightCheckItem => {
     return report.checks.find((c) => c.id === id) || { id: id as any, label: id, status: 'pass' };
@@ -68,20 +72,17 @@ export const PreflightBadge: React.FC<PreflightBadgeProps> = ({
 
   const renderCheckRow = (item: PreflightCheckItem) => {
     const isPass = item.status === 'pass';
-    const isWarning = item.status === 'warning';
-    const isError = item.status === 'error';
 
     return (
       <div
         key={item.id}
         onClick={() => !isPass && handleSelectOffending(item)}
         title={item.message || item.label}
-        className={`flex items-center gap-2 py-1 px-1.5 rounded-lg transition text-[11px] font-semibold select-none ${!isPass
+        className={`flex items-center gap-2 py-1.5 px-2 rounded-lg transition text-[11px] font-semibold select-none ${!isPass
           ? 'bg-amber-50 text-amber-900 cursor-pointer hover:bg-amber-100 ring-1 ring-amber-200'
           : 'text-gray-800 hover:bg-gray-50'
           }`}
       >
-        {/* Exact Green Circular Checkmark or Alert icon */}
         {isPass ? (
           <div className="w-4 h-4 rounded-full border-[1.5px] border-[#00875a] flex items-center justify-center flex-shrink-0">
             <svg
@@ -94,7 +95,7 @@ export const PreflightBadge: React.FC<PreflightBadgeProps> = ({
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>
-        ) : isWarning ? (
+        ) : item.status === 'warning' ? (
           <div className="w-4 h-4 rounded-full border-[1.5px] border-amber-600 bg-amber-100 flex items-center justify-center flex-shrink-0">
             <span className="text-[10px] font-bold text-amber-700">!</span>
           </div>
@@ -105,12 +106,49 @@ export const PreflightBadge: React.FC<PreflightBadgeProps> = ({
         )}
 
         <span className="truncate tracking-tight">{item.label}</span>
+        {!isPass && item.offendingObjectIds && (
+          <span className="ml-auto text-[9px] font-bold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-md">
+            {item.offendingObjectIds.length}
+          </span>
+        )}
       </div>
     );
   };
 
+  const getAlertIcon = (alert: AlertMessage) => {
+    switch (alert.icon) {
+      case 'safe': return <Shield className="w-3.5 h-3.5 flex-shrink-0" />;
+      case 'trim': return <Scissors className="w-3.5 h-3.5 flex-shrink-0" />;
+      case 'bleed': return <Frame className="w-3.5 h-3.5 flex-shrink-0" />;
+      case 'overflow': return <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />;
+      default: return <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />;
+    }
+  };
+
+  const getAlertColors = (severity: AlertMessage['severity']) => {
+    switch (severity) {
+      case 'danger':
+        return 'bg-rose-50 border-rose-200 text-rose-900';
+      case 'warning':
+        return 'bg-amber-50 border-amber-200 text-amber-900';
+      case 'info':
+        return 'bg-blue-50 border-blue-200 text-blue-900';
+      default:
+        return 'bg-gray-50 border-gray-200 text-gray-900';
+    }
+  };
+
+  const getAlertIconColor = (severity: AlertMessage['severity']) => {
+    switch (severity) {
+      case 'danger': return 'text-rose-600';
+      case 'warning': return 'text-amber-600';
+      case 'info': return 'text-blue-600';
+      default: return 'text-gray-600';
+    }
+  };
+
   return (
-    <div className="w-[250px] bg-white rounded-2xl shadow-2xl border border-gray-200/90 overflow-hidden select-none animate-in fade-in slide-in-from-bottom-3 duration-200">
+    <div className="w-[280px] bg-white rounded-2xl shadow-2xl border border-gray-200/90 overflow-hidden select-none animate-in fade-in slide-in-from-bottom-3 duration-200">
       {/* Top Header Card Banner */}
       <div
         onClick={() => setIsExpanded(!isExpanded)}
@@ -139,32 +177,53 @@ export const PreflightBadge: React.FC<PreflightBadgeProps> = ({
         </div>
       </div>
 
-      {/* Expanded Checklist Body (Exactly 2 columns matching user reference) */}
+      {/* Expanded Body */}
       {isExpanded && (
-        <div className="p-3.5 bg-white space-y-3">
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {/* Column 1 */}
-            <div className="space-y-1">
-              {col1Ids.map((id) => renderCheckRow(getCheckById(id)))}
-            </div>
-
-            {/* Column 2 */}
-            {/* <div className="space-y-1">
-              {col2Ids.map((id) => renderCheckRow(getCheckById(id)))}
-            </div> */}
+        <div className="bg-white max-h-[360px] overflow-y-auto custom-scrollbar">
+          {/* Zone Check Summary */}
+          <div className="p-3 space-y-1 border-b border-gray-100">
+            {col1Ids.map((id) => renderCheckRow(getCheckById(id)))}
           </div>
 
-          {/* Advice alert footnote if any check failed */}
-          {report.issuesCount > 0 && (
-            <div className="pt-2 border-t border-gray-100 text-[10px] text-amber-800 bg-amber-50/70 p-2 rounded-lg leading-tight">
-              <span className="font-bold block mb-0.5">Print Quality Warning:</span>
-              {report.checks
-                .filter((c) => c.status !== 'pass')
-                .map((c) => (
-                  <div key={c.id}>
-                    • <strong>{c.label}:</strong> {c.message}
+          {/* Detailed Alert Messages per Object */}
+          {report.alertMessages.length > 0 && (
+            <div className="p-3 space-y-2">
+              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
+                Artwork Alerts ({report.alertMessages.length})
+              </span>
+
+              {report.alertMessages.map((alert, i) => (
+                <div
+                  key={i}
+                  onClick={() => handleSelectAlert(alert)}
+                  className={`p-2.5 rounded-xl border cursor-pointer transition hover:shadow-md ${getAlertColors(alert.severity)}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <div className={`mt-0.5 ${getAlertIconColor(alert.severity)}`}>
+                      {getAlertIcon(alert)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-bold leading-tight truncate">
+                        {alert.title}
+                      </p>
+                      <p className="text-[10px] mt-0.5 leading-snug opacity-80">
+                        {alert.description}
+                      </p>
+                    </div>
                   </div>
-                ))}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* All Clear Message */}
+          {report.alertMessages.length === 0 && report.isReadyForPrint && (
+            <div className="p-4 text-center space-y-1.5">
+              <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              </div>
+              <p className="text-xs font-bold text-gray-800">All artwork is within safe boundaries</p>
+              <p className="text-[10px] text-gray-500">Your design is ready for commercial print.</p>
             </div>
           )}
         </div>

@@ -142,6 +142,7 @@ export interface SelectedObjectState {
   curve?: number;
   strokeDashArray?: number[];
   strokeUniform?: boolean;
+  paintFirst?: 'fill' | 'stroke';
 }
 
 export interface UploadedAsset {
@@ -252,6 +253,9 @@ export type ActiveSidebarTab =
   | 'background'
   | 'settings'
   | 'border'
+  | 'position'
+  | 'color'
+  | 'effects'
   | null;
 
 export type AlignmentType =

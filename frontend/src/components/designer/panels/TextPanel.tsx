@@ -126,21 +126,22 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager }) => {
 
   const handleAddPreset = (preset: TypographyPreset) => {
     if (!canvasManager) return;
+    const canvasH = canvasManager.getDimensions().heightPx || 591;
 
-    // Add main title centered
-    canvasManager.addText({
-      text: preset.title,
-      fontSize: preset.titleSize,
-      fontFamily: preset.titleFont,
-      fontWeight: preset.titleWeight,
-      fill: preset.titleColor,
-      top: 180,
-      width: 550,
-      textAlign: 'center',
-    });
-
-    // Add subtitle if preset has one centered below
     if (preset.subtitle) {
+      // Add main title nicely positioned above vertical center
+      canvasManager.addText({
+        text: preset.title,
+        fontSize: preset.titleSize,
+        fontFamily: preset.titleFont,
+        fontWeight: preset.titleWeight,
+        fill: preset.titleColor,
+        top: Math.round(canvasH * 0.38),
+        width: 550,
+        textAlign: 'center',
+      });
+
+      // Add subtitle centered below
       setTimeout(() => {
         canvasManager.addText({
           text: preset.subtitle!,
@@ -148,11 +149,21 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager }) => {
           fontFamily: preset.subtitleFont || 'Inter, sans-serif',
           fontWeight: preset.subtitleWeight || 'normal',
           fill: preset.subtitleColor || '#64748b',
-          top: 255,
+          top: Math.round(canvasH * 0.52),
           width: 500,
           textAlign: 'center',
         });
       }, 50);
+    } else {
+      canvasManager.addText({
+        text: preset.title,
+        fontSize: preset.titleSize,
+        fontFamily: preset.titleFont,
+        fontWeight: preset.titleWeight,
+        fill: preset.titleColor,
+        width: 550,
+        textAlign: 'center',
+      });
     }
   };
 

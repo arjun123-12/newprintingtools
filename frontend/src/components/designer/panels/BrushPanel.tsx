@@ -245,7 +245,7 @@ export const BrushPanel: React.FC<BrushPanelProps> = ({ canvasManager }) => {
       </div>
 
       {/* Brush Size & Live Tip Preview */}
-      <div className="p-3.5 rounded-xl border border-gray-200 bg-white shadow-2xs space-y-3">
+      {/* <div className="p-3.5 rounded-xl border border-gray-200 bg-white shadow-2xs space-y-3">
         <div className="flex items-center justify-between">
           <label className="text-[11px] font-bold text-gray-700">Brush Size / Width</label>
           <span className="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
@@ -263,7 +263,7 @@ export const BrushPanel: React.FC<BrushPanelProps> = ({ canvasManager }) => {
             className="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
           />
 
-          {/* Live Brush Tip Visual Preview */}
+         
           <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
             <div
               className="rounded-full transition-all shadow-xs"
@@ -276,9 +276,9 @@ export const BrushPanel: React.FC<BrushPanelProps> = ({ canvasManager }) => {
             />
           </div>
         </div>
-      </div>
+      </div> */}
 
-      {/* Brush Opacity */}
+      {/*       
       <div className="p-3.5 rounded-xl border border-gray-200 bg-white shadow-2xs space-y-3">
         <div className="flex items-center justify-between">
           <label className="text-[11px] font-bold text-gray-700">Brush Opacity / Alpha</label>
@@ -296,10 +296,10 @@ export const BrushPanel: React.FC<BrushPanelProps> = ({ canvasManager }) => {
           onChange={(e) => handleUpdateSetting('opacity', Number(e.target.value))}
           className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
         />
-      </div>
+      </div> */}
 
-      {/* Stroke Line Cap & Join */}
-      <div className="p-3.5 rounded-xl border border-gray-200 bg-white shadow-2xs space-y-2.5">
+
+      {/* <div className="p-3.5 rounded-xl border border-gray-200 bg-white shadow-2xs space-y-2.5">
         <label className="text-[11px] font-bold text-gray-700 block">Stroke End Caps</label>
         <div className="grid grid-cols-3 gap-1.5">
           {(['round', 'square', 'butt'] as const).map((cap) => (
@@ -316,16 +316,16 @@ export const BrushPanel: React.FC<BrushPanelProps> = ({ canvasManager }) => {
             </button>
           ))}
         </div>
-      </div>
+      </div> */}
 
-      {/* CMYK Color Picker for Brush */}
-      <div className="border-t border-gray-100 pt-3">
+
+      {/* <div className="border-t border-gray-100 pt-3">
         <ColorPicker
           label="Brush Print Ink (CMYK)"
           value={settings.color}
           onChange={(hex) => handleUpdateSetting('color', hex)}
         />
-      </div>
+      </div> */}
     </div>
   );
 };

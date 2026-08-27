@@ -23,6 +23,9 @@ import { BrushPanel } from './panels/BrushPanel';
 import { LayersPanel } from './panels/LayersPanel';
 import { BackgroundPanel } from './panels/BackgroundPanel';
 import { BorderPanel } from './panels/BorderPanel';
+import { PositionPanel } from './panels/PositionPanel';
+import { ColorPanel } from './panels/ColorPanel';
+import { TextEffectsPanel } from './panels/TextEffectsPanel';
 
 interface DesignerSidebarProps {
   activeTab: ActiveSidebarTab;
@@ -76,6 +79,7 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   const getPanelTitle = () => {
     if (activeTab === 'photos') return 'Stock Photos';
     if (activeTab === 'draw') return 'Illustrator Draw';
+    if (activeTab === 'border') return 'Stroke';
     return activeTab;
   };
 
@@ -134,7 +138,7 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
       </aside>
 
       {/* Expandable Drawer Panel */}
-      {activeTab && (
+      {activeTab && activeTab !== 'draw' && (
         <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full overflow-hidden shadow-xl relative animate-in slide-in-from-left duration-200">
           {/* Drawer Header */}
           <div className="h-12 border-b border-gray-200 px-4 flex items-center justify-between bg-gray-50/50">
@@ -167,7 +171,33 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
               <LayersPanel canvasManager={canvasManager} selected={selected} />
             )}
             {activeTab === 'border' && (
-              <BorderPanel canvasManager={canvasManager} selected={selected} />
+              <BorderPanel
+                canvasManager={canvasManager}
+                selected={selected}
+                onClose={() => onSelectTab(null)}
+              />
+            )}
+            {activeTab === 'position' && (
+              <PositionPanel
+                canvasManager={canvasManager}
+                selected={selected}
+                onClose={() => onSelectTab(null)}
+              />
+            )}
+            {activeTab === 'color' && (
+              <ColorPanel
+                canvasManager={canvasManager}
+                selected={selected}
+                onClose={() => onSelectTab(null)}
+              />
+            )}
+            {activeTab === 'effects' && (
+              <div className="p-4">
+                <TextEffectsPanel
+                  canvasManager={canvasManager}
+                  selected={selected!}
+                />
+              </div>
             )}
           </div>
         </div>

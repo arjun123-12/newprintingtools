@@ -89,7 +89,7 @@ export const RotationBadge: React.FC<RotationBadgeProps> = ({
     }, 1200);
 
     return () => clearTimeout(timer);
-  }, [selected?.angle]);
+  }, [selected, canvasManager]);
 
   if (!rotationState || !rotationState.visible) return null;
 

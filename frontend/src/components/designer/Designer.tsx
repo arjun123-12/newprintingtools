@@ -15,10 +15,11 @@ import { DesignerCanvas } from './DesignerCanvas';
 import { DesignerProperties } from './DesignerProperties';
 import { DesignerBottomBar } from './DesignerBottomBar';
 import { designerService } from './services/designerService';
-import { exportHighResolutionImage } from './services/exportService';
+import { exportHighResolutionImage, exportVectorPdf } from './services/exportService';
 import { exportLayeredPsd } from './services/psdExportService';
 import { preloadPopularFonts } from './utils/fonts';
 import { PreflightReport } from './utils/preflightCheck';
+import { FloatingDrawToolbar } from './toolbar/FloatingDrawToolbar';
 import { PreflightBadge } from './controls/PreflightBadge';
 import { ArtworkPreviewModal } from './controls/ArtworkPreviewModal';
 import { CustomBannerSizeModal } from './controls/CustomBannerSizeModal';
@@ -35,7 +36,7 @@ const DEFAULT_DOCUMENT: DocumentSettings = {
   height: 50,
   unit: 'mm',
   dpi: 300,
-  bleed: 3,
+  bleed: 5,
   safeArea: 3,
   backgroundColor: '#ffffff',
   showGuides: true,
@@ -62,7 +63,7 @@ export default function Designer({
   const [isPanMode, setIsPanMode] = useState<boolean>(false);
   const [activeSidebarTab, setActiveSidebarTab] = useState<ActiveSidebarTab>(null);
   const [selected, setSelected] = useState<SelectedObjectState | null>(null);
-  const [isPropertiesOpen, setIsPropertiesOpen] = useState<boolean>(false);
+  const [isPropertiesOpen, setIsPropertiesOpen] = useState<boolean>(true);
   const [showGuides, setShowGuides] = useState<boolean>(true);
   const [preflightReport, setPreflightReport] = useState<PreflightReport | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
@@ -70,6 +71,7 @@ export default function Designer({
   const [isAutoFit, setIsAutoFit] = useState<boolean>(true);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
+  const [showPreflightAlert, setShowPreflightAlert] = useState<boolean>(false);
 
   const canvasManagerRef = useRef<CanvasManager | null>(null);
   const dimensionsRef = useRef<CanvasDimensions>(dimensions);
@@ -195,6 +197,20 @@ export default function Designer({
   }, [designName, documentSettings, productId]);
 
   // Export handlers
+  const handleExportPdf = useCallback(async () => {
+    if (!canvasManagerRef.current) return;
+    try {
+      await exportVectorPdf(
+        canvasManagerRef.current,
+        documentSettings,
+        { filename: `${(documentSettings.name || 'artwork').toLowerCase().replace(/[^a-z0-9_-]/g, '_')}_vector.pdf` }
+      );
+    } catch (err) {
+      console.error('Vector PDF Export failed:', err);
+      alert('Could not export Vector PDF file.');
+    }
+  }, [documentSettings]);
+
   const handleExportPng = useCallback(async () => {
     if (!canvasManagerRef.current) return;
     try {
@@ -367,6 +383,35 @@ export default function Designer({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleFitCanvas, handleSaveDraft, handleToggleGuides, handleTogglePanMode, isPanMode, isPreviewOpen, isCustomSizeOpen]);
 
+  useEffect(() => {
+    const hasAlert =
+      !!preflightReport?.hasBleedViolation ||
+      !!preflightReport?.hasTrimLineViolation ||
+      !!preflightReport?.hasSafeZoneViolation;
+
+    if (!hasAlert) {
+      setShowPreflightAlert(false);
+      return;
+    }
+
+    // Show alert immediately
+    setShowPreflightAlert(true);
+
+    // Hide after 2 seconds
+    const timer = window.setTimeout(() => {
+      setShowPreflightAlert(false);
+    }, 2000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    preflightReport?.hasBleedViolation,
+    preflightReport?.hasTrimLineViolation,
+    preflightReport?.hasSafeZoneViolation,
+  ]);
+
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col h-screen w-screen max-h-screen max-w-screen overflow-hidden bg-white text-gray-900 font-sans select-none">
       {/* Top Toolbar */}
@@ -394,6 +439,7 @@ export default function Designer({
         onSaveVersion={handleSaveVersion}
         onOpenPreview={() => setIsPreviewOpen(true)}
         onOpenCustomSize={() => setIsCustomSizeOpen(true)}
+        onExportPdf={handleExportPdf}
         onExportPng={handleExportPng}
         onExportJpg={handleExportJpg}
         onExportPsd={handleExportPsd}
@@ -411,14 +457,46 @@ export default function Designer({
           selected={selected}
         />
 
-        {/* Center Canvas Area with Live Safe Margin Banner */}
+        {/* Center Canvas Area with Live Zone Alert Banners */}
         <div className="relative flex-1 h-full w-full min-h-0 min-w-0 overflow-hidden flex flex-col">
-          {preflightReport?.hasSafeZoneViolation && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-amber-500/95 text-white px-4 py-1.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold backdrop-blur-xs border border-amber-400 animate-in fade-in slide-in-from-top-2 duration-200">
-              <AlertTriangle className="w-4 h-4 text-amber-100 flex-shrink-0" />
-              <span>Cutting Area Alert: This area may be cut during printing. Please do not place important text or elements here.</span>
+          
+          {/* Floating Draw Toolbar */}
+          {activeSidebarTab === 'draw' && (
+            <FloatingDrawToolbar
+              canvasManager={canvasManagerRef.current}
+              onClose={() => setActiveSidebarTab(null)}
+              onSelectTab={setActiveSidebarTab}
+            />
+          )}
+
+          {/* Bleed Overflow Alert (Most Critical - Red) */}
+          {showPreflightAlert && preflightReport?.hasBleedViolation && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-rose-600/95 text-white px-4 py-1.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold backdrop-blur-xs border border-rose-500 animate-in fade-in slide-in-from-top-2 duration-200 max-w-xl">
+              <AlertTriangle className="w-4 h-4 text-rose-200 flex-shrink-0" />
+              <span>Bleed Overflow: Elements extend beyond the printable bleed area. Content outside the red line will be completely lost.</span>
             </div>
           )}
+
+          {/* Trim Line Alert (Warning - Dark/Black) */}
+          {showPreflightAlert &&
+            !preflightReport?.hasBleedViolation &&
+            preflightReport?.hasTrimLineViolation && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 text-white px-4 py-1.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold backdrop-blur-xs border border-gray-700 animate-in fade-in slide-in-from-top-2 duration-200 max-w-xl">
+                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                <span>Trim Line Alert: Elements cross the dark cut line. The printer&apos;s guillotine will slice through these parts.</span>
+              </div>
+            )}
+
+          {/* Safe Zone Alert (Info - Amber) */}
+          {showPreflightAlert &&
+            !preflightReport?.hasBleedViolation &&
+            !preflightReport?.hasTrimLineViolation &&
+            preflightReport?.hasSafeZoneViolation && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-amber-500/95 text-white px-4 py-1.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold backdrop-blur-xs border border-amber-400 animate-in fade-in slide-in-from-top-2 duration-200 max-w-xl">
+                <AlertTriangle className="w-4 h-4 text-amber-100 flex-shrink-0" />
+                <span>Safe Zone Alert: Elements are outside the safe margin. Text and logos here may be cut off during trimming.</span>
+              </div>
+            )}
 
           <DesignerCanvas
             zoom={zoom}
@@ -430,6 +508,7 @@ export default function Designer({
             showRulers={true}
             selected={selected}
             onSelectSidebarTab={setActiveSidebarTab}
+            activeSidebarTab={activeSidebarTab}
           />
 
           {/* Floating Ready for Print Preflight Checklist Card in Bottom-Right */}
@@ -448,8 +527,10 @@ export default function Designer({
           <DesignerProperties
             selected={selected}
             documentSettings={documentSettings}
+            dimensions={dimensions}
             onUpdateDocumentSettings={handleUpdateDocumentSettings}
             canvasManager={canvasManagerRef.current}
+            onOpenPreview={() => setIsPreviewOpen(true)}
             onClose={() => setIsPropertiesOpen(false)}
           />
         )}
@@ -478,6 +559,7 @@ export default function Designer({
         dimensions={dimensions}
         canvasManager={canvasManagerRef.current}
         preflightReport={preflightReport}
+        onExportPdf={handleExportPdf}
         onExportPng={handleExportPng}
         onExportJpg={handleExportJpg}
         onExportPsd={handleExportPsd}

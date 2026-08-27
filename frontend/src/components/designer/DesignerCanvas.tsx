@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CanvasDimensions, SelectedObjectState, ActiveSidebarTab } from "@/types/designer";
 import { CanvasManager } from "./canvas/CanvasManager";
 import { Ruler } from "./canvas/Ruler";
@@ -22,6 +22,7 @@ export interface DesignerCanvasProps {
   onContainerResize?: (width: number, height: number) => void;
   showRulers?: boolean;
   onSelectSidebarTab?: (tab: ActiveSidebarTab) => void;
+  activeSidebarTab?: ActiveSidebarTab;
 }
 
 export function DesignerCanvas({
@@ -34,9 +35,41 @@ export function DesignerCanvas({
   onContainerResize,
   showRulers = true,
   onSelectSidebarTab,
+  activeSidebarTab,
 }: DesignerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const paperRef = useRef<HTMLDivElement | null>(null);
+  const [isEraserActive, setIsEraserActive] = useState<boolean>(false);
+  const [eraserSize, setEraserSize] = useState<number>(20);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number; visible: boolean }>({
+    x: 0,
+    y: 0,
+    visible: false,
+  });
+
+  useEffect(() => {
+    if (!canvasManager) return;
+
+    const checkEraser = () => {
+      const isDrawing = canvasManager.isDrawingMode();
+      const settings = canvasManager.getBrushSettings();
+      setIsEraserActive(isDrawing && settings.tool === 'eraser');
+      setEraserSize(settings.size || 20);
+    };
+
+    checkEraser();
+
+    const unsubMode = canvasManager.onDrawingModeChange(() => checkEraser());
+    const unsubSettings = canvasManager.onBrushSettingsChange((s) => {
+      setIsEraserActive(canvasManager.isDrawingMode() && s.tool === 'eraser');
+      setEraserSize(s.size || 20);
+    });
+
+    return () => {
+      unsubMode();
+      unsubSettings();
+    };
+  }, [canvasManager]);
 
   useEffect(() => {
     const paperEl = paperRef.current;
@@ -58,12 +91,11 @@ export function DesignerCanvas({
     // Attach ResizeObserver to keep canvas container informed of true viewport size
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined") {
-      resizeObserver = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-          const { width, height } = entry.contentRect;
-          if (width > 0 && height > 0 && onContainerResize) {
-            onContainerResize(width, height);
-          }
+      resizeObserver = new ResizeObserver(() => {
+        const width = containerEl.clientWidth;
+        const height = containerEl.clientHeight;
+        if (width > 0 && height > 0 && onContainerResize) {
+          onContainerResize(width, height);
         }
       });
       resizeObserver.observe(containerEl);
@@ -113,6 +145,19 @@ export function DesignerCanvas({
       ref={containerRef}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
+      onMouseMove={(e) => {
+        if (isEraserActive) {
+          setMousePos({ x: e.clientX, y: e.clientY, visible: true });
+        }
+      }}
+      onMouseEnter={(e) => {
+        if (isEraserActive) {
+          setMousePos({ x: e.clientX, y: e.clientY, visible: true });
+        }
+      }}
+      onMouseLeave={() => {
+        setMousePos((prev) => ({ ...prev, visible: false }));
+      }}
       className="relative flex-1 h-full w-full min-h-0 min-w-0 overflow-hidden bg-[#eef1f6] bg-[radial-gradient(#cbd5e1_1.2px,transparent_1.2px)] [background-size:20px_20px] select-none flex items-center justify-center p-4"
     >
       {/* Floating Canva Contextual Toolbar (Top of Workspace) */}
@@ -121,7 +166,21 @@ export function DesignerCanvas({
         canvasManager={canvasManager || null}
         zoom={zoom}
         onSelectSidebarTab={onSelectSidebarTab}
+        activeSidebarTab={activeSidebarTab}
       />
+
+      {/* Floating Canva Eraser Cursor Indicator */}
+      {isEraserActive && mousePos.visible && (
+        <div
+          className="fixed pointer-events-none z-50 rounded-full border-2 border-blue-600 bg-blue-500/15 -translate-x-1/2 -translate-y-1/2 shadow-xs transition-none"
+          style={{
+            left: mousePos.x,
+            top: mousePos.y,
+            width: `${Math.max(eraserSize * zoom, 8)}px`,
+            height: `${Math.max(eraserSize * zoom, 8)}px`,
+          }}
+        />
+      )}
 
       {/* Workspace Canvas Container with Rulers */}
       <div className="relative flex-shrink-0">

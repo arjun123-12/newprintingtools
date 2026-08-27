@@ -23,43 +23,38 @@ import {
   MousePointer,
   Sparkles,
   RotateCw,
+  Wallpaper,
 } from 'lucide-react';
 import { SelectedObjectState, BrushSettings, BrushType, ActiveSidebarTab } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { FontPickerPopover } from './FontPickerPopover';
 import { TextSpacingPopover } from './TextSpacingPopover';
 import { TransparencyPopover } from './TransparencyPopover';
-import { EffectsPopover } from './EffectsPopover';
 import { PositionPopover } from './PositionPopover';
 import { RotatePopover } from './RotatePopover';
 import { MoreMenuPopover } from './MoreMenuPopover';
 import { BrushTypePopover, BRUSH_TOOLS_LIST } from './BrushTypePopover';
 import { BrushSizePopover } from './BrushSizePopover';
 import { BrushCapsPopover } from './BrushCapsPopover';
-import { BorderStylePopover } from './BorderStylePopover';
-import { ColorPicker } from '../controls/ColorPicker';
 
 interface ContextualToolbarProps {
   selected: SelectedObjectState | null;
   canvasManager: CanvasManager | null;
   zoom: number;
   onSelectSidebarTab?: (tab: ActiveSidebarTab) => void;
+  activeSidebarTab?: ActiveSidebarTab;
 }
 
 type ActivePopoverType =
   | 'font'
-  | 'color'
-  | 'strokeColor'
   | 'spacing'
   | 'opacity'
   | 'effects'
-  | 'position'
   | 'rotate'
   | 'more'
   | 'brushTool'
   | 'brushSize'
   | 'brushCaps'
-  | 'borderStyle'
   | null;
 
 export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
@@ -67,6 +62,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   canvasManager,
   zoom,
   onSelectSidebarTab,
+  activeSidebarTab,
 }) => {
   const [activePopover, setActivePopover] = useState<ActivePopoverType>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -117,7 +113,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
     setActivePopover(null);
   }, [selected?.id, selected?.type]);
 
-  if (!selected && !isDrawing) return null;
+  const isCanvasBackgroundActive = !selected && !isDrawing;
 
   const isText =
     selected &&
@@ -158,8 +154,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       selected.fontWeight === '700');
   const isItalic = selected && selected.fontStyle === 'italic';
   const isUnderline = selected && Boolean(selected.underline);
-  const textAlign = (selected && selected.textAlign) || 'left';
-  const fontSize = (selected && selected.fontSize) || 32;
+  const isLinethrough = selected && Boolean(selected.linethrough);
+  const textAlign = selected?.textAlign || 'left';
+  const fontSize = selected?.fontSize || 32;
 
   const handleUpdate = <K extends keyof SelectedObjectState>(
     prop: K,
@@ -169,32 +166,15 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
     canvasManager.updateSelectedProperty(prop, value);
   };
 
-  const handleUpdateBrushSetting = <K extends keyof BrushSettings>(
-    key: K,
-    val: BrushSettings[K]
-  ) => {
-    if (!canvasManager) return;
-    const updated = {
-      ...brushSettings,
-      [key]: val,
-    };
-    setBrushSettings(updated);
-    canvasManager.setBrushSettings(updated);
-  };
-
   const handleSelectBrushTool = (tool: BrushType) => {
     if (!canvasManager) return;
-    const preset = BRUSH_TOOLS_LIST.find((item) => item.id === tool);
-    const updated: BrushSettings = {
-      ...brushSettings,
-      tool,
-      size: preset?.defaultSize ?? brushSettings.size,
-      opacity: preset?.defaultOpacity ?? brushSettings.opacity,
-    };
-    setBrushSettings(updated);
-    canvasManager.setBrushSettings(updated);
-    canvasManager.setDrawingMode(true);
-    setIsDrawing(true);
+    canvasManager.setBrushSettings({ tool });
+    setActivePopover(null);
+  };
+
+  const handleUpdateBrushSetting = (key: keyof BrushSettings, val: any) => {
+    if (!canvasManager) return;
+    canvasManager.setBrushSettings({ [key]: val });
   };
 
   const togglePopover = (popover: ActivePopoverType) => {
@@ -210,15 +190,61 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
     BRUSH_TOOLS_LIST.find((t) => t.id === brushSettings.tool) || BRUSH_TOOLS_LIST[0];
   const CurrentBrushIcon = currentBrushPreset.icon;
 
+  const currentCanvasBg = (canvasManager?.getBackgroundSettings()?.color as string) || '#ffffff';
+
   return (
     <div
       ref={toolbarRef}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-2xl shadow-xl border border-gray-200/90 text-gray-700 animate-in fade-in slide-in-from-top-2 duration-150 select-none max-w-[95vw] overflow-visible"
+      className="absolute top-2 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-2xl shadow-xl border border-gray-200/90 text-gray-700 animate-in fade-in slide-in-from-top-2 duration-150 select-none max-w-[95vw] overflow-visible"
     >
       {/* ================================================================ */}
-      {/* 0. ACTIVE DRAWING MODE CONTROLS (Illustrator Draw / Brush)       */}
+      {/* 0A. CANVAS BACKGROUND CONTROLS (When No Element Is Selected)     */}
+      {/* ================================================================ */}
+      {isCanvasBackgroundActive && (
+        <>
+          {/* Canvas Background Colour Button (Canva style - opens in sidebar) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
+              }
+            }}
+            title="Canvas Background Colour (Open in Sidebar)"
+            className={`h-8 px-2.5 rounded-xl border flex items-center gap-2 text-xs font-semibold transition ${activeSidebarTab === 'color'
+                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-2xs font-bold'
+                : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
+              }`}
+          >
+            <div
+              className="w-4 h-4 rounded-md border border-gray-300 shadow-2xs flex-shrink-0"
+              style={{ backgroundColor: currentCanvasBg }}
+            />
+            <span className="text-xs font-bold text-gray-800">Background Colour</span>
+            <ChevronDown className="w-3 h-3 text-gray-400" />
+          </button>
+
+          <div className="h-4 w-px bg-gray-200 mx-0.5" />
+
+          {/* Button to open Background / Photos Side Panel */}
+          {onSelectSidebarTab && (
+            <button
+              type="button"
+              onClick={() => onSelectSidebarTab('background')}
+              title="Browse Photo & Gradient Backgrounds"
+              className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 flex items-center gap-1.5 transition"
+            >
+              <Wallpaper className="w-3.5 h-3.5 text-blue-600" />
+              <span>Backgrounds</span>
+            </button>
+          )}
+        </>
+      )}
+
+      {/* ================================================================ */}
+      {/* 0B. ACTIVE DRAWING MODE CONTROLS (Illustrator Draw / Brush)      */}
       {/* ================================================================ */}
       {isDrawing && (
         <>
@@ -228,11 +254,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('brushTool')}
               title="Select Brush Type"
-              className={`h-8 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
-                activePopover === 'brushTool'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-2xs'
-                  : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
-              }`}
+              className={`h-8 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${activePopover === 'brushTool'
+                ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-2xs'
+                : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
+                }`}
             >
               <CurrentBrushIcon className="w-3.5 h-3.5 text-blue-600" />
               <span className="truncate max-w-[110px]">{currentBrushPreset.name}</span>
@@ -293,35 +318,25 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             )}
           </div>
 
-          {/* Brush Print Color (Ink / CMYK / Hex) */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => togglePopover('color')}
-              title="Brush Ink Color (CMYK & HEX)"
-              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
-                activePopover === 'color'
-                  ? 'bg-blue-50 border-blue-400'
-                  : 'bg-white border-gray-200 hover:bg-gray-50'
+          {/* Brush Print Color (Canva style - opens in sidebar) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
+              }
+            }}
+            title="Brush Ink Colour (Open in Sidebar)"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
+                ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
+                : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
-            >
-              <div
-                className="w-4 h-4 rounded-full border border-gray-300 shadow-2xs flex-shrink-0"
-                style={{ backgroundColor: brushSettings.color || '#2563eb' }}
-              />
-              <span className="hidden sm:inline text-gray-700">Ink Color</span>
-            </button>
-
-            {activePopover === 'color' && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-                <ColorPicker
-                  label="Brush Print Ink (CMYK & RGB)"
-                  value={brushSettings.color || '#2563eb'}
-                  onChange={(color) => handleUpdateBrushSetting('color', color)}
-                />
-              </div>
-            )}
-          </div>
+          >
+            <div
+              className="w-5 h-5 rounded-full border border-gray-300 shadow-2xs flex-shrink-0"
+              style={{ backgroundColor: brushSettings.color || '#2563eb' }}
+            />
+          </button>
 
           {/* Brush Opacity / Alpha Popover */}
           <div className="relative">
@@ -329,11 +344,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('opacity')}
               title="Brush Opacity / Alpha"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${
-                activePopover === 'opacity'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'opacity'
+                ? 'bg-blue-50 border-blue-400 text-blue-700'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
                 <rect x="0" y="0" width="4" height="4" fill="#64748b" />
@@ -362,11 +376,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('brushCaps')}
               title="Stroke End Caps & Joins"
-              className={`h-8 px-2 rounded-xl border text-[11px] font-semibold capitalize transition ${
-                activePopover === 'brushCaps'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+              className={`h-8 px-2 rounded-xl border text-[11px] font-semibold capitalize transition ${activePopover === 'brushCaps'
+                ? 'bg-blue-50 border-blue-400 text-blue-700'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
             >
               <span>{brushSettings.strokeLineCap || 'round'}</span>
             </button>
@@ -413,11 +426,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('font')}
               title="Font Family"
-              className={`h-8 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
-                activePopover === 'font'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
-              }`}
+              className={`h-8 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${activePopover === 'font'
+                ? 'bg-blue-50 border-blue-400 text-blue-700'
+                : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
+                }`}
             >
               <span className="truncate max-w-[100px]">
                 {cleanFontName(selected.fontFamily)}
@@ -465,46 +477,36 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </button>
           </div>
 
-          {/* Text Color Button with Color Indicator Bar */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => togglePopover('color')}
-              title="Text Color"
-              className={`h-8 px-2 rounded-xl border flex flex-col items-center justify-center transition ${
-                activePopover === 'color'
-                  ? 'bg-blue-50 border-blue-400'
-                  : 'bg-white border-gray-200 hover:bg-gray-50'
+          {/* Text Color (Canva Style - Pure A swatch opening in sidebar) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
+              }
+            }}
+            title="Text Colour (Open in Sidebar)"
+            className={`h-8 px-2 rounded-xl border flex flex-col items-center justify-center transition ${activeSidebarTab === 'color'
+                ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
+                : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
-            >
-              <span className="text-xs font-black text-gray-900 leading-none">A</span>
-              <span
-                className="w-4 h-1 rounded-full mt-0.5"
-                style={{ backgroundColor: selected.fill || '#0f172a' }}
-              />
-            </button>
-
-            {activePopover === 'color' && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-                <ColorPicker
-                  label="Text Color"
-                  value={selected.fill || '#0f172a'}
-                  onChange={(color) => handleUpdate('fill', color)}
-                />
-              </div>
-            )}
-          </div>
+          >
+            <span className="text-xs font-black text-gray-900 leading-none">A</span>
+            <span
+              className="w-4 h-1 rounded-full mt-0.5"
+              style={{ backgroundColor: selected.fill || '#0f172a' }}
+            />
+          </button>
 
           {/* Bold */}
           <button
             type="button"
             onClick={() => handleUpdate('fontWeight', isBold ? 'normal' : 'bold')}
             title="Bold (Ctrl+B)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${
-              isBold
-                ? 'bg-blue-50 border-blue-300 text-blue-600 font-bold'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-            }`}
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${isBold
+              ? 'bg-blue-50 border-blue-300 text-blue-600 font-bold'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
           >
             <Bold className="w-3.5 h-3.5" />
           </button>
@@ -514,11 +516,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => handleUpdate('fontStyle', isItalic ? 'normal' : 'italic')}
             title="Italic (Ctrl+I)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${
-              isItalic
-                ? 'bg-blue-50 border-blue-300 text-blue-600'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-            }`}
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${isItalic
+              ? 'bg-blue-50 border-blue-300 text-blue-600'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
           >
             <Italic className="w-3.5 h-3.5" />
           </button>
@@ -528,11 +529,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => handleUpdate('underline', !isUnderline)}
             title="Underline (Ctrl+U)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${
-              isUnderline
-                ? 'bg-blue-50 border-blue-300 text-blue-600'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-            }`}
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${isUnderline
+              ? 'bg-blue-50 border-blue-300 text-blue-600'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
           >
             <Underline className="w-3.5 h-3.5" />
           </button>
@@ -592,11 +592,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('spacing')}
               title="Letter & Line Spacing"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${
-                activePopover === 'spacing'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'spacing'
+                ? 'bg-blue-50 border-blue-400 text-blue-700'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
             >
               <ArrowUpDown className="w-3.5 h-3.5" />
             </button>
@@ -612,43 +611,26 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             )}
           </div>
 
-          {/* Text Border / Outline Button */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                if (onSelectSidebarTab) {
-                  onSelectSidebarTab('border');
-                  setActivePopover(null);
-                } else {
-                  togglePopover('borderStyle');
-                }
-              }}
-              title="Text Border & Outline"
-              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
-                activePopover === 'borderStyle'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+          {/* Text Border / Outline Button (Canva Icon opening sidebar) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
+              }
+            }}
+            title="Stroke (Open in Sidebar)"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
+                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
-            >
-              <div className="w-3.5 h-3.5 rounded-xs border-2 border-current" />
-              <span>Border</span>
-            </button>
-
-            {activePopover === 'borderStyle' && (
-              <BorderStylePopover
-                strokeWidth={selected.strokeWidth || 0}
-                stroke={selected.stroke || '#000000'}
-                rx={selected.rx || 0}
-                strokeDashArray={selected.strokeDashArray}
-                showCornerRadius={false}
-                onStrokeWidthChange={(w) => handleUpdate('strokeWidth', w)}
-                onStrokeDashArrayChange={(dash) => handleUpdate('strokeDashArray', dash as any)}
-                onStrokeColorChange={(c) => handleUpdate('stroke', c)}
-                onClose={() => setActivePopover(null)}
-              />
-            )}
-          </div>
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
+              <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
+              <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
+            </svg>
+          </button>
         </>
       )}
 
@@ -662,14 +644,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => handleUpdate('flipX', !selected.flipX)}
             title="Flip Horizontal"
-            className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
-              selected.flipX
-                ? 'bg-blue-50 border-blue-300 text-blue-600'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-            }`}
+            className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${selected.flipX
+              ? 'bg-blue-50 border-blue-300 text-blue-600'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
           >
             <FlipHorizontal className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Flip H</span>
+            <span className="hidden sm:inline"></span>
           </button>
 
           {/* Flip Vertical */}
@@ -677,54 +658,54 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => handleUpdate('flipY', !selected.flipY)}
             title="Flip Vertical"
-            className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
-              selected.flipY
-                ? 'bg-blue-50 border-blue-300 text-blue-600'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-            }`}
+            className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${selected.flipY
+              ? 'bg-blue-50 border-blue-300 text-blue-600'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
           >
             <FlipVertical className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Flip V</span>
+            <span className="hidden sm:inline"></span>
           </button>
 
-          {/* Border & Corner Rounding Button for Images */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                if (onSelectSidebarTab) {
-                  onSelectSidebarTab('border');
-                  setActivePopover(null);
-                } else {
-                  togglePopover('borderStyle');
-                }
-              }}
-              title="Border Style & Corner Rounding"
-              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
-                activePopover === 'borderStyle'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+          {/* Canva Border Style Icon Button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
+              }
+            }}
+            title="Border & Corner Rounding (Open in Sidebar)"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
+                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
-            >
-              <div className="w-3.5 h-3.5 rounded-md border-2 border-current" />
-              <span>Border</span>
-            </button>
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
+              <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
+              <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
+            </svg>
+          </button>
 
-            {activePopover === 'borderStyle' && (
-              <BorderStylePopover
-                strokeWidth={selected.strokeWidth || 0}
-                stroke={selected.stroke || '#000000'}
-                rx={selected.rx || 0}
-                strokeDashArray={selected.strokeDashArray}
-                showCornerRadius={true}
-                onStrokeWidthChange={(w) => handleUpdate('strokeWidth', w)}
-                onStrokeDashArrayChange={(dash) => handleUpdate('strokeDashArray', dash as any)}
-                onCornerRadiusChange={(r) => handleUpdate('rx', r)}
-                onStrokeColorChange={(c) => handleUpdate('stroke', c)}
-                onClose={() => setActivePopover(null)}
-              />
-            )}
-          </div>
+          {/* Canva Corner Rounding Icon Button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
+              }
+            }}
+            title="Corner Rounding (Open in Sidebar)"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.rx || 0) > 0
+                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 20V12a8 8 0 0 1 8-8h8" />
+            </svg>
+          </button>
         </>
       )}
 
@@ -733,104 +714,67 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       {/* ================================================================ */}
       {!isDrawing && isShape && selected && (
         <>
-          {/* Fill Color */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => togglePopover('color')}
-              title="Fill Color"
-              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
-                activePopover === 'color'
-                  ? 'bg-blue-50 border-blue-400'
-                  : 'bg-white border-gray-200 hover:bg-gray-50'
+          {/* Fill Color Swatch (Canva Style - Pure Swatch Tile opening in sidebar) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
+              }
+            }}
+            title="Shape Colour (Open in Sidebar)"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
+                ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
+                : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
-            >
-              <div
-                className="w-4 h-4 rounded-md border border-gray-300"
-                style={{ backgroundColor: selected.fill || '#2563eb' }}
-              />
-              <span>Color</span>
-            </button>
+          >
+            <div
+              className="w-5 h-5 rounded-md border border-gray-300 shadow-2xs"
+              style={{ backgroundColor: selected.fill || '#2563eb' }}
+            />
+          </button>
 
-            {activePopover === 'color' && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-                <ColorPicker
-                  label="Shape Fill Color"
-                  value={selected.fill || '#2563eb'}
-                  onChange={(color) => handleUpdate('fill', color)}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Border / Stroke Color */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => togglePopover('strokeColor')}
-              title="Border Color"
-              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
-                activePopover === 'strokeColor'
-                  ? 'bg-blue-50 border-blue-400'
-                  : 'bg-white border-gray-200 hover:bg-gray-50'
+          {/* Canva Border Style Icon Button (Weight, Line Style & Color) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
+              }
+            }}
+            title="Border & Corner (Open in Sidebar)"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
+                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
-            >
-              <div
-                className="w-4 h-4 rounded-md border-2 border-current"
-                style={{ color: selected.stroke || '#000000' }}
-              />
-              <span>Border Color</span>
-            </button>
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
+              <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
+              <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
+            </svg>
+          </button>
 
-            {activePopover === 'strokeColor' && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-                <ColorPicker
-                  label="Border Color"
-                  value={selected.stroke || '#000000'}
-                  onChange={(color) => handleUpdate('stroke', color)}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Border Style & Corner Rounding for Shapes */}
-          <div className="relative">
+          {/* Canva Corner Rounding Icon Button (for Rect / Shapes) */}
+          {(selected.type === 'rect' || selected.type === 'shape') && (
             <button
               type="button"
               onClick={() => {
                 if (onSelectSidebarTab) {
-                  onSelectSidebarTab('border');
-                  setActivePopover(null);
-                } else {
-                  togglePopover('borderStyle');
+                  onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
                 }
               }}
-              title="Border Style & Corner Rounding"
-              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
-                activePopover === 'borderStyle'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
+              title="Corner Rounding (Open in Sidebar)"
+              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.rx || 0) > 0
+                  ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
                   : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+                }`}
             >
-              <div className="w-3.5 h-3.5 rounded-xs border-2 border-current" />
-              <span>Border Style</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 20V12a8 8 0 0 1 8-8h8" />
+              </svg>
             </button>
-
-            {activePopover === 'borderStyle' && (
-              <BorderStylePopover
-                strokeWidth={selected.strokeWidth || 0}
-                stroke={selected.stroke || '#000000'}
-                rx={selected.rx || 0}
-                strokeDashArray={selected.strokeDashArray}
-                showCornerRadius={selected.type === 'rect' || selected.type === 'shape'}
-                onStrokeWidthChange={(w) => handleUpdate('strokeWidth', w)}
-                onStrokeDashArrayChange={(dash) => handleUpdate('strokeDashArray', dash as any)}
-                onCornerRadiusChange={(r) => handleUpdate('rx', r)}
-                onStrokeColorChange={(c) => handleUpdate('stroke', c)}
-                onClose={() => setActivePopover(null)}
-              />
-            )}
-          </div>
+          )}
         </>
       )}
 
@@ -884,79 +828,46 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             )}
           </div>
 
-          {/* Stroke Color */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => togglePopover('color')}
-              title="Stroke Color"
-              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
-                activePopover === 'color'
-                  ? 'bg-blue-50 border-blue-400'
-                  : 'bg-white border-gray-200 hover:bg-gray-50'
+          {/* Stroke Color (Canva Style Swatch opening in sidebar) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
+              }
+            }}
+            title="Stroke Colour (Open in Sidebar)"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
+                ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
+                : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
-            >
-              <div
-                className="w-4 h-4 rounded-full border border-gray-300"
-                style={{ backgroundColor: selected.stroke || selected.fill || '#2563eb' }}
-              />
-              <span>Stroke</span>
-            </button>
+          >
+            <div
+              className="w-5 h-5 rounded-full border border-gray-300 shadow-2xs"
+              style={{ backgroundColor: selected.stroke || selected.fill || '#2563eb' }}
+            />
+          </button>
 
-            {activePopover === 'color' && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100">
-                <ColorPicker
-                  label="Path Stroke Color"
-                  value={selected.stroke || selected.fill || '#2563eb'}
-                  onChange={(color) => {
-                    handleUpdate('stroke', color);
-                    handleUpdate('fill', color);
-                  }}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Stroke Border Style & Pattern */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                if (onSelectSidebarTab) {
-                  onSelectSidebarTab('border');
-                  setActivePopover(null);
-                } else {
-                  togglePopover('borderStyle');
-                }
-              }}
-              title="Stroke Border Style & Pattern"
-              className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${
-                activePopover === 'borderStyle'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+          {/* Stroke Border Style & Pattern (Canva 3-line icon opening sidebar) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
+              }
+            }}
+            title="Stroke Border Style & Pattern (Open in Sidebar)"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border'
+                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
-            >
-              <div className="w-3.5 h-3.5 rounded-xs border-2 border-current" />
-              <span>Style</span>
-            </button>
-
-            {activePopover === 'borderStyle' && (
-              <BorderStylePopover
-                strokeWidth={selected.strokeWidth || 4}
-                stroke={selected.stroke || selected.fill || '#2563eb'}
-                rx={0}
-                strokeDashArray={selected.strokeDashArray}
-                showCornerRadius={false}
-                onStrokeWidthChange={(w) => handleUpdate('strokeWidth', w)}
-                onStrokeDashArrayChange={(dash) => handleUpdate('strokeDashArray', dash as any)}
-                onStrokeColorChange={(c) => {
-                  handleUpdate('stroke', c);
-                  handleUpdate('fill', c);
-                }}
-                onClose={() => setActivePopover(null)}
-              />
-            )}
-          </div>
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
+              <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
+              <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
+            </svg>
+          </button>
 
           {/* Stroke End Caps Popover */}
           <div className="relative">
@@ -964,11 +875,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('brushCaps')}
               title="Stroke End Caps"
-              className={`h-8 px-2 rounded-xl border text-[11px] font-semibold capitalize transition ${
-                activePopover === 'brushCaps'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+              className={`h-8 px-2 rounded-xl border text-[11px] font-semibold capitalize transition ${activePopover === 'brushCaps'
+                ? 'bg-blue-50 border-blue-400 text-blue-700'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
             >
               <span>{selected.strokeLineCap || 'round'}</span>
             </button>
@@ -997,11 +907,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('opacity')}
               title="Transparency / Opacity"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${
-                activePopover === 'opacity'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'opacity'
+                ? 'bg-blue-50 border-blue-400 text-blue-700'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
                 <rect x="0" y="0" width="4" height="4" fill="#64748b" />
@@ -1024,28 +933,23 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             )}
           </div>
 
-          {/* Effects Popover Button */}
+          {/* Effects Button (Opens Left Sidebar) */}
           <div className="relative">
             <button
               type="button"
-              onClick={() => togglePopover('effects')}
+              onClick={() => {
+                if (onSelectSidebarTab) {
+                  onSelectSidebarTab(activeSidebarTab === 'effects' ? null : 'effects');
+                }
+              }}
               title="Effects (Shadow, Lift, Glow, Outline)"
-              className={`h-8 px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
-                activePopover === 'effects'
-                  ? 'bg-purple-50 border-purple-400 text-purple-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+              className={`h-8 px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${activeSidebarTab === 'effects'
+                ? 'bg-purple-50 border-purple-400 text-purple-700'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
             >
               <span>Effects</span>
             </button>
-
-            {activePopover === 'effects' && (
-              <EffectsPopover
-                selected={selected}
-                canvasManager={canvasManager}
-                onClose={() => setActivePopover(null)}
-              />
-            )}
           </div>
 
           {/* Rotate Popover Button */}
@@ -1054,11 +958,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('rotate')}
               title="Rotate & Angle"
-              className={`h-8 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
-                activePopover === 'rotate'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+              className={`h-8 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${activePopover === 'rotate'
+                ? 'bg-blue-50 border-blue-400 text-blue-700'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
             >
               <RotateCw className="w-3.5 h-3.5 text-gray-600" />
               <span>{Math.round(selected.angle || 0)}°</span>
@@ -1073,29 +976,22 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             )}
           </div>
 
-          {/* Position Popover Button */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => togglePopover('position')}
-              title="Position & Alignment"
-              className={`h-8 px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
-                activePopover === 'position'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+          {/* Position Sidebar Toggle Button (Canva Style - Opens in Sidebar) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'position' ? null : 'position');
+              }
+            }}
+            title="Position (Arrange & Layers - Open in Sidebar)"
+            className={`h-8 px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${activeSidebarTab === 'position'
+                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] font-bold shadow-xs'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
-            >
-              <span>Position</span>
-            </button>
-
-            {activePopover === 'position' && (
-              <PositionPopover
-                selected={selected}
-                canvasManager={canvasManager}
-                onClose={() => setActivePopover(null)}
-              />
-            )}
-          </div>
+          >
+            <span>Position</span>
+          </button>
 
           <div className="h-4 w-px bg-gray-200 mx-0.5" />
 
@@ -1118,11 +1014,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('more')}
               title="More actions"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${
-                activePopover === 'more'
-                  ? 'bg-blue-50 border-blue-400 text-blue-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
+              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'more'
+                ? 'bg-blue-50 border-blue-400 text-blue-700'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
             >
               <MoreHorizontal className="w-3.5 h-3.5" />
             </button>

@@ -59,8 +59,8 @@ export function calculateCanvasDimensions(doc: DocumentSettings): CanvasDimensio
     heightMm = pxToMm(doc.height, dpi);
   }
 
-  const bleedMm = doc.bleed || 0;
-  const safeZoneMm = doc.safeArea || 0;
+  const bleedMm = doc.bleed !== undefined ? doc.bleed : 5;
+  const safeZoneMm = doc.safeArea !== undefined ? doc.safeArea : 3;
   const bleedPx = mmToPx(bleedMm, dpi);
   const safeZonePx = mmToPx(safeZoneMm, dpi);
 

@@ -208,11 +208,10 @@ export const CustomBannerSizeModal: React.FC<CustomBannerSizeModalProps> = ({
                     }
                     setUnit(u);
                   }}
-                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 ${
-                    unit === u
-                      ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
-                      : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                  }`}
+                  className={`py-2 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 ${unit === u
+                    ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                    : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                    }`}
                 >
                   {u === 'mm' && 'Millimeters (mm)'}
                   {u === 'cm' && 'Centimeters (cm)'}
@@ -264,8 +263,8 @@ export const CustomBannerSizeModal: React.FC<CustomBannerSizeModalProps> = ({
           <div className="grid grid-cols-2 gap-4 pt-1">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-gray-700 flex justify-between">
-                <span>Bleed Margin (mm)</span>
-                <span className="text-[11px] text-red-500 font-medium">Trim Overlap</span>
+                <span></span>
+                <span className="text-[11px] text-red-500 font-medium">Bleed</span>
               </label>
               <input
                 type="number"
@@ -278,7 +277,7 @@ export const CustomBannerSizeModal: React.FC<CustomBannerSizeModalProps> = ({
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-gray-700 flex justify-between">
-                <span>Safe Area Margin (mm)</span>
+                <span></span>
                 <span className="text-[11px] text-emerald-600 font-medium">Inside Trim</span>
               </label>
               <input
@@ -306,11 +305,10 @@ export const CustomBannerSizeModal: React.FC<CustomBannerSizeModalProps> = ({
                     key={preset.name}
                     type="button"
                     onClick={() => handleSelectPreset(preset)}
-                    className={`text-left p-3 rounded-xl border transition flex items-start justify-between ${
-                      isSelected
-                        ? 'bg-blue-50/70 border-blue-500 ring-2 ring-blue-500/20'
-                        : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-gray-50/60'
-                    }`}
+                    className={`text-left p-3 rounded-xl border transition flex items-start justify-between ${isSelected
+                      ? 'bg-blue-50/70 border-blue-500 ring-2 ring-blue-500/20'
+                      : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-gray-50/60'
+                      }`}
                   >
                     <div>
                       <p className="text-xs font-bold text-gray-900">{preset.name}</p>

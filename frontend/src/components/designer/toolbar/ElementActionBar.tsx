@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Lock, Unlock, Copy, Trash2, MoreHorizontal } from 'lucide-react';
 import { SelectedObjectState } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -35,16 +35,22 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
   }, []);
 
   // Update floating bar coordinates on selection change, zoom, or canvas events
-  const updatePosition = () => {
+  const updatePosition = useCallback(() => {
     if (!canvasManager) return;
     const rect = canvasManager.getActiveObjectBoundingRect();
     if (rect) {
+      // Scale unzoomed scene bounding box to display zoom level
+      const scaledLeft = rect.left * zoom;
+      const scaledTop = rect.top * zoom;
+      const scaledWidth = rect.width * zoom;
+      const scaledHeight = rect.height * zoom;
+
       // Centered above the element's bounding box
-      const centerX = rect.left + rect.width / 2;
-      // Position 44px above element; if too close to top, flip below
-      let topY = rect.top - 46;
+      const centerX = scaledLeft + scaledWidth / 2;
+      // Position 46px above element; if too close to top, flip below
+      let topY = scaledTop - 46;
       if (topY < 10) {
-        topY = rect.top + rect.height + 12;
+        topY = scaledTop + scaledHeight + 12;
       }
       setCoords({ x: centerX, y: topY });
     } else {
@@ -53,7 +59,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
       const topY = Math.max(selected.top * zoom - 46, 10);
       setCoords({ x: centerX, y: topY });
     }
-  };
+  }, [canvasManager, selected, zoom]);
 
   useEffect(() => {
     updatePosition();
@@ -75,7 +81,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
       canvas.off('object:modified', handleCanvasEvent);
       canvas.off('after:render', handleCanvasEvent);
     };
-  }, [canvasManager, selected, zoom]);
+  }, [canvasManager, updatePosition]);
 
   if (!coords) return null;
 
@@ -114,7 +120,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
         position: 'absolute',
         left: `${coords.x}px`,
         top: `${coords.y}px`,
-        transform: 'translateX(-50%)',
+        transform: 'translateX(3%)',
       }}
       className="z-10 flex items-center gap-1 bg-white px-1.5 py-1 rounded-full shadow-lg border border-gray-200 text-gray-700 animate-in fade-in zoom-in-95 duration-100 select-none"
     >
@@ -149,15 +155,14 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
         <Trash2 className="w-3.5 h-3.5" />
       </button>
 
-      {/* More */}
-      {/* <div className="relative">
+      {/* More actions */}
+      <div className="relative">
         <button
           type="button"
           onClick={handleMore}
           title="More actions"
-          className={`p-1.5 rounded-full hover:bg-gray-100 transition ${
-            isMoreOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:text-gray-900'
-          }`}
+          className={`p-1.5 rounded-full hover:bg-gray-100 transition ${isMoreOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:text-gray-900'
+            }`}
         >
           <MoreHorizontal className="w-3.5 h-3.5" />
         </button>
@@ -170,7 +175,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
             align="left"
           />
         )}
-      </div> */}
+      </div>
     </div>
   );
 };

@@ -32,9 +32,13 @@ import {
 } from '@/types/designer';
 import { CanvasGuides } from './CanvasGuides';
 import { CanvasSnapping } from './CanvasSnapping';
+import { applyCanvaControlsGlobal } from './CanvaControls';
 import { POPULAR_FONTS, loadFont } from '../utils/fonts';
 import { calculateImageQuality } from '../utils/imageQuality';
 import { runPreflightCheck, PreflightReport } from '../utils/preflightCheck';
+
+// Apply Canva-style selection frame and handles globally
+applyCanvaControlsGlobal();
 
 export const ZOOM_PRESETS = [
   0.1, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
@@ -93,6 +97,9 @@ export class CanvasManager {
   private zoom: number = 1.0;
   private isPanMode: boolean = false;
   private isDrawing: boolean = false;
+  private isErasing: boolean = false;
+  private lastErasePoint: { x: number; y: number } | null = null;
+  private hasErasedInCurrentStroke: boolean = false;
   private brushSettings: BrushSettings = {
     tool: 'brush',
     size: 12,
@@ -237,6 +244,32 @@ export class CanvasManager {
     this.canvas.requestRenderAll();
     this.notifyBackground();
     this.notifyChange();
+  }
+
+  public getColorsInDesign(): string[] {
+    if (!this.canvas) return ['#000000', '#ffffff', '#2563eb', '#10b981', '#ef4444'];
+    const colors = new Set<string>();
+
+    if (this.canvas.backgroundColor && typeof this.canvas.backgroundColor === 'string') {
+      colors.add(this.canvas.backgroundColor);
+    }
+
+    this.canvas.getObjects().forEach((obj) => {
+      if (obj.get('isGuide' as any)) return;
+
+      const fill = obj.fill;
+      if (typeof fill === 'string' && fill !== 'transparent' && fill !== '' && !fill.startsWith('blob:')) {
+        colors.add(fill);
+      }
+
+      const stroke = obj.stroke;
+      if (typeof stroke === 'string' && stroke !== 'transparent' && stroke !== '') {
+        colors.add(stroke);
+      }
+    });
+
+    const result = Array.from(colors).filter((c) => c && c !== 'transparent');
+    return result.length > 0 ? result : ['#000000', '#ffffff', '#2563eb', '#10b981', '#ef4444'];
   }
 
   public setBackgroundGradient(gradientConfig: {
@@ -553,11 +586,15 @@ export class CanvasManager {
     this.isDrawing = enabled;
     if (!this.canvas) return;
 
-    this.canvas.isDrawingMode = enabled;
-
     if (enabled) {
       this.canvas.discardActiveObject();
       this.applyBrushSettings();
+    } else {
+      this.canvas.isDrawingMode = false;
+      this.canvas.freeDrawingBrush = undefined;
+      this.canvas.selection = true;
+      this.canvas.defaultCursor = 'default';
+      this.canvas.hoverCursor = 'move';
     }
 
     this.canvas.requestRenderAll();
@@ -576,34 +613,10 @@ export class CanvasManager {
       ...settings,
     };
 
-    // Tool changed
-    if (settings.tool && settings.tool !== previousTool) {
-
-      // Selecting another tool automatically exits eraser
-      if (previousTool === 'eraser' && settings.tool !== 'eraser') {
-        this.isDrawing = false;
-
-        if (this.canvas) {
-          this.canvas.isDrawingMode = false;
-          this.canvas.freeDrawingBrush = undefined;
-        }
-
-        this.drawingModeListeners.forEach((cb) => cb(false));
-      }
-
-      // Enable drawing for drawing tools
-      if (this.canvas && settings.tool !== 'eraser') {
-        this.isDrawing = true;
-        this.canvas.isDrawingMode = true;
+    if (this.canvas) {
+      if (this.isDrawing) {
         this.applyBrushSettings();
-
-        this.drawingModeListeners.forEach((cb) => cb(true));
       }
-    }
-
-    // Update brush properties
-    if (this.canvas && this.isDrawing) {
-      this.applyBrushSettings();
     }
 
     this.brushSettingsListeners.forEach((cb) =>
@@ -627,40 +640,35 @@ export class CanvasManager {
 
     const rgbaColor = hexWithAlpha(color, opacity);
 
-    // =========================
-    // ERASER
-    // =========================
+    // ================================================================
+    // ERASER: Custom interactive eraser for pencil/brush strokes ONLY
+    // ================================================================
     if (tool === 'eraser') {
-      // Fabric 7.4.0 does not have EraserBrush.
-      // Use drawing mode but handle erasing separately.
-      this.canvas.isDrawingMode = true;
-
-      const pencil = new PencilBrush(this.canvas);
-
-      pencil.width = Math.max(size * 2, 10);
-
-      // Temporary visual eraser color.
-      // Actual erasing should be handled by your eraser logic.
-      pencil.color = '#ffffff';
-
-      pencil.strokeLineCap = 'round';
-      pencil.strokeLineJoin = 'round';
-
-      this.canvas.freeDrawingBrush = pencil;
+      // Disable Fabric's free drawing brush & normal object selection
+      this.canvas.isDrawingMode = false;
+      this.canvas.freeDrawingBrush = undefined;
+      this.canvas.selection = false;
+      this.canvas.discardActiveObject();
+      this.canvas.defaultCursor = 'crosshair';
+      this.canvas.hoverCursor = 'crosshair';
       return;
     }
+
+    // Normal drawing brushes: enable freeDrawingMode
+    this.canvas.isDrawingMode = true;
+    this.canvas.selection = false;
+    this.canvas.defaultCursor = 'default';
+    this.canvas.hoverCursor = 'move';
 
     // =========================
     // SPRAY
     // =========================
     if (tool === 'spray') {
       const spray = new SprayBrush(this.canvas);
-
       spray.width = Math.max(size * 2.5, 6);
       spray.color = rgbaColor;
       spray.density = sprayDensity || 25;
       spray.dotWidth = sprayDotWidth || 2;
-
       this.canvas.freeDrawingBrush = spray;
       return;
     }
@@ -675,7 +683,6 @@ export class CanvasManager {
       pencil.color = rgbaColor;
       pencil.strokeLineCap = 'round';
       pencil.strokeLineJoin = 'round';
-
     } else if (tool === 'marker') {
       pencil.width = Math.max(size * 2.5, 16);
       pencil.color = hexWithAlpha(
@@ -684,7 +691,6 @@ export class CanvasManager {
       );
       pencil.strokeLineCap = 'square';
       pencil.strokeLineJoin = 'miter';
-
     } else if (tool === 'calligraphy') {
       pencil.width = Math.max(size * 1.8, 8);
       pencil.color = rgbaColor;
@@ -697,7 +703,6 @@ export class CanvasManager {
         offsetY: 1,
         color: hexWithAlpha(color, 0.25),
       });
-
     } else {
       // brush / freehand
       pencil.width = size;
@@ -707,6 +712,181 @@ export class CanvasManager {
     }
 
     this.canvas.freeDrawingBrush = pencil;
+  }
+
+  /**
+   * Selective Pencil Eraser: erases ONLY pencil and brush strokes on the canvas.
+   * Text, images, shapes, and frames are protected and never touched.
+   */
+  public erasePencilStrokesAt(pointerX: number, pointerY: number, eraserRadius: number): boolean {
+    if (!this.canvas) return false;
+
+    // Filter for ONLY freehand/pencil/brush strokes
+    const objects = this.canvas.getObjects().filter((obj) => {
+      if (obj.get('isGuide' as any)) return false;
+      return Boolean(
+        obj.get('isBrushPath' as any) ||
+        obj.get('isPencilStroke' as any) ||
+        (obj instanceof Path && obj.get('brushType' as any))
+      );
+    });
+
+    if (objects.length === 0) return false;
+
+    let canvasModified = false;
+
+    for (const obj of objects) {
+      if (!(obj instanceof Path) || !obj.path) continue;
+
+      const pathObj = obj as Path;
+      const matrix = pathObj.calcTransformMatrix();
+      const pathOffset = pathObj.pathOffset || new Point(0, 0);
+
+      // Check bounding box intersection
+      pathObj.setCoords();
+      const bounds = pathObj.getBoundingRect();
+      const strokeW = pathObj.strokeWidth || 4;
+      const hitRadius = eraserRadius + strokeW / 2;
+
+      if (
+        pointerX + hitRadius < bounds.left ||
+        pointerX - hitRadius > bounds.left + bounds.width ||
+        pointerY + hitRadius < bounds.top ||
+        pointerY - hitRadius > bounds.top + bounds.height
+      ) {
+        continue;
+      }
+
+      // Inspect commands in path
+      const commands = pathObj.path as Array<any[]>;
+      if (!commands || commands.length === 0) continue;
+
+      const erasedIndices = new Set<number>();
+
+      for (let i = 0; i < commands.length; i++) {
+        const cmd = commands[i];
+        const cx = cmd[cmd.length - 2];
+        const cy = cmd[cmd.length - 1];
+        if (typeof cx !== 'number' || typeof cy !== 'number') continue;
+
+        // Transform local path coordinate to canvas space
+        const localPt = new Point(cx - pathOffset.x, cy - pathOffset.y);
+        const canvasPt = localPt.transform(matrix);
+
+        const dist = Math.hypot(canvasPt.x - pointerX, canvasPt.y - pointerY);
+        if (dist <= hitRadius) {
+          erasedIndices.add(i);
+        }
+      }
+
+      if (erasedIndices.size === 0) continue;
+
+      canvasModified = true;
+      const originalIndex = this.canvas.getObjects().indexOf(pathObj);
+
+      // If entire stroke erased -> remove from canvas
+      if (erasedIndices.size >= commands.length) {
+        this.canvas.remove(pathObj);
+        continue;
+      }
+
+      // Partition into remaining continuous sub-paths
+      const segments: Array<any[][]> = [];
+      let currentSeg: any[][] = [];
+
+      for (let i = 0; i < commands.length; i++) {
+        if (!erasedIndices.has(i)) {
+          const cmd = [...commands[i]];
+          if (currentSeg.length === 0 && cmd[0] !== 'M') {
+            const cx = cmd[cmd.length - 2];
+            const cy = cmd[cmd.length - 1];
+            currentSeg.push(['M', cx, cy]);
+          } else {
+            currentSeg.push(cmd);
+          }
+        } else {
+          if (currentSeg.length >= 2) {
+            segments.push(currentSeg);
+          }
+          currentSeg = [];
+        }
+      }
+      if (currentSeg.length >= 2) {
+        segments.push(currentSeg);
+      }
+
+      this.canvas.remove(pathObj);
+
+      if (segments.length === 0) {
+        continue;
+      }
+
+      const commonProps = {
+        stroke: pathObj.stroke,
+        strokeWidth: pathObj.strokeWidth,
+        fill: pathObj.fill || null,
+        strokeLineCap: pathObj.strokeLineCap || 'round',
+        strokeLineJoin: pathObj.strokeLineJoin || 'round',
+        opacity: pathObj.opacity,
+        selectable: true,
+        evented: true,
+        hasControls: true,
+        hasBorders: true,
+      };
+
+      let insertIdx = originalIndex;
+      for (const seg of segments) {
+        try {
+          const newPath = new Path(seg as any, commonProps);
+          this.ensureObjectId(newPath, pathObj.get('name' as any) || 'Pencil Stroke');
+          newPath.set('isBrushPath' as any, true);
+          newPath.set('isPencilStroke' as any, true);
+          newPath.set('brushType' as any, pathObj.get('brushType' as any) || 'pencil');
+          this.canvas.insertAt(insertIdx, newPath);
+          insertIdx++;
+        } catch {
+          // ignore parsing edge cases
+        }
+      }
+    }
+
+    return canvasModified;
+  }
+
+  /**
+   * Generates a clean Canva-style presentation snapshot without selection borders,
+   * handles, or editor guides.
+   */
+  public getCleanPreviewDataUrl(multiplier: number = 1.0): string | null {
+    if (!this.canvas) return null;
+    const wasGuidesVisible = this.guides.getVisible();
+    const activeObj = this.canvas.getActiveObject();
+
+    try {
+      this.guides.setVisible(false);
+      this.canvas.discardActiveObject();
+      this.canvas.requestRenderAll();
+
+      const currentZoom = this.zoom || 1.0;
+      const effectiveMultiplier = (1 / currentZoom) * multiplier;
+
+      const dataUrl = this.canvas.toDataURL({
+        format: 'png',
+        multiplier: effectiveMultiplier,
+        enableRetinaScaling: true,
+      });
+
+      return dataUrl;
+    } catch (err) {
+      console.error('Failed to generate clean preview data URL:', err);
+      return null;
+    } finally {
+      this.guides.setVisible(wasGuidesVisible);
+      if (activeObj) {
+        this.canvas.setActiveObject(activeObj);
+      }
+      this.canvas.requestRenderAll();
+    }
   }
 
   public onDrawingModeChange(cb: DrawingModeEventCallback): () => void {
@@ -1085,8 +1265,6 @@ export class CanvasManager {
       }
 
       img.set({
-        left,
-        top,
         clipPath,
         cornerColor: '#2563eb',
         cornerStyle: 'circle',
@@ -1099,6 +1277,7 @@ export class CanvasManager {
       this.ensureObjectId(img, `${shapeType.charAt(0).toUpperCase() + shapeType.slice(1)} Frame`);
 
       this.canvas.add(img);
+      this.centerObjectOnCanvas(img);
       this.canvas.setActiveObject(img);
       this.canvas.requestRenderAll();
       this.notifyChange();
@@ -1121,8 +1300,8 @@ export class CanvasManager {
       const canvasW = this.dimensions.widthPx || 1063;
       const canvasH = this.dimensions.heightPx || 591;
 
-      const maxW = Math.min(canvasW * 0.5, 450);
-      const maxH = Math.min(canvasH * 0.5, 350);
+      const maxW = Math.min(canvasW * 0.6, 500);
+      const maxH = Math.min(canvasH * 0.6, 400);
 
       const naturalW = metadata?.naturalWidth || img.width || 400;
       const naturalH = metadata?.naturalHeight || img.height || 300;
@@ -1130,8 +1309,6 @@ export class CanvasManager {
       const scale = Math.min(maxW / naturalW, maxH / naturalH, 1.0);
 
       img.set({
-        left: options?.left ?? (canvasW - naturalW * scale) / 2,
-        top: options?.top ?? (canvasH - naturalH * scale) / 2,
         scaleX: scale,
         scaleY: scale,
         cornerColor: '#2563eb',
@@ -1147,6 +1324,15 @@ export class CanvasManager {
       this.ensureObjectId(img, metadata?.name || 'Image Layer');
 
       this.canvas.add(img);
+
+      if (options?.left !== undefined || options?.top !== undefined) {
+        if (options?.left !== undefined) img.set('left', options.left);
+        if (options?.top !== undefined) img.set('top', options.top);
+        img.setCoords();
+      } else {
+        this.centerObjectOnCanvas(img);
+      }
+
       this.canvas.setActiveObject(img);
       this.canvas.requestRenderAll();
       this.notifyChange();
@@ -1504,6 +1690,8 @@ export class CanvasManager {
       active.set('strokeDashArray', value ? (value as number[]) : null);
     } else if (prop === 'strokeUniform') {
       active.set('strokeUniform', Boolean(value));
+    } else if (prop === 'paintFirst') {
+      active.set('paintFirst', value as 'fill' | 'stroke');
     } else if (prop === 'isLocked') {
       const locked = value as boolean;
       active.set({
@@ -1687,34 +1875,51 @@ export class CanvasManager {
     const canvasWidth = this.dimensions.widthPx || 1063;
     const canvasHeight = this.dimensions.heightPx || 591;
 
-    const objWidth = (active.width || 0) * (active.scaleX || 1);
-    const objHeight = (active.height || 0) * (active.scaleY || 1);
+    active.setCoords();
+    const bound = active.getBoundingRect();
+
+    // The offset between the object's origin coordinate (left, top) and its transformed bounding box
+    const currentLeft = active.left ?? 0;
+    const currentTop = active.top ?? 0;
+    const deltaX = currentLeft - bound.left;
+    const deltaY = currentTop - bound.top;
+
+    let targetBoundLeft = bound.left;
+    let targetBoundTop = bound.top;
 
     switch (type) {
       case 'left':
-        active.set('left', 0);
+        targetBoundLeft = 0;
+        active.set('left', targetBoundLeft + deltaX);
         break;
       case 'center':
       case 'center-h':
-        active.set('left', (canvasWidth - objWidth) / 2);
+        targetBoundLeft = (canvasWidth - bound.width) / 2;
+        active.set('left', targetBoundLeft + deltaX);
         break;
       case 'right':
-        active.set('left', canvasWidth - objWidth);
+        targetBoundLeft = canvasWidth - bound.width;
+        active.set('left', targetBoundLeft + deltaX);
         break;
       case 'top':
-        active.set('top', 0);
+        targetBoundTop = 0;
+        active.set('top', targetBoundTop + deltaY);
         break;
       case 'middle':
       case 'center-v':
-        active.set('top', (canvasHeight - objHeight) / 2);
+        targetBoundTop = (canvasHeight - bound.height) / 2;
+        active.set('top', targetBoundTop + deltaY);
         break;
       case 'bottom':
-        active.set('top', canvasHeight - objHeight);
+        targetBoundTop = canvasHeight - bound.height;
+        active.set('top', targetBoundTop + deltaY);
         break;
       case 'center-both':
+        targetBoundLeft = (canvasWidth - bound.width) / 2;
+        targetBoundTop = (canvasHeight - bound.height) / 2;
         active.set({
-          left: (canvasWidth - objWidth) / 2,
-          top: (canvasHeight - objHeight) / 2,
+          left: targetBoundLeft + deltaX,
+          top: targetBoundTop + deltaY,
         });
         break;
     }
@@ -1723,6 +1928,27 @@ export class CanvasManager {
     this.canvas.requestRenderAll();
     this.notifyChange();
     this.notifySelection();
+  }
+
+  public centerObjectOnCanvas(obj: FabricObject): void {
+    const canvasW = this.dimensions.widthPx || 1063;
+    const canvasH = this.dimensions.heightPx || 591;
+
+    obj.setCoords();
+    const bound = obj.getBoundingRect();
+    const currentLeft = obj.left ?? 0;
+    const currentTop = obj.top ?? 0;
+    const deltaX = currentLeft - bound.left;
+    const deltaY = currentTop - bound.top;
+
+    const targetLeft = (canvasW - bound.width) / 2 + deltaX;
+    const targetTop = (canvasH - bound.height) / 2 + deltaY;
+
+    obj.set({
+      left: Math.round(targetLeft),
+      top: Math.round(targetTop),
+    });
+    obj.setCoords();
   }
 
   // --- Rich Textbox Inserter ---
@@ -1737,15 +1963,11 @@ export class CanvasManager {
       loadFont(fontItem);
     }
 
-    const canvasW = this.dimensions.widthPx || 1063;
-    const canvasH = this.dimensions.heightPx || 591;
     const textWidth = options?.width || 420;
-    const textLeft = options?.left !== undefined ? options.left : Math.max((canvasW - textWidth) / 2, 40);
-    const textTop = options?.top !== undefined ? options.top : Math.max((canvasH - 60) / 2, 40);
 
     const text = new Textbox(options?.text || 'Add text here', {
-      left: textLeft,
-      top: textTop,
+      left: 0,
+      top: 0,
       width: textWidth,
       fontSize: options?.fontSize || 36,
       fontFamily: options?.fontFamily || 'Inter, sans-serif',
@@ -1763,6 +1985,15 @@ export class CanvasManager {
 
     this.ensureObjectId(text, options?.name || 'Text Layer');
     this.canvas.add(text);
+
+    if (options?.left !== undefined || options?.top !== undefined) {
+      if (options?.left !== undefined) text.set('left', options.left);
+      if (options?.top !== undefined) text.set('top', options.top);
+      text.setCoords();
+    } else {
+      this.centerObjectOnCanvas(text);
+    }
+
     this.canvas.setActiveObject(text);
     this.canvas.requestRenderAll();
     this.notifyChange();
@@ -1775,15 +2006,10 @@ export class CanvasManager {
   public addShape(shapeType: string, color = '#2563eb'): void {
     if (!this.canvas) return;
 
-    const canvasW = this.dimensions.widthPx || 1063;
-    const canvasH = this.dimensions.heightPx || 591;
-
     let shapeObj: FabricObject;
 
     if (shapeType === 'circle') {
       shapeObj = new Circle({
-        left: (canvasW - 180) / 2,
-        top: (canvasH - 180) / 2,
         radius: 90,
         fill: color,
         cornerColor: '#2563eb',
@@ -1794,8 +2020,6 @@ export class CanvasManager {
       this.ensureObjectId(shapeObj, 'Circle Shape');
     } else if (shapeType === 'triangle') {
       shapeObj = new Triangle({
-        left: (canvasW - 180) / 2,
-        top: (canvasH - 160) / 2,
         width: 180,
         height: 160,
         fill: color,
@@ -1820,8 +2044,6 @@ export class CanvasManager {
           new Point(-26, -26),
         ],
         {
-          left: (canvasW - 190) / 2,
-          top: (canvasH - 180) / 2,
           fill: color,
           cornerColor: '#2563eb',
           cornerStyle: 'circle',
@@ -1833,8 +2055,6 @@ export class CanvasManager {
     } else {
       // Rectangle / Square
       shapeObj = new Rect({
-        left: (canvasW - 240) / 2,
-        top: (canvasH - 160) / 2,
         width: 240,
         height: 160,
         fill: color,
@@ -1849,6 +2069,7 @@ export class CanvasManager {
     }
 
     this.canvas.add(shapeObj);
+    this.centerObjectOnCanvas(shapeObj);
     this.canvas.setActiveObject(shapeObj);
     this.canvas.requestRenderAll();
     this.notifyChange();
@@ -2144,6 +2365,7 @@ export class CanvasManager {
       ry: (active as any).ry || 0,
       curve: (active as any).curve || 0,
       strokeDashArray: active.strokeDashArray || undefined,
+      paintFirst: (active.paintFirst as 'fill' | 'stroke') || 'fill',
       // Text
       text: textObj ? textObj.text : undefined,
       fontSize: textObj ? textObj.fontSize : undefined,
@@ -2188,22 +2410,78 @@ export class CanvasManager {
           this.brushSettings.tool.charAt(0).toUpperCase() + this.brushSettings.tool.slice(1);
         this.ensureObjectId(path, `${toolName} Stroke`);
         path.set({
-          cornerColor: '#2563eb',
-          cornerStyle: 'circle',
-          cornerSize: 10,
-          transparentCorners: false,
           selectable: true,
           evented: true,
           hasControls: true,
           hasBorders: true,
         });
         path.set('isBrushPath' as any, true);
+        path.set('isPencilStroke' as any, true);
         path.set('brushType' as any, this.brushSettings.tool);
         this.canvas?.requestRenderAll();
         this.notifyChange();
         this.notifyLayers();
         this.notifyPreflight();
       }
+    });
+
+    this.canvas.on('mouse:down', (opt: any) => {
+      if (this.isDrawing && this.brushSettings.tool === 'eraser') {
+        const pointer = opt.scenePoint || (this.canvas && opt.e ? (this.canvas as any).getScenePoint?.(opt.e) : null);
+        if (pointer) {
+          this.isErasing = true;
+          this.lastErasePoint = { x: pointer.x, y: pointer.y };
+          const radius = Math.max((this.brushSettings.size || 20) / 2, 2);
+          const modified = this.erasePencilStrokesAt(pointer.x, pointer.y, radius);
+          if (modified) {
+            this.canvas?.requestRenderAll();
+            this.hasErasedInCurrentStroke = true;
+          }
+        }
+      }
+    });
+
+    this.canvas.on('mouse:move', (opt: any) => {
+      if (this.isErasing && this.isDrawing && this.brushSettings.tool === 'eraser') {
+        const pointer = opt.scenePoint || (this.canvas && opt.e ? (this.canvas as any).getScenePoint?.(opt.e) : null);
+        if (pointer && this.lastErasePoint) {
+          const radius = Math.max((this.brushSettings.size || 20) / 2, 2);
+          const dx = pointer.x - this.lastErasePoint.x;
+          const dy = pointer.y - this.lastErasePoint.y;
+          const dist = Math.hypot(dx, dy);
+          const steps = Math.max(1, Math.ceil(dist / Math.max(radius * 0.4, 2)));
+          let anyModified = false;
+
+          for (let i = 1; i <= steps; i++) {
+            const ix = this.lastErasePoint.x + (dx * i) / steps;
+            const iy = this.lastErasePoint.y + (dy * i) / steps;
+            if (this.erasePencilStrokesAt(ix, iy, radius)) {
+              anyModified = true;
+              this.hasErasedInCurrentStroke = true;
+            }
+          }
+
+          this.lastErasePoint = { x: pointer.x, y: pointer.y };
+          if (anyModified) {
+            this.canvas?.requestRenderAll();
+          }
+        }
+      }
+    });
+
+    this.canvas.on('mouse:up', () => {
+      if (this.isErasing) {
+        this.isErasing = false;
+        this.lastErasePoint = null;
+        if (this.hasErasedInCurrentStroke) {
+          this.hasErasedInCurrentStroke = false;
+          this.saveHistoryState();
+          this.notifyChange();
+          this.notifyLayers();
+          this.notifyPreflight();
+        }
+      }
+      this.snapping.clearGuides();
     });
 
     this.canvas.on('selection:created', () => {
@@ -2244,10 +2522,9 @@ export class CanvasManager {
       this.notifySelection();
       this.notifyPreflight();
     });
-    this.canvas.on('object:rotating', () => this.notifySelection());
-
-    this.canvas.on('mouse:up', () => {
-      this.snapping.clearGuides();
+    this.canvas.on('object:rotating', () => {
+      this.notifySelection();
+      this.notifyPreflight();
     });
 
     // Wheel zoom on Ctrl/Cmd + wheel
