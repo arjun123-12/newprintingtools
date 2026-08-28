@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Search,
   Plus,
@@ -9,15 +9,9 @@ import {
   Palette,
   Sparkles,
   Image as ImageIcon,
-  Sliders,
   Check,
-  ChevronDown,
-  ChevronUp,
-  AlertTriangle,
-  List,
 } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
-import { hexToCmyk, cmykToHex, calculateTotalInkCoverage, CMYKColor } from '../utils/cmyk';
 
 interface ColorPickerProps {
   label?: string;
@@ -87,6 +81,275 @@ const EXTENDED_SOLID_COLORS = [
   { name: 'Zinc', hex: '#71717a' },
 ];
 
+// --- HSV & Color Conversion Utilities ---
+
+function hsvToHex(h: number, s: number, v: number): string {
+  s = s / 100;
+  v = v / 100;
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+  let r = 0, g = 0, b = 0;
+  if (h >= 0 && h < 60) { r = c; g = x; b = 0; }
+  else if (h >= 60 && h < 120) { r = x; g = c; b = 0; }
+  else if (h >= 120 && h < 180) { r = 0; g = c; b = x; }
+  else if (h >= 180 && h < 240) { r = 0; g = x; b = c; }
+  else if (h >= 240 && h < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  const rHex = Math.round((r + m) * 255).toString(16).padStart(2, '0');
+  const gHex = Math.round((g + m) * 255).toString(16).padStart(2, '0');
+  const bHex = Math.round((b + m) * 255).toString(16).padStart(2, '0');
+  return `#${rHex}${gHex}${bHex}`.toLowerCase();
+}
+
+function hexToHsv(hex: string): { h: number; s: number; v: number } {
+  let cleaned = hex.replace('#', '');
+  if (cleaned.length === 3) {
+    cleaned = cleaned.split('').map((c) => c + c).join('');
+  }
+  if (cleaned.length !== 6) {
+    return { h: 0, s: 100, v: 100 };
+  }
+  const r = parseInt(cleaned.substring(0, 2), 16) / 255 || 0;
+  const g = parseInt(cleaned.substring(2, 4), 16) / 255 || 0;
+  const b = parseInt(cleaned.substring(4, 6), 16) / 255 || 0;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  let h = 0;
+  const s = max === 0 ? 0 : (d / max) * 100;
+  const v = max * 100;
+  if (max !== min) {
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h = h * 60;
+  }
+  return { h: Math.round(h), s: Math.round(s), v: Math.round(v) };
+}
+
+// --- Canva-Style Interactive 2D Color Spectrum & Hue Chart ---
+
+interface CanvaColorChartProps {
+  color: string;
+  onChange: (hex: string) => void;
+  onClose?: () => void;
+  onPickEyedropper?: () => void;
+}
+
+const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
+  color,
+  onChange,
+  onClose,
+  onPickEyedropper,
+}) => {
+  const [hsv, setHsv] = useState(() => hexToHsv(color || '#d97706'));
+  const [hexInput, setHexInput] = useState(color || '#d97706');
+
+  const spectrumRef = useRef<HTMLDivElement | null>(null);
+  const hueSliderRef = useRef<HTMLDivElement | null>(null);
+  const isDraggingSpectrum = useRef(false);
+  const isDraggingHue = useRef(false);
+
+  useEffect(() => {
+    if (color) {
+      setHexInput(color);
+      const parsed = hexToHsv(color);
+      setHsv((prev) => {
+        // Keep current hue if saturation is 0 (grayscale)
+        if (parsed.s === 0 && parsed.v > 0) {
+          return { ...parsed, h: prev.h };
+        }
+        return parsed;
+      });
+    }
+  }, [color]);
+
+  // Spectrum 2D Drag Handler
+  const handleSpectrumMove = useCallback((clientX: number, clientY: number) => {
+    if (!spectrumRef.current) return;
+    const rect = spectrumRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
+
+    const s = Math.round((x / rect.width) * 100);
+    const v = Math.round((1 - y / rect.height) * 100);
+
+    setHsv((prev) => {
+      const next = { ...prev, s, v };
+      const nextHex = hsvToHex(next.h, next.s, next.v);
+      setHexInput(nextHex);
+      onChange(nextHex);
+      return next;
+    });
+  }, [onChange]);
+
+  // Hue Slider Drag Handler
+  const handleHueMove = useCallback((clientX: number) => {
+    if (!hueSliderRef.current) return;
+    const rect = hueSliderRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const h = Math.round((x / rect.width) * 360) % 360;
+
+    setHsv((prev) => {
+      const next = { ...prev, h };
+      const nextHex = hsvToHex(next.h, next.s, next.v);
+      setHexInput(nextHex);
+      onChange(nextHex);
+      return next;
+    });
+  }, [onChange]);
+
+  const handlePointerDownSpectrum = (e: React.PointerEvent) => {
+    isDraggingSpectrum.current = true;
+    handleSpectrumMove(e.clientX, e.clientY);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerMoveSpectrum = (e: React.PointerEvent) => {
+    if (isDraggingSpectrum.current) {
+      handleSpectrumMove(e.clientX, e.clientY);
+    }
+  };
+
+  const handlePointerUpSpectrum = (e: React.PointerEvent) => {
+    isDraggingSpectrum.current = false;
+    (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerDownHue = (e: React.PointerEvent) => {
+    isDraggingHue.current = true;
+    handleHueMove(e.clientX);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerMoveHue = (e: React.PointerEvent) => {
+    if (isDraggingHue.current) {
+      handleHueMove(e.clientX);
+    }
+  };
+
+  const handlePointerUpHue = (e: React.PointerEvent) => {
+    isDraggingHue.current = false;
+    (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+  };
+
+  const handleHexChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value.trim();
+    setHexInput(val);
+    if (!val.startsWith('#')) val = '#' + val;
+    if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+      onChange(val);
+    }
+  };
+
+  return (
+    <div className="p-3 bg-white rounded-2xl border border-gray-200/90 shadow-xl space-y-3 animate-in fade-in zoom-in-95 duration-150 select-none">
+      {/* Header */}
+      <div className="flex items-center justify-between pb-1">
+        <span className="text-xs font-bold text-gray-900">Custom Color Chart</span>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-[11px] font-bold text-gray-500 hover:text-gray-900"
+          >
+            Done
+          </button>
+        )}
+      </div>
+
+      {/* 1. 2D SATURATION / BRIGHTNESS SPECTRUM AREA */}
+      <div
+        ref={spectrumRef}
+        onPointerDown={handlePointerDownSpectrum}
+        onPointerMove={handlePointerMoveSpectrum}
+        onPointerUp={handlePointerUpSpectrum}
+        onPointerCancel={handlePointerUpSpectrum}
+        className="relative w-full h-32 rounded-xl cursor-crosshair overflow-hidden shadow-inner ring-1 ring-black/5"
+        style={{
+          backgroundColor: `hsl(${hsv.h}, 100%, 50%)`,
+          backgroundImage:
+            'linear-gradient(to top, #000000, transparent), linear-gradient(to right, #ffffff, transparent)',
+          touchAction: 'none',
+        }}
+      >
+        {/* Draggable Circle Picker Marker */}
+        <div
+          className="absolute w-4 h-4 rounded-full border-2 border-white shadow-md -translate-x-1/2 -translate-y-1/2 pointer-events-none ring-1 ring-black/30"
+          style={{
+            left: `${hsv.s}%`,
+            top: `${100 - hsv.v}%`,
+            backgroundColor: color,
+          }}
+        />
+      </div>
+
+      {/* 2. RAINBOW HUE SLIDER */}
+      <div className="space-y-1">
+        <div
+          ref={hueSliderRef}
+          onPointerDown={handlePointerDownHue}
+          onPointerMove={handlePointerMoveHue}
+          onPointerUp={handlePointerUpHue}
+          onPointerCancel={handlePointerUpHue}
+          className="relative w-full h-3.5 rounded-full cursor-pointer shadow-inner ring-1 ring-black/10"
+          style={{
+            background:
+              'linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)',
+            touchAction: 'none',
+          }}
+        >
+          {/* Draggable Hue Thumb */}
+          <div
+            className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white border-2 border-white shadow-md -translate-x-1/2 pointer-events-none ring-1 ring-black/30"
+            style={{
+              left: `${(hsv.h / 360) * 100}%`,
+              backgroundColor: `hsl(${hsv.h}, 100%, 50%)`,
+            }}
+          />
+        </div>
+      </div>
+
+      {/* 3. HEX INPUT & EYEDROPPER CONTROLS */}
+      <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
+        {/* Selected Color Box */}
+        <div
+          className="w-8 h-8 rounded-lg border border-gray-300 shadow-2xs shrink-0 ring-1 ring-black/5"
+          style={{ backgroundColor: color }}
+        />
+
+        {/* Hex Input */}
+        <div className="flex-1 relative">
+          <input
+            type="text"
+            value={hexInput.toUpperCase()}
+            onChange={handleHexChange}
+            placeholder="#D97706"
+            className="w-full pl-2.5 pr-2 py-1.5 rounded-lg border border-gray-200 bg-gray-50 text-xs font-mono font-bold uppercase text-gray-900 focus:outline-none focus:border-purple-600 focus:bg-white transition"
+          />
+        </div>
+
+        {/* Pipette / Eyedropper Button */}
+        {typeof window !== 'undefined' && 'EyeDropper' in window && onPickEyedropper && (
+          <button
+            type="button"
+            onClick={onPickEyedropper}
+            title="Pick color from screen"
+            className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 transition shadow-2xs shrink-0"
+          >
+            <Pipette className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// --- Main ColorPicker Component ---
+
 export const ColorPicker: React.FC<ColorPickerProps> = ({
   label = 'Colour',
   value = '#2563eb',
@@ -99,7 +362,6 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [showAllSolid, setShowAllSolid] = useState(false);
-  const [showCmykDetails, setShowCmykDetails] = useState(false);
   const [designColors, setDesignColors] = useState<string[]>([]);
   const [hexInput, setHexInput] = useState(value);
 
@@ -141,28 +403,6 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     setHexInput(hex);
   };
 
-  const handleHexInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let input = e.target.value.trim();
-    setHexInput(input);
-    if (!input.startsWith('#')) {
-      input = '#' + input;
-    }
-    if (/^#[0-9A-Fa-f]{6}$/.test(input) || /^#[0-9A-Fa-f]{3}$/.test(input)) {
-      onChange(input);
-    }
-  };
-
-  const cmyk = useMemo(() => hexToCmyk(value || '#000000'), [value]);
-  const ink = useMemo(() => calculateTotalInkCoverage(cmyk.c, cmyk.m, cmyk.y, cmyk.k), [cmyk]);
-
-  const handleCmykSlider = (channel: keyof CMYKColor, val: number) => {
-    const clamped = Math.min(Math.max(Number(val) || 0, 0), 100);
-    const updated = { ...cmyk, [channel]: clamped };
-    const hex = cmykToHex(updated.c, updated.m, updated.y, updated.k);
-    onChange(hex);
-    setHexInput(hex);
-  };
-
   // Search filtering
   const query = searchQuery.trim().toLowerCase();
   const isSearchHex = query.startsWith('#') || /^[0-9a-fA-F]{3,6}$/.test(query);
@@ -182,9 +422,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
           : 'w-full max-w-sm bg-white rounded-2xl shadow-xl border border-gray-200/90 flex flex-col max-h-[520px] overflow-hidden select-none text-gray-800')
       }
     >
-      {/* ================================================================ */}
-      {/* 1. TOP HEADER (Title & Close)                                     */}
-      {/* ================================================================ */}
+      {/* 1. TOP HEADER (Title & Close) */}
       <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5 shrink-0 border-b border-gray-100">
         <h3 className="text-base font-bold text-gray-900 tracking-tight">
           {label}
@@ -205,9 +443,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
-        {/* ================================================================ */}
-        {/* 2. SEARCH INPUT                                                  */}
-        {/* ================================================================ */}
+        {/* 2. SEARCH INPUT */}
         <div className="relative">
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
@@ -215,7 +451,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             placeholder='Try "blue" or "#00c4cc"'
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 rounded-xl border border-gray-200 bg-gray-50/70 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:bg-white transition"
+            className="w-full pl-9 pr-8 py-2 rounded-xl border border-gray-200 bg-gray-50/70 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-purple-600 focus:bg-white transition"
           />
           {searchQuery && (
             <button
@@ -228,182 +464,54 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
           )}
         </div>
 
-        {/* If user searched a direct hex code, show quick action swatch */}
+        {/* Direct Hex candidate apply */}
         {searchHexCandidate && /^#[0-9A-Fa-f]{3,6}$/.test(searchHexCandidate) && (
-          <div className="p-2.5 rounded-xl border border-blue-200 bg-blue-50/50 flex items-center justify-between">
+          <div className="p-2.5 rounded-xl border border-purple-200 bg-purple-50/50 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div
                 className="w-7 h-7 rounded-full border border-black/15 shadow-xs"
                 style={{ backgroundColor: searchHexCandidate }}
               />
-              <span className="text-xs font-mono font-bold text-blue-900">
+              <span className="text-xs font-mono font-bold text-purple-900">
                 {searchHexCandidate.toUpperCase()}
               </span>
             </div>
             <button
               type="button"
               onClick={() => handleSelectColor(searchHexCandidate)}
-              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition shadow-xs"
+              className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold transition shadow-xs"
             >
               Apply
             </button>
           </div>
         )}
 
-        {/* ================================================================ */}
-        {/* 3. CUSTOM COLOR SUB-PICKER (When `+` Add New Color is opened)    */}
-        {/* ================================================================ */}
+        {/* 3. CANVA DIRECT COLOR SPECTRUM CHART (Direct Interactive Color Chart) */}
         {showCustomPicker && (
-          <div className="p-3.5 rounded-xl border border-blue-200 bg-blue-50/30 space-y-3 animate-in fade-in zoom-in-95 duration-150 shadow-2xs">
-            <div className="flex items-center justify-between border-b border-blue-100 pb-2">
-              <span className="text-xs font-bold text-gray-900">Custom Color</span>
-              <button
-                type="button"
-                onClick={() => setShowCustomPicker(false)}
-                className="text-[11px] font-semibold text-gray-500 hover:text-gray-800"
-              >
-                Done
-              </button>
-            </div>
-
-            {/* Native / Custom Color Palette Trigger */}
-            <div className="flex items-center gap-3">
-              <div className="relative w-12 h-12 rounded-xl overflow-hidden border border-gray-300 shadow-xs ring-2 ring-black/5 shrink-0 cursor-pointer">
-                <input
-                  type="color"
-                  value={value.startsWith('#') ? value : '#2563eb'}
-                  onChange={(e) => handleSelectColor(e.target.value)}
-                  className="absolute -top-3 -left-3 w-20 h-20 cursor-pointer opacity-0"
-                />
-                <div className="w-full h-full" style={{ backgroundColor: value }} />
-              </div>
-
-              <div className="flex-1 space-y-1">
-                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
-                  Hex Color
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="text"
-                    value={hexInput}
-                    onChange={handleHexInputChange}
-                    placeholder="#2563EB"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-mono font-bold uppercase text-gray-900 focus:outline-none focus:border-blue-500"
-                  />
-                  {typeof window !== 'undefined' && 'EyeDropper' in window && (
-                    <button
-                      type="button"
-                      onClick={handlePickEyedropper}
-                      title="Pick color from screen"
-                      className="p-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 hover:text-blue-600 transition shadow-2xs shrink-0"
-                    >
-                      <Pipette className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Expandable CMYK Process Controls for Commercial Printing */}
-            <div className="pt-1 border-t border-blue-100">
-              <button
-                type="button"
-                onClick={() => setShowCmykDetails((prev) => !prev)}
-                className="w-full flex items-center justify-between text-[11px] font-bold text-blue-700 hover:text-blue-800 py-1"
-              >
-                <span>Process CMYK Channels ({cmyk.c}%, {cmyk.m}%, {cmyk.y}%, {cmyk.k}%)</span>
-                {showCmykDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-              </button>
-
-              {showCmykDetails && (
-                <div className="space-y-2 mt-2 pt-2 border-t border-gray-200/80 bg-white p-2.5 rounded-lg">
-                  {/* Cyan */}
-                  <div className="flex items-center gap-2 text-[10px] font-bold">
-                    <span className="w-4 text-cyan-600">C</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={cmyk.c}
-                      onChange={(e) => handleCmykSlider('c', Number(e.target.value))}
-                      className="flex-1 h-1.5 bg-cyan-100 rounded-lg appearance-none cursor-pointer accent-cyan-600"
-                    />
-                    <span className="w-8 text-right font-mono">{cmyk.c}%</span>
-                  </div>
-
-                  {/* Magenta */}
-                  <div className="flex items-center gap-2 text-[10px] font-bold">
-                    <span className="w-4 text-pink-600">M</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={cmyk.m}
-                      onChange={(e) => handleCmykSlider('m', Number(e.target.value))}
-                      className="flex-1 h-1.5 bg-pink-100 rounded-lg appearance-none cursor-pointer accent-pink-600"
-                    />
-                    <span className="w-8 text-right font-mono">{cmyk.m}%</span>
-                  </div>
-
-                  {/* Yellow */}
-                  <div className="flex items-center gap-2 text-[10px] font-bold">
-                    <span className="w-4 text-amber-500">Y</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={cmyk.y}
-                      onChange={(e) => handleCmykSlider('y', Number(e.target.value))}
-                      className="flex-1 h-1.5 bg-amber-100 rounded-lg appearance-none cursor-pointer accent-amber-500"
-                    />
-                    <span className="w-8 text-right font-mono">{cmyk.y}%</span>
-                  </div>
-
-                  {/* Black (K) */}
-                  <div className="flex items-center gap-2 text-[10px] font-bold">
-                    <span className="w-4 text-gray-800">K</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={cmyk.k}
-                      onChange={(e) => handleCmykSlider('k', Number(e.target.value))}
-                      className="flex-1 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-900"
-                    />
-                    <span className="w-8 text-right font-mono">{cmyk.k}%</span>
-                  </div>
-
-                  {/* Ink density */}
-                  <div className="flex justify-between items-center text-[10px] text-gray-500 pt-1">
-                    <span>Total Ink (TIC): <strong>{ink.total}%</strong> / 300%</span>
-                    {ink.isOverLimit && (
-                      <span className="text-amber-600 font-bold flex items-center gap-0.5">
-                        <AlertTriangle className="w-3 h-3" /> Over limit
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+          <CanvaColorChart
+            color={value}
+            onChange={onChange}
+            onClose={() => setShowCustomPicker(false)}
+            onPickEyedropper={handlePickEyedropper}
+          />
         )}
 
-        {/* ================================================================ */}
-        {/* 4. COLOURS IN THIS DESIGN (Document Colors)                     */}
-        {/* ================================================================ */}
+        {/* 4. COLOURS IN THIS DESIGN (Document Colors) */}
         <div className="space-y-2">
           <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
-            <Palette className="w-4 h-4 text-blue-600" />
+            <Palette className="w-4 h-4 text-purple-600" />
             <span>Colours in this design</span>
           </div>
 
           <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
-            {/* 1. Add Custom Color Circle Button with Canva Rainbow conic-gradient */}
+            {/* Add Custom Color Circle Button with Canva Rainbow conic-gradient */}
             <button
               type="button"
               onClick={() => setShowCustomPicker((prev) => !prev)}
               title="Add a new custom color"
-              className="relative w-8 h-8 rounded-full p-[2px] shrink-0 transition hover:scale-110 shadow-xs"
+              className={`relative w-8 h-8 rounded-full p-[2px] shrink-0 transition hover:scale-110 shadow-xs ${
+                showCustomPicker ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
+              }`}
               style={{
                 background:
                   'conic-gradient(from 0deg, #ff0000, #ff8800, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
@@ -414,19 +522,19 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
               </div>
             </button>
 
-            {/* 2. Eyedropper Tool Circle Button */}
+            {/* Eyedropper Tool Circle Button */}
             {typeof window !== 'undefined' && 'EyeDropper' in window && (
               <button
                 type="button"
                 onClick={handlePickEyedropper}
                 title="Pick color from design"
-                className="w-8 h-8 rounded-full border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-700 hover:text-blue-600 transition hover:scale-110 shadow-xs shrink-0"
+                className="w-8 h-8 rounded-full border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-700 hover:text-purple-600 transition hover:scale-110 shadow-xs shrink-0"
               >
                 <Pipette className="w-3.5 h-3.5" />
               </button>
             )}
 
-            {/* 3. Design Colors Swatches */}
+            {/* Design Colors Swatches */}
             {designColors.map((colorHex, idx) => {
               const isSelected = value.toLowerCase() === colorHex.toLowerCase();
               const isWhite = colorHex.toLowerCase() === '#ffffff' || colorHex.toLowerCase() === '#fff';
@@ -438,7 +546,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                   title={colorHex}
                   className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
                     isWhite ? 'border border-gray-200' : ''
-                  } ${isSelected ? 'ring-2 ring-blue-600 ring-offset-2 scale-105' : ''}`}
+                  } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
                   style={{ backgroundColor: colorHex }}
                 >
                   {isSelected && (
@@ -455,9 +563,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
           </div>
         </div>
 
-        {/* ================================================================ */}
-        {/* 5. BRAND KIT SECTION                                             */}
-        {/* ================================================================ */}
+        {/* 5. BRAND KIT SECTION */}
         <div className="space-y-2 pt-1 border-t border-gray-100">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
@@ -466,7 +572,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             </div>
           </div>
           <p className="text-[10px] text-gray-400 truncate max-w-full font-medium">
-            Colors from ORIGINAL LOGO DESIGN GLENELG PIZZ...
+            Colors from ORIGINAL LOGO DESIGN
           </p>
 
           <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
@@ -481,7 +587,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                   title={`${item.name} (${item.hex})`}
                   className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
                     isWhite ? 'border border-gray-200' : ''
-                  } ${isSelected ? 'ring-2 ring-blue-600 ring-offset-2 scale-105' : ''}`}
+                  } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
                   style={{ backgroundColor: item.hex }}
                 >
                   {isSelected && (
@@ -498,9 +604,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
           </div>
         </div>
 
-        {/* ================================================================ */}
-        {/* 6. PHOTO COLOURS SECTION                                         */}
-        {/* ================================================================ */}
+        {/* 6. PHOTO COLOURS SECTION */}
         <div className="space-y-2 pt-1 border-t border-gray-100">
           <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
             <ImageIcon className="w-4 h-4 text-emerald-600" />
@@ -508,12 +612,10 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
           </div>
 
           <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
-            {/* Photo Thumbnail Icon */}
             <div className="w-8 h-8 rounded-lg overflow-hidden border border-gray-200 bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0 shadow-xs">
               <ImageIcon className="w-4 h-4" />
             </div>
 
-            {/* Extracted Photo Colors Swatches */}
             {PHOTO_COLORS.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
               const isSelected = value.toLowerCase() === item.hex.toLowerCase();
               return (
@@ -523,7 +625,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                   onClick={() => handleSelectColor(item.hex)}
                   title={`${item.name} (${item.hex})`}
                   className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
-                    isSelected ? 'ring-2 ring-blue-600 ring-offset-2 scale-105' : ''
+                    isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
                   }`}
                   style={{ backgroundColor: item.hex }}
                 >
@@ -536,9 +638,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
           </div>
         </div>
 
-        {/* ================================================================ */}
-        {/* 7. DEFAULT SOLID COLOURS SECTION                                */}
-        {/* ================================================================ */}
+        {/* 7. DEFAULT SOLID COLOURS SECTION */}
         <div className="space-y-2 pt-1 border-t border-gray-100">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
@@ -548,7 +648,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             <button
               type="button"
               onClick={() => setShowAllSolid((prev) => !prev)}
-              className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+              className="text-[11px] font-semibold text-purple-600 hover:text-purple-700 hover:underline"
             >
               {showAllSolid ? 'Show less' : 'See all'}
             </button>
@@ -567,7 +667,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                   title={`${item.name} (${item.hex})`}
                   className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
                     isWhite ? 'border border-gray-300' : ''
-                  } ${isSelected ? 'ring-2 ring-blue-600 ring-offset-2 scale-105' : ''}`}
+                  } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
                   style={{ backgroundColor: item.hex }}
                 >
                   {isSelected && (
@@ -594,7 +694,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                   onClick={() => handleSelectColor(item.hex)}
                   title={`${item.name} (${item.hex})`}
                   className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
-                    isSelected ? 'ring-2 ring-blue-600 ring-offset-2 scale-105' : ''
+                    isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
                   }`}
                   style={{ backgroundColor: item.hex }}
                 >
@@ -619,7 +719,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                     onClick={() => handleSelectColor(item.hex)}
                     title={`${item.name} (${item.hex})`}
                     className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
-                      isSelected ? 'ring-2 ring-blue-600 ring-offset-2 scale-105' : ''
+                      isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
                     }`}
                     style={{ backgroundColor: item.hex }}
                   >

@@ -131,12 +131,45 @@ export function DesignerCanvas({
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     if (!canvasManager) return;
-    const url = e.dataTransfer.getData('text/plain');
-    if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:image/'))) {
-      await canvasManager.setBackgroundImage(url, {
-        fit: 'cover',
-        scale: 1.0,
-      });
+
+    let imageUrl = e.dataTransfer.getData('text/plain');
+
+    // Check for files dropped directly from local desktop
+    if (!imageUrl && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.startsWith('image/')) {
+        imageUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+      }
+    }
+
+    if (
+      imageUrl &&
+      (imageUrl.startsWith('http://') ||
+        imageUrl.startsWith('https://') ||
+        imageUrl.startsWith('data:image/'))
+    ) {
+      // Check if dropped directly onto a Canva Photo Frame
+      const fabricCanvas = canvasManager.getCanvas();
+      if (fabricCanvas) {
+        const pointer = (fabricCanvas as any).getScenePoint
+          ? (fabricCanvas as any).getScenePoint(e.nativeEvent)
+          : (fabricCanvas as any).getPointer(e.nativeEvent);
+
+        if (pointer) {
+          const targetFrame = canvasManager.getFrameUnderPoint(pointer);
+          if (targetFrame) {
+            await canvasManager.slotImageIntoFrame(targetFrame, imageUrl);
+            return;
+          }
+        }
+      }
+
+      // If not dropped on a frame, add as a new image layer
+      await canvasManager.addImageFromUrl(imageUrl);
     }
   };
 

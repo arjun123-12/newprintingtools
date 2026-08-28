@@ -32,7 +32,9 @@ import {
 } from '@/types/designer';
 import { CanvasGuides } from './CanvasGuides';
 import { CanvasSnapping } from './CanvasSnapping';
-import { applyCanvaControlsGlobal } from './CanvaControls';
+import { applyCanvaControlsGlobal, applyCanvaControlsToObject } from './CanvaControls';
+import { createFrameClipPath } from './frameHelpers';
+import { CANVA_FRAME_PLACEHOLDER_SVG, FRAME_PRESETS } from '../data/framesData';
 import { POPULAR_FONTS, loadFont } from '../utils/fonts';
 import { calculateImageQuality } from '../utils/imageQuality';
 import { runPreflightCheck, PreflightReport } from '../utils/preflightCheck';
@@ -169,12 +171,16 @@ export class CanvasManager {
       backgroundColor: '#ffffff',
       preserveObjectStacking: true,
       selection: true,
+      selectionColor: 'rgba(139, 61, 255, 0.12)',
+      selectionBorderColor: '#8b3dff',
+      selectionLineWidth: 1.5,
       stopContextMenu: true,
       fireRightClick: true,
       enableRetinaScaling: true,
       imageSmoothingEnabled: true,
     });
 
+    applyCanvaControlsGlobal();
     canvas.setZoom(this.zoom);
 
     this.canvas = canvas;
@@ -913,6 +919,7 @@ export class CanvasManager {
       const formatted = type === 'textbox' || type === 'i-text' ? 'Text Layer' : type === 'image' ? 'Image Layer' : `${type.charAt(0).toUpperCase() + type.slice(1)}`;
       obj.set('name' as any, defaultName || formatted);
     }
+    applyCanvaControlsToObject(obj);
   }
 
   // --- Selection Management ---
@@ -1095,9 +1102,11 @@ export class CanvasManager {
           lineHeight: (objDef.lineHeight as number) || 1.2,
           originX: 'left',
           originY: 'top',
-          cornerColor: '#2563eb',
+          cornerColor: '#ffffff',
+          cornerStrokeColor: '#8b3dff',
+          borderColor: '#8b3dff',
           cornerStyle: 'circle',
-          cornerSize: 10,
+          cornerSize: 12,
           transparentCorners: false,
           padding: 6,
           selectable: true,
@@ -1124,9 +1133,11 @@ export class CanvasManager {
           ry: rx,
           originX: 'left',
           originY: 'top',
-          cornerColor: '#2563eb',
+          cornerColor: '#ffffff',
+          cornerStrokeColor: '#8b3dff',
+          borderColor: '#8b3dff',
           cornerStyle: 'circle',
-          cornerSize: 10,
+          cornerSize: 12,
           transparentCorners: false,
           selectable: true,
           evented: true,
@@ -1146,9 +1157,11 @@ export class CanvasManager {
           fill: (objDef.fill as string) || '#2563eb',
           originX: 'left',
           originY: 'top',
-          cornerColor: '#2563eb',
+          cornerColor: '#ffffff',
+          cornerStrokeColor: '#8b3dff',
+          borderColor: '#8b3dff',
           cornerStyle: 'circle',
-          cornerSize: 10,
+          cornerSize: 12,
           transparentCorners: false,
           selectable: true,
           evented: true,
@@ -1165,125 +1178,223 @@ export class CanvasManager {
     this.notifyPreflight();
   }
 
-  // --- Photo Frames Engine (with ClipPaths) ---
+  // --- Canva Photo Frames Engine (with ClipPaths & Image Slotting) ---
 
-  public addFrame(shapeType: FrameShapeType, customImageUrl?: string): void {
+  public addFrame(
+    shapeType: FrameShapeType,
+    customImageUrl?: string,
+    options?: { left?: number; top?: number; width?: number; height?: number }
+  ): void {
     if (!this.canvas) return;
+
+    const preset = FRAME_PRESETS.find((p) => p.shape === shapeType) || FRAME_PRESETS[0];
+    const aspectRatio = preset.aspectRatio || 1.0;
 
     const canvasW = this.dimensions.widthPx || 1063;
     const canvasH = this.dimensions.heightPx || 591;
-    const frameSize = Math.min(canvasW * 0.35, 320);
-    const left = (canvasW - frameSize) / 2;
-    const top = (canvasH - frameSize) / 2;
 
-    const defaultImg =
-      customImageUrl ||
-      'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=800&q=80';
+    const baseDim = Math.min(canvasW * 0.32, 280);
+    const frameW = options?.width || (aspectRatio >= 1.0 ? baseDim * aspectRatio : baseDim);
+    const frameH = options?.height || (aspectRatio < 1.0 ? baseDim / aspectRatio : baseDim);
 
-    FabricImage.fromURL(defaultImg, { crossOrigin: 'anonymous' }).then((img) => {
-      if (!this.canvas) return;
+    const defaultImg = customImageUrl || CANVA_FRAME_PLACEHOLDER_SVG;
+    const isPlaceholder = !customImageUrl;
 
-      const scale = frameSize / Math.max(img.width || 400, img.height || 400);
-      img.scale(scale);
+    FabricImage.fromURL(defaultImg, { crossOrigin: 'anonymous' })
+      .then((img) => {
+        if (!this.canvas) return;
 
-      let clipPath: FabricObject;
+        const natW = img.width || 400;
+        const natH = img.height || 400;
 
-      if (shapeType === 'circle') {
-        clipPath = new Circle({
-          radius: (img.width || 400) / 2,
-          originX: 'center',
-          originY: 'center',
+        // Scale image to match calculated frame dimensions
+        const scaleX = frameW / natW;
+        const scaleY = frameH / natH;
+        img.set({
+          scaleX,
+          scaleY,
         });
-      } else if (shapeType === 'heart') {
-        // Heart path normalized to center
-        clipPath = new Polygon(
-          [
-            new Point(0, -100),
-            new Point(60, -150),
-            new Point(120, -90),
-            new Point(120, 0),
-            new Point(0, 140),
-            new Point(-120, 0),
-            new Point(-120, -90),
-            new Point(-60, -150),
-          ],
-          {
-            originX: 'center',
-            originY: 'center',
-            scaleX: (img.width || 400) / 260,
-            scaleY: (img.height || 400) / 260,
-          }
-        );
-      } else if (shapeType === 'star') {
-        clipPath = new Polygon(
-          [
-            new Point(0, -120),
-            new Point(35, -35),
-            new Point(125, -35),
-            new Point(50, 20),
-            new Point(80, 110),
-            new Point(0, 55),
-            new Point(-80, 110),
-            new Point(-50, 20),
-            new Point(-125, -35),
-            new Point(-35, -35),
-          ],
-          {
-            originX: 'center',
-            originY: 'center',
-            scaleX: (img.width || 400) / 260,
-            scaleY: (img.height || 400) / 260,
-          }
-        );
-      } else if (shapeType === 'hexagon') {
-        clipPath = new Polygon(
-          [
-            new Point(0, -120),
-            new Point(100, -60),
-            new Point(100, 60),
-            new Point(0, 120),
-            new Point(-100, 60),
-            new Point(-100, -60),
-          ],
-          {
-            originX: 'center',
-            originY: 'center',
-            scaleX: (img.width || 400) / 220,
-            scaleY: (img.height || 400) / 220,
-          }
-        );
-      } else {
-        // rounded rectangle
-        clipPath = new Rect({
-          width: img.width || 400,
-          height: img.height || 400,
-          rx: 40,
-          ry: 40,
-          originX: 'center',
-          originY: 'center',
-        });
-      }
 
-      img.set({
-        clipPath,
-        cornerColor: '#2563eb',
+        // Generate normalized clip path for this shape matching image's unscaled natural dimensions
+        const clipPath = createFrameClipPath(shapeType, natW, natH);
+
+        img.set({
+          clipPath,
+          cornerColor: '#ffffff',
+          cornerStrokeColor: '#8b3dff',
+          borderColor: '#8b3dff',
+          cornerStyle: 'circle',
+          cornerSize: 12,
+          transparentCorners: false,
+        });
+
+        img.set('isFrame' as any, true);
+        img.set('frameShape' as any, shapeType);
+        img.set('isCanvaPlaceholder' as any, isPlaceholder);
+        img.set('originalSrc' as any, defaultImg);
+
+        const frameName = `${preset.name} Frame`;
+        this.ensureObjectId(img, frameName);
+
+        this.canvas.add(img);
+
+        if (options?.left !== undefined && options?.top !== undefined) {
+          img.set({ left: options.left, top: options.top });
+          img.setCoords();
+        } else {
+          this.centerObjectOnCanvas(img);
+        }
+
+        this.canvas.setActiveObject(img);
+        this.canvas.requestRenderAll();
+        this.notifyChange();
+        this.notifySelection();
+        this.notifyLayers();
+      })
+      .catch((err) => {
+        console.error('Failed to create Canva Frame:', err);
+      });
+  }
+
+  /**
+   * Slots an image into an existing Frame object, preserving its shape mask, position, scale, and angle.
+   */
+  public async slotImageIntoFrame(
+    frameObj: FabricObject,
+    newImageUrl: string,
+    metadata?: ImageMetadata
+  ): Promise<FabricImage | null> {
+    if (!this.canvas || !frameObj) return null;
+
+    try {
+      const shapeType = (frameObj.get('frameShape' as any) as FrameShapeType) || 'circle';
+      const left = frameObj.left || 0;
+      const top = frameObj.top || 0;
+      const angle = frameObj.angle || 0;
+      const targetScaledW = frameObj.getScaledWidth();
+      const targetScaledH = frameObj.getScaledHeight();
+
+      // Find z-index in canvas objects
+      const objects = this.canvas.getObjects();
+      const zIndex = objects.indexOf(frameObj);
+
+      const newImg = await FabricImage.fromURL(newImageUrl, { crossOrigin: 'anonymous' });
+
+      const natW = metadata?.naturalWidth || newImg.width || 400;
+      const natH = metadata?.naturalHeight || newImg.height || 400;
+
+      // Calculate scale to achieve "cover" fit inside the target dimensions
+      const scaleCover = Math.max(targetScaledW / natW, targetScaledH / natH);
+
+      newImg.set({
+        left,
+        top,
+        angle,
+        scaleX: scaleCover,
+        scaleY: scaleCover,
+        cornerColor: '#ffffff',
+        cornerStrokeColor: '#8b3dff',
+        borderColor: '#8b3dff',
         cornerStyle: 'circle',
-        cornerSize: 10,
+        cornerSize: 12,
         transparentCorners: false,
       });
 
-      img.set('isFrame' as any, true);
-      img.set('frameShape' as any, shapeType);
-      this.ensureObjectId(img, `${shapeType.charAt(0).toUpperCase() + shapeType.slice(1)} Frame`);
+      // Generate matching centered clipPath
+      const clipPath = createFrameClipPath(shapeType, natW, natH);
+      newImg.set('clipPath', clipPath);
+      newImg.set('isFrame' as any, true);
+      newImg.set('frameShape' as any, shapeType);
+      newImg.set('isCanvaPlaceholder' as any, false);
+      newImg.set('originalSrc' as any, metadata?.originalSrc || newImageUrl);
+      newImg.set('naturalWidth' as any, natW);
+      newImg.set('naturalHeight' as any, natH);
+      newImg.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
 
-      this.canvas.add(img);
-      this.centerObjectOnCanvas(img);
-      this.canvas.setActiveObject(img);
+      this.ensureObjectId(newImg, `${shapeType.charAt(0).toUpperCase() + shapeType.slice(1)} Frame`);
+
+      // Replace old frame object in canvas
+      this.canvas.remove(frameObj);
+      this.canvas.insertAt(zIndex >= 0 ? zIndex : this.canvas.getObjects().length, newImg);
+      newImg.setCoords();
+
+      this.canvas.setActiveObject(newImg);
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
       this.notifyLayers();
-    });
+
+      return newImg;
+    } catch (err) {
+      console.error('Failed to slot image into Canva Frame:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Detaches the photo from a Frame, extracting it as a standalone image and resetting the frame to the Canva landscape placeholder.
+   */
+  public async detachImageFromFrame(targetFrame?: FabricObject): Promise<void> {
+    if (!this.canvas) return;
+
+    const frame = targetFrame || this.canvas.getActiveObject();
+    if (!frame || !frame.get('isFrame' as any)) return;
+
+    const isPlaceholder = Boolean(frame.get('isCanvaPlaceholder' as any));
+    const currentSrc = (frame.get('originalSrc' as any) as string) || (frame as any).getSrc?.();
+
+    // If there is an actual user image in the frame, extract it as an independent image layer
+    if (!isPlaceholder && currentSrc && currentSrc !== CANVA_FRAME_PLACEHOLDER_SVG) {
+      const left = (frame.left || 100) + 30;
+      const top = (frame.top || 100) + 30;
+      await this.addImageFromUrl(currentSrc, undefined, { left, top });
+    }
+
+    // Reset frame back to Canva landscape placeholder
+    await this.slotImageIntoFrame(frame, CANVA_FRAME_PLACEHOLDER_SVG);
+    const active = this.canvas.getActiveObject();
+    if (active) {
+      active.set('isCanvaPlaceholder' as any, true);
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+    }
+  }
+
+  /**
+   * Clears the image in a Frame, restoring the Canva landscape placeholder artwork.
+   */
+  public async clearFrameImage(targetFrame?: FabricObject): Promise<void> {
+    if (!this.canvas) return;
+
+    const frame = targetFrame || this.canvas.getActiveObject();
+    if (!frame || !frame.get('isFrame' as any)) return;
+
+    await this.slotImageIntoFrame(frame, CANVA_FRAME_PLACEHOLDER_SVG);
+    const active = this.canvas.getActiveObject();
+    if (active) {
+      active.set('isCanvaPlaceholder' as any, true);
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+    }
+  }
+
+  /**
+   * Checks if a point on canvas (pointer { x, y }) lies within any Frame object.
+   */
+  public getFrameUnderPoint(point: { x: number; y: number }): FabricObject | null {
+    if (!this.canvas) return null;
+
+    const objects = this.canvas.getObjects().slice().reverse();
+    for (const obj of objects) {
+      if (obj.get('isFrame' as any) && obj.visible !== false) {
+        if (obj.containsPoint(new Point(point.x, point.y))) {
+          return obj;
+        }
+      }
+    }
+    return null;
   }
 
   // --- Image Handling & Non-Destructive Crop ---
@@ -1311,9 +1422,11 @@ export class CanvasManager {
       img.set({
         scaleX: scale,
         scaleY: scale,
-        cornerColor: '#2563eb',
+        cornerColor: '#ffffff',
+        cornerStrokeColor: '#8b3dff',
+        borderColor: '#8b3dff',
         cornerStyle: 'circle',
-        cornerSize: 10,
+        cornerSize: 12,
         transparentCorners: false,
       });
 
@@ -1373,9 +1486,11 @@ export class CanvasManager {
         scaleX: prevScaleX,
         scaleY: prevScaleY,
         clipPath: prevClip,
-        cornerColor: '#2563eb',
+        cornerColor: '#ffffff',
+        cornerStrokeColor: '#8b3dff',
+        borderColor: '#8b3dff',
         cornerStyle: 'circle',
-        cornerSize: 10,
+        cornerSize: 12,
         transparentCorners: false,
       });
 
@@ -1975,9 +2090,11 @@ export class CanvasManager {
       fontStyle: (options?.fontStyle as '' | 'normal' | 'italic' | 'oblique') || 'normal',
       fill: options?.fill || '#0f172a',
       textAlign: options?.textAlign || 'left',
-      cornerColor: '#2563eb',
+      cornerColor: '#ffffff',
+      cornerStrokeColor: '#8b3dff',
+      borderColor: '#8b3dff',
       cornerStyle: 'circle',
-      cornerSize: 10,
+      cornerSize: 12,
       transparentCorners: false,
       padding: 6,
       splitByGrapheme: false,
@@ -2012,9 +2129,11 @@ export class CanvasManager {
       shapeObj = new Circle({
         radius: 90,
         fill: color,
-        cornerColor: '#2563eb',
+        cornerColor: '#ffffff',
+        cornerStrokeColor: '#8b3dff',
+        borderColor: '#8b3dff',
         cornerStyle: 'circle',
-        cornerSize: 10,
+        cornerSize: 12,
         transparentCorners: false,
       });
       this.ensureObjectId(shapeObj, 'Circle Shape');
@@ -2023,9 +2142,11 @@ export class CanvasManager {
         width: 180,
         height: 160,
         fill: color,
-        cornerColor: '#2563eb',
+        cornerColor: '#ffffff',
+        cornerStrokeColor: '#8b3dff',
+        borderColor: '#8b3dff',
         cornerStyle: 'circle',
-        cornerSize: 10,
+        cornerSize: 12,
         transparentCorners: false,
       });
       this.ensureObjectId(shapeObj, 'Triangle Shape');
@@ -2045,9 +2166,11 @@ export class CanvasManager {
         ],
         {
           fill: color,
-          cornerColor: '#2563eb',
+          cornerColor: '#ffffff',
+          cornerStrokeColor: '#8b3dff',
+          borderColor: '#8b3dff',
           cornerStyle: 'circle',
-          cornerSize: 10,
+          cornerSize: 12,
           transparentCorners: false,
         }
       );
@@ -2060,9 +2183,11 @@ export class CanvasManager {
         fill: color,
         rx: 6,
         ry: 6,
-        cornerColor: '#2563eb',
+        cornerColor: '#ffffff',
+        cornerStrokeColor: '#8b3dff',
+        borderColor: '#8b3dff',
         cornerStyle: 'circle',
-        cornerSize: 10,
+        cornerSize: 12,
         transparentCorners: false,
       });
       this.ensureObjectId(shapeObj, 'Rectangle Shape');
@@ -2165,6 +2290,7 @@ export class CanvasManager {
           'cropHeight',
           'isFrame',
           'frameShape',
+          'isCanvaPlaceholder',
           'rx',
           'ry',
           'strokeDashArray',
@@ -2311,6 +2437,7 @@ export class CanvasManager {
       cropHeight = (imageObj.get('cropHeight' as any) as number) || imageObj.height;
       isFrame = Boolean(imageObj.get('isFrame' as any));
       frameShape = (imageObj.get('frameShape' as any) as string) || undefined;
+      const isCanvaPlaceholder = Boolean(imageObj.get('isCanvaPlaceholder' as any));
 
       qualityInfo = calculateImageQuality(
         naturalWidth,
@@ -2325,6 +2452,7 @@ export class CanvasManager {
     const isPath = active instanceof Path || Boolean(active.get('isBrushPath' as any));
     const brushType = (active.get('brushType' as any) as BrushType) || undefined;
     const isBrushPath = isPath || Boolean(active.get('isBrushPath' as any));
+    const isCanvaPlaceholder = Boolean(imageObj?.get('isCanvaPlaceholder' as any));
 
     return {
       id: active.get('id' as any) as string,
@@ -2359,6 +2487,7 @@ export class CanvasManager {
       isVisible: active.visible !== false,
       isFrame,
       frameShape,
+      isCanvaPlaceholder,
       isBrushPath,
       brushType,
       rx: (active as any).rx || 0,
@@ -2485,10 +2614,18 @@ export class CanvasManager {
     });
 
     this.canvas.on('selection:created', () => {
+      const active = this.canvas?.getActiveObject();
+      if (active) {
+        applyCanvaControlsToObject(active);
+      }
       this.notifySelection();
       this.notifyLayers();
     });
     this.canvas.on('selection:updated', () => {
+      const active = this.canvas?.getActiveObject();
+      if (active) {
+        applyCanvaControlsToObject(active);
+      }
       this.notifySelection();
       this.notifyLayers();
     });
@@ -2498,7 +2635,12 @@ export class CanvasManager {
       this.notifyLayers();
     });
 
-    this.canvas.on('object:added', () => this.notifyLayers());
+    this.canvas.on('object:added', (opt: any) => {
+      if (opt.target) {
+        applyCanvaControlsToObject(opt.target);
+      }
+      this.notifyLayers();
+    });
     this.canvas.on('object:removed', () => this.notifyLayers());
 
     this.canvas.on('object:modified', () => {

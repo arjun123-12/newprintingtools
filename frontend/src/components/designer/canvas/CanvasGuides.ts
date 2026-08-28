@@ -153,91 +153,24 @@ export class CanvasGuides {
     // =========================================================================
     if (this.settings.showBleed && (bleedPx > 0 || bleedMm > 0)) {
       ctx.save();
-      ctx.strokeStyle = this.settings.bleedColor || 'rgba(239, 68, 68, 0.85)';
-      ctx.lineWidth = Math.max(1.5 / zoom, 1);
-      ctx.setLineDash([6 / zoom, 4 / zoom]);
-
-      // Draw visible red dashed bleed rectangle along the outer canvas boundary
-      ctx.strokeRect(1 / zoom, 1 / zoom, width - 2 / zoom, height - 2 / zoom);
-
-      // Corner crop / bleed tick marks at all 4 outer corners
-      const tickLen = Math.min(14 / zoom, width * 0.05, height * 0.05);
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      // Top-Left
-      ctx.moveTo(1 / zoom, tickLen);
-      ctx.lineTo(1 / zoom, 1 / zoom);
-      ctx.lineTo(tickLen, 1 / zoom);
-
-      // Top-Right
-      ctx.moveTo(width - 1 / zoom - tickLen, 1 / zoom);
-      ctx.lineTo(width - 1 / zoom, 1 / zoom);
-      ctx.lineTo(width - 1 / zoom, tickLen);
-
-      // Bottom-Left
-      ctx.moveTo(1 / zoom, height - 1 / zoom - tickLen);
-      ctx.lineTo(1 / zoom, height - 1 / zoom);
-      ctx.lineTo(tickLen, height - 1 / zoom);
-
-      // Bottom-Right
-      ctx.moveTo(width - 1 / zoom - tickLen, height - 1 / zoom);
-      ctx.lineTo(width - 1 / zoom, height - 1 / zoom);
-      ctx.lineTo(width - 1 / zoom, height - 1 / zoom - tickLen);
-
-      ctx.stroke();
-
-      // Bleed Area Tag in Top-Right
-      const bleedText = '';
-      ctx.font = `bold ${Math.max(9.5 / zoom, 8)}px sans-serif`;
-      const textWidth = ctx.measureText(bleedText).width;
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.9)';
-      ctx.fillText(bleedText, width - textWidth - 8 / zoom, 14 / zoom);
+      ctx.strokeStyle = this.settings.bleedColor || 'rgba(239, 68, 68, 0.75)';
+      ctx.lineWidth = Math.max(1.2 / zoom, 1);
+      ctx.setLineDash([5 / zoom, 5 / zoom]);
+      // Draw clean simple bleed rectangle along the outer canvas boundary
+      ctx.strokeRect(0.5 / zoom, 0.5 / zoom, width - 1 / zoom, height - 1 / zoom);
       ctx.restore();
     }
 
     // =========================================================================
-    // 2. TRIM LINE IN DARK BLACK (Exact Machine / Guillotine Cut Line)
+    // 2. TRIM LINE (Clean, Simple Cut Line - Uniform with Safe Margin)
     // =========================================================================
     if (this.settings.showTrim) {
       ctx.save();
-      // Solid crisp dark black stroke
-      ctx.strokeStyle = this.settings.trimColor || '#000000';
-      ctx.lineWidth = Math.max(1.5 / zoom, 1.2);
+      // Clean subtle trim boundary line (solid, uniform)
+      ctx.strokeStyle = this.settings.trimColor || 'rgba(15, 23, 42, 0.75)';
+      ctx.lineWidth = Math.max(1.2 / zoom, 1);
       ctx.setLineDash([]);
-
-      // Draw dark black cut boundary
       ctx.strokeRect(trimX, trimY, trimW, trimH);
-
-      // Corner Trim / Crop marks in Dark Black at trim line corners
-      const cropLen = Math.min(18 / zoom, trimW * 0.08, trimH * 0.08);
-      ctx.beginPath();
-      // Top-Left Trim Corner
-      ctx.moveTo(trimX, trimY - cropLen);
-      ctx.lineTo(trimX, trimY);
-      ctx.lineTo(trimX - cropLen, trimY);
-
-      // Top-Right Trim Corner
-      ctx.moveTo(trimX + trimW, trimY - cropLen);
-      ctx.lineTo(trimX + trimW, trimY);
-      ctx.lineTo(trimX + trimW + cropLen, trimY);
-
-      // Bottom-Left Trim Corner
-      ctx.moveTo(trimX, trimY + trimH + cropLen);
-      ctx.lineTo(trimX, trimY + trimH);
-      ctx.lineTo(trimX - cropLen, trimY + trimH);
-
-      // Bottom-Right Trim Corner
-      ctx.moveTo(trimX + trimW, trimY + trimH + cropLen);
-      ctx.lineTo(trimX + trimW, trimY + trimH);
-      ctx.lineTo(trimX + trimW + cropLen, trimY + trimH);
-
-      ctx.stroke();
-
-      // Trim Line Badge / Label
-      const trimText = '';
-      ctx.font = `bold ${Math.max(9 / zoom, 7.5)}px sans-serif`;
-      ctx.fillStyle = '#000000';
-      ctx.fillText(trimText, trimX + 6 / zoom, trimY + 12 / zoom);
       ctx.restore();
     }
 

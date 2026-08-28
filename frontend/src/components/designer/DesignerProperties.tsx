@@ -23,7 +23,9 @@ import {
   Sparkles,
   Eye,
   RefreshCw,
+  Rotate3d,
 } from 'lucide-react';
+import { Artwork3DViewer } from './controls/Artwork3DViewer';
 
 interface DesignerPropertiesProps {
   selected: SelectedObjectState | null;
@@ -48,6 +50,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
   const [isCropOpen, setIsCropOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
+  const [is3DMode, setIs3DMode] = useState<boolean>(false);
   const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Generate live artwork preview thumbnail
@@ -178,17 +181,47 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                 Artwork Preview
               </h3>
             </div>
-            {onOpenPreview && (
-              <button
-                type="button"
-                onClick={onOpenPreview}
-                title="Open Fullscreen Preview"
-                className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded-lg transition"
-              >
-                <Maximize2 className="w-3 h-3" />
-                <span>Full View</span>
-              </button>
-            )}
+
+            <div className="flex items-center gap-1.5">
+              {/* 2D / 3D Mode Switcher */}
+              <div className="flex items-center bg-gray-200/80 p-0.5 rounded-lg text-[10px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setIs3DMode(false)}
+                  className={`px-2 py-0.5 rounded-md transition ${
+                    !is3DMode
+                      ? 'bg-white text-blue-600 shadow-2xs'
+                      : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  2D
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIs3DMode(true)}
+                  className={`px-2 py-0.5 rounded-md transition flex items-center gap-1 ${
+                    is3DMode
+                      ? 'bg-purple-600 text-white shadow-2xs'
+                      : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  <Rotate3d className="w-2.5 h-2.5" />
+                  <span>3D</span>
+                </button>
+              </div>
+
+              {onOpenPreview && (
+                <button
+                  type="button"
+                  onClick={onOpenPreview}
+                  title="Open Fullscreen 3D Studio"
+                  className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded-lg transition"
+                >
+                  <Maximize2 className="w-3 h-3" />
+                  <span>Full View</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Scaled Aspect-Ratio Preview Container */}
@@ -196,45 +229,48 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
             onClick={onOpenPreview}
             role="button"
             tabIndex={0}
-            title="Click to open presentation preview"
+            title="Click to open 3D presentation preview"
             className="group relative w-full rounded-xl border border-gray-200/90 bg-white shadow-2xs overflow-hidden cursor-pointer hover:border-blue-400 hover:shadow-md transition-all flex items-center justify-center p-2"
             style={{
-              maxHeight: '180px',
-              minHeight: '100px',
+              maxHeight: '190px',
+              minHeight: '120px',
             }}
           >
-            <div
-              className="relative w-full max-h-full flex items-center justify-center rounded shadow-xs overflow-hidden border border-gray-200"
-              style={{
-                aspectRatio: `${totalW} / ${totalH}`,
-                maxHeight: '160px',
-              }}
-            >
-              {previewUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={previewUrl}
-                  alt="Live Artwork Preview"
-                  className="w-full h-full object-contain select-none group-hover:scale-[1.02] transition-transform duration-200"
+            {is3DMode && previewUrl ? (
+              <div className="w-full h-36 rounded overflow-hidden">
+                <Artwork3DViewer
+                  previewUrl={previewUrl}
+                  documentSettings={documentSettings}
+                  dimensions={dimensions || { widthPx: totalW, heightPx: totalH, bleedPx: bleedP, widthMm: 85, heightMm: 55, bleedMm: 3, safeZoneMm: 3, safeZonePx: 0, totalWidthPx: totalW, totalHeightPx: totalH, dpi: 300 }}
+                  isCompact={true}
                 />
-              ) : (
-                <div className="w-full h-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs animate-pulse">
-                  Rendering preview...
-                </div>
-              )}
-
-              {/* Guides Overlays */}
-              {bleedP > 0 && (
-                <>
-                  {/* Bleed Edge */}
-                  <div 
-                    className="absolute pointer-events-none border border-rose-500 z-10 inset-0 opacity-70"
-                    title="Bleed Edge"
+              </div>
+            ) : (
+              <div
+                className="relative w-full max-h-full flex items-center justify-center rounded shadow-xs overflow-hidden border border-gray-200"
+                style={{
+                  aspectRatio: `${totalW} / ${totalH}`,
+                  maxHeight: '160px',
+                }}
+              >
+                {previewUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={previewUrl}
+                    alt="Live Artwork Preview"
+                    className="w-full h-full object-contain select-none group-hover:scale-[1.02] transition-transform duration-200"
                   />
-                  {/* Trim Line */}
-                  <div 
-                    className="absolute pointer-events-none border border-black z-10 opacity-80"
-                    title="Trim Line"
+                ) : (
+                  <div className="w-full h-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs animate-pulse">
+                    Rendering preview...
+                  </div>
+                )}
+
+                {/* Only Clean Trim Line Overlay (Bleed and Safe Zone hidden) */}
+                {bleedP > 0 && (
+                  <div
+                    className="absolute pointer-events-none border border-slate-900/80 z-10"
+                    title={`Trim Line (${documentSettings.width} × ${documentSettings.height} ${documentSettings.unit})`}
                     style={{
                       left: `${trimL}%`,
                       top: `${trimT}%`,
@@ -242,28 +278,17 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                       height: `${trimH}%`,
                     }}
                   />
-                  {/* Safe Zone Line */}
-                  <div 
-                    className="absolute pointer-events-none border border-emerald-500 border-dashed z-10 opacity-70"
-                    title="Safe Zone"
-                    style={{
-                      left: `${safeL}%`,
-                      top: `${safeT}%`,
-                      width: `${safeW}%`,
-                      height: `${safeH}%`,
-                    }}
-                  />
-                </>
-              )}
+                )}
 
-              {/* Hover overlay hint */}
-              <div className="absolute inset-0 bg-blue-900/15 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white backdrop-blur-[1px]">
-                <div className="bg-slate-900/80 px-2.5 py-1 rounded-full text-[10px] font-medium flex items-center gap-1.5 shadow-lg">
-                  <Maximize2 className="w-3 h-3" />
-                  <span>Click to Expand</span>
+                {/* Hover overlay hint */}
+                <div className="absolute inset-0 bg-blue-900/15 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white backdrop-blur-[1px]">
+                  <div className="bg-slate-900/80 px-2.5 py-1 rounded-full text-[10px] font-medium flex items-center gap-1.5 shadow-lg">
+                    <Maximize2 className="w-3 h-3" />
+                    <span>Click to Expand 3D</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Quick Info Badges */}

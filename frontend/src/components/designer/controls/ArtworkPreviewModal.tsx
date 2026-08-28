@@ -7,7 +7,6 @@ import {
   ZoomOut,
   Maximize2,
   Minimize2,
-  Download,
   Scissors,
   Layers,
   Sparkles,
@@ -16,10 +15,12 @@ import {
   FileText,
   FileCode,
   Image as ImageIcon,
+  Rotate3d,
 } from 'lucide-react';
 import { DocumentSettings, CanvasDimensions } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { PreflightReport } from '../utils/preflightCheck';
+import { Artwork3DViewer } from './Artwork3DViewer';
 
 interface ArtworkPreviewModalProps {
   isOpen: boolean;
@@ -33,6 +34,8 @@ interface ArtworkPreviewModalProps {
   onExportJpg: () => void;
   onExportPsd: () => void;
 }
+
+type PreviewMode = '3d' | 'trimmed' | 'bleed';
 
 export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
   isOpen,
@@ -48,7 +51,7 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(null);
-  const [showBleed, setShowBleed] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<PreviewMode>('3d');
   const [previewZoom, setPreviewZoom] = useState<number>(1.0);
   const [baseFitZoom, setBaseFitZoom] = useState<number>(1.0);
   const [loading, setLoading] = useState<boolean>(true);
@@ -109,31 +112,44 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
       {/* Top Header */}
       <div className="h-16 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-900/80 shrink-0 gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-sky-600/20 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0">
+          <div className="w-8 h-8 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
             <Sparkles className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <h2 className="text-sm font-bold text-white flex items-center gap-2 truncate">
-              <span>Print Preview</span>
+              <span>Presentation Studio</span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-normal">
                 {documentSettings.width} × {documentSettings.height} {documentSettings.unit} (300 DPI)
               </span>
             </h2>
             <p className="text-xs text-slate-400 truncate">
-              Clean commercial print rendering without editor guides or selection handles
+              Interactive 3D product view and clean commercial print rendering
             </p>
           </div>
         </div>
 
-        {/* Center Controls: View Modes & Zoom */}
+        {/* Center Controls: View Modes (3D, Trimmed, Bleed) */}
         <div className="flex items-center gap-3 shrink-0">
-          {/* Trim / Bleed Toggle */}
+          {/* View Modes Selector */}
           <div className="flex items-center bg-slate-800/90 p-1 rounded-xl border border-slate-700">
             <button
               type="button"
-              onClick={() => setShowBleed(false)}
+              onClick={() => setViewMode('3d')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                !showBleed
+                viewMode === '3d'
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Rotate3d className="w-3.5 h-3.5" />
+              <span>3D Real Mockup</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setViewMode('trimmed')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                viewMode === 'trimmed'
                   ? 'bg-sky-600 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
@@ -141,11 +157,12 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
               <Scissors className="w-3.5 h-3.5" />
               <span>Trimmed Cut</span>
             </button>
+
             <button
               type="button"
-              onClick={() => setShowBleed(true)}
+              onClick={() => setViewMode('bleed')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                showBleed
+                viewMode === 'bleed'
                   ? 'bg-sky-600 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
@@ -155,49 +172,51 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
             </button>
           </div>
 
-          {/* Zoom Controls */}
-          <div className="flex items-center bg-slate-800/90 rounded-xl border border-slate-700 p-1 text-xs">
-            <button
-              type="button"
-              onClick={handleZoomOut}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg transition"
-              title="Zoom Out"
-            >
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={handleFitScreen}
-              className="px-2.5 font-mono text-slate-300 font-medium hover:text-sky-400 transition"
-              title="Click to Fit Screen"
-            >
-              {Math.round((previewZoom / baseFitZoom) * 100)}%
-            </button>
-            <button
-              type="button"
-              onClick={handleZoomIn}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg transition"
-              title="Zoom In"
-            >
-              <ZoomIn className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={handleFitScreen}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg transition border-l border-slate-700 ml-1 pl-2"
-              title="Fit to Screen"
-            >
-              <Minimize2 className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={handleActualSize}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg transition"
-              title="100% Actual Size"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          {/* 2D Zoom Controls (shown only when in 2D modes) */}
+          {viewMode !== '3d' && (
+            <div className="flex items-center bg-slate-800/90 rounded-xl border border-slate-700 p-1 text-xs">
+              <button
+                type="button"
+                onClick={handleZoomOut}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg transition"
+                title="Zoom Out"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleFitScreen}
+                className="px-2.5 font-mono text-slate-300 font-medium hover:text-sky-400 transition"
+                title="Click to Fit Screen"
+              >
+                {Math.round((previewZoom / baseFitZoom) * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg transition"
+                title="Zoom In"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleFitScreen}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg transition border-l border-slate-700 ml-1 pl-2"
+                title="Fit to Screen"
+              >
+                <Minimize2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleActualSize}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg transition"
+                title="100% Actual Size"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Right Actions: Export Options & Close */}
@@ -245,82 +264,91 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
         </div>
       </div>
 
-      {/* Main Preview Canvas Body with Responsive Viewport */}
+      {/* Main Preview Canvas Body */}
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 overflow-auto flex items-center justify-center p-8 bg-radial from-slate-900 via-slate-950 to-black custom-scrollbar relative"
+        className="flex-1 min-h-0 overflow-hidden flex items-center justify-center bg-radial from-slate-900 via-slate-950 to-black relative"
       >
         {loading ? (
           <div className="flex flex-col items-center gap-3 text-slate-400">
-            <div className="w-9 h-9 border-3 border-sky-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs font-medium">Generating crystal-clear print preview...</p>
+            <div className="w-9 h-9 border-3 border-purple-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs font-medium">Generating crystal-clear 3D presentation...</p>
           </div>
         ) : previewDataUrl ? (
-          <div
-            className="transition-transform duration-150 ease-out origin-center flex items-center justify-center"
-            style={{
-              transform: `scale(${previewZoom})`,
-            }}
-          >
-            {/* Visual Container */}
-            {!showBleed && bleedPx > 0 ? (
-              /* Trimmed Product Mode (Clipped to trim boundary) */
+          viewMode === '3d' ? (
+            /* 3D INTERACTIVE PRESENTATION VIEW */
+            <Artwork3DViewer
+              previewUrl={previewDataUrl}
+              documentSettings={documentSettings}
+              dimensions={dimensions}
+            />
+          ) : (
+            /* 2D VIEWPORT (Trimmed Cut OR Full Bleed Sheet) */
+            <div
+              className="w-full h-full overflow-auto flex items-center justify-center p-8 custom-scrollbar"
+            >
               <div
-                className="relative bg-white shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] overflow-hidden rounded-xs ring-1 ring-white/10"
+                className="transition-transform duration-150 ease-out origin-center flex items-center justify-center"
                 style={{
-                  width: `${trimWidthPx}px`,
-                  height: `${trimHeightPx}px`,
+                  transform: `scale(${previewZoom})`,
                 }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={previewDataUrl}
-                  alt="Artwork Print Preview"
-                  className="block max-w-none select-none pointer-events-none absolute"
-                  style={{
-                    width: `${dimensions.widthPx}px`,
-                    height: `${dimensions.heightPx}px`,
-                    top: `-${bleedPx}px`,
-                    left: `-${bleedPx}px`,
-                  }}
-                />
-              </div>
-            ) : (
-              /* Full Bleed Sheet Mode */
-              <div
-                className="relative bg-white shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] overflow-hidden rounded-xs ring-1 ring-white/20"
-                style={{
-                  width: `${dimensions.widthPx}px`,
-                  height: `${dimensions.heightPx}px`,
-                }}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={previewDataUrl}
-                  alt="Artwork Print Preview"
-                  className="block max-w-none select-none pointer-events-none"
-                  style={{
-                    width: `${dimensions.widthPx}px`,
-                    height: `${dimensions.heightPx}px`,
-                  }}
-                />
-
-                {/* Trim Line Guide on Full Bleed */}
-                {bleedPx > 0 && (
+                {viewMode === 'trimmed' && bleedPx > 0 ? (
+                  /* Trimmed Product Mode (Clipped to trim boundary) */
                   <div
-                    className="absolute inset-0 pointer-events-none border-2 border-dashed border-red-500/75"
+                    className="relative bg-white shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] overflow-hidden rounded-xs ring-1 ring-white/10"
                     style={{
-                      margin: `${bleedPx}px`,
+                      width: `${trimWidthPx}px`,
+                      height: `${trimHeightPx}px`,
                     }}
                   >
-                    <span className="absolute top-1.5 left-2 bg-red-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-md backdrop-blur-xs">
-                      Trim Line ({documentSettings.width} × {documentSettings.height} {documentSettings.unit})
-                    </span>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewDataUrl}
+                      alt="Artwork Print Preview"
+                      className="block max-w-none select-none pointer-events-none absolute"
+                      style={{
+                        width: `${dimensions.widthPx}px`,
+                        height: `${dimensions.heightPx}px`,
+                        top: `-${bleedPx}px`,
+                        left: `-${bleedPx}px`,
+                      }}
+                    />
+                  </div>
+                ) : (
+                  /* Full Bleed Sheet Mode */
+                  <div
+                    className="relative bg-white shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] overflow-hidden rounded-xs ring-1 ring-white/20"
+                    style={{
+                      width: `${dimensions.widthPx}px`,
+                      height: `${dimensions.heightPx}px`,
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewDataUrl}
+                      alt="Artwork Print Preview"
+                      className="block max-w-none select-none pointer-events-none"
+                      style={{
+                        width: `${dimensions.widthPx}px`,
+                        height: `${dimensions.heightPx}px`,
+                      }}
+                    />
+
+                    {/* Clean Simple Trim Line on Full Bleed Sheet */}
+                    {bleedPx > 0 && (
+                      <div
+                        className="absolute inset-0 pointer-events-none border border-slate-900/60 border-dashed"
+                        style={{
+                          margin: `${bleedPx}px`,
+                        }}
+                      />
+                    )}
                   </div>
                 )}
               </div>
-            )}
-          </div>
+            </div>
+          )
         ) : (
           <div className="text-slate-400 text-sm">Unable to render artwork preview.</div>
         )}
@@ -342,8 +370,10 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
           )}
         </div>
         <div className="text-slate-400 font-mono text-[11px]">
-          {!showBleed && bleedPx > 0
-            ? `${documentSettings.width} × ${documentSettings.height} ${documentSettings.unit} (Trimmed: ${trimWidthPx} × ${trimHeightPx} px)`
+          {viewMode === '3d'
+            ? `3D Realistic Interactive Product Mockup (${documentSettings.width} × ${documentSettings.height} ${documentSettings.unit})`
+            : viewMode === 'trimmed' && bleedPx > 0
+            ? `${documentSettings.width} × ${documentSettings.height} ${documentSettings.unit} (Trimmed Cut: ${trimWidthPx} × ${trimHeightPx} px)`
             : `${dimensions.widthPx} × ${dimensions.heightPx} px @ 300 DPI (Full Bleed)`}
         </div>
       </div>

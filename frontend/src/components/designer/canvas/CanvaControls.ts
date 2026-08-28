@@ -3,11 +3,24 @@ import {
   controlsUtils,
   FabricObject,
   ActiveSelection,
+  Textbox,
+  IText,
+  FabricImage,
+  Rect,
+  Circle,
+  Polygon,
+  Path,
+  Group,
 } from 'fabric';
 
 /**
+ * Canva's signature brand purple color for active selection borders and handles.
+ */
+export const CANVA_PURPLE = '#8b3dff';
+
+/**
  * Renders a clean Canva-style circular corner handle.
- * Small white circle with subtle drop shadow and crisp border.
+ * Large crisp white circle with subtle drop shadow and Canva purple border.
  */
 export function renderCanvaCornerHandle(
   ctx: CanvasRenderingContext2D,
@@ -16,14 +29,14 @@ export function renderCanvaCornerHandle(
   styleOverride: any,
   fabricObject: FabricObject
 ): void {
-  const size = 12;
+  const size = 13;
   const radius = size / 2;
 
   ctx.save();
   ctx.beginPath();
   ctx.arc(left, top, radius, 0, Math.PI * 2, false);
 
-  // Soft shadow
+  // Soft subtle shadow
   ctx.shadowColor = 'rgba(0, 0, 0, 0.22)';
   ctx.shadowBlur = 4;
   ctx.shadowOffsetX = 0;
@@ -32,10 +45,10 @@ export function renderCanvaCornerHandle(
   ctx.fillStyle = '#ffffff';
   ctx.fill();
 
-  // Reset shadow for crisp border stroke
+  // Crisp border stroke in Canva purple
   ctx.shadowColor = 'transparent';
   ctx.lineWidth = 1.5;
-  ctx.strokeStyle = '#2563eb';
+  ctx.strokeStyle = CANVA_PURPLE;
   ctx.stroke();
 
   ctx.restore();
@@ -52,8 +65,8 @@ export function renderCanvaSideHandle(isVertical: boolean) {
     styleOverride: any,
     fabricObject: FabricObject
   ): void {
-    const w = isVertical ? 6 : 14;
-    const h = isVertical ? 14 : 6;
+    const w = isVertical ? 6 : 16;
+    const h = isVertical ? 16 : 6;
     const r = 3;
 
     ctx.save();
@@ -79,7 +92,7 @@ export function renderCanvaSideHandle(isVertical: boolean) {
 
     ctx.shadowColor = 'transparent';
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = '#2563eb';
+    ctx.strokeStyle = CANVA_PURPLE;
     ctx.stroke();
 
     ctx.restore();
@@ -87,7 +100,8 @@ export function renderCanvaSideHandle(isVertical: boolean) {
 }
 
 /**
- * Renders a Canva-style circular rotation handle with rotation icon and connecting stalk line.
+ * Renders Canva's signature circular rotation button with connecting stem
+ * (White circular button with shadow, subtle border, and black double-arrow cycle icon).
  */
 export function renderCanvaRotationHandle(
   ctx: CanvasRenderingContext2D,
@@ -96,17 +110,32 @@ export function renderCanvaRotationHandle(
   styleOverride: any,
   fabricObject: FabricObject
 ): void {
-  const size = 18;
+  const size = 26;
   const radius = size / 2;
+  const angle = fabricObject.angle || 0;
+  const rad = (angle * Math.PI) / 180;
 
   ctx.save();
 
-  // Draw white circular handle with shadow
+  // 1. Draw connecting stem line from object bottom edge to rotation button
+  const stemLength = 21;
+  ctx.save();
+  ctx.translate(left, top);
+  ctx.rotate(rad);
+  ctx.beginPath();
+  ctx.moveTo(0, -radius);
+  ctx.lineTo(0, -radius - stemLength);
+  ctx.strokeStyle = CANVA_PURPLE;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+
+  // 2. Draw floating white circular button with soft shadow
   ctx.beginPath();
   ctx.arc(left, top, radius, 0, Math.PI * 2, false);
 
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
-  ctx.shadowBlur = 5;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.20)';
+  ctx.shadowBlur = 6;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 1.5;
 
@@ -114,43 +143,48 @@ export function renderCanvaRotationHandle(
   ctx.fill();
 
   ctx.shadowColor = 'transparent';
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = '#2563eb';
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#cbd5e1';
   ctx.stroke();
 
-  // Draw curved rotation arrows icon inside the circle
+  // 3. Draw black double cycle rotation arrows inside
   ctx.save();
   ctx.translate(left, top);
-  const angle = fabricObject.angle || 0;
-  ctx.rotate((angle * Math.PI) / 180);
+  ctx.rotate(rad);
 
-  ctx.strokeStyle = '#2563eb';
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#1e293b'; // Charcoal Black
+  ctx.fillStyle = '#1e293b';
+  ctx.lineWidth = 1.3;
   ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
 
-  // Arc 1 (top-right)
+  const arcRadius = 5.4;
+
+  // Arc 1 (Right / Top side)
   ctx.beginPath();
-  ctx.arc(0, 0, 4.5, -0.2 * Math.PI, 0.7 * Math.PI, false);
+  ctx.arc(0, 0, arcRadius, -0.22 * Math.PI, 0.72 * Math.PI, false);
   ctx.stroke();
 
-  // Arrowhead 1
+  // Arrowhead 1 (pointing counter-clockwise)
   ctx.beginPath();
-  ctx.moveTo(3, -4);
-  ctx.lineTo(4.5, -1.5);
-  ctx.lineTo(1.5, -1.5);
+  ctx.moveTo(3.2, -4.8);
+  ctx.lineTo(5.8, -2.2);
+  ctx.lineTo(2.4, -2.2);
+  ctx.closePath();
+  ctx.fill();
+
+  // Arc 2 (Left / Bottom side)
+  ctx.beginPath();
+  ctx.arc(0, 0, arcRadius, 0.78 * Math.PI, 1.72 * Math.PI, false);
   ctx.stroke();
 
-  // Arc 2 (bottom-left)
+  // Arrowhead 2 (pointing clockwise)
   ctx.beginPath();
-  ctx.arc(0, 0, 4.5, 0.8 * Math.PI, 1.7 * Math.PI, false);
-  ctx.stroke();
-
-  // Arrowhead 2
-  ctx.beginPath();
-  ctx.moveTo(-3, 4);
-  ctx.lineTo(-4.5, 1.5);
-  ctx.lineTo(-1.5, 1.5);
-  ctx.stroke();
+  ctx.moveTo(-3.2, 4.8);
+  ctx.lineTo(-5.8, 2.2);
+  ctx.lineTo(-2.4, 2.2);
+  ctx.closePath();
+  ctx.fill();
 
   ctx.restore();
   ctx.restore();
@@ -161,7 +195,7 @@ export function renderCanvaRotationHandle(
  */
 export function createCanvaControls(): Record<string, Control> {
   const controls: Record<string, Control> = {
-    // Corner Resize Handles
+    // Corner Resize Handles (White Circles with Purple Border)
     tl: new Control({
       x: -0.5,
       y: -0.5,
@@ -191,7 +225,7 @@ export function createCanvaControls(): Record<string, Control> {
       render: renderCanvaCornerHandle,
     }),
 
-    // Side Resize Handles
+    // Side Resize Handles (White Pill/Capsules with Purple Border)
     ml: new Control({
       x: -0.5,
       y: 0,
@@ -221,15 +255,15 @@ export function createCanvaControls(): Record<string, Control> {
       render: renderCanvaSideHandle(false),
     }),
 
-    // Canva Rotation Handle positioned with stalk line above top edge
-    mtr: new Control({
+    // Canva Rotation Handle with connecting stem positioned below bottom center
+    mbr: new Control({
       x: 0,
-      y: -0.5,
-      offsetY: -32,
+      y: 0.5,
+      offsetY: 34,
       cursorStyleHandler: controlsUtils.rotationStyleHandler,
       actionHandler: controlsUtils.rotationWithSnapping,
       actionName: 'rotate',
-      withConnection: true,
+      withConnection: false,
       render: renderCanvaRotationHandle,
     }),
   };
@@ -238,24 +272,56 @@ export function createCanvaControls(): Record<string, Control> {
 }
 
 /**
- * Apply Canva style frame and handles globally to FabricObject and ActiveSelection prototypes.
+ * Explicitly applies Canva styling and controls to a single FabricObject instance.
+ */
+export function applyCanvaControlsToObject(obj: FabricObject): void {
+  if (!obj) return;
+  obj.controls = createCanvaControls();
+  obj.borderColor = CANVA_PURPLE;
+  obj.borderScaleFactor = 1.5;
+  obj.borderOpacityWhenMoving = 0.95;
+  obj.transparentCorners = false;
+  obj.cornerColor = '#ffffff';
+  obj.cornerStrokeColor = CANVA_PURPLE;
+  obj.cornerSize = 13;
+  obj.cornerStyle = 'circle';
+  obj.selectionBackgroundColor = 'transparent';
+  obj.padding = 0;
+}
+
+/**
+ * Apply Canva style frame and handles globally to FabricObject, ActiveSelection and all element prototypes.
  */
 export function applyCanvaControlsGlobal(): void {
   const canvaControls = createCanvaControls();
 
-  // Apply default object styling
-  FabricObject.prototype.controls = canvaControls;
-  FabricObject.prototype.borderColor = '#2563eb';
-  FabricObject.prototype.borderScaleFactor = 1.5;
-  FabricObject.prototype.borderOpacityWhenMoving = 0.9;
-  FabricObject.prototype.transparentCorners = false;
-  FabricObject.prototype.cornerColor = '#ffffff';
-  FabricObject.prototype.cornerStrokeColor = '#2563eb';
-  FabricObject.prototype.cornerSize = 12;
-  FabricObject.prototype.cornerStyle = 'circle';
+  const applyDefaults = (proto: any) => {
+    proto.controls = canvaControls;
+    proto.borderColor = CANVA_PURPLE;
+    proto.borderScaleFactor = 1.5;
+    proto.borderOpacityWhenMoving = 0.95;
+    proto.transparentCorners = false;
+    proto.cornerColor = '#ffffff';
+    proto.cornerStrokeColor = CANVA_PURPLE;
+    proto.cornerSize = 13;
+    proto.cornerStyle = 'circle';
+    proto.selectionBackgroundColor = 'transparent';
+    proto.padding = 0;
+  };
 
-  // Apply to ActiveSelection
-  ActiveSelection.prototype.controls = createCanvaControls();
-  ActiveSelection.prototype.borderColor = '#2563eb';
-  ActiveSelection.prototype.borderScaleFactor = 1.5;
+  applyDefaults(FabricObject.prototype);
+  applyDefaults(ActiveSelection.prototype);
+  applyDefaults(Textbox.prototype);
+  applyDefaults(IText.prototype);
+  applyDefaults(FabricImage.prototype);
+  applyDefaults(Rect.prototype);
+  applyDefaults(Circle.prototype);
+  applyDefaults(Polygon.prototype);
+  applyDefaults(Path.prototype);
+  applyDefaults(Group.prototype);
+
+  // Also apply to FabricObject ownDefaults if present in Fabric 7
+  if ((FabricObject as any).ownDefaults) {
+    applyDefaults((FabricObject as any).ownDefaults);
+  }
 }

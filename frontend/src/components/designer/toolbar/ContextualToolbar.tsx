@@ -24,6 +24,11 @@ import {
   Sparkles,
   RotateCw,
   Wallpaper,
+  Crop,
+  Image as ImageIcon,
+  Unlink,
+  RefreshCw,
+  Trash2,
 } from 'lucide-react';
 import { SelectedObjectState, BrushSettings, BrushType, ActiveSidebarTab } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -80,6 +85,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   });
 
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const frameFileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync drawing mode & brush settings from canvasManager
   useEffect(() => {
@@ -635,17 +641,90 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       )}
 
       {/* ================================================================ */}
-      {/* 2. IMAGE ELEMENT CONTROLS                                        */}
+      {/* 2. IMAGE & CANVA FRAME CONTROLS                                  */}
       {/* ================================================================ */}
       {!isDrawing && isImage && selected && !selected.isMultiple && (
         <>
+          {/* Hidden File Input for Frame Image Upload */}
+          <input
+            ref={frameFileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (file && canvasManager) {
+                const reader = new FileReader();
+                reader.onload = async () => {
+                  const dataUrl = reader.result as string;
+                  const activeObj = canvasManager.getCanvas()?.getActiveObject();
+                  if (activeObj && selected.isFrame) {
+                    await canvasManager.slotImageIntoFrame(activeObj, dataUrl, {
+                      naturalWidth: 800,
+                      naturalHeight: 800,
+                      fileSizeBytes: file.size,
+                      name: file.name,
+                    });
+                  } else {
+                    await canvasManager.addImageFromUrl(dataUrl);
+                  }
+                };
+                reader.readAsDataURL(file);
+              }
+              e.target.value = '';
+            }}
+          />
+
+          {/* Canva Photo Frame Specific Actions */}
+          {selected.isFrame && (
+            <>
+              {/* Replace Photo in Frame */}
+              <button
+                type="button"
+                onClick={() => frameFileInputRef.current?.click()}
+                title="Replace photo in this frame"
+                className="h-8 px-2.5 rounded-xl border border-purple-200 bg-purple-50/80 hover:bg-purple-100/80 text-purple-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-purple-600" />
+                <span>Replace Photo</span>
+              </button>
+
+              {/* Detach Image (Extract photo out of frame) */}
+              {!selected.isCanvaPlaceholder && (
+                <button
+                  type="button"
+                  onClick={() => canvasManager?.detachImageFromFrame()}
+                  title="Detach photo from frame"
+                  className="h-8 px-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1 text-xs font-medium transition"
+                >
+                  <Unlink className="w-3.5 h-3.5 text-gray-500" />
+                  <span className="hidden md:inline text-[11px]">Detach</span>
+                </button>
+              )}
+
+              {/* Clear Frame (Reset back to Canva landscape) */}
+              {!selected.isCanvaPlaceholder && (
+                <button
+                  type="button"
+                  onClick={() => canvasManager?.clearFrameImage()}
+                  title="Clear photo back to placeholder"
+                  className="w-8 h-8 rounded-xl border border-gray-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-gray-600 flex items-center justify-center transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              <div className="h-4 w-px bg-gray-200 mx-0.5" />
+            </>
+          )}
+
           {/* Flip Horizontal */}
           <button
             type="button"
             onClick={() => handleUpdate('flipX', !selected.flipX)}
             title="Flip Horizontal"
             className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${selected.flipX
-              ? 'bg-blue-50 border-blue-300 text-blue-600'
+              ? 'bg-purple-50 border-purple-300 text-purple-600'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
@@ -659,7 +738,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             onClick={() => handleUpdate('flipY', !selected.flipY)}
             title="Flip Vertical"
             className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${selected.flipY
-              ? 'bg-blue-50 border-blue-300 text-blue-600'
+              ? 'bg-purple-50 border-purple-300 text-purple-600'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
@@ -675,7 +754,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
               }
             }}
-            title="Border & Corner Rounding (Open in Sidebar)"
+            title="Border & Outline (Open in Sidebar)"
             className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
                 ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
@@ -688,24 +767,26 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </svg>
           </button>
 
-          {/* Canva Corner Rounding Icon Button */}
-          <button
-            type="button"
-            onClick={() => {
-              if (onSelectSidebarTab) {
-                onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
-              }
-            }}
-            title="Corner Rounding (Open in Sidebar)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.rx || 0) > 0
-                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 20V12a8 8 0 0 1 8-8h8" />
-            </svg>
-          </button>
+          {!selected.isFrame && (
+            /* Canva Corner Rounding Icon Button */
+            <button
+              type="button"
+              onClick={() => {
+                if (onSelectSidebarTab) {
+                  onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
+                }
+              }}
+              title="Corner Rounding (Open in Sidebar)"
+              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.rx || 0) > 0
+                  ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+                  : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 20V12a8 8 0 0 1 8-8h8" />
+              </svg>
+            </button>
+          )}
         </>
       )}
 

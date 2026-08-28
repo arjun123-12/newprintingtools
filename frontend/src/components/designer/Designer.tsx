@@ -36,7 +36,7 @@ const DEFAULT_DOCUMENT: DocumentSettings = {
   height: 50,
   unit: 'mm',
   dpi: 300,
-  bleed: 5,
+  bleed: 3,
   safeArea: 3,
   backgroundColor: '#ffffff',
   showGuides: true,
@@ -459,7 +459,7 @@ export default function Designer({
 
         {/* Center Canvas Area with Live Zone Alert Banners */}
         <div className="relative flex-1 h-full w-full min-h-0 min-w-0 overflow-hidden flex flex-col">
-          
+
           {/* Floating Draw Toolbar */}
           {activeSidebarTab === 'draw' && (
             <FloatingDrawToolbar

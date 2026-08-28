@@ -131,6 +131,7 @@ export interface SelectedObjectState {
   // Frame specific properties
   isFrame?: boolean;
   frameShape?: string;
+  isCanvaPlaceholder?: boolean;
   // Brush / Path specific properties
   isBrushPath?: boolean;
   brushType?: BrushType;
@@ -170,19 +171,38 @@ export interface StockImage {
 export type FrameShapeType =
   | 'circle'
   | 'rounded-rect'
+  | 'square'
+  | 'squircle'
+  | 'arch'
+  | 'oval'
+  | 'pill'
   | 'heart'
   | 'star'
   | 'hexagon'
+  | 'octagon'
   | 'diamond'
   | 'triangle'
-  | 'shield';
+  | 'shield'
+  | 'flower'
+  | 'blob'
+  | 'phone'
+  | 'tablet'
+  | 'laptop'
+  | 'desktop'
+  | 'polaroid'
+  | 'stamp'
+  | 'torn-paper'
+  | 'filmstrip';
 
 export interface FramePreset {
   id: string;
   name: string;
   shape: FrameShapeType;
-  iconName: string;
+  category: 'basic' | 'devices' | 'creative';
+  iconName?: string;
   description?: string;
+  aspectRatio?: number;
+  svgPath?: string;
 }
 
 export interface DesignerTemplate {
@@ -244,6 +264,7 @@ export interface BackgroundSettings {
 export type ActiveSidebarTab =
   | 'templates'
   | 'elements'
+  | 'frames'
   | 'photos'
   | 'text'
   | 'uploads'

@@ -4,6 +4,7 @@ import React from 'react';
 import {
   LayoutTemplate,
   Sparkles,
+  Crop,
   Type,
   Image as ImageIcon,
   UploadCloud,
@@ -16,6 +17,7 @@ import { ActiveSidebarTab, SelectedObjectState } from '@/types/designer';
 import { CanvasManager } from './canvas/CanvasManager';
 import { TemplatesPanel } from './panels/TemplatesPanel';
 import { ElementsPanel } from './panels/ElementsPanel';
+import { FramesPanel } from './panels/FramesPanel';
 import { TextPanel } from './panels/TextPanel';
 import { StockPhotosPanel } from './panels/StockPhotosPanel';
 import { UploadsPanel } from './panels/UploadsPanel';
@@ -43,6 +45,7 @@ interface TabItem {
 const SIDEBAR_TABS: TabItem[] = [
   { id: 'templates', label: 'Templates', icon: LayoutTemplate },
   { id: 'elements', label: 'Elements', icon: Sparkles },
+  { id: 'frames', label: 'Frames', icon: Crop },
   { id: 'photos', label: 'Photos', icon: ImageIcon },
   { id: 'text', label: 'Text', icon: Type },
   { id: 'uploads', label: 'Uploads', icon: UploadCloud },
@@ -77,6 +80,7 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   };
 
   const getPanelTitle = () => {
+    if (activeTab === 'frames') return 'Photo Frames';
     if (activeTab === 'photos') return 'Stock Photos';
     if (activeTab === 'draw') return 'Illustrator Draw';
     if (activeTab === 'border') return 'Stroke';
@@ -161,11 +165,13 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
           {/* Drawer Content */}
           <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
             {activeTab === 'templates' && <TemplatesPanel canvasManager={canvasManager} />}
-            {activeTab === 'elements' && <ElementsPanel canvasManager={canvasManager} />}
+            {activeTab === 'elements' && (
+              <ElementsPanel canvasManager={canvasManager} onSelectTab={onSelectTab} />
+            )}
+            {activeTab === 'frames' && <FramesPanel canvasManager={canvasManager} />}
             {activeTab === 'photos' && <StockPhotosPanel canvasManager={canvasManager} />}
             {activeTab === 'text' && <TextPanel canvasManager={canvasManager} />}
             {activeTab === 'uploads' && <UploadsPanel canvasManager={canvasManager} />}
-            {activeTab === 'draw' && <BrushPanel canvasManager={canvasManager} />}
             {activeTab === 'background' && <BackgroundPanel canvasManager={canvasManager} />}
             {activeTab === 'layers' && (
               <LayersPanel canvasManager={canvasManager} selected={selected} />
