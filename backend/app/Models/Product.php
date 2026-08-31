@@ -14,6 +14,7 @@ class Product extends Model
     use HasFactory, HasUuids;
 
     protected $fillable = [
+        // Basic information
         'category_id',
         'name',
         'slug',
@@ -21,43 +22,120 @@ class Product extends Model
         'short_description',
         'description',
         'product_type',
+
+        // Quantity / production
         'min_quantity',
         'turnaround_days',
-        'is_active',
+
+        // Pricing
+        'base_price',
+        'sale_price',
+        'cost_price',
+
+        // Product images
         'featured_image_url',
         'gallery_images',
+
+        // Status
+        'status',
+        'is_active',
+        'is_featured',
+
+        // Design settings
+        'allow_custom_design',
+        'allow_customer_upload',
+
+        // SEO
+        'meta_title',
+        'meta_description',
     ];
 
     protected $casts = [
+        // Enum
         'product_type' => ProductType::class,
+
+        // Numbers
         'min_quantity' => 'integer',
         'turnaround_days' => 'integer',
+
+        // Pricing
+        'base_price' => 'decimal:2',
+        'sale_price' => 'decimal:2',
+        'cost_price' => 'decimal:2',
+
+        // Boolean
         'is_active' => 'boolean',
+        'is_featured' => 'boolean',
+        'allow_custom_design' => 'boolean',
+        'allow_customer_upload' => 'boolean',
+
+        // JSON
         'gallery_images' => 'array',
     ];
 
+    /*
+    |--------------------------------------------------------------------------
+    | Relationships
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Product category.
+     */
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
     }
 
+    /**
+     * Product custom attributes.
+     */
     public function attributes(): HasMany
     {
-        return $this->hasMany(ProductAttribute::class)->orderBy('sort_order');
+        return $this->hasMany(ProductAttribute::class)
+            ->orderBy('sort_order');
     }
 
+    /**
+     * Product print areas.
+     */
     public function printAreas(): HasMany
     {
         return $this->hasMany(ProductPrintArea::class);
     }
 
+    /**
+     * Product pricing matrices.
+     */
     public function pricingMatrices(): HasMany
     {
-        return $this->hasMany(PricingMatrix::class)->orderBy('quantity');
+        return $this->hasMany(PricingMatrix::class)
+            ->orderBy('quantity');
     }
 
+    /**
+     * Product design templates.
+     */
     public function templates(): HasMany
     {
         return $this->hasMany(DesignTemplate::class);
     }
+
+    /**
+     * Product variants.
+     */
+    public function variants(): HasMany
+    {
+        return $this->hasMany(ProductVariant::class);
+    }
+
+    /**
+ * Product gallery and featured images.
+ */
+public function images(): HasMany
+{
+    return $this->hasMany(ProductImage::class)
+        ->orderByDesc('is_featured')
+        ->orderBy('sort_order');
+}
 }

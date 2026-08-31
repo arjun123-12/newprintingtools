@@ -17,6 +17,7 @@ import {
   Shadow,
   Path,
   Gradient,
+  filters,
 } from 'fabric';
 import {
   SelectedObjectState,
@@ -38,6 +39,7 @@ import { CANVA_FRAME_PLACEHOLDER_SVG, FRAME_PRESETS } from '../data/framesData';
 import { POPULAR_FONTS, loadFont } from '../utils/fonts';
 import { calculateImageQuality } from '../utils/imageQuality';
 import { runPreflightCheck, PreflightReport } from '../utils/preflightCheck';
+import { urlToSafeDataUrl, formatImageUrl, getProxiedImageUrl } from '@/utils/imageUrl';
 
 // Apply Canva-style selection frame and handles globally
 applyCanvaControlsGlobal();
@@ -90,6 +92,8 @@ export function hexWithAlpha(hex: string, alpha: number): string {
   const a = Number(Math.min(Math.max(alpha !== undefined ? alpha : 1, 0), 1).toFixed(2));
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
+
+export { urlToSafeDataUrl, formatImageUrl, getProxiedImageUrl };
 
 export class CanvasManager {
   private canvas: Canvas | null = null;
@@ -860,11 +864,99 @@ export class CanvasManager {
   }
 
   /**
+   * Waits for all images currently on the canvas (including within groups,
+   * clip paths, background and overlay images) to fully finish loading and decoding.
+   */
+  public async waitForAllImagesToLoad(timeoutMs: number = 8000): Promise<void> {
+    if (!this.canvas) return;
+
+    const imagePromises: Promise<void>[] = [];
+
+    const checkElement = (imgEl: any) => {
+      if (!imgEl || typeof imgEl !== 'object') return;
+      if (!(imgEl instanceof HTMLImageElement || imgEl.tagName === 'IMG' || typeof imgEl.src === 'string')) return;
+
+      if (!imgEl.complete || imgEl.naturalWidth === 0) {
+        imagePromises.push(
+          new Promise<void>((resolve) => {
+            const timer = setTimeout(() => resolve(), timeoutMs);
+            const onComplete = () => {
+              clearTimeout(timer);
+              if (typeof imgEl.decode === 'function') {
+                imgEl.decode().catch(() => { }).finally(() => resolve());
+              } else {
+                resolve();
+              }
+            };
+            imgEl.addEventListener('load', onComplete, { once: true });
+            imgEl.addEventListener(
+              'error',
+              () => {
+                clearTimeout(timer);
+                resolve();
+              },
+              { once: true }
+            );
+          })
+        );
+      } else if (typeof imgEl.decode === 'function') {
+        imagePromises.push(imgEl.decode().catch(() => { }));
+      }
+    };
+
+    const inspectObject = (obj: any) => {
+      if (!obj) return;
+
+      const el =
+        (typeof obj.getElement === 'function' ? obj.getElement() : null) ||
+        obj._element ||
+        obj.image ||
+        obj._originalElement;
+
+      if (el) {
+        checkElement(el);
+      }
+
+      if (obj.clipPath) {
+        inspectObject(obj.clipPath);
+      }
+
+      if (Array.isArray(obj._objects)) {
+        obj._objects.forEach(inspectObject);
+      } else if (Array.isArray(obj.objects)) {
+        obj.objects.forEach(inspectObject);
+      }
+    };
+
+    this.canvas.getObjects().forEach(inspectObject);
+
+    if (this.canvas.backgroundImage) {
+      inspectObject(this.canvas.backgroundImage);
+    }
+    if (this.canvas.overlayImage) {
+      inspectObject(this.canvas.overlayImage);
+    }
+    if (this.canvas.clipPath) {
+      inspectObject(this.canvas.clipPath);
+    }
+
+    if (imagePromises.length > 0) {
+      await Promise.allSettled(imagePromises);
+    }
+
+    this.canvas.requestRenderAll();
+  }
+
+  /**
    * Generates a clean Canva-style presentation snapshot without selection borders,
    * handles, or editor guides.
    */
-  public getCleanPreviewDataUrl(multiplier: number = 1.0): string | null {
+  public async getCleanPreviewDataUrl(multiplier: number = 1.0): Promise<string | null> {
     if (!this.canvas) return null;
+
+    // Ensure all canvas textures are fully loaded and decoded
+    await this.waitForAllImagesToLoad();
+
     const wasGuidesVisible = this.guides.getVisible();
     const activeObj = this.canvas.getActiveObject();
 
@@ -876,11 +968,25 @@ export class CanvasManager {
       const currentZoom = this.zoom || 1.0;
       const effectiveMultiplier = (1 / currentZoom) * multiplier;
 
-      const dataUrl = this.canvas.toDataURL({
-        format: 'png',
-        multiplier: effectiveMultiplier,
-        enableRetinaScaling: true,
-      });
+      let dataUrl: string | null = null;
+
+      try {
+        dataUrl = this.canvas.toDataURL({
+          format: 'png',
+          multiplier: effectiveMultiplier,
+          enableRetinaScaling: true,
+        });
+      } catch (toDataUrlErr) {
+        console.warn('Standard toDataURL failed, attempting lower element fallback:', toDataUrlErr);
+        try {
+          const lowerCanvas = this.canvas.lowerCanvasEl;
+          if (lowerCanvas) {
+            dataUrl = lowerCanvas.toDataURL('image/png');
+          }
+        } catch (lowerErr) {
+          console.error('All toDataURL attempts failed (canvas tainted):', lowerErr);
+        }
+      }
 
       return dataUrl;
     } catch (err) {
@@ -1037,6 +1143,79 @@ export class CanvasManager {
 
   // --- Templates Engine ---
 
+  private async prepareBackendTemplateJson(rawJson: any): Promise<any> {
+    const json = JSON.parse(
+      JSON.stringify(
+        Array.isArray(rawJson)
+          ? {
+            version: '6.0.0',
+            objects: rawJson,
+          }
+          : rawJson
+      )
+    );
+
+    const prepareNode = async (node: any): Promise<void> => {
+      if (!node || typeof node !== 'object') return;
+
+      const rawType = String(node.type || '').toLowerCase();
+      const isImageObj =
+        rawType === 'image' ||
+        rawType === 'fabricimage' ||
+        typeof node.src === 'string' ||
+        typeof node.url === 'string';
+
+      if (isImageObj) {
+        const rawSrc = node.src || node.url || node.originalSrc;
+        if (typeof rawSrc === 'string' && rawSrc.trim()) {
+          node.originalSrc = rawSrc;
+          node.src = await urlToSafeDataUrl(rawSrc);
+          node.crossOrigin = 'anonymous';
+        }
+      }
+
+      // Check pattern fills or strokes with image sources
+      if (node.fill && typeof node.fill === 'object' && typeof node.fill.source === 'string') {
+        node.fill.source = await urlToSafeDataUrl(node.fill.source);
+      }
+      if (node.stroke && typeof node.stroke === 'object' && typeof node.stroke.source === 'string') {
+        node.stroke.source = await urlToSafeDataUrl(node.stroke.source);
+      }
+
+      if (Array.isArray(node.objects)) {
+        await Promise.all(node.objects.map(prepareNode));
+      }
+
+      if (Array.isArray(node._objects)) {
+        await Promise.all(node._objects.map(prepareNode));
+      }
+
+      if (node.clipPath) {
+        await prepareNode(node.clipPath);
+      }
+
+      if (node.backgroundImage) {
+        if (typeof node.backgroundImage === 'string') {
+          node.backgroundImage = await urlToSafeDataUrl(node.backgroundImage);
+        } else {
+          await prepareNode(node.backgroundImage);
+        }
+      }
+
+      if (node.overlayImage) {
+        if (typeof node.overlayImage === 'string') {
+          node.overlayImage = await urlToSafeDataUrl(node.overlayImage);
+        } else {
+          await prepareNode(node.overlayImage);
+        }
+      }
+    };
+
+    await prepareNode(json);
+
+    return json;
+  }
+
   public async loadTemplate(template: DesignerTemplate): Promise<void> {
     if (!this.canvas) return;
 
@@ -1055,7 +1234,36 @@ export class CanvasManager {
       this.setBackgroundColor(template.backgroundColor);
     }
 
-    for (const objDef of template.objects) {
+    const rawCanvasJson =
+      (template as any).canvas_json ??
+      (template as any).design_json ??
+      (template as any).template_data;
+
+    if (rawCanvasJson) {
+      try {
+        const json =
+          typeof rawCanvasJson === 'string'
+            ? JSON.parse(rawCanvasJson)
+            : rawCanvasJson;
+
+        if (json && (json.objects || Array.isArray(json))) {
+          const exportSafeJson =
+            await this.prepareBackendTemplateJson(json);
+
+          await this.canvas.loadFromJSON(exportSafeJson);
+          await this.waitForAllImagesToLoad();
+
+          this.finishTemplateLoading();
+          return;
+        }
+      } catch (jsonErr) {
+        console.warn('Failed to load raw canvas_json, proceeding with objects parsing:', jsonErr);
+      }
+    }
+
+    const objects = Array.isArray(template.objects) ? template.objects : [];
+
+    for (const objDef of objects) {
       // All coordinates in templatesData are normalized 0.0–1.0 fractions
       // Multiply by canvasW / canvasH to get pixel positions for any canvas size
       const normLeft = (objDef.left as number) ?? 0;
@@ -1168,14 +1376,66 @@ export class CanvasManager {
         });
         this.ensureObjectId(circle, (objDef.name as string) || 'Circle');
         this.canvas.add(circle);
+      } else if (objDef.type === 'image' || (objDef.type as string) === 'FabricImage') {
+        const imgSrc = (objDef.src as string) || (objDef.url as string) || (template as any).thumbnailUrl;
+        if (imgSrc) {
+          try {
+            await this.addImageFromUrl(
+              imgSrc,
+              {
+                name: (objDef.name as string) || template.title || 'Template Image',
+                originalSrc: imgSrc,
+              },
+              {
+                left: pxLeft,
+                top: pxTop,
+              }
+            );
+          } catch (imgErr) {
+            console.warn('Could not load template image object:', imgErr);
+          }
+        }
       }
     }
 
-    this.canvas.requestRenderAll();
+    if (objects.length === 0 && (template as any).thumbnailUrl) {
+      try {
+        await this.addImageFromUrl((template as any).thumbnailUrl, {
+          name: template.title || 'Template Image',
+          originalSrc: (template as any).thumbnailUrl,
+        });
+      } catch (imgErr) {
+        console.warn('Could not load fallback template image:', imgErr);
+      }
+    }
+
+    await this.waitForAllImagesToLoad();
+    this.finishTemplateLoading();
+  }
+
+  /**
+   * Finalize every template-loading path in one place.
+   *
+   * Manual canvas edits emit Fabric object events automatically, but an
+   * asynchronous loadFromJSON() operation does not provide the preview modal
+   * with one reliable "finished loading" event. This method renders the final
+   * template state, updates all CanvasManager subscribers, and then emits a
+   * dedicated event that live previews can listen for.
+   */
+  private finishTemplateLoading(): void {
+    if (!this.canvas) return;
+
+    this.canvas.discardActiveObject();
+    this.canvas.renderAll();
+
     this.notifyChange();
     this.notifySelection();
     this.notifyLayers();
     this.notifyPreflight();
+
+    (this.canvas as any).fire('template:loaded', {
+      source: 'backend-template',
+    });
   }
 
   // --- Canva Photo Frames Engine (with ClipPaths & Image Slotting) ---
@@ -1407,7 +1667,25 @@ export class CanvasManager {
     if (!this.canvas) return null;
 
     try {
-      const img = await FabricImage.fromURL(url, { crossOrigin: 'anonymous' });
+      const safeUrl = await urlToSafeDataUrl(url);
+      let img: FabricImage;
+      try {
+        img = await FabricImage.fromURL(safeUrl, { crossOrigin: 'anonymous' });
+      } catch {
+        img = await new Promise<FabricImage>((resolve, reject) => {
+          const el = new Image();
+          el.crossOrigin = 'anonymous';
+          el.onload = () => resolve(new FabricImage(el));
+          el.onerror = () => {
+            reject(
+              new Error(
+                `Image cannot be loaded safely for export: ${safeUrl}`
+              )
+            );
+          };
+          el.src = safeUrl;
+        });
+      }
       const canvasW = this.dimensions.widthPx || 1063;
       const canvasH = this.dimensions.heightPx || 591;
 
@@ -1911,6 +2189,209 @@ export class CanvasManager {
     this.notifyChange();
     this.notifySelection();
     this.notifyLayers();
+  }
+
+  public applyImageFilter(presetId: string, intensity: number = 1): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+
+    let targetImage: FabricImage | null = null;
+    if (active instanceof FabricImage) {
+      targetImage = active;
+    } else if ((active as any)._frameImage instanceof FabricImage) {
+      targetImage = (active as any)._frameImage;
+    }
+
+    if (targetImage) {
+      targetImage.filters = [];
+
+      switch (presetId) {
+        case 'grayscale':
+        case 'mono':
+          targetImage.filters.push(new filters.Grayscale());
+          break;
+        case 'sepia':
+          targetImage.filters.push(new filters.Sepia());
+          break;
+        case 'blackwhite':
+        case 'noir':
+          targetImage.filters.push(new filters.BlackWhite());
+          targetImage.filters.push(new filters.Contrast({ contrast: 0.3 * intensity }));
+          break;
+        case 'vintage':
+          targetImage.filters.push(new filters.Vintage());
+          break;
+        case 'kodachrome':
+        case 'vivid':
+          targetImage.filters.push(new filters.Kodachrome());
+          targetImage.filters.push(new filters.Saturation({ saturation: 0.4 * intensity }));
+          break;
+        case 'polaroid':
+        case 'warm':
+          targetImage.filters.push(new filters.Polaroid());
+          targetImage.filters.push(new filters.Gamma({ gamma: [1.1, 1.0, 0.9] }));
+          break;
+        case 'technicolor':
+        case 'solar':
+          targetImage.filters.push(new filters.Technicolor());
+          targetImage.filters.push(new filters.Brightness({ brightness: 0.1 * intensity }));
+          break;
+        case 'brownie':
+          targetImage.filters.push(new filters.Brownie());
+          break;
+        case 'invert':
+          targetImage.filters.push(new filters.Invert());
+          break;
+        case 'cool':
+          targetImage.filters.push(new filters.Gamma({ gamma: [0.9, 1.0, 1.15] }));
+          targetImage.filters.push(new filters.Saturation({ saturation: 0.15 * intensity }));
+          break;
+        case 'soft':
+          targetImage.filters.push(new filters.Brightness({ brightness: 0.12 * intensity }));
+          targetImage.filters.push(new filters.Contrast({ contrast: -0.15 * intensity }));
+          break;
+        case 'drama':
+          targetImage.filters.push(new filters.Contrast({ contrast: 0.4 * intensity }));
+          targetImage.filters.push(new filters.Saturation({ saturation: 0.25 * intensity }));
+          break;
+        case 'pixelate':
+          targetImage.filters.push(new filters.Pixelate({ blocksize: 6 }));
+          break;
+        case 'none':
+        default:
+          break;
+      }
+
+      (targetImage as any)._activeFilterPreset = presetId;
+      (targetImage as any)._filterIntensity = intensity;
+
+      targetImage.applyFilters();
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+    } else {
+      if (presetId === 'mono' || presetId === 'grayscale' || presetId === 'blackwhite') {
+        active.set('fill', '#333333');
+      } else if (presetId === 'sepia' || presetId === 'warm') {
+        active.set('fill', '#8B5A2B');
+      } else if (presetId === 'cool') {
+        active.set('fill', '#2563EB');
+      } else if (presetId === 'solar') {
+        active.set('fill', '#D97706');
+      } else if (presetId === 'vivid') {
+        active.set('fill', '#DC2626');
+      }
+      active.setCoords();
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+    }
+  }
+
+  public applyImageAdjustment(adjustments: {
+    brightness?: number;
+    contrast?: number;
+    saturation?: number;
+    vibrance?: number;
+    blur?: number;
+    hue?: number;
+    warmth?: number;
+  }): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+
+    let targetImage: FabricImage | null = null;
+    if (active instanceof FabricImage) {
+      targetImage = active;
+    } else if ((active as any)._frameImage instanceof FabricImage) {
+      targetImage = (active as any)._frameImage;
+    }
+
+    if (targetImage) {
+      const stored = (targetImage as any)._adjustments || {
+        brightness: 0,
+        contrast: 0,
+        saturation: 0,
+        vibrance: 0,
+        blur: 0,
+        hue: 0,
+        warmth: 0,
+      };
+
+      const updated = { ...stored, ...adjustments };
+      (targetImage as any)._adjustments = updated;
+
+      targetImage.filters = [];
+
+      if (updated.brightness !== 0) {
+        targetImage.filters.push(new filters.Brightness({ brightness: updated.brightness / 100 }));
+      }
+      if (updated.contrast !== 0) {
+        targetImage.filters.push(new filters.Contrast({ contrast: updated.contrast / 100 }));
+      }
+      if (updated.saturation !== 0) {
+        targetImage.filters.push(new filters.Saturation({ saturation: updated.saturation / 100 }));
+      }
+      if (updated.vibrance !== 0) {
+        targetImage.filters.push(new filters.Vibrance({ vibrance: updated.vibrance / 100 }));
+      }
+      if (updated.blur > 0) {
+        targetImage.filters.push(new filters.Blur({ blur: updated.blur / 100 }));
+      }
+      if (updated.hue !== 0) {
+        targetImage.filters.push(new filters.HueRotation({ rotation: (updated.hue / 180) * Math.PI }));
+      }
+      if (updated.warmth !== 0) {
+        const factor = updated.warmth / 100;
+        targetImage.filters.push(new filters.Gamma({ gamma: [1 + factor * 0.2, 1, 1 - factor * 0.2] }));
+      }
+
+      targetImage.applyFilters();
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+    }
+  }
+
+  public getImageAdjustments(): {
+    brightness: number;
+    contrast: number;
+    saturation: number;
+    vibrance: number;
+    blur: number;
+    hue: number;
+    warmth: number;
+    activeFilter: string;
+    intensity: number;
+  } {
+    if (!this.canvas) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, blur: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
+    const active = this.canvas.getActiveObject();
+    if (!active) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, blur: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
+
+    let targetImage: FabricImage | null = null;
+    if (active instanceof FabricImage) {
+      targetImage = active;
+    } else if ((active as any)._frameImage instanceof FabricImage) {
+      targetImage = (active as any)._frameImage;
+    }
+
+    if (targetImage) {
+      const adj = (targetImage as any)._adjustments || {};
+      return {
+        brightness: adj.brightness ?? 0,
+        contrast: adj.contrast ?? 0,
+        saturation: adj.saturation ?? 0,
+        vibrance: adj.vibrance ?? 0,
+        blur: adj.blur ?? 0,
+        hue: adj.hue ?? 0,
+        warmth: adj.warmth ?? 0,
+        activeFilter: (targetImage as any)._activeFilterPreset || 'none',
+        intensity: Math.round(((targetImage as any)._filterIntensity ?? 1) * 100),
+      };
+    }
+
+    return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, blur: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
   }
 
   public toggleBulletList(): void {

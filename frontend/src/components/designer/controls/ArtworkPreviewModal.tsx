@@ -37,6 +37,22 @@ interface ArtworkPreviewModalProps {
 
 type PreviewMode = '3d' | 'trimmed' | 'bleed';
 
+const LIVE_PREVIEW_INTERVAL_MS = 120;
+
+const CANVAS_CHANGE_EVENTS = [
+  'object:added',
+  'object:modified',
+  'object:removed',
+  'object:moving',
+  'object:scaling',
+  'object:rotating',
+  'object:skewing',
+  'text:changed',
+  'path:created',
+  'canvas:cleared',
+  'template:loaded',
+] as const;
+
 export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
   isOpen,
   onClose,
@@ -56,21 +72,97 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
   const [baseFitZoom, setBaseFitZoom] = useState<number>(1.0);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Generate high-resolution clean raster snapshot without active selections or editor guides
+  // Keep the clean preview synchronized with edits made on the live Fabric canvas.
   useEffect(() => {
     if (!isOpen || !canvasManager) return;
-    setLoading(true);
 
-    try {
-      const dataUrl = canvasManager.getCleanPreviewDataUrl(2.0);
-      if (dataUrl) {
-        setPreviewDataUrl(dataUrl);
-      }
-    } catch (err) {
-      console.error('Failed to generate preview image:', err);
-    } finally {
+    const fabricCanvas = canvasManager.getCanvas();
+    if (!fabricCanvas) {
+      setPreviewDataUrl(null);
       setLoading(false);
+      return;
     }
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let animationFrameId: number | null = null;
+    let lastPreviewTime = 0;
+    let disposed = false;
+
+    const refreshPreview = async (showLoading = false) => {
+      if (disposed) return;
+
+      if (showLoading) {
+        setLoading(true);
+      }
+
+      try {
+        // Clean preview excludes selections, controls, rulers, and editor guides.
+        const dataUrl = await canvasManager.getCleanPreviewDataUrl(2.0);
+
+        if (dataUrl && !disposed) {
+          setPreviewDataUrl(dataUrl);
+          lastPreviewTime = Date.now();
+        } else if (!dataUrl && !disposed) {
+          console.warn('ArtworkPreviewModal: getCleanPreviewDataUrl returned empty preview.');
+        }
+      } catch (error) {
+        console.error('Failed to generate live preview image:', error);
+      } finally {
+        if (!disposed && showLoading) {
+          setLoading(false);
+        }
+      }
+    };
+
+    const schedulePreviewRefresh = () => {
+      if (disposed || timeoutId !== null) return;
+
+      const elapsed = Date.now() - lastPreviewTime;
+      const delay = Math.max(0, LIVE_PREVIEW_INTERVAL_MS - elapsed);
+
+      timeoutId = setTimeout(() => {
+        timeoutId = null;
+
+        animationFrameId = window.requestAnimationFrame(() => {
+          animationFrameId = null;
+          refreshPreview(false);
+        });
+      }, delay);
+    };
+
+    const onTemplateLoaded = () => {
+      refreshPreview(true);
+    };
+
+    refreshPreview(true);
+
+    CANVAS_CHANGE_EVENTS.forEach((eventName) => {
+      if (eventName === 'template:loaded') {
+        fabricCanvas.on(eventName as any, onTemplateLoaded);
+      } else {
+        fabricCanvas.on(eventName as any, schedulePreviewRefresh);
+      }
+    });
+
+    return () => {
+      disposed = true;
+
+      CANVAS_CHANGE_EVENTS.forEach((eventName) => {
+        if (eventName === 'template:loaded') {
+          fabricCanvas.off(eventName as any, onTemplateLoaded);
+        } else {
+          fabricCanvas.off(eventName as any, schedulePreviewRefresh);
+        }
+      });
+
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+    };
   }, [isOpen, canvasManager]);
 
   // Compute fit-to-viewport scale so artwork is centered & beautifully proportioned on screen
@@ -135,11 +227,10 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
             <button
               type="button"
               onClick={() => setViewMode('3d')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                viewMode === '3d'
-                  ? 'bg-purple-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${viewMode === '3d'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-slate-200'
+                }`}
             >
               <Rotate3d className="w-3.5 h-3.5" />
               <span>3D Real Mockup</span>
@@ -148,11 +239,10 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
             <button
               type="button"
               onClick={() => setViewMode('trimmed')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                viewMode === 'trimmed'
-                  ? 'bg-sky-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${viewMode === 'trimmed'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-slate-200'
+                }`}
             >
               <Scissors className="w-3.5 h-3.5" />
               <span>Trimmed Cut</span>
@@ -161,11 +251,10 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
             <button
               type="button"
               onClick={() => setViewMode('bleed')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                viewMode === 'bleed'
-                  ? 'bg-sky-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${viewMode === 'bleed'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-slate-200'
+                }`}
             >
               <Layers className="w-3.5 h-3.5" />
               <span>Full Bleed Sheet</span>
@@ -373,8 +462,8 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
           {viewMode === '3d'
             ? `3D Realistic Interactive Product Mockup (${documentSettings.width} × ${documentSettings.height} ${documentSettings.unit})`
             : viewMode === 'trimmed' && bleedPx > 0
-            ? `${documentSettings.width} × ${documentSettings.height} ${documentSettings.unit} (Trimmed Cut: ${trimWidthPx} × ${trimHeightPx} px)`
-            : `${dimensions.widthPx} × ${dimensions.heightPx} px @ 300 DPI (Full Bleed)`}
+              ? `${documentSettings.width} × ${documentSettings.height} ${documentSettings.unit} (Trimmed Cut: ${trimWidthPx} × ${trimHeightPx} px)`
+              : `${dimensions.widthPx} × ${dimensions.heightPx} px @ 300 DPI (Full Bleed)`}
         </div>
       </div>
     </div>

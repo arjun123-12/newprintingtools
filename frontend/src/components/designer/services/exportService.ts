@@ -1,6 +1,61 @@
-import { Canvas } from 'fabric';
 import { DocumentSettings, CanvasDimensions } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
+import PDFDocument, * as PDFKitModule from 'pdfkit';
+import Courier from 'pdfkit/standard-fonts/Courier';
+import CourierBold from 'pdfkit/standard-fonts/CourierBold';
+import CourierBoldOblique from 'pdfkit/standard-fonts/CourierBoldOblique';
+import CourierOblique from 'pdfkit/standard-fonts/CourierOblique';
+import Helvetica from 'pdfkit/standard-fonts/Helvetica';
+import HelveticaBold from 'pdfkit/standard-fonts/HelveticaBold';
+import HelveticaBoldOblique from 'pdfkit/standard-fonts/HelveticaBoldOblique';
+import HelveticaOblique from 'pdfkit/standard-fonts/HelveticaOblique';
+import Symbol from 'pdfkit/standard-fonts/Symbol';
+import TimesBold from 'pdfkit/standard-fonts/TimesBold';
+import TimesBoldItalic from 'pdfkit/standard-fonts/TimesBoldItalic';
+import TimesItalic from 'pdfkit/standard-fonts/TimesItalic';
+import TimesRoman from 'pdfkit/standard-fonts/TimesRoman';
+import ZapfDingbats from 'pdfkit/standard-fonts/ZapfDingbats';
+import SVGtoPDF from 'svg-to-pdfkit';
+
+let isStdFontsRegistered = false;
+
+/**
+ * Idempotently registers all 14 standard PDFKit fonts (Helvetica, Times, Courier, Symbol, ZapfDingbats).
+ * Safe to call multiple times, across multiple exports, and during Next.js hot module reloading.
+ */
+export function ensurePdfKitStandardFontsRegistered(): void {
+  if (isStdFontsRegistered) return;
+  try {
+    const registerFn =
+      (PDFKitModule as any).registerStdFonts ||
+      (PDFDocument as any).registerStdFonts;
+
+    if (typeof registerFn === 'function') {
+      registerFn(
+        Courier,
+        CourierBold,
+        CourierBoldOblique,
+        CourierOblique,
+        Helvetica,
+        HelveticaBold,
+        HelveticaBoldOblique,
+        HelveticaOblique,
+        Symbol,
+        TimesBold,
+        TimesBoldItalic,
+        TimesItalic,
+        TimesRoman,
+        ZapfDingbats
+      );
+    }
+    isStdFontsRegistered = true;
+  } catch (err) {
+    console.error('Failed to register PDFKit standard fonts:', err);
+    throw new Error(
+      `Failed to initialize PDFKit standard fonts: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
 
 export interface ExportPdfOptions {
   filename?: string;
@@ -80,7 +135,10 @@ export async function exportVectorPdf(
     throw new Error('Canvas is not initialized');
   }
 
-  // 1. Temporarily deselect, normalize zoom to 1.0, and hide editor guides
+  // 1. Ensure PDFKit standard fonts are registered before instantiating any document
+  ensurePdfKitStandardFontsRegistered();
+
+  // 2. Temporarily deselect, normalize zoom to 1.0, and hide editor guides
   const activeObj = canvas.getActiveObject();
   const wasGuidesVisible = canvasManager.getGuidesVisible();
   const prevZoom = canvasManager.getZoom();
@@ -94,15 +152,6 @@ export async function exportVectorPdf(
     const svg = canvas.toSVG();
     const width = canvas.getWidth();
     const height = canvas.getHeight();
-
-    // Dynamically load PDFKit and SVGtoPDF in browser
-    const [PDFDocModule, SVGtoPDFModule] = await Promise.all([
-      import('pdfkit'),
-      import('svg-to-pdfkit'),
-    ]);
-
-    const PDFDocument = (PDFDocModule as any).default || PDFDocModule;
-    const SVGtoPDF = (SVGtoPDFModule as any).default || SVGtoPDFModule;
 
     const pdf = new PDFDocument({
       size: [width, height],
@@ -125,15 +174,54 @@ export async function exportVectorPdf(
       pdf.on('error', (err: any) => reject(err));
     });
 
-    // Convert SVG -> PDF vectors
+    // Convert SVG -> PDF vectors with font mapping to registered PDF standard fonts
     SVGtoPDF(pdf, svg, 0, 0, {
       width,
       height,
       assumePt: true,
+      fontCallback: (family: string, bold: boolean, italic: boolean) => {
+        const f = (family || '').toLowerCase();
+        if (f.includes('courier') || f.includes('mono') || f.includes('code')) {
+          if (bold && italic) return 'Courier-BoldOblique';
+          if (bold) return 'Courier-Bold';
+          if (italic) return 'Courier-Oblique';
+          return 'Courier';
+        }
+        if (
+          f.includes('times') ||
+          f.includes('serif') ||
+          f.includes('georgia') ||
+          f.includes('garamond') ||
+          f.includes('playfair') ||
+          f.includes('merriweather')
+        ) {
+          if (bold && italic) return 'Times-BoldItalic';
+          if (bold) return 'Times-Bold';
+          if (italic) return 'Times-Italic';
+          return 'Times-Roman';
+        }
+        if (f.includes('symbol')) {
+          return 'Symbol';
+        }
+        if (f.includes('dingbat')) {
+          return 'ZapfDingbats';
+        }
+        if (bold && italic) return 'Helvetica-BoldOblique';
+        if (bold) return 'Helvetica-Bold';
+        if (italic) return 'Helvetica-Oblique';
+        return 'Helvetica';
+      },
+      warningCallback: (warning: string) => {
+        console.warn('SVGtoPDF warning:', warning);
+      },
     });
 
     pdf.end();
     await endPromise;
+
+    if (chunks.length === 0) {
+      throw new Error('PDF export produced zero bytes.');
+    }
 
     const blob = new Blob(chunks as BlobPart[], {
       type: 'application/pdf',
@@ -147,8 +235,11 @@ export async function exportVectorPdf(
 
     downloadFile(url, filename);
     setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch (error) {
+    console.error('Vector PDF Export failed:', error);
+    throw error;
   } finally {
-    // 2. Restore guides & active selection
+    // 3. Restore guides & active selection
     canvasManager.setZoom(prevZoom);
     canvasManager.setGuidesVisible(wasGuidesVisible);
     if (activeObj) {

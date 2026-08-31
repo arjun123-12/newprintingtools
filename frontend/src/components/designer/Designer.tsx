@@ -6,6 +6,7 @@ import {
   SelectedObjectState,
   ActiveSidebarTab,
   CanvasDimensions,
+  DesignerTemplate,
 } from '@/types/designer';
 import { calculateCanvasDimensions, calculateFitZoom } from './utils/dimensions';
 import { CanvasManager } from './canvas/CanvasManager';
@@ -27,6 +28,7 @@ import { AlertTriangle } from 'lucide-react';
 
 interface DesignerProps {
   productId?: string;
+  templateId?: string;
   initialSettings?: Partial<DocumentSettings>;
 }
 
@@ -42,8 +44,19 @@ const DEFAULT_DOCUMENT: DocumentSettings = {
   showGuides: true,
 };
 
+type ArtworkSaveStatus =
+  | 'idle'
+  | 'unsaved'
+  | 'saving'
+  | 'saved'
+  | 'local-only'
+  | 'error';
+
+const AUTOSAVE_DELAY_MS = 1500;
+
 export default function Designer({
   productId,
+  templateId,
   initialSettings,
 }: DesignerProps) {
   const [documentSettings, setDocumentSettings] = useState<DocumentSettings>({
@@ -72,10 +85,30 @@ export default function Designer({
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
   const [showPreflightAlert, setShowPreflightAlert] = useState<boolean>(false);
+  const [canvasManager, setCanvasManager] = useState<CanvasManager | null>(null);
+  const [saveStatus, setSaveStatus] = useState<ArtworkSaveStatus>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
   const canvasManagerRef = useRef<CanvasManager | null>(null);
   const dimensionsRef = useRef<CanvasDimensions>(dimensions);
   dimensionsRef.current = dimensions;
+
+  const productIdRef = useRef<string | undefined>(productId);
+  productIdRef.current = productId;
+
+  const designNameRef = useRef<string>(designName);
+  designNameRef.current = designName;
+
+  const documentSettingsRef = useRef<DocumentSettings>(documentSettings);
+  documentSettingsRef.current = documentSettings;
+
+  const artworkIdRef = useRef<string | null>(null);
+  const designTemplateIdRef = useRef<string | null>(null);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveInProgressRef = useRef<boolean>(false);
+  const saveQueuedRef = useRef<boolean>(false);
+  const metadataAutosaveReadyRef = useRef<boolean>(false);
 
   const containerDimensionsRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
   const isAutoFitRef = useRef<boolean>(true);
@@ -159,23 +192,118 @@ export default function Designer({
     setShowGuides(next);
   }, []);
 
-  const handleSaveDraft = useCallback(() => {
-    const manager = canvasManagerRef.current;
-    if (!manager) return;
-    const canvas = manager.getCanvas();
-    if (!canvas) return;
+  const handleSaveDraft = useCallback(async (): Promise<void> => {
+    // Never allow two POST requests to race and create duplicate artwork rows.
+    if (saveInProgressRef.current) {
+      saveQueuedRef.current = true;
+      return;
+    }
 
-    const canvasJson = canvas.toJSON();
-    designerService.saveDraftLocally(productId || 'default', {
-      version: '1.0',
-      product_id: productId,
-      name: designName,
-      dimensions: dimensionsRef.current,
-      document: documentSettings,
-      background_color: documentSettings.backgroundColor || '#ffffff',
-      canvas_json: canvasJson,
-    });
-  }, [designName, documentSettings, productId]);
+    saveInProgressRef.current = true;
+
+    try {
+      do {
+        saveQueuedRef.current = false;
+
+        const manager = canvasManagerRef.current;
+        const canvas = manager?.getCanvas();
+
+        if (!manager || !canvas) {
+          return;
+        }
+
+        const currentProductId = productIdRef.current;
+        const currentName = designNameRef.current;
+        const currentDocument = documentSettingsRef.current;
+        const currentDimensions = dimensionsRef.current;
+
+        // Include custom designer properties but never persist editor guides.
+        const canvasJson = canvas.toObject([
+          'id',
+          'name',
+          'originalSrc',
+          'naturalWidth',
+          'naturalHeight',
+          'fileSizeBytes',
+          'isFrame',
+          'isFrameImage',
+          'frameId',
+          'isBrushPath',
+          'brushType',
+        ]) as Record<string, any>;
+
+        if (Array.isArray(canvasJson.objects)) {
+          canvasJson.objects = canvasJson.objects.filter(
+            (object: Record<string, unknown>) => !object.isGuide
+          );
+        }
+
+        // Always keep a local recovery copy, even if the API is unavailable.
+        designerService.saveDraftLocally(currentProductId || 'default', {
+          version: '1.0',
+          product_id: currentProductId,
+          name: currentName,
+          dimensions: currentDimensions,
+          document: currentDocument,
+          background_color: currentDocument.backgroundColor || '#ffffff',
+          canvas_json: canvasJson,
+        });
+
+        // Laravel requires a real product UUID. Custom/no-product canvases stay local.
+        if (!currentProductId) {
+          setSaveStatus('local-only');
+          setSaveError(null);
+          setLastSavedAt(new Date());
+          continue;
+        }
+
+        setSaveStatus('saving');
+        setSaveError(null);
+
+        try {
+          const savedArtwork = await designerService.saveArtworkDraft(
+            artworkIdRef.current,
+            {
+              product_id: currentProductId,
+              design_template_id: designTemplateIdRef.current,
+              name: currentName,
+              canvas_json: canvasJson,
+              document_settings: currentDocument,
+              width_px: currentDimensions.widthPx,
+              height_px: currentDimensions.heightPx,
+              dpi: currentDocument.dpi || 300,
+            }
+          );
+
+          artworkIdRef.current = savedArtwork.id;
+          designerService.rememberArtworkId(
+            currentProductId,
+            savedArtwork.id
+          );
+
+          setSaveStatus('saved');
+          setSaveError(null);
+          setLastSavedAt(new Date());
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : 'Artwork could not be saved.';
+
+          console.error('Artwork autosave failed:', error);
+          setSaveStatus('error');
+          setSaveError(message);
+
+          // The current state is already safe in localStorage. Stop retrying
+          // until the user makes another change or manually presses Save.
+          saveQueuedRef.current = false;
+          break;
+        }
+      } while (saveQueuedRef.current);
+    } finally {
+      saveInProgressRef.current = false;
+    }
+  }, []);
 
   const handleSaveVersion = useCallback(() => {
     const manager = canvasManagerRef.current;
@@ -196,18 +324,191 @@ export default function Designer({
     });
   }, [designName, documentSettings, productId]);
 
+  /**
+   * Debounce rapid Fabric events (moving, typing, scaling) into one API save.
+   */
+  const scheduleAutosave = useCallback(() => {
+    setSaveStatus('unsaved');
+    setSaveError(null);
+
+    if (autosaveTimerRef.current !== null) {
+      clearTimeout(autosaveTimerRef.current);
+    }
+
+    autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null;
+      void handleSaveDraft();
+    }, AUTOSAVE_DELAY_MS);
+  }, [handleSaveDraft]);
+
+  // Reuse the same backend artwork row after page refresh.
+  useEffect(() => {
+    artworkIdRef.current = productId
+      ? designerService.loadRememberedArtworkId(productId)
+      : null;
+  }, [productId]);
+
+  // Autosave every meaningful CanvasManager mutation, including template loads.
+  useEffect(() => {
+    if (!canvasManager) return;
+
+    const unsubscribe = canvasManager.onChange(scheduleAutosave);
+
+    return () => {
+      unsubscribe();
+
+      if (autosaveTimerRef.current !== null) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+  }, [canvasManager, scheduleAutosave]);
+
+  // Canvas events do not cover document-name edits, so save metadata too.
+  useEffect(() => {
+    if (!canvasManager) return;
+
+    if (!metadataAutosaveReadyRef.current) {
+      metadataAutosaveReadyRef.current = true;
+      return;
+    }
+
+    scheduleAutosave();
+  }, [canvasManager, designName, documentSettings, scheduleAutosave]);
+
+  const [templateSavedMsg, setTemplateSavedMsg] = useState<string | null>(null);
+
+  // Load template from DB if templateId is provided
+  useEffect(() => {
+    const activeTmplId =
+      templateId ||
+      (typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('templateId')
+        : null);
+
+    if (!activeTmplId || !canvasManager) return;
+
+    let isMounted = true;
+    const fetchTemplate = async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/api/v1/admin/templates/${activeTmplId}`, {
+          headers: { Accept: 'application/json' },
+        });
+        if (!res.ok) return;
+        const result = await res.json();
+        if (result.success && result.data && isMounted) {
+          designTemplateIdRef.current = String(result.data.id);
+          if (result.data.name) {
+            setDesignName(result.data.name);
+          }
+          if (result.data.canvas_json) {
+            await canvasManager.loadTemplate({
+              id: String(result.data.id),
+              title: result.data.name,
+              category: result.data.category || 'Corporate',
+              canvas_json: result.data.canvas_json,
+            } as any);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not pre-load template:', err);
+      }
+    };
+
+    void fetchTemplate();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [templateId, canvasManager]);
+
+  const handleSaveAsTemplate = useCallback(async () => {
+    const manager = canvasManagerRef.current;
+    const canvas = manager?.getCanvas();
+    if (!manager || !canvas) return;
+
+    try {
+      setSaveStatus('saving');
+      const thumbDataUrl = await manager.getCleanPreviewDataUrl(0.8);
+
+      const canvasJson = canvas.toObject([
+        'id',
+        'name',
+        'originalSrc',
+        'naturalWidth',
+        'naturalHeight',
+        'fileSizeBytes',
+        'isFrame',
+        'isFrameImage',
+        'frameId',
+        'isBrushPath',
+        'brushType',
+      ]) as Record<string, any>;
+
+      if (Array.isArray(canvasJson.objects)) {
+        canvasJson.objects = canvasJson.objects.filter(
+          (object: Record<string, unknown>) => !object.isGuide
+        );
+      }
+
+      const activeProductId = productIdRef.current || 'default';
+      const activeTemplateId = designTemplateIdRef.current;
+
+      const saved = await designerService.saveAsDesignTemplate({
+        template_id: activeTemplateId,
+        product_id: activeProductId,
+        name: designNameRef.current || 'Custom Design Template',
+        category: 'Corporate',
+        canvas_json: canvasJson,
+        thumbnail_url: thumbDataUrl,
+        is_active: true,
+      });
+
+      if (saved?.id) {
+        designTemplateIdRef.current = String(saved.id);
+      }
+
+      setSaveStatus('saved');
+      setLastSavedAt(new Date());
+      setTemplateSavedMsg(
+        `Template "${saved?.name || designNameRef.current}" saved successfully to design_templates table!`
+      );
+      setTimeout(() => setTemplateSavedMsg(null), 4500);
+    } catch (err: any) {
+      console.error('Save template failed:', err);
+      setSaveStatus('error');
+      setSaveError(err.message || 'Could not save template to database.');
+    }
+  }, []);
+
+  // Template apply handler (tracks design_template_id and triggers autosave)
+  const handleApplyTemplate = useCallback((template: DesignerTemplate) => {
+    designTemplateIdRef.current = String(template.id);
+    const templateTitle = template.title || (template as any).name;
+    if (templateTitle) {
+      setDesignName((prev) => {
+        if (!prev || prev === 'Untitled Design') {
+          return templateTitle;
+        }
+        return prev;
+      });
+    }
+    scheduleAutosave();
+  }, [scheduleAutosave]);
+
   // Export handlers
   const handleExportPdf = useCallback(async () => {
-    if (!canvasManagerRef.current) return;
+    const manager = canvasManagerRef.current;
+    if (!manager) return;
     try {
       await exportVectorPdf(
-        canvasManagerRef.current,
+        manager,
         documentSettings,
         { filename: `${(documentSettings.name || 'artwork').toLowerCase().replace(/[^a-z0-9_-]/g, '_')}_vector.pdf` }
       );
     } catch (err) {
       console.error('Vector PDF Export failed:', err);
-      alert('Could not export Vector PDF file.');
+      alert(`Could not export Vector PDF file: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, [documentSettings]);
 
@@ -268,6 +569,7 @@ export default function Designer({
       });
 
       canvasManagerRef.current = manager;
+      setCanvasManager(manager);
       manager.initialize(canvasEl, containerW, containerH);
 
       // Listen for selection events
@@ -311,6 +613,7 @@ export default function Designer({
         unsubscribeHistory();
         manager.dispose();
         canvasManagerRef.current = null;
+        setCanvasManager(null);
       };
     },
     []
@@ -436,6 +739,7 @@ export default function Designer({
         showGuides={showGuides}
         onToggleGuides={handleToggleGuides}
         onSave={handleSaveDraft}
+        onSaveAsTemplate={handleSaveAsTemplate}
         onSaveVersion={handleSaveVersion}
         onOpenPreview={() => setIsPreviewOpen(true)}
         onOpenCustomSize={() => setIsCustomSizeOpen(true)}
@@ -443,9 +747,43 @@ export default function Designer({
         onExportPng={handleExportPng}
         onExportJpg={handleExportJpg}
         onExportPsd={handleExportPsd}
-        canvasManager={canvasManagerRef.current}
+        canvasManager={canvasManager}
         preflightReport={preflightReport}
       />
+
+      {/* Template Saved Toast Notification */}
+      {templateSavedMsg && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[80] bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-150">
+          <span>✓</span>
+          <span>{templateSavedMsg}</span>
+        </div>
+      )}
+
+      {/* Autosave status */}
+      {saveStatus !== 'idle' && (
+        <div
+          className={`fixed right-4 top-16 z-[70] max-w-sm rounded-lg border px-3 py-1.5 text-xs font-medium shadow-lg backdrop-blur-sm ${saveStatus === 'error'
+            ? 'border-red-200 bg-red-50/95 text-red-700'
+            : saveStatus === 'saving' || saveStatus === 'unsaved'
+              ? 'border-amber-200 bg-amber-50/95 text-amber-700'
+              : saveStatus === 'local-only'
+                ? 'border-blue-200 bg-blue-50/95 text-blue-700'
+                : 'border-emerald-200 bg-emerald-50/95 text-emerald-700'
+            }`}
+          title={saveError ?? undefined}
+        >
+          {saveStatus === 'unsaved' && 'Unsaved changes'}
+          {saveStatus === 'saving' && 'Saving…'}
+          {saveStatus === 'saved' &&
+            `All changes saved${lastSavedAt
+              ? ` at ${lastSavedAt.toLocaleTimeString()}`
+              : ''
+            }`}
+          {saveStatus === 'local-only' && 'Saved locally — product ID required for cloud save'}
+          {saveStatus === 'error' &&
+            `Save failed: ${saveError ?? 'Unknown error'}`}
+        </div>
+      )}
 
       {/* Main Workspace Area (Sidebar + Canvas + Properties) */}
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative w-full h-full">
@@ -453,8 +791,10 @@ export default function Designer({
         <DesignerSidebar
           activeTab={activeSidebarTab}
           onSelectTab={setActiveSidebarTab}
-          canvasManager={canvasManagerRef.current}
+          canvasManager={canvasManager}
           selected={selected}
+          productId={productId ?? ''}
+          onApplyTemplate={handleApplyTemplate}
         />
 
         {/* Center Canvas Area with Live Zone Alert Banners */}
@@ -463,7 +803,7 @@ export default function Designer({
           {/* Floating Draw Toolbar */}
           {activeSidebarTab === 'draw' && (
             <FloatingDrawToolbar
-              canvasManager={canvasManagerRef.current}
+              canvasManager={canvasManager}
               onClose={() => setActiveSidebarTab(null)}
               onSelectTab={setActiveSidebarTab}
             />
@@ -502,7 +842,7 @@ export default function Designer({
             zoom={zoom}
             setZoom={handleZoomChange}
             dimensions={dimensions}
-            canvasManager={canvasManagerRef.current}
+            canvasManager={canvasManager}
             onCanvasReady={handleCanvasReady}
             onContainerResize={handleContainerResize}
             showRulers={true}
@@ -516,7 +856,7 @@ export default function Designer({
             <div className="absolute bottom-2 right-4 z-40">
               <PreflightBadge
                 report={preflightReport}
-                canvasManager={canvasManagerRef.current}
+                canvasManager={canvasManager}
               />
             </div>
           )}
@@ -529,7 +869,7 @@ export default function Designer({
             documentSettings={documentSettings}
             dimensions={dimensions}
             onUpdateDocumentSettings={handleUpdateDocumentSettings}
-            canvasManager={canvasManagerRef.current}
+            canvasManager={canvasManager}
             onOpenPreview={() => setIsPreviewOpen(true)}
             onClose={() => setIsPropertiesOpen(false)}
           />
@@ -557,7 +897,7 @@ export default function Designer({
         onClose={() => setIsPreviewOpen(false)}
         documentSettings={documentSettings}
         dimensions={dimensions}
-        canvasManager={canvasManagerRef.current}
+        canvasManager={canvasManager}
         preflightReport={preflightReport}
         onExportPdf={handleExportPdf}
         onExportPng={handleExportPng}

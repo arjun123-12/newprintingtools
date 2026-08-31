@@ -1,3 +1,11 @@
+import React from 'react';
+
+export function generateStaticParams() {
+  return [{ slug: 'default' }];
+}
+
+export const dynamicParams = true;
+
 export default function ProductDetailPage({
   params,
 }: {
@@ -5,7 +13,7 @@ export default function ProductDetailPage({
 }) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <h1 className="text-3xl font-bold text-slate-900 mb-4">Product: {params.slug}</h1>
+      <h1 className="text-3xl font-bold text-slate-900 mb-4">Product: {params?.slug}</h1>
       <p className="text-slate-600">Dynamic product configuration and instant pricing calculation.</p>
     </div>
   );

@@ -57,6 +57,7 @@ interface DesignerToolbarProps {
   showGuides: boolean;
   onToggleGuides: () => void;
   onSave?: () => void;
+  onSaveAsTemplate?: () => void;
   onSaveVersion?: () => void;
   onOpenPreview?: () => void;
   onOpenCustomSize?: () => void;
@@ -89,6 +90,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
   showGuides,
   onToggleGuides,
   onSave,
+  onSaveAsTemplate,
   onSaveVersion,
   onOpenPreview,
   onOpenCustomSize,
@@ -159,7 +161,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
             </button>
 
             {activeMenu === 'file' && (
-              <div className="absolute top-full left-0 mt-1 w-52 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
+              <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
                 <button
                   type="button"
                   onClick={() => {
@@ -174,6 +176,21 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
                   </span>
                   <span className="text-[10px] text-gray-400 font-mono">Ctrl+S</span>
                 </button>
+                {onSaveAsTemplate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSaveAsTemplate();
+                      setActiveMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-xs text-emerald-700 hover:bg-emerald-50 flex items-center justify-between font-semibold"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Save className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Save as Design Template</span>
+                    </span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -369,8 +386,8 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
             onClick={onTogglePanMode}
             title="Select & Move Objects (V)"
             className={`p-1.5 rounded-md transition ${!isPanMode
-                ? 'bg-white text-blue-600 shadow-xs font-semibold'
-                : 'text-gray-600 hover:text-gray-900'
+              ? 'bg-white text-blue-600 shadow-xs font-semibold'
+              : 'text-gray-600 hover:text-gray-900'
               }`}
           >
             <MousePointer className="w-4 h-4" />
@@ -380,8 +397,8 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
             onClick={onTogglePanMode}
             title="Pan Hand Tool (H)"
             className={`p-1.5 rounded-md transition ${isPanMode
-                ? 'bg-white text-blue-600 shadow-xs font-semibold'
-                : 'text-gray-600 hover:text-gray-900'
+              ? 'bg-white text-blue-600 shadow-xs font-semibold'
+              : 'text-gray-600 hover:text-gray-900'
               }`}
           >
             <Hand className="w-4 h-4" />
@@ -394,8 +411,8 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
           onClick={onToggleGuides}
           title={`Toggle Print Safe Zone & Bleed Guides (Ctrl+;) - Currently ${showGuides ? 'ON' : 'OFF'}`}
           className={`p-2 rounded-lg border transition ${showGuides
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-2xs'
-              : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-2xs'
+            : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
             }`}
         >
           <Layers className="w-4 h-4" />
@@ -562,11 +579,24 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
             onClick={onToggleProperties}
             title={isPropertiesOpen ? 'Hide Inspector Panel' : 'Show Inspector Panel'}
             className={`p-2 rounded-lg border transition ${isPropertiesOpen
-                ? 'bg-blue-50 border-blue-200 text-blue-600 shadow-2xs'
-                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+              ? 'bg-blue-50 border-blue-200 text-blue-600 shadow-2xs'
+              : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}
           >
             <Sliders className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* Save As Template Button */}
+        {onSaveAsTemplate && (
+          <button
+            type="button"
+            onClick={onSaveAsTemplate}
+            title="Save this artwork as a reusable starter template in design_templates"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition"
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Save Template</span>
           </button>
         )}
 

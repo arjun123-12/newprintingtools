@@ -1,8 +1,11 @@
 <?php
 
 namespace App\Http\Controllers\Api\V1\Product;
-
 use App\Http\Controllers\Controller;
+use App\Models\Product;
+
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use App\Services\Product\ProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

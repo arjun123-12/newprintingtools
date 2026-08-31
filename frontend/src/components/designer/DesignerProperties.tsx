@@ -59,9 +59,9 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
     if (updateTimerRef.current) {
       clearTimeout(updateTimerRef.current);
     }
-    updateTimerRef.current = setTimeout(() => {
+    updateTimerRef.current = setTimeout(async () => {
       try {
-        const url = canvasManager.getCleanPreviewDataUrl(1.0);
+        const url = await canvasManager.getCleanPreviewDataUrl(1.0);
         if (url) {
           setPreviewUrl(url);
         }

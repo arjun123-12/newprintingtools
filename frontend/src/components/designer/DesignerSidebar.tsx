@@ -13,7 +13,7 @@ import {
   Wallpaper,
   ChevronLeft,
 } from 'lucide-react';
-import { ActiveSidebarTab, SelectedObjectState } from '@/types/designer';
+import { ActiveSidebarTab, SelectedObjectState, DesignerTemplate } from '@/types/designer';
 import { CanvasManager } from './canvas/CanvasManager';
 import { TemplatesPanel } from './panels/TemplatesPanel';
 import { ElementsPanel } from './panels/ElementsPanel';
@@ -34,6 +34,8 @@ interface DesignerSidebarProps {
   onSelectTab: (tab: ActiveSidebarTab) => void;
   canvasManager: CanvasManager | null;
   selected: SelectedObjectState | null;
+  productId: string;
+  onApplyTemplate?: (template: DesignerTemplate) => void;
 }
 
 interface TabItem {
@@ -59,6 +61,8 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   onSelectTab,
   canvasManager,
   selected,
+  productId,
+  onApplyTemplate,
 }) => {
   const stopDrawingIfActive = () => {
     if (activeTab === 'draw' && canvasManager) {
@@ -164,7 +168,13 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
 
           {/* Drawer Content */}
           <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
-            {activeTab === 'templates' && <TemplatesPanel canvasManager={canvasManager} />}
+            {activeTab === 'templates' && (
+              <TemplatesPanel
+                canvasManager={canvasManager}
+                productId={productId}
+                onApplyTemplate={onApplyTemplate}
+              />
+            )}
             {activeTab === 'elements' && (
               <ElementsPanel canvasManager={canvasManager} onSelectTab={onSelectTab} />
             )}
