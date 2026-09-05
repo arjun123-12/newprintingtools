@@ -7,6 +7,8 @@ import {
   ActiveSidebarTab,
   CanvasDimensions,
   DesignerTemplate,
+  PrintSides,
+  PrintSettings,
 } from '@/types/designer';
 import { calculateCanvasDimensions, calculateFitZoom } from './utils/dimensions';
 import { CanvasManager } from './canvas/CanvasManager';
@@ -24,18 +26,71 @@ import { FloatingDrawToolbar } from './toolbar/FloatingDrawToolbar';
 import { PreflightBadge } from './controls/PreflightBadge';
 import { ArtworkPreviewModal } from './controls/ArtworkPreviewModal';
 import { CustomBannerSizeModal } from './controls/CustomBannerSizeModal';
+import { AddToCartModal } from './controls/AddToCartModal';
+import { PageManagerTray, PageData } from './controls/PageManagerTray';
+import {
+  updateTemplateDesign,
+} from '@/services/designTemplateService';
 import { AlertTriangle } from 'lucide-react';
+
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ??
+  'http://127.0.0.1:8000/api/v1'
+).replace(/\/$/, '');
+
+function isEmbeddedImageSource(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    (value.startsWith('data:image/') || value.startsWith('blob:'))
+  );
+}
+
+function extensionForImageMimeType(mimeType: string): string {
+  const cleanMime = (mimeType || '').split(';')[0].trim().toLowerCase();
+  switch (cleanMime) {
+    case 'image/jpeg':
+    case 'image/jpg':
+      return 'jpg';
+    case 'image/png':
+      return 'png';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    case 'image/svg+xml':
+    case 'image/svg':
+      return 'svg';
+    case 'image/tiff':
+    case 'image/tif':
+    case 'image/x-tiff':
+      return 'tiff';
+    case 'image/bmp':
+    case 'image/x-ms-bmp':
+      return 'bmp';
+    case 'image/avif':
+      return 'avif';
+    default:
+      if (cleanMime.includes('svg')) {
+        return 'svg';
+      }
+      throw new Error(
+        `Unsupported embedded image type: ${mimeType || 'unknown'}.`
+      );
+  }
+}
 
 interface DesignerProps {
   productId?: string;
   templateId?: string;
+  artworkId?: string | null;
+  mode?: string;
   initialSettings?: Partial<DocumentSettings>;
 }
 
 const DEFAULT_DOCUMENT: DocumentSettings = {
   name: 'Custom Print Artwork',
-  width: 90,
-  height: 50,
+  width: 100,
+  height: 65,
   unit: 'mm',
   dpi: 300,
   bleed: 3,
@@ -57,6 +112,8 @@ const AUTOSAVE_DELAY_MS = 1500;
 export default function Designer({
   productId,
   templateId,
+  artworkId: artworkIdProp,
+  mode,
   initialSettings,
 }: DesignerProps) {
   const [documentSettings, setDocumentSettings] = useState<DocumentSettings>({
@@ -81,6 +138,8 @@ export default function Designer({
   const [preflightReport, setPreflightReport] = useState<PreflightReport | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [isCustomSizeOpen, setIsCustomSizeOpen] = useState<boolean>(false);
+  const [isAddToCartOpen, setIsAddToCartOpen] = useState<boolean>(false);
+  const [previewThumbnailUrl, setPreviewThumbnailUrl] = useState<string | null>(null);
   const [isAutoFit, setIsAutoFit] = useState<boolean>(true);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [canRedo, setCanRedo] = useState<boolean>(false);
@@ -90,12 +149,22 @@ export default function Designer({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
+  const [pages, setPages] = useState<PageData[]>([]);
+  const [activePageIndex, setActivePageIndex] = useState<number>(0);
+  const [printSides, setPrintSides] = useState<PrintSides>('front');
+  const [activeSide, setActiveSide] = useState<'front' | 'back'>('front');
+
   const canvasManagerRef = useRef<CanvasManager | null>(null);
   const dimensionsRef = useRef<CanvasDimensions>(dimensions);
   dimensionsRef.current = dimensions;
 
   const productIdRef = useRef<string | undefined>(productId);
-  productIdRef.current = productId;
+
+  useEffect(() => {
+    if (productId) {
+      productIdRef.current = productId;
+    }
+  }, [productId]);
 
   const designNameRef = useRef<string>(designName);
   designNameRef.current = designName;
@@ -109,6 +178,7 @@ export default function Designer({
   const saveInProgressRef = useRef<boolean>(false);
   const saveQueuedRef = useRef<boolean>(false);
   const metadataAutosaveReadyRef = useRef<boolean>(false);
+  const canvasImageUploadCacheRef = useRef<Map<string, string>>(new Map());
 
   const containerDimensionsRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
   const isAutoFitRef = useRef<boolean>(true);
@@ -186,13 +256,546 @@ export default function Designer({
     });
   }, []);
 
+
   const handleToggleGuides = useCallback(() => {
     if (!canvasManagerRef.current) return;
     const next = canvasManagerRef.current.toggleGuides();
     setShowGuides(next);
   }, []);
 
+  /**
+   * Upload one data: or blob: image to Laravel and return its permanent URL.
+   * Repeated sources are cached so multipage saves do not upload duplicates.
+   */
+  const uploadEmbeddedImageSource = useCallback(async (
+    source: string
+  ): Promise<string> => {
+    const cachedUrl = canvasImageUploadCacheRef.current.get(source);
+    if (cachedUrl) {
+      return cachedUrl;
+    }
+
+    let sourceResponse: Response;
+
+    try {
+      sourceResponse = await fetch(source);
+    } catch {
+      throw new Error('Could not read an embedded canvas image.');
+    }
+
+    if (!sourceResponse.ok) {
+      throw new Error('Could not read an embedded canvas image.');
+    }
+
+    const blob = await sourceResponse.blob();
+    let detectedType = blob.type;
+    if (!detectedType && source.startsWith('data:')) {
+      const match = source.match(/^data:([^;,]+)/);
+      if (match) {
+        detectedType = match[1];
+      }
+    }
+    const extension = extensionForImageMimeType(detectedType || blob.type);
+    const file = new File(
+      [blob],
+      `canvas-image-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}.${extension}`,
+      { type: detectedType || blob.type || (extension === 'svg' ? 'image/svg+xml' : 'image/png') }
+    );
+
+    const formData = new FormData();
+    formData.append('image', file);
+    formData.append('source_provider', 'designer');
+
+    const token = localStorage.getItem('auth_token');
+    const uploadResponse = await fetch(
+      `${API_URL}/designer/uploads/canvas-image`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+          ...(token
+            ? { Authorization: `Bearer ${token}` }
+            : {}),
+        },
+        body: formData,
+      }
+    );
+
+    const responseText = await uploadResponse.text();
+    let responseData: any = null;
+
+    try {
+      responseData = responseText
+        ? JSON.parse(responseText)
+        : null;
+    } catch {
+      responseData = null;
+    }
+
+    if (!uploadResponse.ok) {
+      const validationMessage = responseData?.errors
+        ? Object.values(responseData.errors)
+          .flat()
+          .join(' ')
+        : null;
+
+      throw new Error(
+        validationMessage ||
+        responseData?.message ||
+        `Canvas image upload failed (${uploadResponse.status}).`
+      );
+    }
+
+    const storedUrl =
+      responseData?.data?.file_url ||
+      responseData?.data?.url;
+
+    if (!storedUrl || typeof storedUrl !== 'string') {
+      throw new Error(
+        'Canvas image upload succeeded but no file URL was returned.'
+      );
+    }
+
+    canvasImageUploadCacheRef.current.set(source, storedUrl);
+    return storedUrl;
+  }, []);
+
+  /**
+   * Replace embedded sources on the active Fabric canvas before serialization.
+   */
+  const uploadBase64ImagesInCanvas = useCallback(async (fabricCanvas: any) => {
+    let hasModifications = false;
+
+    const processObject = async (anyObj: any) => {
+      if (!anyObj) return;
+
+      // Recurse into groups, active selections and frame contents.
+      if (typeof anyObj.getObjects === 'function') {
+        const children = anyObj.getObjects();
+        for (const child of children) {
+          await processObject(child);
+        }
+      }
+
+      if (anyObj.clipPath) {
+        await processObject(anyObj.clipPath);
+      }
+
+      const src =
+        anyObj.getSrc?.() ||
+        anyObj.get?.('src') ||
+        anyObj.src;
+
+      if (anyObj.type === 'image' && isEmbeddedImageSource(src)) {
+        const storedUrl = await uploadEmbeddedImageSource(src);
+
+        if (typeof anyObj.setSrc === 'function') {
+          await anyObj.setSrc(storedUrl, {
+            crossOrigin: 'anonymous',
+          });
+        } else {
+          anyObj.set?.('src', storedUrl);
+        }
+
+        const existingOriginal = anyObj.originalSrc || anyObj.get?.('originalSrc');
+        const preserveOriginal =
+          existingOriginal && !isEmbeddedImageSource(existingOriginal)
+            ? existingOriginal
+            : storedUrl;
+
+        anyObj.set?.({
+          src: storedUrl,
+          originalSrc: preserveOriginal,
+          sourceUrl: preserveOriginal,
+          dirty: true,
+        });
+        anyObj.setCoords?.();
+        hasModifications = true;
+      }
+    };
+
+    const canvasObjects = fabricCanvas.getObjects();
+    for (const obj of canvasObjects) {
+      await processObject(obj);
+    }
+
+    if (fabricCanvas.backgroundImage) {
+      await processObject(fabricCanvas.backgroundImage);
+    }
+    if (fabricCanvas.overlayImage) {
+      await processObject(fabricCanvas.overlayImage);
+    }
+
+    if (hasModifications) {
+      fabricCanvas.requestRenderAll();
+    }
+
+    return hasModifications;
+  }, [uploadEmbeddedImageSource]);
+
+  /**
+   * Clean inactive page JSON too. Otherwise an earlier page containing a
+   * data: image can still make the complete template request fail with 422.
+   */
+  const replaceEmbeddedImageSourcesInJson = useCallback(async (
+    sourceValue: any
+  ): Promise<any> => {
+    const clonedValue =
+      typeof structuredClone === 'function'
+        ? structuredClone(sourceValue)
+        : JSON.parse(JSON.stringify(sourceValue));
+
+    const walk = async (value: any): Promise<any> => {
+      if (isEmbeddedImageSource(value)) {
+        return uploadEmbeddedImageSource(value);
+      }
+
+      if (Array.isArray(value)) {
+        for (let index = 0; index < value.length; index += 1) {
+          value[index] = await walk(value[index]);
+        }
+        return value;
+      }
+
+      if (value && typeof value === 'object') {
+        for (const key of Object.keys(value)) {
+          value[key] = await walk(value[key]);
+        }
+      }
+
+      return value;
+    };
+
+    return walk(clonedValue);
+  }, [uploadEmbeddedImageSource]);
+
+  const uploadBase64ImagesInPages = useCallback(async (
+    sourcePages: PageData[]
+  ): Promise<PageData[]> => {
+    const cleanedPages: PageData[] = [];
+
+    for (const page of sourcePages) {
+      cleanedPages.push({
+        ...page,
+        canvasJson: await replaceEmbeddedImageSourcesInJson(
+          page.canvasJson
+        ),
+      });
+    }
+
+    setPages(cleanedPages);
+    return cleanedPages;
+  }, [replaceEmbeddedImageSourcesInJson]);
+
+  // Ensure the current active canvas is saved to the pages array before doing operations
+  const getCurrentPagesState = useCallback(async () => {
+    const manager = canvasManagerRef.current;
+    if (!manager) return pages;
+
+    const fabricCanvas = manager.getCanvas();
+    if (!fabricCanvas) return pages;
+
+    const rawCanvasJson = fabricCanvas.toObject([
+      'id', 'name', 'originalSrc', 'isFrame', 'frameId',
+      'slotId', 'assetId', 'provider', 'providerAssetId', 'sourceType',
+    ]);
+    let thumbDataUrl = '';
+
+    try {
+      thumbDataUrl =
+        (await manager.getCleanPreviewDataUrl(0.2)) ?? '';
+    } catch (error) {
+      // A thumbnail problem must not block saving editable canvas JSON.
+      console.warn('Could not create the page thumbnail:', error);
+    }
+
+    setPages(prev => {
+      const next = [...prev];
+      if (next[activePageIndex]) {
+        next[activePageIndex] = {
+          ...next[activePageIndex],
+          canvasJson: rawCanvasJson,
+          thumbnail: thumbDataUrl,
+        };
+      }
+      return next;
+    });
+
+    // Return the updated array directly so callers don't have to wait for the React re-render
+    const updatedPages = [...pages];
+    if (updatedPages[activePageIndex]) {
+      updatedPages[activePageIndex].canvasJson = rawCanvasJson;
+      updatedPages[activePageIndex].thumbnail = thumbDataUrl;
+    }
+    return updatedPages;
+  }, [activePageIndex, pages]);
+
+  const handlePageSelect = useCallback(async (index: number) => {
+    if (index === activePageIndex) return;
+    if (!canvasManagerRef.current) return;
+
+    // Save current before switching
+    await getCurrentPagesState();
+
+    setActivePageIndex(index);
+    if (printSides === 'both') {
+      setActiveSide(index === 0 ? 'front' : 'back');
+    }
+    const nextPage = pages[index] || pages[0]; // fallback
+    if (nextPage) {
+      await canvasManagerRef.current.loadTemplate({
+        canvas_json: nextPage.canvasJson,
+        backgroundColor: documentSettingsRef.current.backgroundColor,
+      } as any);
+    }
+  }, [activePageIndex, pages, getCurrentPagesState, printSides]);
+
+  const handleSwitchSide = useCallback(async (targetSide: 'front' | 'back') => {
+    if (targetSide === activeSide) return;
+    if (!canvasManagerRef.current) return;
+
+    // Snapshot current active canvas to pages without losing unsaved changes
+    const currentPages = await getCurrentPagesState();
+
+    const targetIndex = targetSide === 'front' ? 0 : 1;
+    let targetPage = currentPages[targetIndex];
+
+    if (!targetPage) {
+      targetPage = {
+        id: `page-${targetSide}-${Date.now()}`,
+        thumbnail: null,
+        canvasJson: {
+          version: '6.0.0',
+          objects: [],
+          background: documentSettingsRef.current.backgroundColor || '#ffffff',
+        },
+      };
+      currentPages[targetIndex] = targetPage;
+      setPages([...currentPages]);
+    }
+
+    setActiveSide(targetSide);
+    setActivePageIndex(targetIndex);
+
+    await canvasManagerRef.current.loadTemplate({
+      canvas_json: targetPage.canvasJson,
+      backgroundColor: documentSettingsRef.current.backgroundColor,
+    } as any);
+  }, [activeSide, getCurrentPagesState]);
+
+  const handleAddPage = useCallback(async () => {
+    const updatedPages = await getCurrentPagesState();
+
+    const newPage: PageData = {
+      id: `page-${Date.now()}`,
+      thumbnail: null,
+      canvasJson: {
+        version: '6.0.0',
+        objects: [],
+        background: documentSettingsRef.current.backgroundColor || '#ffffff',
+      },
+    };
+
+    setPages([...updatedPages, newPage]);
+    handlePageSelect(updatedPages.length);
+  }, [getCurrentPagesState, handlePageSelect]);
+
+  const handleDuplicatePage = useCallback(async (index: number) => {
+    const updatedPages = await getCurrentPagesState();
+    const sourcePage = updatedPages[index];
+    if (!sourcePage) return;
+
+    const newPage: PageData = {
+      id: `page-${Date.now()}`,
+      thumbnail: sourcePage.thumbnail,
+      // Deep clone to avoid reference issues
+      canvasJson: JSON.parse(JSON.stringify(sourcePage.canvasJson)),
+    };
+
+    const newPages = [...updatedPages];
+    newPages.splice(index + 1, 0, newPage);
+    setPages(newPages);
+    handlePageSelect(index + 1);
+  }, [getCurrentPagesState, handlePageSelect]);
+
+  const handleDeletePage = useCallback(async (index: number) => {
+    if (pages.length <= 1) return; // Cannot delete the last page
+
+    const updatedPages = await getCurrentPagesState();
+    const newPages = updatedPages.filter((_, i) => i !== index);
+    setPages(newPages);
+
+    if (activePageIndex === index) {
+      // If we deleted the active page, switch to the previous one (or first one)
+      const nextIndex = Math.max(0, index - 1);
+      setActivePageIndex(nextIndex);
+      if (canvasManagerRef.current && newPages[nextIndex]) {
+        await canvasManagerRef.current.loadTemplate({
+          canvas_json: newPages[nextIndex].canvasJson,
+          backgroundColor: documentSettingsRef.current.backgroundColor,
+        } as any);
+      }
+    } else if (activePageIndex > index) {
+      // Shift active index if we deleted a page before it
+      setActivePageIndex(activePageIndex - 1);
+    }
+  }, [activePageIndex, pages.length, getCurrentPagesState]);
+  const handleSaveAdminTemplate = useCallback(async (
+    publish = false
+  ) => {
+    if (!canvasManager) {
+      throw new Error('Canvas is not ready.');
+    }
+
+    const activeTemplateId =
+      templateId ||
+      designTemplateIdRef.current ||
+      (typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('templateId')
+        : null);
+
+    if (!activeTemplateId) {
+      throw new Error('Template ID is missing.');
+    }
+
+    const productIdFromUrl =
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('productId')
+        : null;
+
+    const prodId =
+      productId ||
+      productIdRef.current ||
+      productIdFromUrl;
+
+    if (!prodId || prodId === 'default') {
+      throw new Error(
+        'This template is not connected to a valid product.'
+      );
+    }
+
+    productIdRef.current = prodId;
+
+    const fabricCanvas = canvasManager.getCanvas();
+    if (!fabricCanvas) {
+      throw new Error('Fabric canvas is not ready.');
+    }
+
+    // Upload data:/blob: images before serializing the active canvas.
+    await uploadBase64ImagesInCanvas(fabricCanvas);
+
+    // Ensure the current active canvas is synced into the pages array
+    const currentPages = await getCurrentPagesState();
+
+    // Clean inactive page JSON as well. One Base64 image on any page would
+    // cause Laravel to reject the complete template request with 422.
+    const updatedPages = await uploadBase64ImagesInPages(currentPages);
+
+    // We get the thumbnail from the active page (or page 1) which was updated in getCurrentPagesState
+    const activePage = updatedPages[activePageIndex] || updatedPages[0];
+    const thumbnailUrl = activePage ? activePage.thumbnail || '' : '';
+
+    let frontCanvasJson = updatedPages[0]?.canvasJson || { version: '6.0.0', objects: [], background: '#ffffff' };
+    let backCanvasJson = null;
+
+    if (printSides === 'both') {
+      frontCanvasJson = updatedPages[0]?.canvasJson || { version: '6.0.0', objects: [], background: '#ffffff' };
+      backCanvasJson = updatedPages[1]?.canvasJson || null;
+    } else if (printSides === 'back') {
+      backCanvasJson = updatedPages[0]?.canvasJson || null;
+    }
+
+    const currentDoc = documentSettingsRef.current;
+    const currentDims = dimensionsRef.current;
+    const artworkConfig = {
+      width: currentDoc.width,
+      height: currentDoc.height,
+      unit: currentDoc.unit || 'mm',
+      dpi: currentDoc.dpi || 300,
+      bleed: currentDoc.bleed ?? 0,
+      safe_area: currentDoc.safeArea ?? 0,
+      safeArea: currentDoc.safeArea ?? 0,
+      margin: currentDoc.margin ?? currentDoc.safeArea ?? 0,
+      trim: currentDoc.trim ?? true,
+      trim_area: {
+        width: currentDoc.width,
+        height: currentDoc.height,
+      },
+      trimArea: {
+        width: currentDoc.width,
+        height: currentDoc.height,
+      },
+      orientation: currentDoc.orientation || (currentDoc.width >= currentDoc.height ? 'landscape' : 'portrait'),
+      print_area: {
+        width: currentDims.widthPx,
+        height: currentDims.heightPx,
+      },
+      printArea: {
+        width: currentDims.widthPx,
+        height: currentDims.heightPx,
+      },
+      guides: {
+        showBleed: canvasManager.getGuidesSettings()?.showBleed ?? true,
+        showSafeZone: canvasManager.getGuidesSettings()?.showSafeZone ?? true,
+        showTrim: canvasManager.getGuidesSettings()?.showTrim ?? true,
+        bleedColor: canvasManager.getGuidesSettings()?.bleedColor,
+        safeZoneColor: canvasManager.getGuidesSettings()?.safeZoneColor,
+        trimColor: canvasManager.getGuidesSettings()?.trimColor,
+      },
+      backgroundColor: currentDoc.backgroundColor || '#ffffff',
+      name: currentDoc.name || designNameRef.current,
+    };
+
+    const printSettings = {
+      print_sides: printSides,
+      width_mm: currentDoc.width,
+      height_mm: currentDoc.height,
+      margin_mm: currentDoc.margin ?? 0,
+      bleed_mm: currentDoc.bleed ?? 0,
+      safe_area_mm: currentDoc.safeArea ?? 0,
+    };
+
+    // updateTemplateDesign sanitizes the JSON and stores artwork configuration.
+    await updateTemplateDesign(
+      activeTemplateId,
+      frontCanvasJson,
+      publish,
+      thumbnailUrl,
+      artworkConfig,
+      backCanvasJson,
+      printSettings
+    );
+  }, [canvasManager, templateId, productId, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex, printSides]);
+
   const handleSaveDraft = useCallback(async (): Promise<void> => {
+    // If we're in admin-template mode, delegate to the admin template save logic
+    const isAdminTemplateMode =
+      mode === 'admin-template' ||
+      (typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).get('mode') ===
+        'admin-template');
+
+    if (isAdminTemplateMode) {
+      if (saveInProgressRef.current) return;
+      saveInProgressRef.current = true;
+      try {
+        setSaveStatus('saving');
+        await handleSaveAdminTemplate(false);
+        setSaveStatus('saved');
+        setLastSavedAt(new Date());
+      } catch (err: any) {
+        console.error('Admin template save failed:', err);
+        setSaveStatus('error');
+        setSaveError(err.message || 'Could not save admin template.');
+      } finally {
+        saveInProgressRef.current = false;
+      }
+      return;
+    }
+
     // Never allow two POST requests to race and create duplicate artwork rows.
     if (saveInProgressRef.current) {
       saveQueuedRef.current = true;
@@ -217,26 +820,12 @@ export default function Designer({
         const currentDocument = documentSettingsRef.current;
         const currentDimensions = dimensionsRef.current;
 
-        // Include custom designer properties but never persist editor guides.
-        const canvasJson = canvas.toObject([
-          'id',
-          'name',
-          'originalSrc',
-          'naturalWidth',
-          'naturalHeight',
-          'fileSizeBytes',
-          'isFrame',
-          'isFrameImage',
-          'frameId',
-          'isBrushPath',
-          'brushType',
-        ]) as Record<string, any>;
+        await uploadBase64ImagesInCanvas(canvas);
 
-        if (Array.isArray(canvasJson.objects)) {
-          canvasJson.objects = canvasJson.objects.filter(
-            (object: Record<string, unknown>) => !object.isGuide
-          );
-        }
+        // Use getCurrentPagesState to ensure the active canvas is synced into the pages array
+        const currentPages = await getCurrentPagesState();
+        const updatedPages = await uploadBase64ImagesInPages(currentPages);
+        const allPagesJson = updatedPages.map(p => p.canvasJson);
 
         // Always keep a local recovery copy, even if the API is unavailable.
         designerService.saveDraftLocally(currentProductId || 'default', {
@@ -246,7 +835,7 @@ export default function Designer({
           dimensions: currentDimensions,
           document: currentDocument,
           background_color: currentDocument.backgroundColor || '#ffffff',
-          canvas_json: canvasJson,
+          canvas_json: allPagesJson,
         });
 
         // Laravel requires a real product UUID. Custom/no-product canvases stay local.
@@ -261,17 +850,22 @@ export default function Designer({
         setSaveError(null);
 
         try {
+          const activePage = updatedPages[activePageIndex] || updatedPages[0];
+          const thumbnailUrl = activePage?.thumbnail || null;
+
           const savedArtwork = await designerService.saveArtworkDraft(
             artworkIdRef.current,
             {
               product_id: currentProductId,
+              template_id: designTemplateIdRef.current,
               design_template_id: designTemplateIdRef.current,
               name: currentName,
-              canvas_json: canvasJson,
+              canvas_json: allPagesJson,
               document_settings: currentDocument,
               width_px: currentDimensions.widthPx,
               height_px: currentDimensions.heightPx,
               dpi: currentDocument.dpi || 300,
+              thumbnail_url: thumbnailUrl,
             }
           );
 
@@ -280,6 +874,15 @@ export default function Designer({
             currentProductId,
             savedArtwork.id
           );
+
+          // Update URL so reopening/reloading restores this exact artwork
+          if (typeof window !== 'undefined' && savedArtwork.id) {
+            const currentUrl = new URL(window.location.href);
+            if (currentUrl.searchParams.get('artworkId') !== savedArtwork.id) {
+              currentUrl.searchParams.set('artworkId', savedArtwork.id);
+              window.history.replaceState({}, '', currentUrl.toString());
+            }
+          }
 
           setSaveStatus('saved');
           setSaveError(null);
@@ -303,15 +906,33 @@ export default function Designer({
     } finally {
       saveInProgressRef.current = false;
     }
-  }, []);
+  }, [handleSaveAdminTemplate, mode, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState]);
 
-  const handleSaveVersion = useCallback(() => {
+  const handleAddToCartClick = useCallback(async () => {
+    if (canvasManagerRef.current) {
+      try {
+        const thumb = await canvasManagerRef.current.getCleanPreviewDataUrl(0.4);
+        if (thumb) {
+          setPreviewThumbnailUrl(thumb);
+        }
+      } catch { }
+    }
+    await handleSaveDraft();
+    setIsAddToCartOpen(true);
+  }, [handleSaveDraft]);
+
+
+
+  const handleSaveVersion = useCallback(async () => {
     const manager = canvasManagerRef.current;
     if (!manager) return;
     const canvas = manager.getCanvas();
     if (!canvas) return;
 
-    const canvasJson = canvas.toJSON();
+    await uploadBase64ImagesInCanvas(canvas);
+    const currentPages = await getCurrentPagesState();
+    const updatedPages = await uploadBase64ImagesInPages(currentPages);
+    const allPagesJson = updatedPages.map(p => p.canvasJson);
     const versionTimestamp = new Date().toISOString();
     designerService.saveDraftLocally(`${productId || 'default'}_v_${Date.now()}`, {
       version: versionTimestamp,
@@ -320,9 +941,9 @@ export default function Designer({
       dimensions: dimensionsRef.current,
       document: documentSettings,
       background_color: documentSettings.backgroundColor || '#ffffff',
-      canvas_json: canvasJson,
+      canvas_json: allPagesJson,
     });
-  }, [designName, documentSettings, productId]);
+  }, [designName, documentSettings, productId, getCurrentPagesState, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages]);
 
   /**
    * Debounce rapid Fabric events (moving, typing, scaling) into one API save.
@@ -391,22 +1012,200 @@ export default function Designer({
     let isMounted = true;
     const fetchTemplate = async () => {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/v1/admin/templates/${activeTmplId}`, {
-          headers: { Accept: 'application/json' },
-        });
+        const authToken = localStorage.getItem('auth_token') || localStorage.getItem('token');
+        const prodId = productId || productIdRef.current || 'default';
+        const isAdminMode =
+          mode === 'admin-template' ||
+          (typeof window !== 'undefined' &&
+            new URLSearchParams(window.location.search).get('mode') ===
+            'admin-template');
+
+        let res: Response;
+        if (isAdminMode) {
+          res = await fetch(`${API_URL}/admin/templates/${activeTmplId}`, {
+            headers: {
+              Accept: 'application/json',
+              ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+            },
+          });
+        } else {
+          // Public customer endpoint
+          res = await fetch(
+            `${API_URL}/designer/templates/${prodId}/${activeTmplId}`,
+            {
+              headers: {
+                Accept: 'application/json',
+                ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+              },
+            }
+          );
+
+          // If product template not found and user has auth token, fallback to admin template route
+          if (!res.ok && authToken) {
+            res = await fetch(`${API_URL}/admin/templates/${activeTmplId}`, {
+              headers: {
+                Accept: 'application/json',
+                Authorization: `Bearer ${authToken}`,
+              },
+            });
+          }
+        }
         if (!res.ok) return;
         const result = await res.json();
         if (result.success && result.data && isMounted) {
           designTemplateIdRef.current = String(result.data.id);
+
+          const loadedProductId =
+            result.data.product_id ??
+            result.data.product?.id;
+
+          if (loadedProductId) {
+            productIdRef.current = String(loadedProductId);
+          }
           if (result.data.name) {
             setDesignName(result.data.name);
           }
-          if (result.data.canvas_json) {
+
+          const t = result.data;
+          const p = t.product || null;
+
+          // Priority resolution:
+          // 1. Template-specific saved value
+          // 2. Related product saved value
+          // 3. Safe fallback value
+          const resolvedSides = (t.print_sides || p?.print_sides || 'front') as PrintSides;
+          const resolvedWidth = t.width_mm !== null && t.width_mm !== undefined && t.width_mm !== ''
+            ? Number(t.width_mm)
+            : (p?.width_mm !== null && p?.width_mm !== undefined && p?.width_mm !== ''
+              ? Number(p.width_mm)
+              : (t.artwork_config?.width || t.widthMm || 90));
+          const resolvedHeight = t.height_mm !== null && t.height_mm !== undefined && t.height_mm !== ''
+            ? Number(t.height_mm)
+            : (p?.height_mm !== null && p?.height_mm !== undefined && p?.height_mm !== ''
+              ? Number(p.height_mm)
+              : (t.artwork_config?.height || t.heightMm || 50));
+          const resolvedMargin = t.margin_mm !== null && t.margin_mm !== undefined && t.margin_mm !== ''
+            ? Number(t.margin_mm)
+            : (p?.margin_mm !== null && p?.margin_mm !== undefined && p?.margin_mm !== ''
+              ? Number(p.margin_mm)
+              : (t.artwork_config?.margin ?? 2));
+          const resolvedBleed = t.bleed_mm !== null && t.bleed_mm !== undefined && t.bleed_mm !== ''
+            ? Number(t.bleed_mm)
+            : (p?.bleed_mm !== null && p?.bleed_mm !== undefined && p?.bleed_mm !== ''
+              ? Number(p.bleed_mm)
+              : (t.artwork_config?.bleed ?? 3));
+          const resolvedSafeArea = t.safe_area_mm !== null && t.safe_area_mm !== undefined && t.safe_area_mm !== ''
+            ? Number(t.safe_area_mm)
+            : (p?.safe_area_mm !== null && p?.safe_area_mm !== undefined && p?.safe_area_mm !== ''
+              ? Number(p.safe_area_mm)
+              : (t.artwork_config?.safeArea ?? t.artwork_config?.safe_area ?? 3));
+
+          setPrintSides(resolvedSides);
+          if (resolvedSides === 'back') {
+            setActiveSide('back');
+          } else {
+            setActiveSide('front');
+          }
+
+          // 1. Dynamically initialize artwork canvas using resolved settings
+          const templateArtworkConfig = {
+            width: resolvedWidth,
+            height: resolvedHeight,
+            unit: 'mm' as const,
+            bleed: resolvedBleed,
+            safeArea: resolvedSafeArea,
+            safe_area: resolvedSafeArea,
+            margin: resolvedMargin,
+            dpi: t.artwork_config?.dpi || 300,
+            backgroundColor: t.artwork_config?.backgroundColor || t.backgroundColor || '#ffffff',
+            name: t.name || designNameRef.current,
+          };
+
+          const newDocSettings = canvasManager.initializeArtwork(templateArtworkConfig);
+          setDocumentSettings((prev) => ({ ...prev, ...newDocSettings }));
+          const newDims = calculateCanvasDimensions(newDocSettings);
+          setDimensions(newDims);
+          dimensionsRef.current = newDims;
+          documentSettingsRef.current = { ...documentSettingsRef.current, ...newDocSettings };
+
+          const { w, h } = containerDimensionsRef.current;
+          if (w > 0 && h > 0) {
+            canvasManager.fitToViewport(w, h, 32, 48);
+            setIsAutoFit(true);
+          }
+
+          // 2. Load template JSON after canvas is dynamically initialized with correct dimensions
+          const defaultEmptyCanvas = {
+            version: '6.0.0',
+            objects: [],
+            background: templateArtworkConfig.backgroundColor,
+          };
+
+          const frontJson = t.canvas_json ?? t.template_json ?? defaultEmptyCanvas;
+          const backJson = t.back_canvas_json ?? null;
+
+          if (resolvedSides === 'both') {
+            const initialPages: PageData[] = [
+              {
+                id: `page-front-${Date.now()}`,
+                thumbnail: null,
+                canvasJson: frontJson,
+              },
+              {
+                id: `page-back-${Date.now() + 1}`,
+                thumbnail: null,
+                canvasJson: backJson || defaultEmptyCanvas,
+              },
+            ];
+            setPages(initialPages);
+            setActivePageIndex(0);
+            setActiveSide('front');
+
             await canvasManager.loadTemplate({
-              id: String(result.data.id),
-              title: result.data.name,
-              category: result.data.category || 'Corporate',
-              canvas_json: result.data.canvas_json,
+              id: String(t.id),
+              title: t.name,
+              category: t.category || 'Corporate',
+              template_json: initialPages[0].canvasJson,
+              canvas_json: initialPages[0].canvasJson,
+            } as any);
+          } else if (resolvedSides === 'back') {
+            const initialPages: PageData[] = [
+              {
+                id: `page-back-${Date.now()}`,
+                thumbnail: null,
+                canvasJson: backJson || frontJson,
+              },
+            ];
+            setPages(initialPages);
+            setActivePageIndex(0);
+            setActiveSide('back');
+
+            await canvasManager.loadTemplate({
+              id: String(t.id),
+              title: t.name,
+              category: t.category || 'Corporate',
+              template_json: initialPages[0].canvasJson,
+              canvas_json: initialPages[0].canvasJson,
+            } as any);
+          } else {
+            // Front only (default)
+            const initialPages: PageData[] = [
+              {
+                id: `page-front-${Date.now()}`,
+                thumbnail: null,
+                canvasJson: frontJson,
+              },
+            ];
+            setPages(initialPages);
+            setActivePageIndex(0);
+            setActiveSide('front');
+
+            await canvasManager.loadTemplate({
+              id: String(t.id),
+              title: t.name,
+              category: t.category || 'Corporate',
+              template_json: initialPages[0].canvasJson,
+              canvas_json: initialPages[0].canvasJson,
             } as any);
           }
         }
@@ -422,44 +1221,184 @@ export default function Designer({
     };
   }, [templateId, canvasManager]);
 
+  // Load artwork from DB if artworkIdProp is provided
+  useEffect(() => {
+    if (!artworkIdProp || !canvasManager) return;
+
+    let isMounted = true;
+    const loadArtwork = async () => {
+      try {
+        const artwork = await designerService.fetchArtwork(artworkIdProp);
+        if (!isMounted) return;
+
+        // Restore design name
+        if (artwork.name) {
+          setDesignName(artwork.name);
+        }
+
+        // Restore document settings
+        if (artwork.document_settings) {
+          setDocumentSettings(artwork.document_settings);
+          const newDims = calculateCanvasDimensions(artwork.document_settings);
+          setDimensions(newDims);
+          canvasManager.setDimensions(newDims);
+          const { w, h } = containerDimensionsRef.current;
+          if (w > 0 && h > 0) {
+            canvasManager.fitToViewport(w, h, 32, 48);
+          }
+        }
+
+        // Load fully editable JSON into CanvasManager
+        if (artwork.canvas_json) {
+          let loadedPages = Array.isArray(artwork.canvas_json)
+            ? artwork.canvas_json
+            : [artwork.canvas_json];
+
+          // Set pages state
+          setPages(loadedPages.map((json: any, idx: number) => ({
+            id: `page-${idx}-${Date.now()}`,
+            thumbnail: null,
+            canvasJson: json
+          })));
+          setActivePageIndex(0);
+
+          await canvasManager.loadTemplate({
+            canvas_json: loadedPages[0],
+            backgroundColor: artwork.document_settings?.backgroundColor || undefined,
+          } as any);
+        }
+
+        // Keep track of IDs so saves update the same row
+        artworkIdRef.current = artwork.id;
+        if (artwork.design_template_id) {
+          designTemplateIdRef.current = String(artwork.design_template_id);
+        }
+      } catch (err) {
+        console.warn('Could not pre-load artwork:', err);
+      }
+    };
+
+    void loadArtwork();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [artworkIdProp, canvasManager]);
+
   const handleSaveAsTemplate = useCallback(async () => {
+    // If we're in admin-template mode, delegate to the admin template publish logic
+    const isAdminTemplateMode =
+      mode === 'admin-template' ||
+      (typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).get('mode') ===
+        'admin-template');
+    if (isAdminTemplateMode) {
+      if (saveInProgressRef.current) return;
+      saveInProgressRef.current = true;
+      try {
+        setSaveStatus('saving');
+        await handleSaveAdminTemplate(true); // is_active: true
+        setSaveStatus('saved');
+        setLastSavedAt(new Date());
+        setTemplateSavedMsg('Template published successfully!');
+        setTimeout(() => setTemplateSavedMsg(null), 4500);
+      } catch (err: any) {
+        console.error('Publish template failed:', err);
+        setSaveStatus('error');
+        setSaveError(err.message || 'Could not publish template.');
+      } finally {
+        saveInProgressRef.current = false;
+      }
+      return;
+    }
+
     const manager = canvasManagerRef.current;
     const canvas = manager?.getCanvas();
     if (!manager || !canvas) return;
 
     try {
       setSaveStatus('saving');
-      const thumbDataUrl = await manager.getCleanPreviewDataUrl(0.8);
 
-      const canvasJson = canvas.toObject([
-        'id',
-        'name',
-        'originalSrc',
-        'naturalWidth',
-        'naturalHeight',
-        'fileSizeBytes',
-        'isFrame',
-        'isFrameImage',
-        'frameId',
-        'isBrushPath',
-        'brushType',
-      ]) as Record<string, any>;
+      // This must happen before thumbnail generation and canvas JSON creation.
+      await uploadBase64ImagesInCanvas(canvas);
 
-      if (Array.isArray(canvasJson.objects)) {
-        canvasJson.objects = canvasJson.objects.filter(
-          (object: Record<string, unknown>) => !object.isGuide
-        );
+      let thumbDataUrl = '';
+
+      try {
+        thumbDataUrl =
+          (await manager.getCleanPreviewDataUrl(0.8)) ?? '';
+      } catch (error) {
+        // Keep saving the editable template even if an external CORS image
+        // prevents thumbnail generation.
+        console.warn('Could not create template thumbnail:', error);
       }
 
-      const activeProductId = productIdRef.current || 'default';
       const activeTemplateId = designTemplateIdRef.current;
+      const isProductTemplate = activeTemplateId?.startsWith('prod_');
+      const targetTemplateId = isProductTemplate ? null : activeTemplateId;
+
+      let activeProductId = productIdRef.current;
+      if (!activeProductId || activeProductId === 'default') {
+        if (isProductTemplate && activeTemplateId) {
+          activeProductId = activeTemplateId.replace('prod_', '');
+        } else {
+          activeProductId = 'default';
+        }
+      }
+
+      const canvasJson = await replaceEmbeddedImageSourcesInJson(
+        manager.getSerializableJson()
+      );
+
+      const currentDoc = documentSettingsRef.current;
+      const currentDims = dimensionsRef.current;
+      const artworkConfig = {
+        width: currentDoc.width,
+        height: currentDoc.height,
+        unit: currentDoc.unit || 'mm',
+        dpi: currentDoc.dpi || 300,
+        bleed: currentDoc.bleed ?? 0,
+        safe_area: currentDoc.safeArea ?? 0,
+        safeArea: currentDoc.safeArea ?? 0,
+        margin: currentDoc.margin ?? currentDoc.safeArea ?? 0,
+        trim: currentDoc.trim ?? true,
+        trim_area: {
+          width: currentDoc.width,
+          height: currentDoc.height,
+        },
+        trimArea: {
+          width: currentDoc.width,
+          height: currentDoc.height,
+        },
+        orientation: currentDoc.orientation || (currentDoc.width >= currentDoc.height ? 'landscape' : 'portrait'),
+        print_area: {
+          width: currentDims.widthPx,
+          height: currentDims.heightPx,
+        },
+        printArea: {
+          width: currentDims.widthPx,
+          height: currentDims.heightPx,
+        },
+        guides: {
+          showBleed: manager.getGuidesSettings()?.showBleed ?? true,
+          showSafeZone: manager.getGuidesSettings()?.showSafeZone ?? true,
+          showTrim: manager.getGuidesSettings()?.showTrim ?? true,
+          bleedColor: manager.getGuidesSettings()?.bleedColor,
+          safeZoneColor: manager.getGuidesSettings()?.safeZoneColor,
+          trimColor: manager.getGuidesSettings()?.trimColor,
+        },
+        backgroundColor: currentDoc.backgroundColor || '#ffffff',
+        name: currentDoc.name || designNameRef.current,
+      };
 
       const saved = await designerService.saveAsDesignTemplate({
-        template_id: activeTemplateId,
+        template_id: targetTemplateId,
         product_id: activeProductId,
         name: designNameRef.current || 'Custom Design Template',
         category: 'Corporate',
         canvas_json: canvasJson,
+        template_json: canvasJson,
+        artwork_config: artworkConfig,
         thumbnail_url: thumbDataUrl,
         is_active: true,
       });
@@ -479,12 +1418,12 @@ export default function Designer({
       setSaveStatus('error');
       setSaveError(err.message || 'Could not save template to database.');
     }
-  }, []);
+  }, [handleSaveAdminTemplate, mode, uploadBase64ImagesInCanvas, replaceEmbeddedImageSourcesInJson]);
 
-  // Template apply handler (tracks design_template_id and triggers autosave)
-  const handleApplyTemplate = useCallback((template: DesignerTemplate) => {
+  // Template apply handler (tracks design_template_id, applies dynamic artwork configuration, and triggers autosave)
+  const handleApplyTemplate = useCallback((template: DesignerTemplate | any) => {
     designTemplateIdRef.current = String(template.id);
-    const templateTitle = template.title || (template as any).name;
+    const templateTitle = template.title || template.name;
     if (templateTitle) {
       setDesignName((prev) => {
         if (!prev || prev === 'Untitled Design') {
@@ -493,6 +1432,74 @@ export default function Designer({
         return prev;
       });
     }
+
+    const product = template.product || {};
+    const savedDocument = template.document_settings || {};
+    const savedArtwork = template.artwork_config || {};
+    const numberOr = (value: unknown, fallback: number, allowZero = false) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && (allowZero ? parsed >= 0 : parsed > 0)
+        ? parsed
+        : fallback;
+    };
+
+    const templateArtworkConfig = {
+      ...savedArtwork,
+      ...savedDocument,
+      name: templateTitle || savedDocument.name || designNameRef.current,
+      width: numberOr(
+        template.width_mm ?? savedDocument.width ?? savedArtwork.width ?? product.width_mm ?? template.widthMm,
+        documentSettingsRef.current.width
+      ),
+      height: numberOr(
+        template.height_mm ?? savedDocument.height ?? savedArtwork.height ?? product.height_mm ?? template.heightMm,
+        documentSettingsRef.current.height
+      ),
+      unit: savedDocument.unit ?? savedArtwork.unit ?? 'mm',
+      dpi: numberOr(savedDocument.dpi ?? savedArtwork.dpi, 300),
+      bleed: numberOr(
+        template.bleed_mm ?? savedDocument.bleed ?? savedArtwork.bleed ?? product.bleed_mm,
+        3,
+        true
+      ),
+      safeArea: numberOr(
+        template.safe_area_mm ?? savedDocument.safeArea ?? savedArtwork.safeArea ?? savedArtwork.safe_area ?? product.safe_area_mm,
+        3,
+        true
+      ),
+      margin: numberOr(
+        template.margin_mm ?? savedDocument.margin ?? savedArtwork.margin ?? product.margin_mm,
+        0,
+        true
+      ),
+      backgroundColor:
+        savedDocument.backgroundColor ??
+        savedArtwork.backgroundColor ??
+        template.backgroundColor ??
+        '#ffffff',
+    };
+
+    const resolvedPrintSides = (
+      template.print_sides ?? product.print_sides ?? 'front'
+    ) as PrintSides;
+    setPrintSides(resolvedPrintSides);
+    setActiveSide(resolvedPrintSides === 'back' ? 'back' : 'front');
+
+    if (canvasManagerRef.current) {
+      const newDocSettings = canvasManagerRef.current.initializeArtwork(templateArtworkConfig);
+      setDocumentSettings((prev) => ({ ...prev, ...newDocSettings }));
+      const newDims = calculateCanvasDimensions(newDocSettings);
+      setDimensions(newDims);
+      dimensionsRef.current = newDims;
+      documentSettingsRef.current = { ...documentSettingsRef.current, ...newDocSettings };
+
+      const { w, h } = containerDimensionsRef.current;
+      if (w > 0 && h > 0) {
+        canvasManagerRef.current.fitToViewport(w, h, 32, 48);
+        setIsAutoFit(true);
+      }
+    }
+
     scheduleAutosave();
   }, [scheduleAutosave]);
 
@@ -500,10 +1507,29 @@ export default function Designer({
   const handleExportPdf = useCallback(async () => {
     const manager = canvasManagerRef.current;
     if (!manager) return;
+    const canvas = manager.getCanvas();
+    if (!canvas) return;
+
     try {
+      const wasGuidesVisible = manager.getGuidesVisible();
+      const prevZoom = manager.getZoom();
+
+      manager.setGuidesVisible(false);
+      canvas.discardActiveObject();
+      manager.setZoom(1.0);
+      canvas.requestRenderAll();
+
+      const svg = canvas.toSVG();
+
+      manager.setZoom(prevZoom);
+      manager.setGuidesVisible(wasGuidesVisible);
+      canvas.requestRenderAll();
+
       await exportVectorPdf(
-        manager,
+        [svg],
         documentSettings,
+        dimensionsRef.current.widthPx,
+        dimensionsRef.current.heightPx,
         { filename: `${(documentSettings.name || 'artwork').toLowerCase().replace(/[^a-z0-9_-]/g, '_')}_vector.pdf` }
       );
     } catch (err) {
@@ -749,6 +1775,14 @@ export default function Designer({
         onExportPsd={handleExportPsd}
         canvasManager={canvasManager}
         preflightReport={preflightReport}
+        onAddToCart={handleAddToCartClick}
+        isAdminTemplateMode={
+          mode === 'admin-template' ||
+          (typeof window !== 'undefined'
+            ? new URLSearchParams(window.location.search).get('mode') ===
+            'admin-template'
+            : false)
+        }
       />
 
       {/* Template Saved Toast Notification */}
@@ -838,6 +1872,32 @@ export default function Designer({
               </div>
             )}
 
+          {/* Front / Back Side Switcher for print_sides === 'both' */}
+          {printSides === 'both' && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center bg-white/95 backdrop-blur-md px-1.5 py-1 rounded-2xl shadow-lg border border-gray-200">
+              <button
+                type="button"
+                onClick={() => handleSwitchSide('front')}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${activeSide === 'front'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
+              >
+                <span>Front Side</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchSide('back')}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${activeSide === 'back'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
+              >
+                <span>Back Side</span>
+              </button>
+            </div>
+          )}
+
           <DesignerCanvas
             zoom={zoom}
             setZoom={handleZoomChange}
@@ -849,11 +1909,23 @@ export default function Designer({
             selected={selected}
             onSelectSidebarTab={setActiveSidebarTab}
             activeSidebarTab={activeSidebarTab}
+            onUpdateDocumentSettings={handleUpdateDocumentSettings}
           />
 
-          {/* Floating Ready for Print Preflight Checklist Card in Bottom-Right */}
+          {/* Page Manager Tray */}
+          <PageManagerTray
+            pages={pages}
+            activePageIndex={activePageIndex}
+            onPageSelect={handlePageSelect}
+            onAddPage={handleAddPage}
+            onDuplicatePage={handleDuplicatePage}
+            onDeletePage={handleDeletePage}
+            canvasManager={canvasManager}
+          />
+
+          {/* Inline Ready for Print Preflight Checklist Card */}
           {preflightReport && (
-            <div className="absolute bottom-2 right-4 z-40">
+            <div className="w-full flex-shrink-0 bg-white">
               <PreflightBadge
                 report={preflightReport}
                 canvasManager={canvasManager}
@@ -911,6 +1983,17 @@ export default function Designer({
         onClose={() => setIsCustomSizeOpen(false)}
         currentSettings={documentSettings}
         onApply={handleUpdateDocumentSettings}
+      />
+
+      {/* Add to Cart Modal */}
+      <AddToCartModal
+        isOpen={isAddToCartOpen}
+        onClose={() => setIsAddToCartOpen(false)}
+        productId={productId || 'default'}
+        artworkId={artworkIdRef.current}
+        artworkName={designName}
+        previewDataUrl={previewThumbnailUrl}
+        dimensionsText={`${documentSettings.width} × ${documentSettings.height} ${documentSettings.unit || 'mm'} (${documentSettings.dpi || 300} DPI)`}
       />
     </div>
   );

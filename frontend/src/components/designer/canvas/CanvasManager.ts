@@ -18,6 +18,8 @@ import {
   Path,
   Gradient,
   filters,
+  loadSVGFromURL,
+  util,
 } from 'fabric';
 import {
   SelectedObjectState,
@@ -30,7 +32,11 @@ import {
   BrushSettings,
   BrushType,
   BackgroundSettings,
+  ArtworkConfig,
+  DocumentSettings,
+  UnitType,
 } from '@/types/designer';
+import { calculateCanvasDimensions } from '../utils/dimensions';
 import { CanvasGuides } from './CanvasGuides';
 import { CanvasSnapping } from './CanvasSnapping';
 import { applyCanvaControlsGlobal, applyCanvaControlsToObject } from './CanvaControls';
@@ -40,6 +46,7 @@ import { POPULAR_FONTS, loadFont } from '../utils/fonts';
 import { calculateImageQuality } from '../utils/imageQuality';
 import { runPreflightCheck, PreflightReport } from '../utils/preflightCheck';
 import { urlToSafeDataUrl, formatImageUrl, getProxiedImageUrl } from '@/utils/imageUrl';
+import { isSvg, normalizeSvgUrl } from '@/utils/svgNormalizer';
 
 // Apply Canva-style selection frame and handles globally
 applyCanvaControlsGlobal();
@@ -94,6 +101,41 @@ export function hexWithAlpha(hex: string, alpha: number): string {
 }
 
 export { urlToSafeDataUrl, formatImageUrl, getProxiedImageUrl };
+
+export const CUSTOM_CANVAS_PROPERTIES = [
+  'id',
+  'name',
+  'originalSrc',
+  'sourceUrl',
+  'sourceType',
+  'provider',
+  'providerAssetId',
+  'assetId',
+  'isFrame',
+  'frameId',
+  'slotId',
+  'isCanvaPlaceholder',
+  'frameShape',
+  'brushType',
+  'isBrushPath',
+  'cropX',
+  'cropY',
+  'cropWidth',
+  'cropHeight',
+  'rx',
+  'ry',
+  'strokeDashArray',
+  'strokeUniform',
+  'lockMovementX',
+  'lockMovementY',
+  'lockRotation',
+  'lockScalingX',
+  'lockScalingY',
+  'hasControls',
+  'naturalWidth',
+  'naturalHeight',
+  'fileSizeBytes',
+];
 
 export class CanvasManager {
   private canvas: Canvas | null = null;
@@ -226,6 +268,100 @@ export class CanvasManager {
       this.canvas.requestRenderAll();
       this.notifyChange();
     }
+  }
+
+  public getGuidesSettings(): PrintGuidesSettings {
+    return this.guides.getSettings();
+  }
+
+  /**
+   * Dynamically initializes the artwork canvas and guidelines based on a template's
+   * specific artwork configuration (width, height, unit, bleed, safe area, margin, trim, DPI, etc.).
+   * Eliminates any hardcoded dimensions.
+   */
+  public initializeArtwork(config: ArtworkConfig | any): DocumentSettings {
+    if (!config) {
+      return {
+        width: this.dimensions.widthMm || 90,
+        height: this.dimensions.heightMm || 50,
+        unit: 'mm',
+        dpi: this.dimensions.dpi || 300,
+        bleed: this.dimensions.bleedMm ?? 3,
+        safeArea: this.dimensions.safeZoneMm ?? 3,
+        backgroundColor: '#ffffff',
+        showGuides: true,
+      };
+    }
+
+    const width = Number(config.width ?? config.widthMm ?? 90);
+    const height = Number(config.height ?? config.heightMm ?? 50);
+    const unit: UnitType = (config.unit as UnitType) || 'mm';
+    const dpi = Number(config.dpi) || 300;
+    const bleed = Number(config.bleed !== undefined ? config.bleed : (config.bleedMm !== undefined ? config.bleedMm : 3));
+    const safeArea = Number(
+      config.safeArea !== undefined
+        ? config.safeArea
+        : (config.safe_area !== undefined
+          ? config.safe_area
+          : (config.margin !== undefined ? config.margin : 3))
+    );
+    const margin = Number(
+      config.margin !== undefined
+        ? config.margin
+        : (config.safeArea !== undefined
+          ? config.safeArea
+          : (config.safe_area !== undefined ? config.safe_area : 2))
+    );
+
+    const backgroundColor = config.backgroundColor || config.background || '#ffffff';
+    const orientation = config.orientation || (width >= height ? 'landscape' : 'portrait');
+    const showGuides = config.showGuides !== false;
+
+    const docSettings: DocumentSettings = {
+      width,
+      height,
+      unit,
+      dpi,
+      bleed,
+      safeArea,
+      margin,
+      backgroundColor,
+      showGuides,
+      orientation,
+      name: config.name,
+    };
+
+    const newDims = calculateCanvasDimensions(docSettings);
+    this.dimensions = newDims;
+    this.guides.updateDimensions(newDims);
+    this.snapping.updateDimensions(newDims);
+
+    // Apply guides / trim configuration if specified
+    const trimActive = config.trim !== undefined ? Boolean(config.trim) : true;
+    this.guides.updateSettings({
+      showTrim: trimActive,
+      ...(config.guides || {}),
+    });
+
+    if (backgroundColor && this.canvas) {
+      this.setBackgroundColor(backgroundColor);
+    }
+
+    if (this.canvas) {
+      const targetWidth = Math.round(newDims.widthPx * this.zoom);
+      const targetHeight = Math.round(newDims.heightPx * this.zoom);
+
+      this.canvas.setDimensions({
+        width: targetWidth,
+        height: targetHeight,
+      });
+
+      this.canvas.setZoom(this.zoom);
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+    }
+
+    return docSettings;
   }
 
   // --- Background Management ---
@@ -1141,17 +1277,43 @@ export class CanvasManager {
     return this.guides.getUserGuides();
   }
 
+  public updateMargin(marginMm: number): void {
+    const dpi = this.dimensions.dpi || 300;
+    const marginPx = Math.round(marginMm * (1 / 25.4) * dpi);
+    this.dimensions = {
+      ...this.dimensions,
+      marginMm,
+      marginPx,
+      safeZoneMm: marginMm,
+      safeZonePx: marginPx,
+    };
+    this.guides.updateDimensions(this.dimensions);
+    this.snapping.updateDimensions(this.dimensions);
+    if (this.canvas) {
+      this.canvas.requestRenderAll();
+    }
+    this.notifyChange();
+  }
+
   // --- Templates Engine ---
 
   private async prepareBackendTemplateJson(rawJson: any): Promise<any> {
+    let baseJson = rawJson;
+    if (Array.isArray(rawJson) && rawJson.length > 0) {
+      const firstItem = rawJson[0];
+      if (firstItem && typeof firstItem === 'object' && ('objects' in firstItem || 'version' in firstItem)) {
+        baseJson = firstItem;
+      }
+    }
+
     const json = JSON.parse(
       JSON.stringify(
-        Array.isArray(rawJson)
+        Array.isArray(baseJson)
           ? {
             version: '6.0.0',
-            objects: rawJson,
+            objects: baseJson,
           }
-          : rawJson
+          : baseJson
       )
     );
 
@@ -1216,8 +1378,19 @@ export class CanvasManager {
     return json;
   }
 
-  public async loadTemplate(template: DesignerTemplate): Promise<void> {
+  public async loadTemplate(template: DesignerTemplate | any): Promise<void> {
     if (!this.canvas) return;
+
+    // If template includes an artwork configuration, dynamically initialize canvas to match
+    if (template && (template.artwork_config || template.widthMm || template.heightMm)) {
+      const config = template.artwork_config || {
+        width: template.widthMm,
+        height: template.heightMm,
+        unit: 'mm',
+        backgroundColor: template.backgroundColor,
+      };
+      this.initializeArtwork(config);
+    }
 
     this.canvas.discardActiveObject();
     const existing = [...this.canvas.getObjects()];
@@ -1227,17 +1400,19 @@ export class CanvasManager {
       }
     });
 
-    const canvasW = this.dimensions.widthPx || 1063;
-    const canvasH = this.dimensions.heightPx || 591;
+    const canvasW = this.dimensions.widthPx;
+    const canvasH = this.dimensions.heightPx;
 
     if (template.backgroundColor) {
       this.setBackgroundColor(template.backgroundColor);
     }
 
     const rawCanvasJson =
+      (template as any).template_json ??
       (template as any).canvas_json ??
       (template as any).design_json ??
-      (template as any).template_data;
+      (template as any).template_data ??
+      ((template as any).objects ? template : null);
 
     if (rawCanvasJson) {
       try {
@@ -1251,6 +1426,17 @@ export class CanvasManager {
             await this.prepareBackendTemplateJson(json);
 
           await this.canvas.loadFromJSON(exportSafeJson);
+
+          // Guarantee that the canvas dimensions strictly respect this template's dimensions
+          const targetWidth = Math.round(this.dimensions.widthPx * this.zoom);
+          const targetHeight = Math.round(this.dimensions.heightPx * this.zoom);
+          this.canvas.setDimensions({
+            width: targetWidth,
+            height: targetHeight,
+          });
+          this.canvas.setZoom(this.zoom);
+          this.guides.updateDimensions(this.dimensions);
+          this.canvas.requestRenderAll();
           await this.waitForAllImagesToLoad();
 
           this.finishTemplateLoading();
@@ -1667,7 +1853,23 @@ export class CanvasManager {
     if (!this.canvas) return null;
 
     try {
-      const safeUrl = await urlToSafeDataUrl(url);
+      let safeUrl = await urlToSafeDataUrl(url);
+
+      // Normalize SVG data/URL to prevent 300x150 default fallback or viewBox clipping
+      let svgNormWidth: number | undefined;
+      let svgNormHeight: number | undefined;
+
+      if (isSvg(url) || isSvg(safeUrl)) {
+        try {
+          const norm = await normalizeSvgUrl(safeUrl);
+          safeUrl = norm.dataUrl;
+          svgNormWidth = norm.width;
+          svgNormHeight = norm.height;
+        } catch (normErr) {
+          console.warn('SVG normalization in addImageFromUrl failed:', normErr);
+        }
+      }
+
       let img: FabricImage;
       try {
         img = await FabricImage.fromURL(safeUrl, { crossOrigin: 'anonymous' });
@@ -1686,14 +1888,23 @@ export class CanvasManager {
           el.src = safeUrl;
         });
       }
+
+      // If SVG normalization provided dimensions, ensure FabricImage bounds match
+      if (svgNormWidth && svgNormHeight) {
+        img.set({
+          width: svgNormWidth,
+          height: svgNormHeight,
+        });
+      }
+
       const canvasW = this.dimensions.widthPx || 1063;
       const canvasH = this.dimensions.heightPx || 591;
 
       const maxW = Math.min(canvasW * 0.6, 500);
       const maxH = Math.min(canvasH * 0.6, 400);
 
-      const naturalW = metadata?.naturalWidth || img.width || 400;
-      const naturalH = metadata?.naturalHeight || img.height || 300;
+      const naturalW = metadata?.naturalWidth || svgNormWidth || img.width || 400;
+      const naturalH = metadata?.naturalHeight || svgNormHeight || img.height || 300;
 
       const scale = Math.min(maxW / naturalW, maxH / naturalH, 1.0);
 
@@ -1743,7 +1954,16 @@ export class CanvasManager {
     if (!active || !(active instanceof FabricImage)) return;
 
     try {
-      const newImg = await FabricImage.fromURL(newUrl, { crossOrigin: 'anonymous' });
+      let safeUrl = await urlToSafeDataUrl(newUrl);
+      if (isSvg(newUrl) || isSvg(safeUrl)) {
+        try {
+          const norm = await normalizeSvgUrl(safeUrl);
+          safeUrl = norm.dataUrl;
+        } catch {
+          // ignore
+        }
+      }
+      const newImg = await FabricImage.fromURL(safeUrl, { crossOrigin: 'anonymous' });
 
       const prevLeft = active.left || 0;
       const prevTop = active.top || 0;
@@ -1788,6 +2008,187 @@ export class CanvasManager {
     } catch (err) {
       console.error('Failed to replace image:', err);
     }
+  }
+
+  public async restoreOriginalImage(): Promise<void> {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active || !(active instanceof FabricImage)) return;
+    
+    const originalUrl = active.get('originalUrl' as any);
+    if (!originalUrl) return;
+
+    try {
+      const newImg = await FabricImage.fromURL(originalUrl, { crossOrigin: 'anonymous' });
+
+      const displayedWidth = active.getScaledWidth();
+      const displayedHeight = active.getScaledHeight();
+
+      const newScaleX = displayedWidth / newImg.width!;
+      const newScaleY = displayedHeight / newImg.height!;
+
+      const prevIndex = this.canvas.getObjects().indexOf(active);
+
+      this.canvas.remove(active);
+
+      newImg.set({
+        left: active.left,
+        top: active.top,
+        angle: active.angle,
+        flipX: active.flipX,
+        flipY: active.flipY,
+        opacity: active.opacity,
+        originX: active.originX,
+        originY: active.originY,
+        scaleX: newScaleX,
+        scaleY: newScaleY,
+        cropX: active.cropX,
+        cropY: active.cropY,
+        selectable: active.selectable,
+        evented: active.evented,
+        visible: active.visible,
+        skewX: active.skewX,
+        skewY: active.skewY,
+        clipPath: active.clipPath,
+      });
+
+      // Copy custom properties
+      newImg.set('id' as any, active.get('id' as any));
+      newImg.set('name' as any, active.get('name' as any));
+      newImg.set('assetId' as any, active.get('assetId' as any));
+      newImg.set('provider' as any, active.get('provider' as any));
+      newImg.set('providerAssetId' as any, active.get('providerAssetId' as any));
+      newImg.set('sourceType' as any, active.get('sourceType' as any));
+      
+      // Restore original metadata
+      newImg.set('originalUrl' as any, originalUrl);
+      newImg.set('originalFileId' as any, active.get('originalFileId' as any));
+      
+      // Clear processed flags
+      newImg.set('backgroundRemoved' as any, false);
+      newImg.set('processedFileId' as any, null);
+      newImg.set('processedUrl' as any, null);
+      newImg.set('processingType' as any, null);
+
+      this.canvas.insertAt(prevIndex, newImg);
+      newImg.setCoords();
+      
+      this.canvas.setActiveObject(newImg);
+      this.canvas.requestRenderAll();
+      
+      this.notifyChange();
+      this.notifySelection();
+      this.notifyLayers();
+      this.scheduleHistorySave();
+    } catch (e) {
+      console.error('Failed to restore original image', e);
+    }
+  }
+
+  public async removeBackgroundFromSelectedImage(
+    onProgress?: (progress: { stage: string; message: string; progress?: number }) => void
+  ): Promise<void> {
+    if (!this.canvas) return;
+    
+    const active = this.canvas.getActiveObject();
+    if (!active || !(active instanceof FabricImage)) {
+      throw new Error('Please select an image first.');
+    }
+    
+    // Reject SVGs
+    const src = active.getSrc();
+    if (src && src.toLowerCase().includes('.svg')) {
+      throw new Error('Background removal is not supported for SVGs.');
+    }
+
+    // Preserve original URL if this is the first processing
+    const existingOriginalUrl = active.get('originalUrl' as any);
+    if (!existingOriginalUrl) {
+      active.set('originalUrl' as any, src);
+    }
+
+    const activeId = active.get('id' as any);
+
+    // Dynamically import the background removal service
+    const { removeImageBackground } = await import('@/services/backgroundRemoval');
+    
+    let bgResult: any;
+    try {
+      bgResult = await removeImageBackground(src, onProgress as any);
+    } catch (err: any) {
+      throw err;
+    }
+
+    // Verify object still exists and is selected
+    const currentActive = this.canvas.getActiveObject();
+    if (!currentActive || currentActive.get('id' as any) !== activeId) {
+      return;
+    }
+    
+    onProgress?.({ stage: 'complete', message: 'Updating canvas...' });
+
+    const resultUrl = bgResult.fileUrl || bgResult.url;
+    const newImg = await FabricImage.fromURL(resultUrl, { crossOrigin: 'anonymous' });
+    
+    const displayedWidth = active.getScaledWidth();
+    const displayedHeight = active.getScaledHeight();
+
+    const newScaleX = displayedWidth / newImg.width!;
+    const newScaleY = displayedHeight / newImg.height!;
+    
+    const prevIndex = this.canvas.getObjects().indexOf(active);
+    this.canvas.remove(active);
+
+    newImg.set({
+      left: active.left,
+      top: active.top,
+      angle: active.angle,
+      flipX: active.flipX,
+      flipY: active.flipY,
+      opacity: active.opacity,
+      originX: active.originX,
+      originY: active.originY,
+      scaleX: newScaleX,
+      scaleY: newScaleY,
+      cropX: active.cropX,
+      cropY: active.cropY,
+      selectable: active.selectable,
+      evented: active.evented,
+      visible: active.visible,
+      skewX: active.skewX,
+      skewY: active.skewY,
+      clipPath: active.clipPath,
+    });
+
+    // Preserve all custom properties
+    newImg.set('id' as any, active.get('id' as any));
+    newImg.set('name' as any, active.get('name' as any));
+    newImg.set('assetId' as any, active.get('assetId' as any));
+    newImg.set('provider' as any, active.get('provider' as any));
+    newImg.set('providerAssetId' as any, active.get('providerAssetId' as any));
+    newImg.set('sourceType' as any, active.get('sourceType' as any));
+    
+    // Save metadata
+    newImg.set('originalUrl' as any, active.get('originalUrl' as any) || src);
+    newImg.set('originalFileId' as any, active.get('originalFileId' as any));
+    
+    newImg.set('backgroundRemoved' as any, true);
+    newImg.set('processedFileId' as any, bgResult.filePath || bgResult.url);
+    newImg.set('processedUrl' as any, resultUrl);
+    newImg.set('processingType' as any, 'remove_background');
+
+    this.canvas.insertAt(prevIndex, newImg);
+    newImg.setCoords();
+    
+    this.canvas.setActiveObject(newImg);
+    this.canvas.requestRenderAll();
+    
+    this.notifyChange();
+    this.notifySelection();
+    this.notifyLayers();
+    this.scheduleHistorySave();
+    
+    onProgress?.({ stage: 'complete', message: 'Background removed' });
   }
 
   public applyCropToActiveImage(cropData: {
@@ -2749,6 +3150,10 @@ export class CanvasManager {
     this.notifyPreflight();
     this.scheduleHistorySave();
   }
+  public getSerializableJson(): Record<string, any> {
+    if (!this.canvas) return {};
+    return this.canvas.toObject(CUSTOM_CANVAS_PROPERTIES);
+  }
 
   // --- History Engine (Undo / Redo) ---
 
@@ -2756,33 +3161,7 @@ export class CanvasManager {
     if (!this.canvas || this.isProcessingHistory) return;
     try {
       const stateJson = JSON.stringify(
-        this.canvas.toObject([
-          'name',
-          'id',
-          'isBrushPath',
-          'brushType',
-          'originalSrc',
-          'naturalWidth',
-          'naturalHeight',
-          'fileSizeBytes',
-          'cropX',
-          'cropY',
-          'cropWidth',
-          'cropHeight',
-          'isFrame',
-          'frameShape',
-          'isCanvaPlaceholder',
-          'rx',
-          'ry',
-          'strokeDashArray',
-          'strokeUniform',
-          'lockMovementX',
-          'lockMovementY',
-          'lockRotation',
-          'lockScalingX',
-          'lockScalingY',
-          'hasControls',
-        ])
+        this.canvas.toObject(CUSTOM_CANVAS_PROPERTIES)
       );
 
       // Prevent duplicate identical states
@@ -2998,6 +3377,11 @@ export class CanvasManager {
       cropWidth,
       cropHeight,
       qualityInfo,
+      backgroundRemoved: imageObj ? Boolean(imageObj.get('backgroundRemoved' as any)) : undefined,
+      originalUrl: imageObj ? (imageObj.get('originalUrl' as any) as string) : undefined,
+      processedUrl: imageObj ? (imageObj.get('processedUrl' as any) as string) : undefined,
+      processedFileId: imageObj ? (imageObj.get('processedFileId' as any) as string) : undefined,
+      processingType: imageObj ? (imageObj.get('processingType' as any) as string) : undefined,
     };
   }
 
@@ -3170,6 +3554,74 @@ export class CanvasManager {
 
   public getSmartGuidesEnabled(): boolean {
     return this.snapping.getEnabled();
+  }
+
+  public async addSvgFromUrl(
+    url: string,
+    options?: Partial<FabricObject> & { name?: string }
+  ): Promise<void> {
+    if (!this.canvas) return;
+    try {
+      const safeUrl = await urlToSafeDataUrl(url);
+      const res = await loadSVGFromURL(safeUrl);
+      const objects = (res?.objects || []).filter(
+        (o): o is FabricObject => !!o
+      );
+      const optionsInfo = res?.options || {};
+
+      if (objects.length > 0) {
+        const obj = util.groupSVGElements(objects, optionsInfo);
+        this.ensureObjectId(obj, options?.name || 'SVG Shape');
+
+        const canvasW = this.dimensions.widthPx || 1063;
+        const canvasH = this.dimensions.heightPx || 591;
+        const maxW = Math.min(canvasW * 0.6, 500);
+        const maxH = Math.min(canvasH * 0.6, 400);
+
+        const natW = obj.width || 100;
+        const natH = obj.height || 100;
+        const scale = Math.min(maxW / natW, maxH / natH, 1.0);
+
+        obj.set({
+          scaleX: scale,
+          scaleY: scale,
+        });
+
+        if (options?.left !== undefined) obj.set('left', options.left);
+        if (options?.top !== undefined) obj.set('top', options.top);
+
+        this.canvas.add(obj);
+        if (options?.left === undefined && options?.top === undefined) {
+          this.centerObjectOnCanvas(obj);
+        }
+
+        this.canvas.setActiveObject(obj);
+        this.canvas.requestRenderAll();
+        this.notifyChange();
+        this.notifySelection();
+        this.notifyLayers();
+        return;
+      }
+
+      // If loadSVGFromURL didn't yield vector objects, fall back to high-DPI normalized image loader
+      await this.addImageFromUrl(safeUrl, { name: options?.name }, options);
+    } catch (err) {
+      console.error('Failed to load SVG into canvas:', err);
+      try {
+        await this.addImageFromUrl(url, { name: options?.name }, options);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  public async addFrameAsset(url: string, metadata?: any): Promise<void> {
+    const img = await this.addImageFromUrl(url, metadata);
+    if (img) {
+      img.set('isFrame' as any, true);
+      img.set('isCanvaPlaceholder' as any, false);
+      this.canvas?.requestRenderAll();
+    }
   }
 
   public dispose(): void {

@@ -1,93 +1,46 @@
 'use client';
 
-import React from 'react';
-import { Type, Plus, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Type, Plus, Sparkles, Sliders } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
+import { SelectedObjectState } from '@/types/designer';
+import { ColorPicker } from '../controls/ColorPicker';
+import { DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
+import { LoadingState, EmptyState } from '@/components/admin/shared';
 
 interface TextPanelProps {
   canvasManager: CanvasManager | null;
+  selected?: SelectedObjectState | null;
 }
 
-interface TypographyPreset {
-  id: string;
-  name: string;
-  category: string;
-  title: string;
-  titleFont: string;
-  titleSize: number;
-  titleWeight: string | number;
-  titleColor: string;
-  subtitle?: string;
-  subtitleFont?: string;
-  subtitleSize?: number;
-  subtitleWeight?: string | number;
-  subtitleColor?: string;
-}
+export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected }) => {
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [showStrokePicker, setShowStrokePicker] = useState(false);
+  const isTextSelected = selected?.type === 'i-text' || selected?.type === 'textbox';
 
-const TYPOGRAPHY_PRESETS: TypographyPreset[] = [
-  {
-    id: 'luxury-serif',
-    name: 'Luxury Serif',
-    category: 'Elegant',
-    title: 'ELEGANT ARTWORK',
-    titleFont: '"Playfair Display", serif',
-    titleSize: 42,
-    titleWeight: 'bold',
-    titleColor: '#0f172a',
-    subtitle: 'PREMIUM QUALITY PRINTING',
-    subtitleFont: 'Montserrat, sans-serif',
-    subtitleSize: 16,
-    subtitleWeight: '600',
-    subtitleColor: '#64748b',
-  },
-  {
-    id: 'modern-bold',
-    name: 'Modern Bold Headline',
-    category: 'Modern',
-    title: 'BIG SALE EVENT',
-    titleFont: '"Bebas Neue", sans-serif',
-    titleSize: 56,
-    titleWeight: 'normal',
-    titleColor: '#2563eb',
-    subtitle: 'LIMITED TIME ONLY • UP TO 50% OFF',
-    subtitleFont: 'Inter, sans-serif',
-    subtitleSize: 14,
-    subtitleWeight: 'bold',
-    subtitleColor: '#0f172a',
-  },
-  {
-    id: 'script-signature',
-    name: 'Handwritten Script',
-    category: 'Handwriting',
-    title: 'Special Invitation',
-    titleFont: '"Great Vibes", cursive',
-    titleSize: 52,
-    titleWeight: 'normal',
-    titleColor: '#0f172a',
-    subtitle: 'Save The Date For Our Opening',
-    subtitleFont: 'Montserrat, sans-serif',
-    subtitleSize: 15,
-    subtitleWeight: '500',
-    subtitleColor: '#64748b',
-  },
-  {
-    id: 'clean-tech',
-    name: 'Minimal Tech Corporate',
-    category: 'Corporate',
-    title: 'NextGen Solutions',
-    titleFont: '"Plus Jakarta Sans", sans-serif',
-    titleSize: 38,
-    titleWeight: '800',
-    titleColor: '#0f172a',
-    subtitle: 'Enterprise printing & design services',
-    subtitleFont: 'Inter, sans-serif',
-    subtitleSize: 16,
-    subtitleWeight: 'normal',
-    subtitleColor: '#475569',
-  },
-];
+  const [presets, setPresets] = useState<DesignAsset[]>([]);
+  const [categories, setCategories] = useState<DesignAssetCategory[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager }) => {
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [assetsRes, catsRes] = await Promise.all([
+          designAssetService.getPublicAssets({ asset_type: 'text', per_page: 50 }),
+          designAssetService.getPublicCategories('text')
+        ]);
+        setPresets(assetsRes.data);
+        setCategories(catsRes);
+      } catch (err) {
+        console.error('Failed to load text presets', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
   const handleAddHeading = () => {
     if (!canvasManager) return;
     canvasManager.addText({
@@ -115,7 +68,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager }) => {
   const handleAddBody = () => {
     if (!canvasManager) return;
     canvasManager.addText({
-      text: 'Add a little bit of body text. Perfect for descriptions, contact info, and fine details.',
+      text: 'Add body text. Double-click to edit content directly on canvas.',
       fontSize: 16,
       fontWeight: 'normal',
       fontFamily: 'Inter, sans-serif',
@@ -124,137 +77,186 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager }) => {
     });
   };
 
-  const handleAddPreset = (preset: TypographyPreset) => {
+  const handleAddPreset = (asset: DesignAsset) => {
     if (!canvasManager) return;
-    const canvasH = canvasManager.getDimensions().heightPx || 591;
+    const config = asset.fabric_json || {};
+    
+    canvasManager.addText({
+      ...config,
+      text: config.text || asset.name,
+      width: 550,
+      textAlign: config.textAlign || 'center',
+      assetId: asset.id,
+      provider: asset.provider || 'admin',
+      sourceType: 'asset',
+      editable: true,
+      locked: false,
+    } as any);
+  };
 
-    if (preset.subtitle) {
-      // Add main title nicely positioned above vertical center
-      canvasManager.addText({
-        text: preset.title,
-        fontSize: preset.titleSize,
-        fontFamily: preset.titleFont,
-        fontWeight: preset.titleWeight,
-        fill: preset.titleColor,
-        top: Math.round(canvasH * 0.38),
-        width: 550,
-        textAlign: 'center',
-      });
+  const filteredPresets =
+    selectedCategory === 'All'
+      ? presets
+      : presets.filter((p) => p.category?.name === selectedCategory);
 
-      // Add subtitle centered below
-      setTimeout(() => {
-        canvasManager.addText({
-          text: preset.subtitle!,
-          fontSize: preset.subtitleSize || 16,
-          fontFamily: preset.subtitleFont || 'Inter, sans-serif',
-          fontWeight: preset.subtitleWeight || 'normal',
-          fill: preset.subtitleColor || '#64748b',
-          top: Math.round(canvasH * 0.52),
-          width: 500,
-          textAlign: 'center',
-        });
-      }, 50);
-    } else {
-      canvasManager.addText({
-        text: preset.title,
-        fontSize: preset.titleSize,
-        fontFamily: preset.titleFont,
-        fontWeight: preset.titleWeight,
-        fill: preset.titleColor,
-        width: 550,
-        textAlign: 'center',
-      });
-    }
+  const currentStrokeWidth = selected?.strokeWidth || 0;
+  const currentStrokeColor = selected?.stroke || '#000000';
+
+  const handleUpdateProperty = (prop: keyof SelectedObjectState, val: any) => {
+    if (!canvasManager) return;
+    canvasManager.updateSelectedProperty(prop, val);
   };
 
   return (
-    <div className="p-4 space-y-5 select-none custom-scrollbar">
+    <div className="p-4 space-y-5 h-full overflow-y-auto custom-scrollbar">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
-        <div className="flex items-center gap-1.5">
-          <Type className="w-4 h-4 text-blue-600" />
+      <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-md bg-purple-100 text-purple-600 flex items-center justify-center shadow-sm">
+            <Type className="w-3.5 h-3.5" />
+          </div>
           <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-            Add Text
+            Text Library
           </h3>
         </div>
-        <span className="text-[10px] text-gray-400">Click to insert</span>
       </div>
 
-      {/* Quick Add Hierarchy Cards */}
+      {/* ACTIVE SELECTED TEXT QUICK CONTROLS */}
+      {isTextSelected && (
+        <div className="bg-purple-50/80 border border-purple-200 rounded-2xl p-3.5 space-y-3 shadow-2xs animate-in fade-in duration-150">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-purple-900 flex items-center gap-1.5">
+              <Sliders className="w-3.5 h-3.5 text-purple-600" />
+              <span>Text Controls</span>
+            </span>
+            <span className="text-[10px] font-bold text-purple-700 bg-white px-2 py-0.5 rounded-md border border-purple-200">
+              Active Element
+            </span>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-purple-900 block">Edit Text</label>
+            <input
+              type="text"
+              value={selected?.text || ''}
+              onChange={(e) => handleUpdateProperty('text', e.target.value)}
+              placeholder="Type your text..."
+              className="w-full px-2.5 py-1.5 bg-white border border-purple-200 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
+            />
+          </div>
+
+          <div className="space-y-2 pt-1 border-t border-purple-200/60">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-semibold text-purple-900">Border / Outline</label>
+              <button
+                type="button"
+                onClick={() => handleUpdateProperty('strokeWidth', currentStrokeWidth > 0 ? 0 : 3)}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition ${
+                  currentStrokeWidth > 0 ? 'bg-purple-600 border-purple-600 text-white' : 'bg-white border-purple-200 text-purple-700 hover:bg-purple-100'
+                }`}
+              >
+                {currentStrokeWidth > 0 ? 'Border ON' : '+ Add Border'}
+              </button>
+            </div>
+            {currentStrokeWidth > 0 && (
+              <div className="space-y-2.5 bg-white p-2.5 rounded-xl border border-purple-200">
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[11px] font-semibold text-gray-700">Border Color</span>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowStrokePicker(!showStrokePicker)}
+                      className="w-7 h-7 rounded-lg border border-gray-300 shadow-2xs flex items-center justify-center transition hover:scale-105"
+                      style={{ backgroundColor: currentStrokeColor }}
+                    />
+                    {showStrokePicker && (
+                      <div className="absolute right-0 top-full mt-2 z-50 p-2 bg-white rounded-xl shadow-2xl border border-gray-200">
+                        <ColorPicker value={currentStrokeColor} onChange={(hex) => handleUpdateProperty('stroke', hex)} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Quick Add Cards */}
       <div className="space-y-2.5">
-        <button
-          type="button"
-          onClick={handleAddHeading}
-          className="w-full text-left p-3.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition group shadow-2xs"
-        >
+        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Default Text Styles</span>
+        <button onClick={handleAddHeading} className="w-full text-left p-3.5 rounded-xl border border-gray-200 bg-white hover:bg-purple-50 transition group">
           <div className="flex items-center justify-between">
-            <span className="text-xl font-extrabold text-gray-900 group-hover:text-blue-600 transition-colors">
-              Add a heading
-            </span>
-            <Plus className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+            <span className="text-xl font-extrabold text-gray-900 group-hover:text-purple-700">Add a heading</span>
+            <Plus className="w-4 h-4 text-gray-400" />
           </div>
         </button>
-
-        <button
-          type="button"
-          onClick={handleAddSubheading}
-          className="w-full text-left p-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition group shadow-2xs"
-        >
+        <button onClick={handleAddSubheading} className="w-full text-left p-3 rounded-xl border border-gray-200 bg-white hover:bg-purple-50 transition group">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-800 group-hover:text-blue-600 transition-colors">
-              Add a subheading
-            </span>
-            <Plus className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+            <span className="text-sm font-semibold text-gray-800 group-hover:text-purple-700">Add a subheading</span>
+            <Plus className="w-4 h-4 text-gray-400" />
           </div>
         </button>
-
-        <button
-          type="button"
-          onClick={handleAddBody}
-          className="w-full text-left p-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition group shadow-2xs"
-        >
+        <button onClick={handleAddBody} className="w-full text-left p-2.5 rounded-xl border border-gray-200 bg-white hover:bg-purple-50 transition group">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-600 group-hover:text-blue-600 transition-colors">
-              Add body text
-            </span>
-            <Plus className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+            <span className="text-xs text-gray-600 group-hover:text-purple-700">Add body text</span>
+            <Plus className="w-4 h-4 text-gray-400" />
           </div>
         </button>
       </div>
 
-      {/* Curated Typography Combinations */}
+      {/* Presets */}
       <div className="space-y-3 pt-3 border-t border-gray-100">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-gray-800">
           <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-          <span>Curated Font Pairings</span>
+          <span>Library Presets</span>
+        </div>
+
+        <div className="flex items-center gap-1 overflow-x-auto pb-1 custom-scrollbar">
+          <button
+            onClick={() => setSelectedCategory('All')}
+            className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition whitespace-nowrap ${selectedCategory === 'All' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >
+            All
+          </button>
+          {categories.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setSelectedCategory(cat.name)}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition whitespace-nowrap ${selectedCategory === cat.name ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              {cat.name}
+            </button>
+          ))}
         </div>
 
         <div className="space-y-2.5">
-          {TYPOGRAPHY_PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              onClick={() => handleAddPreset(preset)}
-              className="w-full text-left p-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 hover:border-blue-300 transition group shadow-2xs"
-            >
-              <div className="flex flex-col">
-                <span
-                  className="text-base font-bold text-gray-900 group-hover:text-blue-600 transition-colors truncate"
-                  style={{ fontFamily: preset.titleFont }}
-                >
-                  {preset.title}
+          {loading ? (
+            <LoadingState message="Loading presets..." />
+          ) : filteredPresets.length === 0 ? (
+            <EmptyState title="No Presets" />
+          ) : (
+            filteredPresets.map((preset) => (
+              <button
+                key={preset.id}
+                onClick={() => handleAddPreset(preset)}
+                className="w-full text-left p-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-purple-50 hover:border-purple-300 transition shadow-2xs flex flex-col gap-1 relative overflow-hidden"
+              >
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-purple-600 bg-purple-100/80 px-2 py-0.5 rounded-md w-fit">
+                  {preset.category?.name || 'Text'}
                 </span>
-                {preset.subtitle && (
-                  <span
-                    className="text-[11px] text-gray-500 mt-0.5 truncate"
-                    style={{ fontFamily: preset.subtitleFont }}
-                  >
-                    {preset.subtitle}
-                  </span>
-                )}
-              </div>
-            </button>
-          ))}
+                <span
+                  className="text-lg font-extrabold transition-colors truncate mt-0.5"
+                  style={{
+                    fontFamily: preset.fabric_json?.fontFamily,
+                    color: preset.fabric_json?.fill,
+                  }}
+                >
+                  {preset.fabric_json?.text || preset.name}
+                </span>
+              </button>
+            ))
+          )}
         </div>
       </div>
     </div>

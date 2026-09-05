@@ -46,6 +46,8 @@ Thumbs.db
 
 # Laravel Storage & Cache
 backend/storage/*.key
+backend/storage/logs/*
+!backend/storage/logs/.gitkeep
 backend/storage/app/*
 !backend/storage/app/.gitkeep
 backend/storage/framework/cache/*
@@ -56,6 +58,11 @@ backend/storage/framework/views/*
 !backend/storage/framework/views/.gitkeep
 backend/storage/framework/testing/*
 !backend/storage/framework/testing/.gitkeep
+
+# Uploaded media in public storage and scratch test scripts
+backend/public/storage/*
+!backend/public/storage/.gitignore
+backend/test*.php
 
 # Turborepo
 .turbo/

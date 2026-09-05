@@ -157,11 +157,8 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
 
   return (
     <>
-      <aside className="relative w-80 flex-shrink-0 min-h-0 bg-white border-l border-gray-200 flex flex-col h-full overflow-y-auto select-none custom-scrollbar z-30 shadow-xs">
+      {/* <aside className="relative w-80 flex-shrink-0 min-h-0 bg-white border-l border-gray-200 flex flex-col h-full overflow-y-auto select-none custom-scrollbar z-30 shadow-xs">
 
-        {/* ================================================================ */}
-        {/* 1. CANVA-STYLE LIVE ARTWORK PREVIEW SECTION                      */}
-        {/* ================================================================ */}
         {onClose && (
           <button
             type="button"
@@ -183,7 +180,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
             </div>
 
             <div className="flex items-center gap-1.5">
-              {/* 2D / 3D Mode Switcher */}
+            
               <div className="flex items-center bg-gray-200/80 p-0.5 rounded-lg text-[10px] font-bold">
                 <button
                   type="button"
@@ -224,7 +221,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
             </div>
           </div>
 
-          {/* Scaled Aspect-Ratio Preview Container */}
+       
           <div
             onClick={onOpenPreview}
             role="button"
@@ -254,7 +251,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                 }}
               >
                 {previewUrl ? (
-                  /* eslint-disable-next-line @next/next/no-img-element */
+                 
                   <img
                     src={previewUrl}
                     alt="Live Artwork Preview"
@@ -266,7 +263,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                   </div>
                 )}
 
-                {/* Only Clean Trim Line Overlay (Bleed and Safe Zone hidden) */}
+             
                 {bleedP > 0 && (
                   <div
                     className="absolute pointer-events-none border border-slate-900/80 z-10"
@@ -280,7 +277,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                   />
                 )}
 
-                {/* Hover overlay hint */}
+             
                 <div className="absolute inset-0 bg-blue-900/15 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white backdrop-blur-[1px]">
                   <div className="bg-slate-900/80 px-2.5 py-1 rounded-full text-[10px] font-medium flex items-center gap-1.5 shadow-lg">
                     <Maximize2 className="w-3 h-3" />
@@ -291,7 +288,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
             )}
           </div>
 
-          {/* Quick Info Badges */}
+     
           <div className="flex items-center justify-between text-[11px] text-gray-500 font-mono">
             <span className="truncate">
               {documentSettings.width} × {documentSettings.height} {documentSettings.unit}
@@ -302,12 +299,9 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
           </div>
         </div>
 
-        {/* ================================================================ */}
-        {/* 2. PROPERTIES CONTENT (Selected Element OR Document Setup)      */}
-        {/* ================================================================ */}
-        {selected ? (
+          {selected ? (
           <div className="d-none p-4 space-y-5 animate-in fade-in duration-150">
-            {/* Header */}
+           
             <div className="flex items-center justify-between border-b border-gray-200 pb-3">
               <div className="flex items-center gap-2">
                 {isText ? (
@@ -347,7 +341,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
               </div>
             </div>
 
-            {/* Image Controls */}
+            
             {isImage && !selected.isMultiple && (
               <div className="pb-2">
                 <ImageControls
@@ -359,7 +353,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
               </div>
             )}
 
-            {/* Shape / Vector Color Controls */}
+          
             {!isText && !isImage && !isPath && !selected.isMultiple && (
               <div className="space-y-3.5">
                 <ColorPicker
@@ -380,57 +374,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
         ) : (
           <div className="p-4 space-y-5 animate-in fade-in duration-150">
 
-            {/* <div className="flex items-center justify-between border-b border-gray-200 pb-3">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                <span className="font-bold text-sm text-gray-900">
-                  Document Setup
-                </span>
-              </div>
-              {onClose && (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  title="Hide properties panel"
-                  className="p-1 rounded-md text-gray-400 hover:text-gray-800 hover:bg-gray-100 transition"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div> */}
-
-
-            {/* <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/80 space-y-3 shadow-2xs">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-500 font-medium">Target Print Size:</span>
-                <span className="font-bold text-gray-900 font-mono">
-                  {documentSettings.width} × {documentSettings.height} {documentSettings.unit}
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-500 font-medium">Resolution:</span>
-                <span className="font-bold text-emerald-600 font-mono">
-                  {documentSettings.dpi} DPI (High Res)
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-500 font-medium">Bleed Area:</span>
-                <span className="font-medium text-gray-700 font-mono">
-                  +{documentSettings.bleed !== undefined ? documentSettings.bleed : 5} mm
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-500 font-medium">Safe Margin:</span>
-                <span className="font-medium text-gray-700 font-mono">
-                  {documentSettings.safeArea || 3} mm
-                </span>
-              </div>
-            </div> */}
-
-            {/* Canvas Background Color */}
+          
             <div className="border-t border-gray-100 pt-4">
               <ColorPicker
                 label="Canvas Background"
@@ -440,7 +384,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
               />
             </div>
 
-            {/* Commercial Print Specifications */}
+            
             <div className="border-t border-gray-100 pt-4 space-y-2.5">
               <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">
                 Print Specifications
@@ -468,9 +412,9 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
             </div>
           </div>
         )}
-      </aside>
+      </aside> */}
 
-      {/* Non-Destructive Image Crop Modal */}
+
       {isCropOpen && selected && (
         <ImageCropModal
           selected={selected}

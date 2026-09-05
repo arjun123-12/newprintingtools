@@ -48,6 +48,41 @@ class UpdateProductRequest extends FormRequest
                 'required',
                 new Enum(ProductType::class),
             ],
+            'print_sides' => [
+                'sometimes',
+                'nullable',
+                Rule::in(['front', 'back', 'both']),
+            ],
+            'width_mm' => [
+                'sometimes',
+                'nullable',
+                'numeric',
+                'gt:0',
+            ],
+            'height_mm' => [
+                'sometimes',
+                'nullable',
+                'numeric',
+                'gt:0',
+            ],
+            'margin_mm' => [
+                'sometimes',
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
+            'bleed_mm' => [
+                'sometimes',
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
+            'safe_area_mm' => [
+                'sometimes',
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
             'short_description' => [
                 'nullable',
                 'string',

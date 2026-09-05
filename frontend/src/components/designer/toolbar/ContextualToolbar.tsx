@@ -29,6 +29,8 @@ import {
   Unlink,
   RefreshCw,
   Trash2,
+  Loader2,
+  Wand2,
 } from 'lucide-react';
 import { SelectedObjectState, BrushSettings, BrushType, ActiveSidebarTab } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -41,6 +43,45 @@ import { MoreMenuPopover } from './MoreMenuPopover';
 import { BrushTypePopover, BRUSH_TOOLS_LIST } from './BrushTypePopover';
 import { BrushSizePopover } from './BrushSizePopover';
 import { BrushCapsPopover } from './BrushCapsPopover';
+import { CornerRoundingPopover } from './CornerRoundingPopover';
+import { BorderStylePopover } from './BorderStylePopover';
+import { removeImageBackground } from '@/services/backgroundRemoval';
+
+function isMagnificCompatibleImageUrl(
+  value: unknown
+): value is string {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const source = value.trim();
+
+  if (
+    !source ||
+    source.startsWith('data:') ||
+    source.startsWith('blob:')
+  ) {
+    return false;
+  }
+
+  try {
+    const url = new URL(source);
+
+    const validProtocol =
+      url.protocol === 'https:' ||
+      url.protocol === 'http:';
+
+    const isLocalAddress =
+      url.hostname === 'localhost' ||
+      url.hostname === '127.0.0.1' ||
+      url.hostname === '0.0.0.0' ||
+      url.hostname === '::1';
+
+    return validProtocol && !isLocalAddress;
+  } catch {
+    return false;
+  }
+}
 
 interface ContextualToolbarProps {
   selected: SelectedObjectState | null;
@@ -60,6 +101,8 @@ type ActivePopoverType =
   | 'brushTool'
   | 'brushSize'
   | 'brushCaps'
+  | 'cornerRounding'
+  | 'border'
   | null;
 
 export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
@@ -71,6 +114,95 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
 }) => {
   const [activePopover, setActivePopover] = useState<ActivePopoverType>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+
+  const [isRemovingBg, setIsRemovingBg] = useState(false);
+  const [removeBgError, setRemoveBgError] = useState<string | null>(null);
+
+  const handleRemoveBackground = async () => {
+    if (!canvasManager || isRemovingBg) {
+      return;
+    }
+
+    setRemoveBgError(null);
+    setIsRemovingBg(true);
+
+    try {
+      const fabricCanvas = canvasManager.getCanvas();
+
+      if (!fabricCanvas) {
+        throw new Error('Designer canvas is not ready.');
+      }
+
+      const activeObject = fabricCanvas.getActiveObject() as any;
+
+      if (!activeObject) {
+        throw new Error('Please select an image first.');
+      }
+
+      if (
+        activeObject.type !== 'image' &&
+        activeObject.type !== 'FabricImage'
+      ) {
+        throw new Error(
+          'Background removal is only available for images.'
+        );
+      }
+
+      const sourceUrl =
+        activeObject.originalSrc ||
+        activeObject.sourceUrl ||
+        activeObject.getSrc?.();
+
+      if (!sourceUrl) {
+        throw new Error(
+          'The selected image does not have a source URL.'
+        );
+      }
+
+      if (!isMagnificCompatibleImageUrl(sourceUrl)) {
+        throw new Error(
+          'Remove Background requires a publicly accessible image URL. Upload data, blob, or localhost images to public storage first.'
+        );
+      }
+
+      const result = await removeImageBackground(
+        sourceUrl,
+        (progress) => {
+          console.log(progress.message);
+        }
+      );
+
+      await activeObject.setSrc(result.url, {
+        crossOrigin: 'anonymous',
+      });
+
+      activeObject.set({
+        originalSrc: result.url,
+        sourceUrl: result.url,
+        dirty: true,
+      });
+
+      activeObject.setCoords();
+
+      fabricCanvas.requestRenderAll();
+
+      fabricCanvas.fire('object:modified', {
+        target: activeObject,
+      });
+
+      setRemoveBgError(null);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Background removal failed.';
+
+      console.error('Remove background failed:', error);
+      setRemoveBgError(message);
+    } finally {
+      setIsRemovingBg(false);
+    }
+  };
   const [brushSettings, setBrushSettings] = useState<BrushSettings>({
     tool: 'brush',
     size: 12,
@@ -117,6 +249,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   // Reset popover when selection changes
   useEffect(() => {
     setActivePopover(null);
+    setRemoveBgError(null);
   }, [selected?.id, selected?.type]);
 
   const isCanvasBackgroundActive = !selected && !isDrawing;
@@ -220,8 +353,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             }}
             title="Canvas Background Colour (Open in Sidebar)"
             className={`h-8 px-2.5 rounded-xl border flex items-center gap-2 text-xs font-semibold transition ${activeSidebarTab === 'color'
-                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-2xs font-bold'
-                : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
+              ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-2xs font-bold'
+              : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
               }`}
           >
             <div
@@ -334,8 +467,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             }}
             title="Brush Ink Colour (Open in Sidebar)"
             className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
-                ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
-                : 'bg-white border-gray-200 hover:bg-gray-50'
+              ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
+              : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <div
@@ -493,8 +626,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             }}
             title="Text Colour (Open in Sidebar)"
             className={`h-8 px-2 rounded-xl border flex flex-col items-center justify-center transition ${activeSidebarTab === 'color'
-                ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
-                : 'bg-white border-gray-200 hover:bg-gray-50'
+              ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
+              : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <span className="text-xs font-black text-gray-900 leading-none">A</span>
@@ -617,26 +750,37 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             )}
           </div>
 
-          {/* Text Border / Outline Button (Canva Icon opening sidebar) */}
-          <button
-            type="button"
-            onClick={() => {
-              if (onSelectSidebarTab) {
-                onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
-              }
-            }}
-            title="Stroke (Open in Sidebar)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
+          {/* Text Border / Outline Button (Canva Popover) */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => togglePopover('border')}
+              title="Text Border & Stroke"
+              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'border' || (selected.strokeWidth || 0) > 0
                 ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
-              <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
-              <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
-            </svg>
-          </button>
+                }`}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
+                <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
+                <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
+              </svg>
+            </button>
+
+            {activePopover === 'border' && (
+              <BorderStylePopover
+                strokeWidth={selected.strokeWidth || 0}
+                stroke={selected.stroke || '#000000'}
+                strokeDashArray={selected.strokeDashArray}
+                showCornerRadius={false}
+                onStrokeWidthChange={(width) => handleUpdate('strokeWidth', width)}
+                onStrokeDashArrayChange={(dash) => handleUpdate('strokeDashArray', dash as any)}
+                onStrokeColorChange={(color) => handleUpdate('stroke', color)}
+                onClose={() => setActivePopover(null)}
+              />
+            )}
+          </div>
         </>
       )}
 
@@ -718,6 +862,31 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </>
           )}
 
+          {/* Magnific AI Remove Background Button */}
+          <button
+            type="button"
+            disabled={isRemovingBg}
+            onClick={handleRemoveBackground}
+            title="Remove Background with Magnific AI"
+            className="h-8 px-2.5 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100/90 text-purple-700 flex items-center gap-1.5 text-xs font-bold transition shadow-2xs disabled:opacity-50"
+          >
+            {isRemovingBg ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-600" />
+            ) : (
+              <Wand2 className="w-3.5 h-3.5 text-purple-600" />
+            )}
+            <span>{isRemovingBg ? 'Removing...' : 'Remove BG'}</span>
+          </button>
+
+          {removeBgError && (
+            <div
+              role="alert"
+              className="absolute left-1/2 top-full z-50 mt-2 w-[min(360px,90vw)] -translate-x-1/2 rounded-xl border border-red-200 bg-white px-3 py-2 text-[11px] font-medium leading-4 text-red-700 shadow-xl"
+            >
+              {removeBgError}
+            </div>
+          )}
+
           {/* Flip Horizontal */}
           <button
             type="button"
@@ -756,8 +925,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             }}
             title="Border & Outline (Open in Sidebar)"
             className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
-                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -769,23 +938,28 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
 
           {!selected.isFrame && (
             /* Canva Corner Rounding Icon Button */
-            <button
-              type="button"
-              onClick={() => {
-                if (onSelectSidebarTab) {
-                  onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
-                }
-              }}
-              title="Corner Rounding (Open in Sidebar)"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.rx || 0) > 0
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => togglePopover('cornerRounding')}
+                title="Corner Rounding"
+                className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
                   ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
                   : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 20V12a8 8 0 0 1 8-8h8" />
-              </svg>
-            </button>
+                  }`}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 20V12a8 8 0 0 1 8-8h8" />
+                </svg>
+              </button>
+              {activePopover === 'cornerRounding' && (
+                <CornerRoundingPopover
+                  rx={selected.rx || 0}
+                  onChange={(rx) => handleUpdate('rx', rx)}
+                  onClose={() => setActivePopover(null)}
+                />
+              )}
+            </div>
           )}
         </>
       )}
@@ -805,8 +979,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             }}
             title="Shape Colour (Open in Sidebar)"
             className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
-                ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
-                : 'bg-white border-gray-200 hover:bg-gray-50'
+              ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
+              : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <div
@@ -825,8 +999,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             }}
             title="Border & Corner (Open in Sidebar)"
             className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
-                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -838,23 +1012,28 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
 
           {/* Canva Corner Rounding Icon Button (for Rect / Shapes) */}
           {(selected.type === 'rect' || selected.type === 'shape') && (
-            <button
-              type="button"
-              onClick={() => {
-                if (onSelectSidebarTab) {
-                  onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
-                }
-              }}
-              title="Corner Rounding (Open in Sidebar)"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.rx || 0) > 0
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => togglePopover('cornerRounding')}
+                title="Corner Rounding"
+                className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
                   ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
                   : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 20V12a8 8 0 0 1 8-8h8" />
-              </svg>
-            </button>
+                  }`}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 20V12a8 8 0 0 1 8-8h8" />
+                </svg>
+              </button>
+              {activePopover === 'cornerRounding' && (
+                <CornerRoundingPopover
+                  rx={selected.rx || 0}
+                  onChange={(rx) => handleUpdate('rx', rx)}
+                  onClose={() => setActivePopover(null)}
+                />
+              )}
+            </div>
           )}
         </>
       )}
@@ -919,8 +1098,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             }}
             title="Stroke Colour (Open in Sidebar)"
             className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
-                ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
-                : 'bg-white border-gray-200 hover:bg-gray-50'
+              ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
+              : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <div
@@ -939,8 +1118,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             }}
             title="Stroke Border Style & Pattern (Open in Sidebar)"
             className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border'
-                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -1067,8 +1246,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             }}
             title="Position (Arrange & Layers - Open in Sidebar)"
             className={`h-8 px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${activeSidebarTab === 'position'
-                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] font-bold shadow-xs'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] font-bold shadow-xs'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
             <span>Position</span>

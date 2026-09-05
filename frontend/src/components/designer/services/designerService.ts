@@ -14,10 +14,12 @@ const API_URL = (
 ).replace(/\/$/, '');
 
 export interface ArtworkDraftPayload {
-  product_id: string;
+  product_id?: string | null;
+  template_id?: string | null;
   design_template_id?: string | null;
+  session_id?: string | null;
   name: string;
-  canvas_json: Record<string, unknown>;
+  canvas_json: Record<string, any> | Record<string, any>[];
   document_settings: DocumentSettings;
   width_px: number;
   height_px: number;
@@ -28,12 +30,14 @@ export interface ArtworkDraftPayload {
 
 export interface SavedArtwork {
   id: string;
-  product_id: string;
+  product_id: string | null;
+  template_id?: string | null;
   design_template_id?: string | null;
+  session_id?: string | null;
   name: string;
   source_type: 'designer' | 'upload';
   design_status: 'draft' | 'completed' | null;
-  canvas_json: Record<string, unknown>;
+  canvas_json: Record<string, any> | Record<string, any>[];
   document_settings: DocumentSettings | null;
   width_px: number | null;
   height_px: number | null;
@@ -116,6 +120,21 @@ export class DesignerService {
       ? `${API_URL}/artworks/${artworkId}`
       : `${API_URL}/artworks`;
 
+    const token =
+      typeof window !== 'undefined'
+        ? localStorage.getItem('token') || localStorage.getItem('auth_token')
+        : null;
+
+    let sessionId =
+      typeof window !== 'undefined'
+        ? localStorage.getItem('designer_session_id')
+        : null;
+
+    if (typeof window !== 'undefined' && !sessionId && !token) {
+      sessionId = 'guest_' + Math.random().toString(36).substring(2) + Date.now();
+      localStorage.setItem('designer_session_id', sessionId);
+    }
+
     // Product/template identity is immutable after the artwork is created.
     const requestBody = isUpdate
       ? {
@@ -128,12 +147,11 @@ export class DesignerService {
         thumbnail_url: payload.thumbnail_url ?? null,
         customer_notes: payload.customer_notes ?? null,
       }
-      : payload;
-
-    const token =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('token')
-        : null;
+      : {
+        ...payload,
+        template_id: payload.template_id || payload.design_template_id,
+        session_id: payload.session_id || sessionId,
+      };
 
     const response = await fetch(requestUrl, {
       method: isUpdate ? 'PUT' : 'POST',
@@ -141,11 +159,8 @@ export class DesignerService {
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        ...(token
-          ? {
-            Authorization: `Bearer ${token}`,
-          }
-          : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
       },
       body: JSON.stringify(requestBody),
     });
@@ -282,7 +297,9 @@ export class DesignerService {
     product_id: string;
     name: string;
     category?: string;
-    canvas_json: Record<string, unknown>;
+    canvas_json: Record<string, any> | Record<string, any>[];
+    template_json?: Record<string, any> | Record<string, any>[];
+    artwork_config?: Record<string, any> | null;
     thumbnail_url?: string | null;
     is_active?: boolean;
   }): Promise<{ id: string; name: string; product_id: string; message?: string }> {
@@ -297,6 +314,8 @@ export class DesignerService {
       : `${API_URL}/admin/templates`;
     const method = isUpdate ? 'PATCH' : 'POST';
 
+    const cleanCanvasJson = payload.template_json || payload.canvas_json;
+
     const response = await fetch(url, {
       method,
       headers: {
@@ -308,7 +327,9 @@ export class DesignerService {
         product_id: payload.product_id,
         name: payload.name,
         category: payload.category || 'Corporate',
-        canvas_json: payload.canvas_json,
+        canvas_json: cleanCanvasJson,
+        template_json: cleanCanvasJson,
+        artwork_config: payload.artwork_config || null,
         thumbnail_url: payload.thumbnail_url || null,
         is_active: payload.is_active !== false,
       }),
@@ -325,6 +346,90 @@ export class DesignerService {
     if (!response.ok || !result?.success) {
       throw new DesignerApiError(
         result?.message || `Template could not be saved (HTTP ${response.status}).`,
+        response.status,
+        result?.errors
+      );
+    }
+
+    return result.data;
+  }
+
+  /**
+   * Fetch a saved artwork by ID with fallback.
+   */
+  public async fetchArtwork(artworkId: string): Promise<SavedArtwork> {
+    const token =
+      typeof window !== 'undefined'
+        ? localStorage.getItem('token') || localStorage.getItem('auth_token')
+        : null;
+
+    const sessionId =
+      typeof window !== 'undefined'
+        ? localStorage.getItem('designer_session_id')
+        : null;
+
+    let response = await fetch(`${API_URL}/artworks/${artworkId}`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      response = await fetch(`${API_URL}/artworks/${artworkId}/public`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+    }
+
+    const result = (await response.json()) as ArtworkApiResponse;
+
+    if (!response.ok || !result.success || !result.data) {
+      throw new DesignerApiError(
+        result.message || 'Artwork could not be loaded.',
+        response.status,
+        result.errors
+      );
+    }
+
+    return result.data;
+  }
+
+  /**
+   * Create a draft artwork (public endpoint, no auth required).
+   * Returns the created artwork including its UUID.
+   */
+  public async createDraft(
+    payload: Partial<ArtworkDraftPayload> & { canvas_json: Record<string, any> | Record<string, any>[] }
+  ): Promise<SavedArtwork> {
+    const response = await fetch(`${API_URL}/artworks/draft`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const responseText = await response.text();
+    let result: ArtworkApiResponse | null = null;
+
+    try {
+      result = responseText
+        ? (JSON.parse(responseText) as ArtworkApiResponse)
+        : null;
+    } catch {
+      result = null;
+    }
+
+    if (!response.ok || !result?.success || !result.data) {
+      throw new DesignerApiError(
+        result?.message || `Artwork draft creation failed (HTTP ${response.status}).`,
         response.status,
         result?.errors
       );

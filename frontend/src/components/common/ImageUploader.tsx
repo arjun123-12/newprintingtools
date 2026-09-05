@@ -37,8 +37,8 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
   };
 
   const handleFile = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file (PNG, JPG, WEBP).');
+    if (!file.type.startsWith('image/') && !file.name.match(/\.(psd|ai|eps|pdf|avif)$/i)) {
+      alert('Please select a valid image file.');
       return;
     }
 
@@ -153,7 +153,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/jpg"
+        accept="image/*,.psd,.ai,.eps,.pdf,.avif"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];

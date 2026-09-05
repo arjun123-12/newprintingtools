@@ -29,7 +29,7 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
         {imgUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={formatImageUrl(imgUrl)}
+            src={`${formatImageUrl(imgUrl)}?v=${template.updated_at || Date.now()}`}
             alt={template.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
           />

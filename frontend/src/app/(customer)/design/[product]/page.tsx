@@ -12,5 +12,9 @@ export default function DesignEditorPage({
 }: {
   params: { product: string };
 }) {
-  return <DesignEditorClient product={params?.product} />;
+  return (
+    <React.Suspense fallback={<div className="h-screen w-full flex items-center justify-center bg-gray-50">Loading Designer...</div>}>
+      <DesignEditorClient product={params?.product} />
+    </React.Suspense>
+  );
 }

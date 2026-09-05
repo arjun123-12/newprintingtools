@@ -15,6 +15,7 @@ import { SelectedObjectState } from '@/types/designer';
 import { calculateImageQuality, formatFileSize, getQualityBadgeDetails } from '../utils/imageQuality';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { assetService } from '../services/assetService';
+import { useState } from 'react';
 
 interface ImageControlsProps {
   selected: SelectedObjectState;
@@ -30,6 +31,7 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
   onOpenCrop,
 }) => {
   const replaceInputRef = useRef<HTMLInputElement>(null);
+  const [isRemovingBg, setIsRemovingBg] = useState(false);
 
   // Compute live print quality info
   const naturalWidth = selected.naturalWidth || selected.width || 800;
@@ -49,8 +51,8 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
 
   const badge = getQualityBadgeDetails(quality.status);
 
-  const handleReplaceImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleReplaceImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file || !canvasManager) return;
 
     try {
@@ -64,6 +66,34 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
       console.error('Failed to replace image:', err);
     }
   };
+
+  const [progressMsg, setProgressMsg] = useState<string>('');
+
+  const handleRemoveBackground = async () => {
+    if (!canvasManager) return;
+    try {
+      setIsRemovingBg(true);
+      setProgressMsg('Initializing...');
+      await canvasManager.removeBackgroundFromSelectedImage((progress) => {
+        if (progress.message) {
+          setProgressMsg(progress.message);
+        }
+      });
+    } catch (err: any) {
+      alert(err.message || 'Failed to remove background.');
+    } finally {
+      setIsRemovingBg(false);
+      setProgressMsg('');
+    }
+  };
+
+  const handleRestoreOriginal = async () => {
+    if (!canvasManager) return;
+    await canvasManager.restoreOriginalImage();
+  };
+
+  const isSvg = selected.src?.toLowerCase().includes('.svg');
+  const hasBackgroundRemoved = selected.backgroundRemoved;
 
   return (
     <div className="space-y-4">
@@ -101,16 +131,15 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-black/5 text-[10px] font-mono text-gray-600">
           <div>
             <span className="text-gray-400 block font-sans">Source File:</span>
-            <span className="font-semibold">{quality.originalWidth} × {quality.originalHeight} px</span>
+            <span className="font-semibold">{quality.originalWidth} x {quality.originalHeight} px</span>
           </div>
           <div>
             <span className="text-gray-400 block font-sans">Print Size:</span>
-            <span className="font-semibold">{quality.printWidthMm} × {quality.printHeightMm} mm</span>
+            <span className="font-semibold">{quality.printWidthMm} x {quality.printHeightMm} mm</span>
           </div>
         </div>
       </div>
 
-      {/* Image Actions: Crop & Replace */}
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
@@ -130,6 +159,36 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
           <span>Replace Image</span>
         </button>
       </div>
+
+      {!isSvg && (
+        <button
+          type="button"
+          onClick={hasBackgroundRemoved ? handleRestoreOriginal : handleRemoveBackground}
+          disabled={isRemovingBg || selected.isLocked}
+          className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg border text-xs font-bold shadow-2xs transition disabled:opacity-50 disabled:cursor-not-allowed ${
+            hasBackgroundRemoved
+              ? 'border-orange-200 bg-gradient-to-r from-orange-50 to-red-50 hover:from-orange-100 hover:to-red-100 text-orange-900'
+              : 'border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 text-blue-900'
+          }`}
+        >
+          {isRemovingBg ? (
+            <>
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span>{progressMsg || 'Removing Background...'}</span>
+            </>
+          ) : hasBackgroundRemoved ? (
+            <>
+              <RefreshCw className="w-3.5 h-3.5 text-orange-600" />
+              <span>Restore Original</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+              <span>Remove Background</span>
+            </>
+          )}
+        </button>
+      )}
 
       {/* Quick Flip Controls */}
       {/* <div className="space-y-1.5 pt-2 border-t border-gray-100">

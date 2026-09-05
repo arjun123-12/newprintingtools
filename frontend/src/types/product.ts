@@ -1,3 +1,5 @@
+import { PrintSides } from './designer';
+
 export type ProductType = 'standard_print' | 'custom_dimension' | 'apparel' | 'signage' | 'stationery';
 
 export interface Category {
@@ -57,6 +59,12 @@ export interface Product {
   is_active: boolean;
   featured_image_url: string;
   gallery_images: string[];
+  print_sides?: PrintSides;
+  width_mm?: number | null;
+  height_mm?: number | null;
+  margin_mm?: number;
+  bleed_mm?: number;
+  safe_area_mm?: number;
   attributes: ProductAttribute[];
   print_areas: PrintAreaSpecification[];
 }

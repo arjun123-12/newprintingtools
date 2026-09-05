@@ -91,7 +91,17 @@ export async function urlToSafeDataUrl(url: string, timeoutMs: number = 10000): 
   if (!url) return '';
   const trimmed = url.trim();
 
-  // Data URLs are already 100% safe and self-contained
+  // Data URLs: if SVG, normalize it to ensure explicit viewBox & dimensions
+  if (trimmed.startsWith('data:image/svg+xml')) {
+    try {
+      const { normalizeSvgDataUrl } = await import('./svgNormalizer');
+      return normalizeSvgDataUrl(trimmed).dataUrl;
+    } catch {
+      return trimmed;
+    }
+  }
+
+  // Other Data URLs are already 100% safe and self-contained
   if (trimmed.startsWith('data:')) {
     return trimmed;
   }
@@ -115,6 +125,10 @@ export async function urlToSafeDataUrl(url: string, timeoutMs: number = 10000): 
     }
   }
 
+  const isSvgFile =
+    trimmed.toLowerCase().includes('.svg') ||
+    candidateUrls.some((u) => u.toLowerCase().includes('.svg'));
+
   for (const fetchUrl of candidateUrls) {
     try {
       const controller = new AbortController();
@@ -131,6 +145,20 @@ export async function urlToSafeDataUrl(url: string, timeoutMs: number = 10000): 
       if (res.ok) {
         const blob = await res.blob();
         if (blob && blob.size > 0) {
+          if (
+            blob.type === 'image/svg+xml' ||
+            isSvgFile ||
+            fetchUrl.toLowerCase().includes('.svg')
+          ) {
+            try {
+              const text = await blob.text();
+              const { normalizeSvgString } = await import('./svgNormalizer');
+              return normalizeSvgString(text).dataUrl;
+            } catch {
+              // fallback to regular reader
+            }
+          }
+
           const dataUrl = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onloadend = () => {
@@ -152,6 +180,12 @@ export async function urlToSafeDataUrl(url: string, timeoutMs: number = 10000): 
     } catch {
       // Continue to next candidate URL or fallback
     }
+  }
+
+  // If this is an SVG file, skip the HTML5 canvas rasterizer fallback because
+  // canvas rasterization without explicit SVG dimensions defaults to 300x150 (half-height crop)
+  if (isSvgFile) {
+    return candidateUrls[0] || trimmed;
   }
 
   // Fallback: Use offscreen HTMLImageElement with crossOrigin='anonymous'

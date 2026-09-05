@@ -18,8 +18,10 @@ import {
   FileCheck,
   ShieldCheck,
   Palette,
+  LogOut,
 } from 'lucide-react';
 import { useCartStore } from '@/stores/cartStore';
+import { useAuth } from '@/context/AuthContext';
 
 export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -28,8 +30,9 @@ export default function Header() {
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
 
-  const cartItems = useCartStore((state) => state.items);
-  const totalCartCount = cartItems.length;
+  const { user, isAuthenticated, logout } = useAuth();
+  const itemsCount = useCartStore((state) => state.itemsCount);
+  const totalCartCount = itemsCount;
 
   useEffect(() => {
     setMounted(true);
@@ -159,18 +162,44 @@ export default function Header() {
               </Link>
 
               {/* Account Link */}
-              <Link
-                href="/account"
-                className="flex items-center gap-2 p-2 sm:px-3 sm:py-2 text-slate-700 hover:text-sky-600 hover:bg-slate-100 rounded-xl transition-colors"
-              >
-                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600">
-                  <User className="w-4 h-4" />
+              {isAuthenticated && user ? (
+                <div className="flex items-center gap-1.5">
+                  <Link
+                    href="/account"
+                    className="flex items-center gap-2 p-2 sm:px-3 sm:py-2 text-slate-700 hover:text-sky-600 hover:bg-slate-100 rounded-xl transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-sky-100 text-sky-700 font-bold text-xs flex items-center justify-center border border-sky-200">
+                      {user.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="hidden xl:flex flex-col text-left">
+                      <span className="text-[11px] text-slate-400 leading-none">Hi, {user.name.split(' ')[0]}</span>
+                      <span className="text-xs font-semibold text-slate-800 leading-tight">My Account</span>
+                    </div>
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={() => void logout()}
+                    title="Log Out"
+                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
                 </div>
-                <div className="hidden xl:flex flex-col text-left">
-                  <span className="text-[11px] text-slate-400 leading-none">Account</span>
-                  <span className="text-xs font-semibold text-slate-800 leading-tight">Sign In / Profile</span>
-                </div>
-              </Link>
+              ) : (
+                <Link
+                  href="/login"
+                  className="flex items-center gap-2 p-2 sm:px-3 sm:py-2 text-slate-700 hover:text-sky-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600">
+                    <User className="w-4 h-4" />
+                  </div>
+                  <div className="hidden xl:flex flex-col text-left">
+                    <span className="text-[11px] text-slate-400 leading-none">Welcome</span>
+                    <span className="text-xs font-semibold text-slate-800 leading-tight">Sign In / Register</span>
+                  </div>
+                </Link>
+              )}
 
               {/* Cart Button */}
               <Link

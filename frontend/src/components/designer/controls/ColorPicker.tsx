@@ -177,14 +177,11 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
     const s = Math.round((x / rect.width) * 100);
     const v = Math.round((1 - y / rect.height) * 100);
 
-    setHsv((prev) => {
-      const next = { ...prev, s, v };
-      const nextHex = hsvToHex(next.h, next.s, next.v);
-      setHexInput(nextHex);
-      onChange(nextHex);
-      return next;
-    });
-  }, [onChange]);
+    const nextHex = hsvToHex(hsv.h, s, v);
+    setHsv({ ...hsv, s, v });
+    setHexInput(nextHex);
+    onChange(nextHex);
+  }, [hsv, onChange]);
 
   // Hue Slider Drag Handler
   const handleHueMove = useCallback((clientX: number) => {
@@ -193,14 +190,11 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
     const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
     const h = Math.round((x / rect.width) * 360) % 360;
 
-    setHsv((prev) => {
-      const next = { ...prev, h };
-      const nextHex = hsvToHex(next.h, next.s, next.v);
-      setHexInput(nextHex);
-      onChange(nextHex);
-      return next;
-    });
-  }, [onChange]);
+    const nextHex = hsvToHex(h, hsv.s, hsv.v);
+    setHsv({ ...hsv, h });
+    setHexInput(nextHex);
+    onChange(nextHex);
+  }, [hsv, onChange]);
 
   const handlePointerDownSpectrum = (e: React.PointerEvent) => {
     isDraggingSpectrum.current = true;

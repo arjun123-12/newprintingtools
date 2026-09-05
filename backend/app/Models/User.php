@@ -12,6 +12,9 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
+    public const ROLE_ADMIN = 'admin';
+    public const ROLE_CUSTOMER = 'customer';
+
     protected $fillable = [
         'name',
         'email',
@@ -35,6 +38,12 @@ class User extends Authenticatable
         ];
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Relationships
+    |--------------------------------------------------------------------------
+    */
+
     public function addresses(): HasMany
     {
         return $this->hasMany(UserAddress::class);
@@ -50,8 +59,49 @@ class User extends Authenticatable
         return $this->hasMany(Artwork::class);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Role Helpers
+    |--------------------------------------------------------------------------
+    */
+
     public function isAdmin(): bool
     {
-        return $this->role === 'admin';
+        return $this->role === self::ROLE_ADMIN;
+    }
+
+    public function isCustomer(): bool
+    {
+        return $this->role === self::ROLE_CUSTOMER;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Token Permission Helpers
+    |--------------------------------------------------------------------------
+    */
+
+    public function canCreateTemplates(): bool
+    {
+        return $this->isAdmin()
+            && $this->tokenCan('templates:create');
+    }
+
+    public function canReadTemplates(): bool
+    {
+        return $this->isAdmin()
+            && $this->tokenCan('templates:read');
+    }
+
+    public function canUpdateTemplates(): bool
+    {
+        return $this->isAdmin()
+            && $this->tokenCan('templates:update');
+    }
+
+    public function canDeleteTemplates(): bool
+    {
+        return $this->isAdmin()
+            && $this->tokenCan('templates:delete');
     }
 }

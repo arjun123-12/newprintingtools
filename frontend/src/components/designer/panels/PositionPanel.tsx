@@ -5,14 +5,17 @@ import {
   X,
   BringToFront,
   SendToBack,
-  ArrowUp,
-  ArrowDown,
+  ChevronsUp,
+  ChevronsDown,
   AlignLeft,
   AlignCenter,
   AlignRight,
+  AlignStartHorizontal,
+  AlignEndHorizontal,
+  AlignCenterHorizontal,
   AlignStartVertical,
-  AlignCenterVertical,
   AlignEndVertical,
+  AlignCenterVertical,
   Lock,
   Unlock,
   RotateCw,
@@ -243,7 +246,7 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                   onClick={() => handleAlign('top')}
                   className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-gray-800 shadow-2xs transition"
                 >
-                  <AlignStartVertical className="w-4 h-4 text-gray-600 shrink-0" />
+                  <AlignStartHorizontal className="w-4 h-4 text-gray-600 shrink-0" />
                   <span>Top</span>
                 </button>
 
@@ -253,7 +256,7 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                   onClick={() => handleAlign('left')}
                   className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-gray-800 shadow-2xs transition"
                 >
-                  <AlignLeft className="w-4 h-4 text-gray-600 shrink-0" />
+                  <AlignStartVertical className="w-4 h-4 text-gray-600 shrink-0" />
                   <span>Left</span>
                 </button>
 
@@ -263,7 +266,7 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                   onClick={() => handleAlign('middle')}
                   className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-gray-800 shadow-2xs transition"
                 >
-                  <AlignCenterVertical className="w-4 h-4 text-gray-600 shrink-0" />
+                  <AlignCenterHorizontal className="w-4 h-4 text-gray-600 shrink-0" />
                   <span>Middle</span>
                 </button>
 
@@ -273,7 +276,7 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                   onClick={() => handleAlign('center')}
                   className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-gray-800 shadow-2xs transition"
                 >
-                  <AlignCenter className="w-4 h-4 text-gray-600 shrink-0" />
+                  <AlignCenterVertical className="w-4 h-4 text-gray-600 shrink-0" />
                   <span>Centre</span>
                 </button>
 
@@ -283,7 +286,7 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                   onClick={() => handleAlign('bottom')}
                   className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-gray-800 shadow-2xs transition"
                 >
-                  <AlignEndVertical className="w-4 h-4 text-gray-600 shrink-0" />
+                  <AlignEndHorizontal className="w-4 h-4 text-gray-600 shrink-0" />
                   <span>Bottom</span>
                 </button>
 
@@ -293,7 +296,7 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                   onClick={() => handleAlign('right')}
                   className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-gray-800 shadow-2xs transition"
                 >
-                  <AlignRight className="w-4 h-4 text-gray-600 shrink-0" />
+                  <AlignEndVertical className="w-4 h-4 text-gray-600 shrink-0" />
                   <span>Right</span>
                 </button>
               </div>

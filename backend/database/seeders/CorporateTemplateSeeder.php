@@ -20,6 +20,26 @@ class CorporateTemplateSeeder extends Seeder
                 'category' => 'Corporate',
                 'is_active' => true,
                 'thumbnail_url' => 'http://127.0.0.1:8000/storage/products/0ebInHuOxeVMdhPWgk8RjbKm7UZI5DH7Wkw05Ttu.png',
+                'artwork_config' => [
+                    'width' => 90,
+                    'height' => 50,
+                    'unit' => 'mm',
+                    'bleed' => 3,
+                    'safe_area' => 3,
+                    'margin' => 2,
+                    'trim' => true,
+                    'dpi' => 300,
+                    'orientation' => 'landscape',
+                    'print_area' => [
+                        'width' => 1063,
+                        'height' => 591,
+                    ],
+                    'guides' => [
+                        'showBleed' => true,
+                        'showSafeZone' => true,
+                        'showTrim' => true,
+                    ],
+                ],
                 'canvas_json' => [
                     'version' => '6.0.0',
                     'objects' => [

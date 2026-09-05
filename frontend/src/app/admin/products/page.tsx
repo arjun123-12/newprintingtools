@@ -55,12 +55,18 @@ export default function AdminProductsPage() {
       }
       setError(null);
 
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const authHeaders = {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+
       const [prodRes, catRes] = await Promise.all([
         fetch(`${API_URL}/admin/products`, {
-          headers: { Accept: 'application/json' },
+          headers: authHeaders,
         }),
         fetch(`${API_URL}/admin/categories`, {
-          headers: { Accept: 'application/json' },
+          headers: authHeaders,
         }),
       ]);
 

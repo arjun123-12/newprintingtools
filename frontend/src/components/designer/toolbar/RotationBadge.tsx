@@ -103,8 +103,7 @@ export const RotationBadge: React.FC<RotationBadgeProps> = ({
       }}
       className="pointer-events-none z-50 select-none animate-in fade-in zoom-in-95 duration-100"
     >
-      <div className="bg-[#0f172a] text-white text-xs font-bold font-sans px-3 py-1.5 rounded-full shadow-2xl border border-slate-700/80 flex items-center justify-center gap-1.5 whitespace-nowrap backdrop-blur-md ring-2 ring-black/10">
-        <span>Rotation</span>
+      <div className="bg-[#0f172a] text-white text-xs font-bold font-sans px-3 py-1.5 rounded-full shadow-2xl border border-slate-700/80 flex items-center justify-center whitespace-nowrap backdrop-blur-md ring-2 ring-black/10">
         <span className="font-mono text-emerald-400 font-bold">{rotationState.angle}°</span>
       </div>
     </div>

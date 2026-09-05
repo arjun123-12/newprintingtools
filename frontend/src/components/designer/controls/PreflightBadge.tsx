@@ -78,39 +78,23 @@ export const PreflightBadge: React.FC<PreflightBadgeProps> = ({
         key={item.id}
         onClick={() => !isPass && handleSelectOffending(item)}
         title={item.message || item.label}
-        className={`flex items-center gap-2 py-1.5 px-2 rounded-lg transition text-[11px] font-semibold select-none ${!isPass
-          ? 'bg-amber-50 text-amber-900 cursor-pointer hover:bg-amber-100 ring-1 ring-amber-200'
-          : 'text-gray-800 hover:bg-gray-50'
+        className={`flex items-center gap-2 text-[13px] font-medium transition-colors ${!isPass
+          ? 'text-amber-700 cursor-pointer hover:text-amber-800'
+          : 'text-gray-700'
           }`}
       >
-        {isPass ? (
-          <div className="w-4 h-4 rounded-full border-[1.5px] border-[#00875a] flex items-center justify-center flex-shrink-0">
-            <svg
-              className="w-2.5 h-2.5 text-[#00875a]"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={3}
-            >
+        <div className={`w-4 h-4 rounded-full flex items-center justify-center ${isPass ? 'bg-[#00875a]/10' : (item.status === 'warning' ? 'bg-amber-100' : 'bg-rose-100')}`}>
+          {isPass ? (
+            <svg className="w-3 h-3 text-[#00875a]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>
-          </div>
-        ) : item.status === 'warning' ? (
-          <div className="w-4 h-4 rounded-full border-[1.5px] border-amber-600 bg-amber-100 flex items-center justify-center flex-shrink-0">
+          ) : item.status === 'warning' ? (
             <span className="text-[10px] font-bold text-amber-700">!</span>
-          </div>
-        ) : (
-          <div className="w-4 h-4 rounded-full border-[1.5px] border-rose-600 bg-rose-100 flex items-center justify-center flex-shrink-0">
+          ) : (
             <span className="text-[10px] font-bold text-rose-700">×</span>
-          </div>
-        )}
-
-        <span className="truncate tracking-tight">{item.label}</span>
-        {!isPass && item.offendingObjectIds && (
-          <span className="ml-auto text-[9px] font-bold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-md">
-            {item.offendingObjectIds.length}
-          </span>
-        )}
+          )}
+        </div>
+        <span className="whitespace-nowrap tracking-tight">{item.label}</span>
       </div>
     );
   };
@@ -148,84 +132,52 @@ export const PreflightBadge: React.FC<PreflightBadgeProps> = ({
   };
 
   return (
-    <div className="w-[280px] bg-white rounded-2xl shadow-2xl border border-gray-200/90 overflow-hidden select-none animate-in fade-in slide-in-from-bottom-3 duration-200">
-      {/* Top Header Card Banner */}
-      <div
-        onClick={() => setIsExpanded(!isExpanded)}
-        className={`${header.bg} text-white px-4 py-2.5 flex items-center justify-between cursor-pointer transition-colors`}
-      >
+    <div className="w-full flex flex-col items-center justify-center mt-2 pb-4">
+      <div className="flex items-center justify-center gap-6 py-3 select-none w-full border-t border-gray-200 bg-transparent">
+        {/* Status Badge */}
         <div className="flex items-center gap-2">
-          {report.overallStatus === 'ready' ? (
-            <ShieldCheck className="w-4 h-4 text-white" />
-          ) : (
-            <AlertTriangle className="w-4 h-4 text-white" />
-          )}
-          <span className="font-extrabold text-xs tracking-wider uppercase drop-shadow-2xs">
+          <div className={`w-5 h-5 rounded-full ${header.bg} flex items-center justify-center shadow-sm`}>
+            {report.overallStatus === 'ready' ? (
+              <ShieldCheck className="w-3 h-3 text-white" />
+            ) : (
+              <AlertTriangle className="w-3 h-3 text-white" />
+            )}
+          </div>
+          <span className={`font-extrabold text-[12px] tracking-widest uppercase ${report.overallStatus === 'ready' ? 'text-[#00875a]' : (report.overallStatus === 'warning' ? 'text-amber-600' : 'text-rose-600')}`}>
             {header.title}
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${header.badgeBg}`}>
-            {header.badge}
-          </span>
-          {isExpanded ? (
-            <ChevronDown className="w-4 h-4 text-white opacity-90" />
-          ) : (
-            <ChevronUp className="w-4 h-4 text-white opacity-90" />
-          )}
+        <div className="h-5 w-px bg-gray-300"></div>
+
+        {/* Checklist Items */}
+        <div className="flex items-center gap-6">
+          {col1Ids.map((id) => renderCheckRow(getCheckById(id)))}
         </div>
       </div>
 
-      {/* Expanded Body */}
-      {isExpanded && (
-        <div className="bg-white max-h-[360px] overflow-y-auto custom-scrollbar">
-          {/* Zone Check Summary */}
-          <div className="p-3 space-y-1 border-b border-gray-100">
-            {col1Ids.map((id) => renderCheckRow(getCheckById(id)))}
-          </div>
-
-          {/* Detailed Alert Messages per Object */}
-          {report.alertMessages.length > 0 && (
-            <div className="p-3 space-y-2">
-              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
-                Artwork Alerts ({report.alertMessages.length})
-              </span>
-
-              {report.alertMessages.map((alert, i) => (
-                <div
-                  key={i}
-                  onClick={() => handleSelectAlert(alert)}
-                  className={`p-2.5 rounded-xl border cursor-pointer transition hover:shadow-md ${getAlertColors(alert.severity)}`}
-                >
-                  <div className="flex items-start gap-2">
-                    <div className={`mt-0.5 ${getAlertIconColor(alert.severity)}`}>
-                      {getAlertIcon(alert)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[11px] font-bold leading-tight truncate">
-                        {alert.title}
-                      </p>
-                      <p className="text-[10px] mt-0.5 leading-snug opacity-80">
-                        {alert.description}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* All Clear Message */}
-          {/* {report.alertMessages.length === 0 && report.isReadyForPrint && (
-            <div className="p-4 text-center space-y-1.5">
-              <div className="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto">
-                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+      {/* Detailed Alert Messages per Object */}
+      {report.alertMessages.length > 0 && (
+        <div className="hidden w-full max-w-4xl px-4 flex flex-wrap justify-center gap-2 mt-1">
+          {report.alertMessages.map((alert, i) => (
+            <div
+              key={i}
+              onClick={() => handleSelectAlert(alert)}
+              className={`p-2 rounded-lg border cursor-pointer transition hover:shadow-md max-w-xs flex items-start gap-2 ${getAlertColors(alert.severity)}`}
+            >
+              <div className={`mt-0.5 ${getAlertIconColor(alert.severity)}`}>
+                {getAlertIcon(alert)}
               </div>
-              <p className="text-xs font-bold text-gray-800">All artwork is within safe boundaries</p>
-              <p className="text-[10px] text-gray-500">Your design is ready for commercial print.</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold leading-tight truncate">
+                  {alert.title}
+                </p>
+                <p className="text-[10px] mt-0.5 leading-snug opacity-80 line-clamp-2">
+                  {alert.description}
+                </p>
+              </div>
             </div>
-          )} */}
+          ))}
         </div>
       )}
     </div>

@@ -6,10 +6,14 @@ import {
   Check,
   LayoutTemplate,
   Search,
+  ExternalLink,
+  Loader2
 } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { DesignerTemplate } from '@/types/designer';
 import { formatImageUrl } from '@/utils/imageUrl';
+import { createArtworkFromTemplate } from '../utils/artworkConverter';
+import { designerService } from '../services/designerService';
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -134,14 +138,17 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
           .then((res) => (res.ok ? res.json() : null))
           .catch(() => null);
 
-        // 3. Fetch Product Templates (if productId provided)
-        const templPromise = productId
-          ? fetch(`${API_URL}/designer/templates/${productId}`, {
-              headers: { Accept: 'application/json' },
-            })
-              .then((res) => (res.ok ? res.json() : null))
-              .catch(() => null)
-          : Promise.resolve(null);
+        // 3. Fetch Product Templates (active templates for this product)
+        const templateEndpoint =
+          productId && productId !== 'default' && productId !== 'all'
+            ? `${API_URL}/designer/templates/${productId}`
+            : `${API_URL}/designer/templates/all`;
+
+        const templPromise = fetch(templateEndpoint, {
+          headers: { Accept: 'application/json' },
+        })
+          .then((res) => (res.ok ? res.json() : null))
+          .catch(() => null);
 
         const [catResult, prodResult, templResult] = await Promise.all([
           catPromise,
@@ -218,8 +225,9 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
           : [];
         const dbTemplateItems: PanelTemplate[] = rawTemplates.map(normalizeTemplate);
 
-        // Built-in templates as fallback / base
-        const allItems = [...dbTemplateItems, ...productItems];
+        // If scoped to a product, show only that product's templates to guarantee product isolation
+        const isProductScoped = productId && productId !== 'default' && productId !== 'all';
+        const allItems = isProductScoped ? dbTemplateItems : (dbTemplateItems.length > 0 ? dbTemplateItems : productItems);
         setTemplates(allItems);
       } catch (err) {
         console.error('Error loading designer templates & products:', err);
@@ -288,12 +296,41 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
 
     try {
       setError('');
+      if ((template as any).artwork_config) {
+        canvasManager.initializeArtwork((template as any).artwork_config);
+      }
       await canvasManager.loadTemplate(template);
       setActiveTemplateId(template.id);
       onApplyTemplate?.(template);
     } catch (applyError) {
       console.error('Template apply error:', applyError);
       setError('Could not apply this template to the canvas.');
+    }
+  };
+
+  const [isConverting, setIsConverting] = useState<string | null>(null);
+
+  const handleGoToArtwork = async (e: React.MouseEvent, template: DesignerTemplate) => {
+    e.stopPropagation();
+    if (!canvasManager) return;
+    setIsConverting(template.id);
+    setError('');
+    try {
+      // 1. Convert to ArtworkDraftPayload
+      const payload = await createArtworkFromTemplate(template, canvasManager, {
+        productId,
+      });
+
+      // 2. Create Draft
+      const savedArtwork = await designerService.createDraft(payload);
+
+      // 3. Navigate to new Artwork Editor in new tab
+      window.open(`/design/${productId}?artworkId=${savedArtwork.id}`, '_blank');
+    } catch (err: any) {
+      console.error('Failed to convert template to artwork:', err);
+      setError(err?.message || 'Failed to convert template to artwork');
+    } finally {
+      setIsConverting(null);
     }
   };
 
@@ -409,9 +446,27 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
                     </p>
                   </div>
 
-                  <div className="absolute inset-0 z-20 flex items-center justify-center gap-1.5 bg-black/40 text-xs font-bold text-white opacity-0 backdrop-blur-2xs transition-opacity group-hover:opacity-100">
-                    <span>Use This Template</span>
-                    <ArrowRight className="h-4 w-4" />
+                  <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/60 text-xs font-bold text-white opacity-0 backdrop-blur-2xs transition-opacity group-hover:opacity-100">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); void handleApplyTemplate(template); }}
+                      className="flex items-center gap-1.5 text-white text-xs font-semibold bg-blue-500 hover:bg-blue-600 px-3 py-1.5 rounded-lg"
+                    >
+                      <span>Use This Template</span>
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={(e) => handleGoToArtwork(e, template)}
+                      className="flex items-center gap-1.5 text-white text-[10px] font-semibold bg-gray-900/60 hover:bg-gray-900/80 px-2 py-1 rounded-md backdrop-blur-sm"
+                    >
+                      {isConverting === template.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <>
+                          <ExternalLink className="w-3 h-3" />
+                          <span>Go to Artwork</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 </div>
               </button>

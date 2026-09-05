@@ -11,6 +11,8 @@ export * from '@/components/common/FormActions';
 export * from '@/components/common/StatusBadge';
 export * from '@/components/common/ConfirmDialog';
 export * from '@/components/common/ImageUploader';
+export * from '@/components/admin/forms/ArtworkFileUpload';
+export * from '@/components/admin/forms/artworkConfig';
 export * from '@/components/common/EmptyState';
 export * from '@/components/common/LoadingState';
 export * from '@/components/common/ErrorState';

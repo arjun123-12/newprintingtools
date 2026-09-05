@@ -10,6 +10,7 @@ import { ProductConfiguration } from './ProductConfiguration';
 import { ProductAttributes } from './ProductAttributes';
 import { ProductVariants } from './ProductVariants';
 import { ProductPricing } from './ProductPricing';
+import { ProductPrintDimensions } from './ProductPrintDimensions';
 import { ProductPrintAreas } from './ProductPrintAreas';
 import { ProductTemplates } from './ProductTemplates';
 import { ProductInventory } from './ProductInventory';
@@ -68,6 +69,12 @@ const defaultInitialForm: ProductFormData = {
   sale_price: '',
   cost_price: '',
   pricing_tiers: [],
+  print_sides: 'front',
+  width_mm: null,
+  height_mm: null,
+  margin_mm: 0,
+  bleed_mm: 0,
+  safe_area_mm: 0,
   print_areas: [],
   design_template_ids: [],
   track_inventory: false,
@@ -119,8 +126,12 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     const fetchCategories = async () => {
       try {
         setCategoriesLoading(true);
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
         const res = await fetch(`${API_URL}/admin/categories`, {
-          headers: { Accept: 'application/json' },
+          headers: { 
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
         });
         const json = await res.json();
         if (isMounted) {
@@ -163,7 +174,9 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       short_description: p.short_description || '',
       description: p.description || '',
       featured_image_url: p.featured_image_url || '',
-      gallery_images: Array.isArray(p.gallery_images) ? p.gallery_images : [],
+      gallery_images: Array.isArray(p.images) 
+        ? p.images.map((img: any) => img.url).filter((url: string) => url !== p.featured_image_url) 
+        : (Array.isArray(p.gallery_images) ? p.gallery_images : []),
       min_quantity: typeof p.min_quantity === 'number' ? p.min_quantity : 1,
       turnaround_days: typeof p.turnaround_days === 'number' ? p.turnaround_days : 3,
       allow_custom_design: p.allow_custom_design !== false,
@@ -177,6 +190,12 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       sale_price: p.sale_price !== null && p.sale_price !== undefined && p.sale_price !== '' ? parseFloat(p.sale_price) : '',
       cost_price: p.cost_price !== null && p.cost_price !== undefined && p.cost_price !== '' ? parseFloat(p.cost_price) : '',
       pricing_tiers: Array.isArray(p.pricing_tiers) ? p.pricing_tiers : [],
+      print_sides: p.print_sides || 'front',
+      width_mm: p.width_mm !== null && p.width_mm !== undefined && p.width_mm !== '' ? parseFloat(p.width_mm) : null,
+      height_mm: p.height_mm !== null && p.height_mm !== undefined && p.height_mm !== '' ? parseFloat(p.height_mm) : null,
+      margin_mm: p.margin_mm !== null && p.margin_mm !== undefined && p.margin_mm !== '' ? parseFloat(p.margin_mm) : 0,
+      bleed_mm: p.bleed_mm !== null && p.bleed_mm !== undefined && p.bleed_mm !== '' ? parseFloat(p.bleed_mm) : 0,
+      safe_area_mm: p.safe_area_mm !== null && p.safe_area_mm !== undefined && p.safe_area_mm !== '' ? parseFloat(p.safe_area_mm) : 0,
       print_areas: Array.isArray(p.print_areas) ? p.print_areas : [],
       design_template_ids: Array.isArray(p.design_template_ids) ? p.design_template_ids : [],
       track_inventory: Boolean(p.track_inventory),
@@ -244,6 +263,22 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     if (formData.min_quantity < 1) errs.min_quantity = 'Minimum quantity must be at least 1.';
     if (formData.turnaround_days < 1) errs.turnaround_days = 'Turnaround time must be at least 1 day.';
 
+    if (formData.width_mm !== null && formData.width_mm !== undefined && (isNaN(formData.width_mm) || formData.width_mm <= 0)) {
+      errs.width_mm = 'Width must be greater than 0 mm.';
+    }
+    if (formData.height_mm !== null && formData.height_mm !== undefined && (isNaN(formData.height_mm) || formData.height_mm <= 0)) {
+      errs.height_mm = 'Height must be greater than 0 mm.';
+    }
+    if (formData.margin_mm !== null && formData.margin_mm !== undefined && (isNaN(formData.margin_mm) || formData.margin_mm < 0)) {
+      errs.margin_mm = 'Margin cannot be negative.';
+    }
+    if (formData.bleed_mm !== null && formData.bleed_mm !== undefined && (isNaN(formData.bleed_mm) || formData.bleed_mm < 0)) {
+      errs.bleed_mm = 'Bleed cannot be negative.';
+    }
+    if (formData.safe_area_mm !== null && formData.safe_area_mm !== undefined && (isNaN(formData.safe_area_mm) || formData.safe_area_mm < 0)) {
+      errs.safe_area_mm = 'Safe area cannot be negative.';
+    }
+
     setErrors(errs);
 
     if (Object.keys(errs).length > 0) {
@@ -251,6 +286,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({
         setCurrentTab('general');
       } else if (errs.base_price) {
         setCurrentTab('pricing');
+      } else if (errs.width_mm || errs.height_mm || errs.margin_mm || errs.bleed_mm || errs.safe_area_mm) {
+        setCurrentTab('print_setup');
       }
     }
 
@@ -271,7 +308,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     }
     setNotice(null);
 
-    const isDataUri = formData.featured_image_url?.startsWith('data:image/');
+    const isDataUri = formData.featured_image_url?.startsWith('data:');
     const featuredUrlToSend = isDataUri ? null : formData.featured_image_url || null;
 
     const payload = {
@@ -289,6 +326,12 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       cost_price: formData.cost_price !== '' && formData.cost_price !== null ? Number(formData.cost_price) : null,
       featured_image_url: featuredUrlToSend,
       gallery_images: formData.gallery_images.filter((img) => !img.startsWith('data:image/')),
+      print_sides: formData.print_sides || 'front',
+      width_mm: typeof formData.width_mm === 'number' && !isNaN(formData.width_mm) ? formData.width_mm : null,
+      height_mm: typeof formData.height_mm === 'number' && !isNaN(formData.height_mm) ? formData.height_mm : null,
+      margin_mm: typeof formData.margin_mm === 'number' && !isNaN(formData.margin_mm) ? formData.margin_mm : 0,
+      bleed_mm: typeof formData.bleed_mm === 'number' && !isNaN(formData.bleed_mm) ? formData.bleed_mm : 0,
+      safe_area_mm: typeof formData.safe_area_mm === 'number' && !isNaN(formData.safe_area_mm) ? formData.safe_area_mm : 0,
       status: saveAsDraft ? 'draft' : formData.is_active ? 'published' : 'draft',
       is_active: saveAsDraft ? false : formData.is_active,
       is_featured: formData.is_featured,
@@ -337,12 +380,23 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       const savedProduct = result.data;
       const targetId = savedProduct?.id || productId;
 
-      // If user uploaded a new image file as data URI, upload it to product image endpoint
+      // Helper to detect correct file extension from blob MIME type
+      const getExtFromMime = (mime: string) => {
+        if (mime.includes('svg')) return 'svg';
+        if (mime.includes('pdf')) return 'pdf';
+        if (mime.includes('tiff') || mime.includes('tif')) return 'tif';
+        if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
+        if (mime.includes('webp')) return 'webp';
+        return 'png';
+      };
+
+      // Upload featured image
       if (isDataUri && targetId) {
         try {
           const blob = await fetch(formData.featured_image_url).then((r) => r.blob());
+          const ext = getExtFromMime(blob.type);
           const imageFormData = new FormData();
-          imageFormData.append('image', blob, 'featured_image.png');
+          imageFormData.append('image', blob, `featured_image.${ext}`);
           imageFormData.append('is_featured', '1');
           imageFormData.append('alt_text', formData.name);
 
@@ -356,6 +410,34 @@ export const ProductForm: React.FC<ProductFormProps> = ({
           });
         } catch (imgErr) {
           console.warn('Could not upload featured image asset:', imgErr);
+        }
+      }
+
+      // Upload gallery images
+      if (targetId && formData.gallery_images.length > 0) {
+        for (let i = 0; i < formData.gallery_images.length; i++) {
+          const galleryUrl = formData.gallery_images[i];
+          if (galleryUrl.startsWith('data:')) {
+            try {
+              const blob = await fetch(galleryUrl).then((r) => r.blob());
+              const ext = getExtFromMime(blob.type);
+              const imageFormData = new FormData();
+              imageFormData.append('image', blob, `gallery_image_${i}.${ext}`);
+              imageFormData.append('is_featured', '0');
+              imageFormData.append('alt_text', `${formData.name} - Gallery ${i + 1}`);
+
+              await fetch(`${API_URL}/admin/products/${targetId}/images`, {
+                method: 'POST',
+                headers: {
+                  Accept: 'application/json',
+                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: imageFormData,
+              });
+            } catch (imgErr) {
+              console.warn(`Could not upload gallery image ${i}:`, imgErr);
+            }
+          }
         }
       }
 
@@ -557,6 +639,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
         {/* TAB 4: Print Areas & Starter Templates */}
         {currentTab === 'print_setup' && (
           <div className="space-y-6 animate-in fade-in duration-150">
+            <ProductPrintDimensions formData={formData} setFormData={setFormData} errors={errors} />
             <ProductPrintAreas formData={formData} setFormData={setFormData} />
             <ProductTemplates formData={formData} setFormData={setFormData} />
           </div>

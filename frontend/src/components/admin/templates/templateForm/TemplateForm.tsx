@@ -5,11 +5,16 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { LoadingState } from '@/components/admin/shared';
 import { BasicTemplateInfo } from './BasicTemplateInfo';
+import { TemplatePrintDimensions } from './TemplatePrintDimensions';
 import { TemplateCanvasConfig } from './TemplateCanvasConfig';
 import { TemplateThumbnail } from './TemplateThumbnail';
 import { TemplateAttributes } from './TemplateAttributes';
 import { TemplateStatus } from './TemplateStatus';
 import { TemplateFormData, TemplateFormErrors, ProductOption } from './types';
+import {
+  createTemplateDraft,
+  sanitizeCanvasJson,
+} from '@/services/designTemplateService';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -27,7 +32,10 @@ import {
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
-  'http://127.0.0.1:8000/api/v1';
+  'http://localhost:8000/api/v1';
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export interface TemplateFormProps {
   mode: 'create' | 'edit';
@@ -42,12 +50,20 @@ const defaultInitialForm: TemplateFormData = {
   category: 'Corporate',
   product_id: '',
   thumbnail_url: '',
-  is_active: true,
+  // A new admin template remains hidden until it is published from the designer.
+  is_active: false,
+  print_sides: 'front',
+  width_mm: null,
+  height_mm: null,
+  margin_mm: 0,
+  bleed_mm: 0,
+  safe_area_mm: 0,
   canvas_json: {
     version: '6.0.0',
     objects: [],
     background: '#ffffff',
   },
+  back_canvas_json: null,
   attributes: [],
 };
 
@@ -72,12 +88,187 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
   const [formData, setFormData] = useState<TemplateFormData>(defaultInitialForm);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [productsLoading, setProductsLoading] = useState<boolean>(true);
+  const [hasCustomizedMeasurements, setHasCustomizedMeasurements] = useState<boolean>(false);
   const [currentTab, setCurrentTab] = useState<TemplateTab>('details');
 
   const [loading, setLoading] = useState<boolean>(Boolean(mode === 'edit' && !initialData));
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errors, setErrors] = useState<TemplateFormErrors>({});
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isLaunchingStudio, setIsLaunchingStudio] =
+    useState<boolean>(false);
+
+  const selectedProduct = products.find(
+    (p) => p.id === formData.product_id || p.slug === formData.product_id || p.name === formData.product_id
+  );
+
+  const handleProductSelect = (selectedId: string) => {
+    const prod = products.find(
+      (p) => p.id === selectedId || p.slug === selectedId || p.name === selectedId
+    );
+
+    if (prod && !hasCustomizedMeasurements) {
+      setFormData((prev) => ({
+        ...prev,
+        product_id: prod.id,
+        print_sides: prod.print_sides || prev.print_sides || 'front',
+        width_mm: prod.width_mm !== null && prod.width_mm !== undefined ? Number(prod.width_mm) : prev.width_mm,
+        height_mm: prod.height_mm !== null && prod.height_mm !== undefined ? Number(prod.height_mm) : prev.height_mm,
+        margin_mm: prod.margin_mm !== null && prod.margin_mm !== undefined ? Number(prod.margin_mm) : prev.margin_mm,
+        bleed_mm: prod.bleed_mm !== null && prod.bleed_mm !== undefined ? Number(prod.bleed_mm) : prev.bleed_mm,
+        safe_area_mm: prod.safe_area_mm !== null && prod.safe_area_mm !== undefined ? Number(prod.safe_area_mm) : prev.safe_area_mm,
+      }));
+    } else {
+      setFormData((prev) => ({ ...prev, product_id: selectedId }));
+    }
+  };
+
+  const handleLaunchStudio = async () => {
+    const rawProductId = String(formData.product_id ?? '').trim();
+
+    // AdminSelect should return product.id. This fallback also normalizes an
+    // older saved form value that contains the product name or slug.
+    const selectedProduct = products.find(
+      (product) =>
+        product.id === rawProductId ||
+        product.slug === rawProductId ||
+        product.name === rawProductId
+    );
+
+    const productId = selectedProduct?.id ?? rawProductId;
+
+    if (!productId) {
+      setErrors((previous) => ({
+        ...previous,
+        product_id: 'Please select a product.',
+      }));
+
+      setNotice({
+        type: 'error',
+        text: 'Please select a product.',
+      });
+
+      setCurrentTab('details');
+      return;
+    }
+
+    if (!UUID_PATTERN.test(productId)) {
+      setErrors((previous) => ({
+        ...previous,
+        product_id: 'The selected product has an invalid ID.',
+      }));
+
+      setNotice({
+        type: 'error',
+        text: `Selected product has an invalid UUID: ${productId}`,
+      });
+
+      setCurrentTab('details');
+      return;
+    }
+
+    if (!formData.name.trim()) {
+      setErrors((previous) => ({
+        ...previous,
+        name: 'Template name is required.',
+      }));
+
+      setNotice({
+        type: 'error',
+        text: 'Template name is required.',
+      });
+
+      setCurrentTab('details');
+      return;
+    }
+
+    setIsLaunchingStudio(true);
+    setNotice(null);
+
+    try {
+      // Existing template: update it first to save any changes (e.g. name or product) before launching studio.
+      if (templateId) {
+        const payload = {
+          name: formData.name.trim(),
+          category: formData.category || 'Corporate',
+          product_id: productId,
+          thumbnail_url: formData.thumbnail_url || null,
+          is_active: formData.is_active,
+          print_sides: formData.print_sides || 'front',
+          width_mm: typeof formData.width_mm === 'number' && !isNaN(formData.width_mm) ? formData.width_mm : null,
+          height_mm: typeof formData.height_mm === 'number' && !isNaN(formData.height_mm) ? formData.height_mm : null,
+          margin_mm: typeof formData.margin_mm === 'number' && !isNaN(formData.margin_mm) ? formData.margin_mm : 0,
+          bleed_mm: typeof formData.bleed_mm === 'number' && !isNaN(formData.bleed_mm) ? formData.bleed_mm : 0,
+          safe_area_mm: typeof formData.safe_area_mm === 'number' && !isNaN(formData.safe_area_mm) ? formData.safe_area_mm : 0,
+          artwork_config: formData.artwork_config || null,
+          canvas_json: sanitizeCanvasJson(
+            formData.canvas_json
+          ),
+          ...(formData.back_canvas_json ? { back_canvas_json: sanitizeCanvasJson(formData.back_canvas_json) } : {}),
+        };
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+        const res = await fetch(`${API_URL}/admin/design-templates/${templateId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          credentials: 'include',
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          throw new Error('Could not save template changes before launching studio.');
+        }
+
+        router.push(
+          `/design?mode=admin-template&templateId=${templateId}`
+        );
+
+        return;
+      }
+
+      // New template: create an inactive draft first.
+      const template = await createTemplateDraft({
+        product_id: productId,
+        name: formData.name.trim(),
+        category: formData.category || null,
+        print_sides: formData.print_sides || 'front',
+        width_mm: typeof formData.width_mm === 'number' && !isNaN(formData.width_mm) ? formData.width_mm : null,
+        height_mm: typeof formData.height_mm === 'number' && !isNaN(formData.height_mm) ? formData.height_mm : null,
+        margin_mm: typeof formData.margin_mm === 'number' && !isNaN(formData.margin_mm) ? formData.margin_mm : 0,
+        bleed_mm: typeof formData.bleed_mm === 'number' && !isNaN(formData.bleed_mm) ? formData.bleed_mm : 0,
+        safe_area_mm: typeof formData.safe_area_mm === 'number' && !isNaN(formData.safe_area_mm) ? formData.safe_area_mm : 0,
+        canvas_json: formData.canvas_json || {
+          version: '6.0.0',
+          objects: [],
+          background: '#ffffff',
+        },
+        back_canvas_json: formData.back_canvas_json || null,
+        thumbnail_url: formData.thumbnail_url || null,
+        artwork_config: formData.artwork_config || null,
+        is_active: false,
+      });
+
+      router.push(
+        `/design?mode=admin-template&templateId=${template.id}`
+      );
+      return;
+    } catch (error) {
+      console.error('Could not launch studio:', error);
+
+      setNotice({
+        type: 'error',
+        text:
+          error instanceof Error
+            ? error.message
+            : 'Could not launch template designer.',
+      });
+    } finally {
+      setIsLaunchingStudio(false);
+    }
+  };
 
   // Load products list for dropdown
   useEffect(() => {
@@ -85,12 +276,28 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
     const fetchProducts = async () => {
       try {
         setProductsLoading(true);
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
         const res = await fetch(`${API_URL}/admin/products`, {
-          headers: { Accept: 'application/json' },
+          headers: { 
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          credentials: 'include',
+          cache: 'no-store',
         });
         const json = await res.json();
         if (isMounted && json.success && Array.isArray(json.data)) {
-          setProducts(json.data.map((p: any) => ({ id: p.id, name: p.name, slug: p.slug })));
+          setProducts(json.data.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            slug: p.slug,
+            print_sides: p.print_sides,
+            width_mm: p.width_mm,
+            height_mm: p.height_mm,
+            margin_mm: p.margin_mm,
+            bleed_mm: p.bleed_mm,
+            safe_area_mm: p.safe_area_mm,
+          })));
         }
       } catch (err) {
         console.warn('Could not load products for template assignment:', err);
@@ -107,19 +314,38 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
 
   // Load initial template data
   useEffect(() => {
-    const normalize = (t: any): TemplateFormData => ({
-      name: t.name || '',
-      category: t.category || 'Corporate',
-      product_id: t.product_id || t.product?.id || '',
-      thumbnail_url: t.thumbnail_url || '',
-      is_active: t.is_active !== false,
-      canvas_json: t.canvas_json || {
-        version: '6.0.0',
-        objects: [],
-        background: '#ffffff',
-      },
-      attributes: Array.isArray(t.attributes) ? t.attributes : [],
-    });
+    const normalize = (t: any): TemplateFormData => {
+      let cj = t.canvas_json;
+      if (Array.isArray(cj) && cj.length === 0) cj = null;
+      if (typeof cj === 'object' && cj !== null && Object.keys(cj).length === 0) cj = null;
+
+      const hasCustom = t.width_mm !== null || t.height_mm !== null || (t.print_sides && t.print_sides !== 'front');
+      if (hasCustom) {
+        setHasCustomizedMeasurements(true);
+      }
+
+      return {
+        name: t.name || '',
+        category: t.category || 'Corporate',
+        product_id: t.product_id || t.product?.id || '',
+        thumbnail_url: t.thumbnail_url || '',
+        is_active: t.is_active !== false,
+        print_sides: t.print_sides || 'front',
+        width_mm: t.width_mm !== null && t.width_mm !== undefined && t.width_mm !== '' ? parseFloat(t.width_mm) : null,
+        height_mm: t.height_mm !== null && t.height_mm !== undefined && t.height_mm !== '' ? parseFloat(t.height_mm) : null,
+        margin_mm: t.margin_mm !== null && t.margin_mm !== undefined && t.margin_mm !== '' ? parseFloat(t.margin_mm) : 0,
+        bleed_mm: t.bleed_mm !== null && t.bleed_mm !== undefined && t.bleed_mm !== '' ? parseFloat(t.bleed_mm) : 0,
+        safe_area_mm: t.safe_area_mm !== null && t.safe_area_mm !== undefined && t.safe_area_mm !== '' ? parseFloat(t.safe_area_mm) : 0,
+        canvas_json: cj || {
+          version: '6.0.0',
+          objects: [],
+          background: '#ffffff',
+        },
+        back_canvas_json: t.back_canvas_json || null,
+        artwork_config: t.artwork_config || null,
+        attributes: Array.isArray(t.attributes) ? t.attributes : [],
+      };
+    };
 
     if (initialData) {
       setFormData(normalize(initialData));
@@ -136,12 +362,16 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
       setLoading(true);
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
 
-      fetch(`${API_URL}/admin/templates/${templateId}`, {
-        headers: {
-          Accept: 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      })
+      fetch(
+        `${API_URL}/admin/design-templates/${templateId}`,
+        {
+          headers: {
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          credentials: 'include',
+          cache: 'no-store',
+        })
         .then((res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return res.json();
@@ -166,11 +396,79 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
     if (!formData.name.trim()) errs.name = 'Template name is required.';
     if (!formData.product_id) errs.product_id = 'Please select an associated product.';
 
+    if (formData.width_mm !== null && formData.width_mm !== undefined && (isNaN(formData.width_mm) || formData.width_mm <= 0)) {
+      errs.width_mm = 'Width must be greater than 0 mm.';
+    }
+    if (formData.height_mm !== null && formData.height_mm !== undefined && (isNaN(formData.height_mm) || formData.height_mm <= 0)) {
+      errs.height_mm = 'Height must be greater than 0 mm.';
+    }
+    if (formData.margin_mm !== null && formData.margin_mm !== undefined && (isNaN(formData.margin_mm) || formData.margin_mm < 0)) {
+      errs.margin_mm = 'Margin cannot be negative.';
+    }
+    if (formData.bleed_mm !== null && formData.bleed_mm !== undefined && (isNaN(formData.bleed_mm) || formData.bleed_mm < 0)) {
+      errs.bleed_mm = 'Bleed cannot be negative.';
+    }
+    if (formData.safe_area_mm !== null && formData.safe_area_mm !== undefined && (isNaN(formData.safe_area_mm) || formData.safe_area_mm < 0)) {
+      errs.safe_area_mm = 'Safe area cannot be negative.';
+    }
+
     setErrors(errs);
     if (Object.keys(errs).length > 0) {
       setCurrentTab('details');
     }
     return Object.keys(errs).length === 0;
+  };
+
+  const handleSaveEdit = async () => {
+    setIsSubmitting(true);
+    setNotice(null);
+
+    try {
+      const payload = {
+        name: formData.name.trim(),
+        category: formData.category || 'Corporate',
+        product_id: formData.product_id,
+        thumbnail_url: formData.thumbnail_url || null,
+        is_active: formData.is_active,
+        print_sides: formData.print_sides || 'front',
+        width_mm: typeof formData.width_mm === 'number' && !isNaN(formData.width_mm) ? formData.width_mm : null,
+        height_mm: typeof formData.height_mm === 'number' && !isNaN(formData.height_mm) ? formData.height_mm : null,
+        margin_mm: typeof formData.margin_mm === 'number' && !isNaN(formData.margin_mm) ? formData.margin_mm : 0,
+        bleed_mm: typeof formData.bleed_mm === 'number' && !isNaN(formData.bleed_mm) ? formData.bleed_mm : 0,
+        safe_area_mm: typeof formData.safe_area_mm === 'number' && !isNaN(formData.safe_area_mm) ? formData.safe_area_mm : 0,
+        ...(formData.artwork_config ? { artwork_config: formData.artwork_config } : {}),
+        ...(formData.back_canvas_json ? { back_canvas_json: formData.back_canvas_json } : {}),
+      };
+
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const res = await fetch(`${API_URL}/admin/design-templates/${templateId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        throw new Error(errJson?.message || 'Could not save template changes.');
+      }
+
+      setNotice({ type: 'success', text: 'Template changes saved successfully.' });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (error: any) {
+      console.error('Could not save template edit:', error);
+      setNotice({
+        type: 'error',
+        text: error.message || 'Could not save template changes.',
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -180,70 +478,10 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
       return;
     }
 
-    setIsSubmitting(true);
-    setNotice(null);
-
-    const payload = {
-      name: formData.name.trim(),
-      category: formData.category || 'Corporate',
-      product_id: formData.product_id,
-      thumbnail_url: formData.thumbnail_url || null,
-      is_active: formData.is_active,
-      canvas_json: formData.canvas_json,
-    };
-
-    const isEdit = mode === 'edit' && templateId;
-    const url = isEdit ? `${API_URL}/admin/templates/${templateId}` : `${API_URL}/admin/templates`;
-    const method = isEdit ? 'PATCH' : 'POST';
-
-    try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
-
-      const res = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const responseText = await res.text();
-      let result: any = null;
-      try {
-        result = JSON.parse(responseText);
-      } catch {
-        result = { message: responseText };
-      }
-
-      if (!res.ok || !result?.success) {
-        if (result?.errors) {
-          const fieldErrors: TemplateFormErrors = {};
-          Object.keys(result.errors).forEach((key) => {
-            fieldErrors[key] = Array.isArray(result.errors[key]) ? result.errors[key][0] : result.errors[key];
-          });
-          setErrors(fieldErrors);
-        }
-        throw new Error(result?.message || `Template save failed (HTTP ${res.status}).`);
-      }
-
-      const saved = result.data;
-      setNotice({
-        type: 'success',
-        text: isEdit ? 'Template updated successfully!' : 'Template created successfully!',
-      });
-
-      onSuccess?.(saved);
-
-      if (mode === 'create' && saved?.id) {
-        router.push(`/admin/templates/${saved.id}/edit`);
-      }
-    } catch (err: any) {
-      console.error('Template save error:', err);
-      setNotice({ type: 'error', text: err.message || 'An error occurred while saving.' });
-    } finally {
-      setIsSubmitting(false);
+    if (mode === 'edit') {
+      await handleSaveEdit();
+    } else {
+      await handleLaunchStudio();
     }
   };
 
@@ -267,9 +505,9 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
     return <LoadingState message="Loading template details…" className="py-24" />;
   }
 
-  const designerUrl = formData.product_id
-    ? `/admin/designer?productId=${formData.product_id}${templateId ? `&templateId=${templateId}` : ''}`
-    : null;
+  // const designerUrl = formData.product_id
+  //   ? `/admin/designer?productId=${formData.product_id}${templateId ? `&templateId=${templateId}` : ''}`
+  //   : null;
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-5 pb-16 font-sans select-none">
@@ -297,26 +535,43 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {designerUrl && (
-            <Link
-              href={designerUrl}
-              target="_blank"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-all"
-            >
-              <Palette className="w-3.5 h-3.5" />
-              <span>Launch Studio</span>
-              <ExternalLink className="w-3 h-3 ml-0.5 opacity-80" />
-            </Link>
-          )}
+          <button
+            type="button"
+            onClick={handleLaunchStudio}
+            disabled={
+              isLaunchingStudio ||
+              !formData.product_id ||
+              !formData.name.trim()
+            }
+            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Palette className="h-3.5 w-3.5" />
+
+            <span>
+              {isLaunchingStudio
+                ? 'Opening Studio...'
+                : 'Launch Studio'}
+            </span>
+
+            <ExternalLink className="ml-0.5 h-3 w-3 opacity-80" />
+          </button>
 
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isLaunchingStudio}
             className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-all disabled:opacity-50"
           >
             <Save className="w-3.5 h-3.5" />
-            <span>{isSubmitting ? 'Saving…' : mode === 'create' ? 'Create Template' : 'Save Changes'}</span>
+            <span>
+              {mode === 'create'
+                ? isLaunchingStudio
+                  ? 'Opening Studio...'
+                  : 'Create & Design'
+                : isSubmitting
+                  ? 'Saving...'
+                  : 'Save Changes'}
+            </span>
           </button>
         </div>
       </div>
@@ -324,11 +579,10 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
       {/* Notice Banner */}
       {notice && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between gap-3 animate-in fade-in duration-200 ${
-            notice.type === 'success'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-              : 'bg-rose-50 border-rose-200 text-rose-800'
-          }`}
+          className={`p-4 rounded-xl border flex items-center justify-between gap-3 animate-in fade-in duration-200 ${notice.type === 'success'
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            : 'bg-rose-50 border-rose-200 text-rose-800'
+            }`}
         >
           <div className="flex items-center gap-2.5 text-xs font-medium">
             {notice.type === 'success' ? (
@@ -386,13 +640,21 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         className="space-y-6"
       >
         {currentTab === 'details' && (
-          <div className="animate-in fade-in duration-150">
+          <div className="space-y-6 animate-in fade-in duration-150">
             <BasicTemplateInfo
               formData={formData}
               setFormData={setFormData}
               errors={errors}
               products={products}
               productsLoading={productsLoading}
+              onProductSelect={handleProductSelect}
+            />
+            <TemplatePrintDimensions
+              formData={formData}
+              setFormData={setFormData}
+              selectedProduct={selectedProduct}
+              onCustomize={() => setHasCustomizedMeasurements(true)}
+              errors={errors}
             />
           </div>
         )}
@@ -401,8 +663,8 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
           <div className="animate-in fade-in duration-150">
             <TemplateCanvasConfig
               formData={formData}
-              setFormData={setFormData}
-              templateId={templateId}
+              onLaunchStudio={handleLaunchStudio}
+              isLaunchingStudio={isLaunchingStudio}
             />
           </div>
         )}
@@ -457,11 +719,19 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isLaunchingStudio}
               className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-all disabled:opacity-50"
             >
               <Save className="w-3.5 h-3.5" />
-              <span>{isSubmitting ? 'Saving…' : mode === 'create' ? 'Create Template' : 'Save Template'}</span>
+              <span>
+                {mode === 'create'
+                  ? isLaunchingStudio
+                    ? 'Opening Studio…'
+                    : 'Create & Design'
+                  : isSubmitting
+                    ? 'Saving…'
+                    : 'Save Template'}
+              </span>
             </button>
           </div>
         </div>

@@ -29,6 +29,7 @@ import {
   AlignCenterVertical,
   AlignEndVertical,
   Move,
+  ShoppingCart,
 } from 'lucide-react';
 import { DocumentSettings } from '@/types/designer';
 import { ZoomControls } from './controls/ZoomControls';
@@ -67,6 +68,8 @@ interface DesignerToolbarProps {
   onExportPsd?: () => void;
   canvasManager?: CanvasManager | null;
   preflightReport?: PreflightReport | null;
+  isAdminTemplateMode?: boolean;
+  onAddToCart?: () => void;
 }
 
 export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
@@ -100,6 +103,8 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
   onExportPsd,
   canvasManager = null,
   preflightReport = null,
+  isAdminTemplateMode = false,
+  onAddToCart,
 }) => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [activeMenu, setActiveMenu] = useState<'file' | 'view' | 'export' | 'align' | null>(null);
@@ -129,13 +134,13 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
     <header className="h-14 flex-shrink-0 bg-white text-gray-800 border-b border-gray-200 flex items-center justify-between px-4 z-40 select-none shadow-xs">
       {/* Left section: Navigation, Menus & Document Title */}
       <div className="flex items-center gap-3" ref={menuRef}>
-        <Link
-          href="/"
+        <a
+          href={isAdminTemplateMode ? "/admin/templates" : "/"}
           className="p-2 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition"
-          title="Back to store"
+          title={isAdminTemplateMode ? "Back to templates" : "Back to store"}
         >
           <ArrowLeft className="w-4 h-4" />
-        </Link>
+        </a>
 
         {/* Logo / Brand Icon */}
         <div className="flex items-center gap-2 pr-2 border-r border-gray-200">
@@ -150,7 +155,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
         {/* Menus: File, View, Size */}
         <div className="flex items-center gap-1 text-xs">
           {/* File Menu */}
-          <div className="relative">
+          {/* <div className="relative">
             <button
               type="button"
               onClick={() => setActiveMenu(activeMenu === 'file' ? null : 'file')}
@@ -187,7 +192,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
                   >
                     <span className="flex items-center gap-2">
                       <Save className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Save as Design Template</span>
+                      <span>{isAdminTemplateMode ? 'Publish Template' : 'Save as Design Template'}</span>
                     </span>
                   </button>
                 )}
@@ -233,7 +238,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
                 </button>
               </div>
             )}
-          </div>
+          </div> */}
 
           {/* View Menu */}
           <div className="relative">
@@ -568,10 +573,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
 
       {/* Right Section: Inspector, Preview & Export Dropdown */}
       <div className="flex items-center gap-2" ref={exportMenuRef}>
-        <div className="hidden sm:flex items-center gap-1.5 text-xs text-gray-600 bg-gray-50 border border-gray-200 px-2.5 py-1.5 rounded-lg font-medium">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-          <span>300 DPI Print Ready</span>
-        </div>
+
 
         {onToggleProperties && (
           <button
@@ -610,6 +612,19 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
           >
             <Eye className="w-3.5 h-3.5 text-gray-500" />
             <span className="hidden md:inline">Preview</span>
+          </button>
+        )}
+
+        {/* Add to Cart Button */}
+        {onAddToCart && !isAdminTemplateMode && (
+          <button
+            type="button"
+            onClick={onAddToCart}
+            title="Add this customized print product to your cart"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition"
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            <span>Add to Cart</span>
           </button>
         )}
 

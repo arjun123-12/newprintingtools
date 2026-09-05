@@ -191,11 +191,10 @@ export function renderCanvaRotationHandle(
 }
 
 /**
- * Creates the complete set of Canva-style controls.
+ * Creates the standard Canva-style controls for Shapes, Images & Rectangles.
  */
 export function createCanvaControls(): Record<string, Control> {
   const controls: Record<string, Control> = {
-    // Corner Resize Handles (White Circles with Purple Border)
     tl: new Control({
       x: -0.5,
       y: -0.5,
@@ -225,7 +224,6 @@ export function createCanvaControls(): Record<string, Control> {
       render: renderCanvaCornerHandle,
     }),
 
-    // Side Resize Handles (White Pill/Capsules with Purple Border)
     ml: new Control({
       x: -0.5,
       y: 0,
@@ -255,7 +253,75 @@ export function createCanvaControls(): Record<string, Control> {
       render: renderCanvaSideHandle(false),
     }),
 
-    // Canva Rotation Handle with connecting stem positioned below bottom center
+    mbr: new Control({
+      x: 0,
+      y: 0.5,
+      offsetY: 34,
+      cursorStyleHandler: controlsUtils.rotationStyleHandler,
+      actionHandler: controlsUtils.rotationWithSnapping,
+      actionName: 'rotate',
+      withConnection: false,
+      render: renderCanvaRotationHandle,
+    }),
+  };
+
+  return controls;
+}
+
+/**
+ * Creates specialized Canva-style controls for Textbox elements.
+ * Side handles (`ml`, `mr`) use `changeWidth` so stretching/compressing
+ * reflows text into 1 line or breaks into multiple lines without distorting font size!
+ */
+export function createTextboxCanvaControls(): Record<string, Control> {
+  const controls: Record<string, Control> = {
+    // Corner Resize Handles (White Circles with Purple Border) - scales font size
+    tl: new Control({
+      x: -0.5,
+      y: -0.5,
+      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
+      actionHandler: controlsUtils.scalingEqually,
+      render: renderCanvaCornerHandle,
+    }),
+    tr: new Control({
+      x: 0.5,
+      y: -0.5,
+      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
+      actionHandler: controlsUtils.scalingEqually,
+      render: renderCanvaCornerHandle,
+    }),
+    bl: new Control({
+      x: -0.5,
+      y: 0.5,
+      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
+      actionHandler: controlsUtils.scalingEqually,
+      render: renderCanvaCornerHandle,
+    }),
+    br: new Control({
+      x: 0.5,
+      y: 0.5,
+      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
+      actionHandler: controlsUtils.scalingEqually,
+      render: renderCanvaCornerHandle,
+    }),
+
+    // Side Handles (White Pill/Capsules) - ONLY Left & Right side handles for Textbox using changeWidth!
+    ml: new Control({
+      x: -0.5,
+      y: 0,
+      cursorStyleHandler: controlsUtils.scaleSkewCursorStyleHandler,
+      actionHandler: controlsUtils.changeWidth,
+      render: renderCanvaSideHandle(true),
+    }),
+    mr: new Control({
+      x: 0.5,
+      y: 0,
+      cursorStyleHandler: controlsUtils.scaleSkewCursorStyleHandler,
+      actionHandler: controlsUtils.changeWidth,
+      render: renderCanvaSideHandle(true),
+    }),
+
+    // Canva Rotation Handle
     mbr: new Control({
       x: 0,
       y: 0.5,
@@ -276,7 +342,13 @@ export function createCanvaControls(): Record<string, Control> {
  */
 export function applyCanvaControlsToObject(obj: FabricObject): void {
   if (!obj) return;
-  obj.controls = createCanvaControls();
+  const isText =
+    obj instanceof Textbox ||
+    obj instanceof IText ||
+    (obj as any).type === 'textbox' ||
+    (obj as any).type === 'i-text';
+
+  obj.controls = isText ? createTextboxCanvaControls() : createCanvaControls();
   obj.borderColor = CANVA_PURPLE;
   obj.borderScaleFactor = 1.5;
   obj.borderOpacityWhenMoving = 0.95;
@@ -294,9 +366,10 @@ export function applyCanvaControlsToObject(obj: FabricObject): void {
  */
 export function applyCanvaControlsGlobal(): void {
   const canvaControls = createCanvaControls();
+  const textboxControls = createTextboxCanvaControls();
 
-  const applyDefaults = (proto: any) => {
-    proto.controls = canvaControls;
+  const applyDefaults = (proto: any, customControls?: Record<string, Control>) => {
+    proto.controls = customControls || canvaControls;
     proto.borderColor = CANVA_PURPLE;
     proto.borderScaleFactor = 1.5;
     proto.borderOpacityWhenMoving = 0.95;
@@ -309,10 +382,28 @@ export function applyCanvaControlsGlobal(): void {
     proto.padding = 0;
   };
 
+  const applyTextboxDefaults = (proto: any) => {
+    proto.controls = textboxControls;
+    proto.borderColor = CANVA_PURPLE;
+    proto.borderScaleFactor = 1.5;
+    proto.borderOpacityWhenMoving = 0.95;
+    proto.transparentCorners = false;
+    proto.cornerColor = '#ffffff';
+    proto.cornerStrokeColor = CANVA_PURPLE;
+    proto.cornerSize = 13;
+    proto.cornerStyle = 'circle';
+    proto.selectionBackgroundColor = 'transparent';
+    proto.padding = 0;
+    proto.splitByGrapheme = true;
+    proto.dynamicMinWidth = function () {
+      return 10;
+    };
+  };
+
   applyDefaults(FabricObject.prototype);
   applyDefaults(ActiveSelection.prototype);
-  applyDefaults(Textbox.prototype);
-  applyDefaults(IText.prototype);
+  applyTextboxDefaults(Textbox.prototype);
+  applyTextboxDefaults(IText.prototype);
   applyDefaults(FabricImage.prototype);
   applyDefaults(Rect.prototype);
   applyDefaults(Circle.prototype);
@@ -320,7 +411,6 @@ export function applyCanvaControlsGlobal(): void {
   applyDefaults(Path.prototype);
   applyDefaults(Group.prototype);
 
-  // Also apply to FabricObject ownDefaults if present in Fabric 7
   if ((FabricObject as any).ownDefaults) {
     applyDefaults((FabricObject as any).ownDefaults);
   }

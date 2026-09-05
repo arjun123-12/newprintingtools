@@ -1,5 +1,16 @@
 export type UnitType = 'mm' | 'px' | 'in';
 
+export type PrintSides = 'front' | 'back' | 'both';
+
+export interface PrintSettings {
+  print_sides: PrintSides;
+  width_mm: number | null;
+  height_mm: number | null;
+  margin_mm: number;
+  bleed_mm: number;
+  safe_area_mm: number;
+}
+
 export interface CanvasDimensions {
   widthPx: number;
   heightPx: number;
@@ -7,11 +18,41 @@ export interface CanvasDimensions {
   heightMm: number;
   bleedMm: number;
   safeZoneMm: number;
+  marginMm?: number;
   bleedPx: number;
   safeZonePx: number;
+  marginPx?: number;
   totalWidthPx: number;
   totalHeightPx: number;
   dpi: number;
+}
+
+export interface ArtworkConfig {
+  width: number;
+  height: number;
+  unit?: UnitType;
+  bleed?: number;
+  safeArea?: number;
+  safe_area?: number;
+  margin?: number;
+  trim?: boolean;
+  trimArea?: { width: number; height: number };
+  trim_area?: { width: number; height: number };
+  dpi?: number;
+  orientation?: 'landscape' | 'portrait';
+  printArea?: { width: number; height: number };
+  print_area?: { width: number; height: number };
+  guides?: {
+    showBleed?: boolean;
+    showSafeZone?: boolean;
+    showTrim?: boolean;
+    bleedColor?: string;
+    safeZoneColor?: string;
+    trimColor?: string;
+    [key: string]: any;
+  };
+  backgroundColor?: string;
+  name?: string;
 }
 
 export interface DocumentSettings {
@@ -21,9 +62,13 @@ export interface DocumentSettings {
   dpi: number;
   bleed: number;
   safeArea: number;
+  margin?: number;
   name?: string;
   backgroundColor?: string;
   showGuides?: boolean;
+  orientation?: 'landscape' | 'portrait';
+  trim?: boolean;
+  guides?: Partial<PrintGuidesSettings>;
 }
 
 export interface PrintGuidesSettings {
@@ -128,6 +173,11 @@ export interface SelectedObjectState {
   cropWidth?: number;
   cropHeight?: number;
   qualityInfo?: ArtworkQualityInfo;
+  backgroundRemoved?: boolean;
+  originalUrl?: string;
+  processedUrl?: string;
+  processedFileId?: string;
+  processingType?: string;
   // Frame specific properties
   isFrame?: boolean;
   frameShape?: string;
@@ -155,6 +205,9 @@ export interface UploadedAsset {
   fileSizeBytes: number;
   mimeType: string;
   createdAt: string;
+  originalFileUrl?: string;
+  originalFileName?: string;
+  fileFormat?: string;
 }
 
 export interface StockImage {
@@ -208,13 +261,28 @@ export interface FramePreset {
 export interface DesignerTemplate {
   id: string;
   title: string;
+  name?: string;
   category: string;
   description?: string;
-  thumbnailBg: string;
-  widthMm: number;
-  heightMm: number;
-  backgroundColor: string;
-  objects: Array<{
+  thumbnailBg?: string;
+  thumbnail_url?: string | null;
+  product_id?: string;
+  print_sides?: PrintSides;
+  width_mm?: number | null;
+  height_mm?: number | null;
+  margin_mm?: number;
+  bleed_mm?: number;
+  safe_area_mm?: number;
+  widthMm?: number;
+  heightMm?: number;
+  backgroundColor?: string;
+  artwork_config?: ArtworkConfig;
+  template_json?: any;
+  canvas_json?: any;
+  back_canvas_json?: any;
+  resolved_print_settings?: PrintSettings;
+  product?: any;
+  objects?: Array<{
     type: 'textbox' | 'rect' | 'circle' | 'image' | 'line' | 'triangle' | 'polygon';
     [key: string]: unknown;
   }>;
@@ -266,6 +334,7 @@ export type ActiveSidebarTab =
   | 'elements'
   | 'frames'
   | 'photos'
+  | 'icons'
   | 'text'
   | 'uploads'
   | 'draw'
@@ -298,7 +367,7 @@ export interface DesignerCanvasState {
   dimensions: CanvasDimensions;
   document: DocumentSettings;
   background_color: string;
-  canvas_json: Record<string, unknown>;
+  canvas_json: Record<string, any> | Record<string, any>[];
   created_at?: string;
   updated_at?: string;
 }

@@ -52,6 +52,33 @@ class AssetService {
    * Reads a File object, measures its natural dimensions, and adds it to the asset library
    */
   public async uploadFile(file: File): Promise<UploadedAsset> {
+    if (
+      file.type === 'image/svg+xml' ||
+      file.name.toLowerCase().endsWith('.svg')
+    ) {
+      try {
+        const { normalizeSvgFile } = await import('@/utils/svgNormalizer');
+        const normalized = await normalizeSvgFile(file);
+        const asset: UploadedAsset = {
+          id: `asset_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          name: file.name,
+          url: normalized.dataUrl,
+          naturalWidth: normalized.width,
+          naturalHeight: normalized.height,
+          fileSizeBytes: file.size,
+          mimeType: 'image/svg+xml',
+          createdAt: new Date().toISOString(),
+        };
+
+        this.assets = [asset, ...this.assets];
+        this.saveToStorage();
+        this.notify();
+        return asset;
+      } catch (err) {
+        console.warn('SVG normalization in assetService failed, falling back to image loader:', err);
+      }
+    }
+
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
 
@@ -77,19 +104,47 @@ class AssetService {
           resolve(asset);
         };
 
-        img.onerror = () => {
-          reject(new Error('Failed to decode uploaded image data'));
-        };
-
+        img.onerror = () => reject(new Error('Failed to load image.'));
         img.src = dataUrl;
       };
 
-      reader.onerror = () => {
-        reject(new Error('Failed to read file'));
-      };
-
+      reader.onerror = () => reject(new Error('Failed to read file.'));
       reader.readAsDataURL(file);
     });
+  }
+
+  public async uploadProcessedImage(
+    blob: Blob,
+    metadata: {
+      source_upload_id?: string;
+      source_provider?: string;
+      source_provider_asset_id?: string;
+    }
+  ): Promise<{ id: string; url: string; width: number; height: number; size: number }> {
+    const formData = new FormData();
+    formData.append('image', blob, 'background-removed.png');
+    formData.append('processing_type', 'remove_background');
+    if (metadata.source_upload_id) formData.append('source_upload_id', metadata.source_upload_id);
+    if (metadata.source_provider) formData.append('source_provider', metadata.source_provider);
+    if (metadata.source_provider_asset_id) formData.append('source_provider_asset_id', metadata.source_provider_asset_id);
+
+    try {
+      const { apiClient } = await import('@/services/api/client');
+      const response = await apiClient.post('/designer/uploads/processed-image', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (response.data && response.data.success) {
+        return response.data.data;
+      } else {
+        throw new Error(response.data?.message || 'Upload failed.');
+      }
+    } catch (err: any) {
+      console.error('Failed to upload processed image:', err);
+      throw new Error(err.response?.data?.message || 'Failed to upload processed image.');
+    }
   }
 
   /**

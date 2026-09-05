@@ -27,13 +27,11 @@ import { CanvasManager } from '../canvas/CanvasManager';
 import { BackgroundSettings } from '@/types/designer';
 import { ColorPicker } from '../controls/ColorPicker';
 import {
-  BACKGROUND_CATEGORIES,
   SOLID_COLOR_PALETTES,
   GRADIENT_PRESETS,
-  STOCK_BACKGROUND_IMAGES,
-  BackgroundImageItem,
   GradientPreset,
 } from '../data/backgroundsData';
+import { DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
 
 interface BackgroundPanelProps {
   canvasManager: CanvasManager | null;
@@ -56,6 +54,10 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
   ]);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [bgAssets, setBgAssets] = useState<DesignAsset[]>([]);
+  const [bgCategories, setBgCategories] = useState<DesignAssetCategory[]>([]);
+  const [loadingAssets, setLoadingAssets] = useState(true);
 
   // Sync with CanvasManager background state
   useEffect(() => {
@@ -81,15 +83,33 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
     };
   }, [canvasManager]);
 
+  useEffect(() => {
+    const fetchBackgrounds = async () => {
+      try {
+        setLoadingAssets(true);
+        const [assetsRes, catsRes] = await Promise.all([
+          designAssetService.getPublicAssets({ asset_type: 'background', per_page: 50 }),
+          designAssetService.getPublicCategories('background')
+        ]);
+        setBgAssets(assetsRes.data);
+        setBgCategories(catsRes);
+      } catch (err) {
+        console.error('Failed to load backgrounds', err);
+      } finally {
+        setLoadingAssets(false);
+      }
+    };
+    fetchBackgrounds();
+  }, []);
+
   // Filter stock backgrounds
-  const filteredBackgrounds = STOCK_BACKGROUND_IMAGES.filter((item) => {
+  const filteredBackgrounds = bgAssets.filter((item) => {
     const matchesCategory =
-      selectedCategory === 'All' || item.category.toLowerCase() === selectedCategory.toLowerCase();
+      selectedCategory === 'All' || item.category?.name?.toLowerCase() === selectedCategory.toLowerCase();
     const matchesSearch =
       !searchQuery.trim() ||
-      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase()));
+      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.category?.name?.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
 
@@ -165,7 +185,7 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
     applyGradient(type, gradientAngle, gradientStops);
   };
 
-  const handleSelectImage = async (item: BackgroundImageItem) => {
+  const handleSelectImage = async (item: any) => {
     if (!canvasManager) return;
     await canvasManager.setBackgroundImage(item.url, {
       name: item.title,
@@ -345,59 +365,70 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
             </div>
 
             {/* Category Pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar text-[11px]">
-              {BACKGROUND_CATEGORIES.map((cat) => (
+            <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar text-xs">
+              <button
+                type="button"
+                onClick={() => setSelectedCategory('All')}
+                className={`px-3 py-1.5 rounded-full font-medium whitespace-nowrap transition shadow-2xs ${
+                  selectedCategory === 'All'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                All
+              </button>
+              {bgCategories.map((cat) => (
                 <button
-                  key={cat}
+                  key={cat.id}
                   type="button"
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-2.5 py-1 rounded-full whitespace-nowrap font-medium transition ${
-                    selectedCategory === cat
-                      ? 'bg-blue-600 text-white font-semibold shadow-xs'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  onClick={() => setSelectedCategory(cat.name)}
+                  className={`px-3 py-1.5 rounded-full font-medium whitespace-nowrap transition shadow-2xs ${
+                    selectedCategory === cat.name
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
                   }`}
                 >
-                  {cat}
+                  {cat.name}
                 </button>
               ))}
             </div>
 
             {/* Background Gallery Grid */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              {filteredBackgrounds.map((bg) => (
-                <div
-                  key={bg.id}
-                  onClick={() => handleSelectImage(bg)}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData('text/plain', bg.url);
-                  }}
-                  className="group relative h-28 rounded-lg overflow-hidden border border-gray-200 cursor-pointer shadow-xs hover:shadow-md hover:border-blue-500 transition"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={bg.thumbnail}
-                    alt={bg.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
-                    <span className="text-[11px] font-medium text-white line-clamp-1">
-                      {bg.title}
-                    </span>
-                  </div>
-                  {bgSettings.type === 'image' && bgSettings.image?.url === bg.url && (
-                    <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-xs">
-                      <Check className="w-3 h-3" />
+            {loadingAssets ? (
+              <div className="flex justify-center p-4"><span className="text-xs text-gray-500">Loading...</span></div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                {filteredBackgrounds.map((bg) => (
+                  <button
+                    key={bg.id}
+                    type="button"
+                    onClick={() => handleSelectImage(bg)}
+                    className="group relative rounded-xl border border-gray-200 bg-gray-50 hover:border-purple-500 overflow-hidden cursor-pointer transition shadow-2xs aspect-[4/3]"
+                  >
+                    <img
+                      src={bg.thumbnail_url || bg.file_url}
+                      alt={bg.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
+                      <span className="text-[11px] font-medium text-white line-clamp-1">
+                        {bg.name}
+                      </span>
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                    {bgSettings.type === 'image' && bgSettings.image?.url === bg.file_url && (
+                      <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-xs">
+                        <Check className="w-3 h-3" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
 
-            {filteredBackgrounds.length === 0 && (
+            {filteredBackgrounds.length === 0 && !loadingAssets && (
               <div className="py-8 text-center text-gray-400 space-y-1">
                 <ImageIcon className="w-8 h-8 mx-auto text-gray-300" />
-                <p>No backgrounds found for &quot;{searchQuery}&quot;</p>
+                <p>No backgrounds found</p>
               </div>
             )}
           </div>

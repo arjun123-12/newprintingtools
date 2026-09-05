@@ -53,7 +53,7 @@ export const TemplateTable: React.FC<TemplateTableProps> = ({
                         {imgUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={formatImageUrl(imgUrl)}
+                            src={`${formatImageUrl(imgUrl)}?v=${template.updated_at || Date.now()}`}
                             alt={template.name}
                             className="w-full h-full object-cover"
                           />

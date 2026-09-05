@@ -45,6 +45,14 @@ class Product extends Model
         'allow_custom_design',
         'allow_customer_upload',
 
+        // Print specifications & sides
+        'print_sides',
+        'width_mm',
+        'height_mm',
+        'margin_mm',
+        'bleed_mm',
+        'safe_area_mm',
+
         // SEO
         'meta_title',
         'meta_description',
@@ -57,6 +65,13 @@ class Product extends Model
         // Numbers
         'min_quantity' => 'integer',
         'turnaround_days' => 'integer',
+
+        // Print measurements
+        'width_mm' => 'decimal:2',
+        'height_mm' => 'decimal:2',
+        'margin_mm' => 'decimal:2',
+        'bleed_mm' => 'decimal:2',
+        'safe_area_mm' => 'decimal:2',
 
         // Pricing
         'base_price' => 'decimal:2',

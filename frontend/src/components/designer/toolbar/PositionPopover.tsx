@@ -6,9 +6,9 @@ import {
   ChevronUp,
   ChevronDown,
   ChevronsDown,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
+  AlignStartHorizontal,
+  AlignEndHorizontal,
+  AlignCenterHorizontal,
   AlignStartVertical,
   AlignCenterVertical,
   AlignEndVertical,
@@ -104,7 +104,7 @@ export const PositionPopover: React.FC<PositionPopoverProps> = ({
             onClick={() => handleAlign('top')}
             className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-[10px] font-medium text-gray-700 transition shadow-2xs"
           >
-            <AlignStartVertical className="w-4 h-4 text-gray-500" />
+            <AlignStartHorizontal className="w-4 h-4 text-gray-500" />
             <span>Top</span>
           </button>
           <button
@@ -112,7 +112,7 @@ export const PositionPopover: React.FC<PositionPopoverProps> = ({
             onClick={() => handleAlign('middle')}
             className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-[10px] font-medium text-gray-700 transition shadow-2xs"
           >
-            <AlignCenterVertical className="w-4 h-4 text-gray-500" />
+            <AlignCenterHorizontal className="w-4 h-4 text-gray-500" />
             <span>Middle</span>
           </button>
           <button
@@ -120,7 +120,7 @@ export const PositionPopover: React.FC<PositionPopoverProps> = ({
             onClick={() => handleAlign('bottom')}
             className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-[10px] font-medium text-gray-700 transition shadow-2xs"
           >
-            <AlignEndVertical className="w-4 h-4 text-gray-500" />
+            <AlignEndHorizontal className="w-4 h-4 text-gray-500" />
             <span>Bottom</span>
           </button>
 
@@ -129,7 +129,7 @@ export const PositionPopover: React.FC<PositionPopoverProps> = ({
             onClick={() => handleAlign('left')}
             className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-[10px] font-medium text-gray-700 transition shadow-2xs"
           >
-            <AlignLeft className="w-4 h-4 text-gray-500" />
+            <AlignStartVertical className="w-4 h-4 text-gray-500" />
             <span>Left</span>
           </button>
           <button
@@ -137,7 +137,7 @@ export const PositionPopover: React.FC<PositionPopoverProps> = ({
             onClick={() => handleAlign('center')}
             className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-[10px] font-medium text-gray-700 transition shadow-2xs"
           >
-            <AlignCenter className="w-4 h-4 text-gray-500" />
+            <AlignCenterVertical className="w-4 h-4 text-gray-500" />
             <span>Center</span>
           </button>
           <button
@@ -145,11 +145,46 @@ export const PositionPopover: React.FC<PositionPopoverProps> = ({
             onClick={() => handleAlign('right')}
             className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-[10px] font-medium text-gray-700 transition shadow-2xs"
           >
-            <AlignRight className="w-4 h-4 text-gray-500" />
+            <AlignEndVertical className="w-4 h-4 text-gray-500" />
             <span>Right</span>
           </button>
         </div>
       </div>
+
+      <div className="border-t border-gray-100" />
+
+      {/* 2.5 Object Position (X/Y) */}
+      {selected && (
+        <div className="space-y-1.5">
+          <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">
+            Object Position
+          </span>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
+              <span className="text-[10px] font-bold text-gray-400">X</span>
+              <input
+                type="number"
+                value={Math.round(selected.left || 0)}
+                onChange={(e) => {
+                  if (canvasManager) canvasManager.updateSelectedProperty('left', Number(e.target.value) || 0);
+                }}
+                className="w-full bg-transparent text-xs font-mono font-semibold text-gray-700 focus:outline-none"
+              />
+            </div>
+            <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
+              <span className="text-[10px] font-bold text-gray-400">Y</span>
+              <input
+                type="number"
+                value={Math.round(selected.top || 0)}
+                onChange={(e) => {
+                  if (canvasManager) canvasManager.updateSelectedProperty('top', Number(e.target.value) || 0);
+                }}
+                className="w-full bg-transparent text-xs font-mono font-semibold text-gray-700 focus:outline-none"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 3. Rotation Section (Requirement 12) */}
       {selected && (

@@ -4,6 +4,7 @@ namespace App\Http\Requests\Admin\Products;
 
 use App\Enums\ProductType;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
 
 class StoreProductRequest extends FormRequest
@@ -29,6 +30,13 @@ class StoreProductRequest extends FormRequest
             'sku' => ['required', 'string', 'max:255', 'unique:products,sku'],
             'category_id' => ['required', 'exists:categories,id'],
             'product_type' => ['required', new Enum(ProductType::class)],
+
+            'print_sides' => ['nullable', Rule::in(['front', 'back', 'both'])],
+            'width_mm' => ['nullable', 'numeric', 'gt:0'],
+            'height_mm' => ['nullable', 'numeric', 'gt:0'],
+            'margin_mm' => ['nullable', 'numeric', 'min:0'],
+            'bleed_mm' => ['nullable', 'numeric', 'min:0'],
+            'safe_area_mm' => ['nullable', 'numeric', 'min:0'],
             
             'short_description' => ['nullable', 'string', 'max:500'],
             'description' => ['nullable', 'string'],

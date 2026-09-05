@@ -1,17 +1,21 @@
-import AdminSidebar from '@/components/admin/AdminSidebar';
+import type { ReactNode } from 'react';
+import AdminLayoutClient from '@/components/admin/AdminLayoutClient';
 
 export const metadata = {
   title: 'Admin Panel | PrintOps',
   description: 'Manage print operations, orders, products, and customers.',
 };
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+interface AdminLayoutProps {
+  children: ReactNode;
+}
+
+export default function AdminLayout({
+  children,
+}: AdminLayoutProps) {
   return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans">
-      <AdminSidebar />
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {children}
-      </div>
-    </div>
+    <AdminLayoutClient>
+      {children}
+    </AdminLayoutClient>
   );
 }

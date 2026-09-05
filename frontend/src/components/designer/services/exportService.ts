@@ -1,6 +1,6 @@
 import { DocumentSettings, CanvasDimensions } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
-import PDFDocument, * as PDFKitModule from 'pdfkit';
+import PDFDocument from 'pdfkit';
 import Courier from 'pdfkit/standard-fonts/Courier';
 import CourierBold from 'pdfkit/standard-fonts/CourierBold';
 import CourierBoldOblique from 'pdfkit/standard-fonts/CourierBoldOblique';
@@ -26,9 +26,7 @@ let isStdFontsRegistered = false;
 export function ensurePdfKitStandardFontsRegistered(): void {
   if (isStdFontsRegistered) return;
   try {
-    const registerFn =
-      (PDFKitModule as any).registerStdFonts ||
-      (PDFDocument as any).registerStdFonts;
+    const registerFn = (PDFDocument as any).registerStdFonts;
 
     if (typeof registerFn === 'function') {
       registerFn(
@@ -126,42 +124,24 @@ export async function exportHighResolutionImage(
  * Canvas guides, selection boxes and other UI overlays are not exported.
  */
 export async function exportVectorPdf(
-  canvasManager: CanvasManager,
+  svgs: string[],
   documentSettings: DocumentSettings,
+  width: number,
+  height: number,
   options: ExportPdfOptions = {}
 ): Promise<void> {
-  const canvas = canvasManager.getCanvas();
-  if (!canvas) {
-    throw new Error('Canvas is not initialized');
+  if (!svgs || svgs.length === 0) {
+    throw new Error('No SVG pages provided for PDF export');
   }
 
   // 1. Ensure PDFKit standard fonts are registered before instantiating any document
   ensurePdfKitStandardFontsRegistered();
 
-  // 2. Temporarily deselect, normalize zoom to 1.0, and hide editor guides
-  const activeObj = canvas.getActiveObject();
-  const wasGuidesVisible = canvasManager.getGuidesVisible();
-  const prevZoom = canvasManager.getZoom();
-
-  canvasManager.setGuidesVisible(false);
-  canvas.discardActiveObject();
-  canvasManager.setZoom(1.0);
-  canvas.requestRenderAll();
-
   try {
-    const svg = canvas.toSVG();
-    const width = canvas.getWidth();
-    const height = canvas.getHeight();
-
     const pdf = new PDFDocument({
       size: [width, height],
       margin: 0,
       autoFirstPage: false,
-    });
-
-    pdf.addPage({
-      size: [width, height],
-      margin: 0,
     });
 
     const chunks: Uint8Array[] = [];
@@ -174,47 +154,61 @@ export async function exportVectorPdf(
       pdf.on('error', (err: any) => reject(err));
     });
 
-    // Convert SVG -> PDF vectors with font mapping to registered PDF standard fonts
-    SVGtoPDF(pdf, svg, 0, 0, {
-      width,
-      height,
-      assumePt: true,
-      fontCallback: (family: string, bold: boolean, italic: boolean) => {
-        const f = (family || '').toLowerCase();
-        if (f.includes('courier') || f.includes('mono') || f.includes('code')) {
-          if (bold && italic) return 'Courier-BoldOblique';
-          if (bold) return 'Courier-Bold';
-          if (italic) return 'Courier-Oblique';
-          return 'Courier';
-        }
-        if (
-          f.includes('times') ||
-          f.includes('serif') ||
-          f.includes('georgia') ||
-          f.includes('garamond') ||
-          f.includes('playfair') ||
-          f.includes('merriweather')
-        ) {
-          if (bold && italic) return 'Times-BoldItalic';
-          if (bold) return 'Times-Bold';
-          if (italic) return 'Times-Italic';
-          return 'Times-Roman';
-        }
-        if (f.includes('symbol')) {
-          return 'Symbol';
-        }
-        if (f.includes('dingbat')) {
-          return 'ZapfDingbats';
-        }
-        if (bold && italic) return 'Helvetica-BoldOblique';
-        if (bold) return 'Helvetica-Bold';
-        if (italic) return 'Helvetica-Oblique';
-        return 'Helvetica';
-      },
-      warningCallback: (warning: string) => {
-        console.warn('SVGtoPDF warning:', warning);
-      },
-    });
+    for (let i = 0; i < svgs.length; i++) {
+      if (i > 0) {
+        pdf.addPage({
+          size: [width, height],
+          margin: 0,
+        });
+      } else {
+        pdf.addPage({
+          size: [width, height],
+          margin: 0,
+        });
+      }
+
+      // Convert SVG -> PDF vectors with font mapping to registered PDF standard fonts
+      SVGtoPDF(pdf, svgs[i], 0, 0, {
+        width,
+        height,
+        assumePt: true,
+        fontCallback: (family: string, bold: boolean, italic: boolean) => {
+          const f = (family || '').toLowerCase();
+          if (f.includes('courier') || f.includes('mono') || f.includes('code')) {
+            if (bold && italic) return 'Courier-BoldOblique';
+            if (bold) return 'Courier-Bold';
+            if (italic) return 'Courier-Oblique';
+            return 'Courier';
+          }
+          if (
+            f.includes('times') ||
+            f.includes('serif') ||
+            f.includes('georgia') ||
+            f.includes('garamond') ||
+            f.includes('playfair') ||
+            f.includes('merriweather')
+          ) {
+            if (bold && italic) return 'Times-BoldItalic';
+            if (bold) return 'Times-Bold';
+            if (italic) return 'Times-Italic';
+            return 'Times-Roman';
+          }
+          if (f.includes('symbol')) {
+            return 'Symbol';
+          }
+          if (f.includes('dingbat')) {
+            return 'ZapfDingbats';
+          }
+          if (bold && italic) return 'Helvetica-BoldOblique';
+          if (bold) return 'Helvetica-Bold';
+          if (italic) return 'Helvetica-Oblique';
+          return 'Helvetica';
+        },
+        warningCallback: (warning: string) => {
+          console.warn('SVGtoPDF warning:', warning);
+        },
+      });
+    }
 
     pdf.end();
     await endPromise;
@@ -238,14 +232,6 @@ export async function exportVectorPdf(
   } catch (error) {
     console.error('Vector PDF Export failed:', error);
     throw error;
-  } finally {
-    // 3. Restore guides & active selection
-    canvasManager.setZoom(prevZoom);
-    canvasManager.setGuidesVisible(wasGuidesVisible);
-    if (activeObj) {
-      canvas.setActiveObject(activeObj);
-    }
-    canvas.requestRenderAll();
   }
 }
 

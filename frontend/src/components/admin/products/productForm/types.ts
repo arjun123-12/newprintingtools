@@ -89,7 +89,13 @@ export interface ProductFormData {
   cost_price: number | '';
   pricing_tiers: PricingTierItem[];
 
-  // 7. Print Areas
+  // 7. Print Areas & Physical Specifications
+  print_sides: 'front' | 'back' | 'both';
+  width_mm: number | null;
+  height_mm: number | null;
+  margin_mm: number;
+  bleed_mm: number;
+  safe_area_mm: number;
   print_areas: PrintAreaItem[];
 
   // 8. Design Templates

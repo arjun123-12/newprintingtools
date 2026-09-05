@@ -47,7 +47,10 @@ class ProductController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $product = Product::with(['category', 'images'])->findOrFail($id);
+        $product = Product::with(['category', 'images'])
+            ->where('id', $id)
+            ->orWhere('slug', $id)
+            ->firstOrFail();
 
         return response()->json([
             'success' => true,

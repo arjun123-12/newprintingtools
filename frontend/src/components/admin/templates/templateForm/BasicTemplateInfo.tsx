@@ -10,6 +10,7 @@ interface BasicTemplateInfoProps {
   errors: TemplateFormErrors;
   products: ProductOption[];
   productsLoading?: boolean;
+  onProductSelect?: (productId: string) => void;
 }
 
 const TEMPLATE_CATEGORIES = [
@@ -30,6 +31,7 @@ export const BasicTemplateInfo: React.FC<BasicTemplateInfoProps> = ({
   errors,
   products,
   productsLoading,
+  onProductSelect,
 }) => {
   return (
     <FormSection
@@ -56,7 +58,11 @@ export const BasicTemplateInfo: React.FC<BasicTemplateInfoProps> = ({
           error={errors.product_id}
           placeholder={productsLoading ? 'Loading products…' : 'Select target product'}
           options={products.map((p) => ({ value: p.id, label: p.name }))}
-          onChange={(e) => setFormData((prev) => ({ ...prev, product_id: e.target.value }))}
+          onChange={(e) => {
+            const val = e.target.value;
+            setFormData((prev) => ({ ...prev, product_id: val }));
+            onProductSelect?.(val);
+          }}
           helperText="Determines canvas trim dimensions, bleed margins, and preflight rules."
         />
 

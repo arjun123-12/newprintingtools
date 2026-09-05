@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   TemplateTable,
 } from '@/components/admin/templates/TemplateTable';
@@ -25,11 +26,56 @@ import {
   List,
 } from 'lucide-react';
 
-const API_URL =
+const API_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
-  'http://127.0.0.1:8000/api/v1';
+  'http://127.0.0.1:8000/api/v1'
+).replace(/\/$/, '');
+
+type UnknownRecord = Record<string, any>;
+
+function findArray(
+  payload: UnknownRecord | null,
+  collectionKey: string
+): UnknownRecord[] {
+  const candidates = [
+    payload,
+    payload?.data,
+    payload?.data?.data,
+    payload?.data?.[collectionKey],
+    payload?.[collectionKey],
+  ];
+
+  const collection = candidates.find(Array.isArray);
+  return Array.isArray(collection) ? collection : [];
+}
+
+function normalizeTemplates(payload: UnknownRecord): TemplateListItem[] {
+  return findArray(payload, 'templates').map((template) => ({
+    ...template,
+    id: String(template.id),
+    product_id: String(
+      template.product_id ?? template.product?.id ?? ''
+    ),
+    name: String(template.name ?? 'Untitled Template'),
+    category: template.category ?? null,
+    thumbnail_url: template.thumbnail_url ?? null,
+    is_active:
+      template.is_active === true ||
+      template.is_active === 1 ||
+      template.is_active === '1',
+  })) as TemplateListItem[];
+}
+
+function normalizeProducts(payload: UnknownRecord): ProductOption[] {
+  return findArray(payload, 'products').map((product) => ({
+    id: String(product.id),
+    name: String(product.name ?? 'Unnamed Product'),
+    slug: product.slug ? String(product.slug) : undefined,
+  })) as ProductOption[];
+}
 
 export default function AdminTemplatesPage() {
+  const router = useRouter();
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -44,7 +90,17 @@ export default function AdminTemplatesPage() {
     status: '',
   });
 
-  const loadData = async (isRefresh = false) => {
+  const getToken = useCallback(() => {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem('auth_token');
+  }, []);
+
+  const handleUnauthorized = useCallback(() => {
+    localStorage.removeItem('auth_token');
+    router.replace('/admin/login');
+  }, [router]);
+
+  const loadData = useCallback(async (isRefresh = false) => {
     try {
       if (isRefresh) {
         setRefreshing(true);
@@ -53,29 +109,58 @@ export default function AdminTemplatesPage() {
       }
       setError(null);
 
+      const token = getToken();
+
+      if (!token) {
+        handleUnauthorized();
+        throw new Error('Please log in to view design templates.');
+      }
+
+      const authHeaders = {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      };
+
       const [tplRes, prodRes] = await Promise.all([
-        fetch(`${API_URL}/admin/templates`, {
-          headers: { Accept: 'application/json' },
+        fetch(`${API_URL}/admin/design-templates`, {
+          headers: authHeaders,
+          cache: 'no-store',
         }),
         fetch(`${API_URL}/admin/products`, {
-          headers: { Accept: 'application/json' },
+          headers: authHeaders,
+          cache: 'no-store',
         }),
       ]);
 
-      const tplData = await tplRes.json();
-      const prodData = await prodRes.json();
-
-      if (tplData.success && Array.isArray(tplData.data)) {
-        setTemplates(tplData.data);
-      } else if (Array.isArray(tplData)) {
-        setTemplates(tplData);
+      if (tplRes.status === 401 || prodRes.status === 401) {
+        handleUnauthorized();
+        throw new Error('Your login session has expired.');
       }
 
-      if (prodData.success && Array.isArray(prodData.data)) {
-        setProducts(prodData.data.map((p: any) => ({ id: p.id, name: p.name, slug: p.slug })));
-      } else if (Array.isArray(prodData)) {
-        setProducts(prodData.map((p: any) => ({ id: p.id, name: p.name, slug: p.slug })));
+      const [tplData, prodData] = await Promise.all([
+        tplRes.json().catch(() => null),
+        prodRes.json().catch(() => null),
+      ]);
+
+      if (!tplRes.ok) {
+        throw new Error(
+          tplData?.message ??
+          `Could not load templates (${tplRes.status}).`
+        );
       }
+
+      if (!prodRes.ok) {
+        throw new Error(
+          prodData?.message ??
+          `Could not load products (${prodRes.status}).`
+        );
+      }
+
+      const normalizedTemplates = normalizeTemplates(tplData ?? {});
+      const normalizedProducts = normalizeProducts(prodData ?? {});
+
+      setTemplates(normalizedTemplates);
+      setProducts(normalizedProducts);
     } catch (err: any) {
       console.error('Failed to load design templates:', err);
       setError(err.message || 'Could not load templates from backend.');
@@ -83,11 +168,11 @@ export default function AdminTemplatesPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [getToken, handleUnauthorized]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [loadData]);
 
   const handleToggleActive = async (template: TemplateListItem) => {
     const nextState = !template.is_active;
@@ -97,17 +182,32 @@ export default function AdminTemplatesPage() {
     );
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getToken();
 
-      await fetch(`${API_URL}/admin/templates/${template.id}`, {
+      if (!token) {
+        handleUnauthorized();
+        throw new Error('Please log in again.');
+      }
+
+      const response = await fetch(`${API_URL}/admin/design-templates/${template.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ is_active: nextState }),
       });
+
+      if (response.status === 401) {
+        handleUnauthorized();
+        throw new Error('Your login session has expired.');
+      }
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.message ?? 'Could not update template.');
+      }
     } catch (err) {
       console.error('Error updating template status:', err);
       setTemplates((prev) =>
@@ -121,15 +221,30 @@ export default function AdminTemplatesPage() {
     setTemplates((prev) => prev.filter((t) => t.id !== templateId));
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getToken();
 
-      await fetch(`${API_URL}/admin/templates/${templateId}`, {
+      if (!token) {
+        handleUnauthorized();
+        throw new Error('Please log in again.');
+      }
+
+      const response = await fetch(`${API_URL}/admin/design-templates/${templateId}`, {
         method: 'DELETE',
         headers: {
           Accept: 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
       });
+
+      if (response.status === 401) {
+        handleUnauthorized();
+        throw new Error('Your login session has expired.');
+      }
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.message ?? 'Could not delete template.');
+      }
     } catch (err) {
       console.error('Error deleting template:', err);
       setTemplates(previous);
@@ -187,11 +302,10 @@ export default function AdminTemplatesPage() {
             <button
               type="button"
               onClick={() => setViewMode('grid')}
-              className={`p-1.5 rounded-md transition-colors ${
-                viewMode === 'grid'
-                  ? 'bg-gray-100 text-blue-600 font-bold'
-                  : 'text-gray-400 hover:text-gray-700'
-              }`}
+              className={`p-1.5 rounded-md transition-colors ${viewMode === 'grid'
+                ? 'bg-gray-100 text-blue-600 font-bold'
+                : 'text-gray-400 hover:text-gray-700'
+                }`}
               title="Grid view"
             >
               <LayoutGrid className="w-4 h-4" />
@@ -199,11 +313,10 @@ export default function AdminTemplatesPage() {
             <button
               type="button"
               onClick={() => setViewMode('table')}
-              className={`p-1.5 rounded-md transition-colors ${
-                viewMode === 'table'
-                  ? 'bg-gray-100 text-blue-600 font-bold'
-                  : 'text-gray-400 hover:text-gray-700'
-              }`}
+              className={`p-1.5 rounded-md transition-colors ${viewMode === 'table'
+                ? 'bg-gray-100 text-blue-600 font-bold'
+                : 'text-gray-400 hover:text-gray-700'
+                }`}
               title="Table view"
             >
               <List className="w-4 h-4" />

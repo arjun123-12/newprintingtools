@@ -11,16 +11,19 @@ import {
   Layers,
   Paintbrush,
   Wallpaper,
+  ImagePlus,
   ChevronLeft,
+  Smile,
 } from 'lucide-react';
 import { ActiveSidebarTab, SelectedObjectState, DesignerTemplate } from '@/types/designer';
 import { CanvasManager } from './canvas/CanvasManager';
 import { TemplatesPanel } from './panels/TemplatesPanel';
 import { ElementsPanel } from './panels/ElementsPanel';
 import { FramesPanel } from './panels/FramesPanel';
-import { TextPanel } from './panels/TextPanel';
 import { StockPhotosPanel } from './panels/StockPhotosPanel';
 import { UploadsPanel } from './panels/UploadsPanel';
+import { IconsPanel } from './panels/IconsPanel';
+import { TextPanel } from './panels/TextPanel';
 import { BrushPanel } from './panels/BrushPanel';
 import { LayersPanel } from './panels/LayersPanel';
 import { BackgroundPanel } from './panels/BackgroundPanel';
@@ -47,6 +50,7 @@ interface TabItem {
 const SIDEBAR_TABS: TabItem[] = [
   { id: 'templates', label: 'Templates', icon: LayoutTemplate },
   { id: 'elements', label: 'Elements', icon: Sparkles },
+  { id: 'icons', label: 'Icons', icon: Smile },
   { id: 'frames', label: 'Frames', icon: Crop },
   { id: 'photos', label: 'Photos', icon: ImageIcon },
   { id: 'text', label: 'Text', icon: Type },
@@ -84,8 +88,8 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   };
 
   const getPanelTitle = () => {
-    if (activeTab === 'frames') return 'Photo Frames';
     if (activeTab === 'photos') return 'Stock Photos';
+    if (activeTab === 'icons') return 'Icons Library';
     if (activeTab === 'draw') return 'Illustrator Draw';
     if (activeTab === 'border') return 'Stroke';
     return activeTab;
@@ -179,8 +183,9 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
               <ElementsPanel canvasManager={canvasManager} onSelectTab={onSelectTab} />
             )}
             {activeTab === 'frames' && <FramesPanel canvasManager={canvasManager} />}
+            {activeTab === 'icons' && <IconsPanel canvasManager={canvasManager} />}
             {activeTab === 'photos' && <StockPhotosPanel canvasManager={canvasManager} />}
-            {activeTab === 'text' && <TextPanel canvasManager={canvasManager} />}
+            {activeTab === 'text' && <TextPanel canvasManager={canvasManager} selected={selected} />}
             {activeTab === 'uploads' && <UploadsPanel canvasManager={canvasManager} />}
             {activeTab === 'background' && <BackgroundPanel canvasManager={canvasManager} />}
             {activeTab === 'layers' && (

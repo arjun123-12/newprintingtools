@@ -175,27 +175,33 @@ export class CanvasGuides {
     }
 
     // =========================================================================
-    // 3. SAFE AREA MARGIN (Green dashed line - inner margin to protect text/logos)
+    // 3. SAFE AREA MARGIN (Canva-style dashed margin line to protect content)
     // =========================================================================
-    if (this.settings.showSafeZone && (safeZonePx > 0 || this.dimensions.safeZoneMm > 0)) {
-      const safeOffset = safeZonePx > 0 ? safeZonePx : 35;
-      const safeLeft = trimX + safeOffset;
-      const safeTop = trimY + safeOffset;
-      const safeWidth = Math.max(trimW - safeOffset * 2, 10);
-      const safeHeight = Math.max(trimH - safeOffset * 2, 10);
+    const activeMarginPx =
+      this.dimensions.marginPx !== undefined && this.dimensions.marginPx > 0
+        ? this.dimensions.marginPx
+        : (safeZonePx > 0 ? safeZonePx : 35);
+    const activeMarginMm =
+      this.dimensions.marginMm !== undefined
+        ? this.dimensions.marginMm
+        : (this.dimensions.safeZoneMm || 3);
+
+    if (this.settings.showSafeZone && (activeMarginPx > 0 || activeMarginMm > 0)) {
+      const safeLeft = trimX + activeMarginPx;
+      const safeTop = trimY + activeMarginPx;
+      const safeWidth = Math.max(trimW - activeMarginPx * 2, 10);
+      const safeHeight = Math.max(trimH - activeMarginPx * 2, 10);
 
       ctx.save();
-      ctx.strokeStyle = this.settings.safeZoneColor || 'rgba(16, 185, 129, 0.85)';
-      ctx.lineWidth = Math.max(1.5 / zoom, 1);
-      ctx.setLineDash([5 / zoom, 5 / zoom]);
+      ctx.strokeStyle = this.settings.safeZoneColor || 'rgba(99, 102, 241, 0.85)';
+      ctx.lineWidth = Math.max(1.2 / zoom, 1);
+      ctx.setLineDash([4 / zoom, 4 / zoom]);
       ctx.strokeRect(safeLeft, safeTop, safeWidth, safeHeight);
 
-      // Safe Zone Tag
-      const safeMm = this.dimensions.safeZoneMm || 3;
-      const safeText = '';
-      ctx.font = `bold ${Math.max(9 / zoom, 7.5)}px sans-serif`;
-      ctx.fillStyle = 'rgba(16, 185, 129, 0.9)';
-      ctx.fillText(safeText, safeLeft + 6 / zoom, safeTop + 12 / zoom);
+      // Canva-style subtle Margin Tag in top-left
+      ctx.font = `600 ${Math.max(9 / zoom, 8)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      ctx.fillStyle = 'rgba(99, 102, 241, 0.9)';
+      ctx.fillText(``, safeLeft + 6 / zoom, safeTop + 13 / zoom);
       ctx.restore();
     }
 
