@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import {
   ArrowRight,
   Check,
@@ -415,10 +416,13 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
                   style={{ background: template.thumbnailBg }}
                 >
                   {template.thumbnailUrl && (
-                    <img
+                    <Image
                       src={template.thumbnailUrl}
-                      alt=""
-                      className="absolute inset-0 h-full w-full object-cover"
+                      alt={template.title || 'Template thumbnail'}
+                      fill
+                      unoptimized
+                      sizes="(max-width: 768px) 100vw, 320px"
+                      className="object-cover"
                     />
                   )}
 

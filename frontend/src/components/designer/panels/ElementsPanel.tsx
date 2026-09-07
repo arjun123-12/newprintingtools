@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Image from 'next/image';
 import {
   Shapes, Search, Loader2, Plus, AlertTriangle, RefreshCw, ChevronDown, X,
 } from 'lucide-react';
@@ -577,18 +578,20 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager }) =
                         : `${asset.width} / ${asset.height}`,
                     }}
                   >
-                    <img
+                    <Image
                       src={
                         asset.provider === 'admin'
                           ? formatImageUrl(asset.thumbnail_url)
                           : asset.thumbnail_url
                       }
                       alt={asset.title}
-                      className={`max-w-full max-h-full transition-transform duration-200 group-hover:scale-105 ${asset.is_vector || asset.asset_type === 'icon' || asset.asset_type === 'element'
+                      fill
+                      unoptimized
+                      sizes="(max-width: 768px) 50vw, 200px"
+                      className={`p-2 transition-transform duration-200 group-hover:scale-105 ${asset.is_vector || asset.asset_type === 'icon' || asset.asset_type === 'element'
                           ? 'object-contain'
-                          : 'object-cover w-full h-full rounded-lg'
+                          : 'object-cover rounded-lg'
                         }`}
-                      loading="lazy"
                       draggable={false}
                     />
 

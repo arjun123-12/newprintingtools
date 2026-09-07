@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { ChevronDown, ChevronUp, Plus, Trash2, Copy } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 
@@ -70,12 +71,15 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
             `}
           >
             {/* Thumbnail */}
-            <div className="w-full h-full bg-white flex items-center justify-center">
+            <div className="w-full h-full bg-white flex items-center justify-center relative">
               {page.thumbnail ? (
-                <img
+                <Image
                   src={page.thumbnail}
                   alt={`Page ${idx + 1}`}
-                  className="w-full h-full object-contain"
+                  fill
+                  unoptimized
+                  sizes="128px"
+                  className="object-contain"
                 />
               ) : (
                 <span className="text-gray-400 text-xs font-medium">Page {idx + 1}</span>

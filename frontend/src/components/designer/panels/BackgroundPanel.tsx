@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import NextImage from 'next/image';
 import {
   Search,
   UploadCloud,
@@ -398,30 +399,38 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
               <div className="flex justify-center p-4"><span className="text-xs text-gray-500">Loading...</span></div>
             ) : (
               <div className="grid grid-cols-2 gap-2 mt-2">
-                {filteredBackgrounds.map((bg) => (
-                  <button
-                    key={bg.id}
-                    type="button"
-                    onClick={() => handleSelectImage(bg)}
-                    className="group relative rounded-xl border border-gray-200 bg-gray-50 hover:border-purple-500 overflow-hidden cursor-pointer transition shadow-2xs aspect-[4/3]"
-                  >
-                    <img
-                      src={bg.thumbnail_url || bg.file_url}
-                      alt={bg.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
-                      <span className="text-[11px] font-medium text-white line-clamp-1">
-                        {bg.name}
-                      </span>
-                    </div>
-                    {bgSettings.type === 'image' && bgSettings.image?.url === bg.file_url && (
-                      <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-xs">
-                        <Check className="w-3 h-3" />
+                {filteredBackgrounds.map((bg) => {
+                  const bgUrl = bg.thumbnail_url || bg.file_url;
+                  return (
+                    <button
+                      key={bg.id}
+                      type="button"
+                      onClick={() => handleSelectImage(bg)}
+                      className="group relative rounded-xl border border-gray-200 bg-gray-50 hover:border-purple-500 overflow-hidden cursor-pointer transition shadow-2xs aspect-[4/3]"
+                    >
+                      {bgUrl && (
+                        <NextImage
+                          src={bgUrl}
+                          alt={bg.name}
+                          fill
+                          unoptimized
+                          sizes="(max-width: 768px) 50vw, 200px"
+                          className="object-cover group-hover:scale-105 transition duration-200"
+                        />
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
+                        <span className="text-[11px] font-medium text-white line-clamp-1">
+                          {bg.name}
+                        </span>
                       </div>
-                    )}
-                  </button>
-                ))}
+                      {bgSettings.type === 'image' && bgSettings.image?.url === bg.file_url && (
+                        <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-xs">
+                          <Check className="w-3 h-3" />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
 

@@ -57,7 +57,7 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
     setLocalX(Math.round(selected.left || 0));
     setLocalY(Math.round(selected.top || 0));
     setLocalAngle(Math.round(selected.angle || 0));
-  }, [selected?.id, selected?.left, selected?.top, selected?.width, selected?.height, selected?.scaleX, selected?.scaleY, selected?.angle]);
+  }, [selected]);
 
   const handleAlign = (type: AlignmentType) => {
     if (!canvasManager) return;

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { Search, Loader2, Plus, Grid2X2, List, Sparkles } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { freepikService, FreepikAsset } from '@/services/freepikService';
@@ -147,7 +148,14 @@ export const IconsPanel: React.FC<IconsPanelProps> = ({ canvasManager }) => {
                 className={`group relative rounded-xl border border-gray-200 bg-white hover:border-[#8b5cf6] overflow-hidden cursor-pointer transition shadow-2xs ${viewMode === 'grid' ? 'aspect-square flex flex-col' : 'flex items-center p-2 gap-3 hover:bg-purple-50/40'}`}
               >
                 <div className={`shrink-0 overflow-hidden bg-gray-100 rounded-lg relative flex items-center justify-center ${viewMode === 'grid' ? 'w-full h-full' : 'w-14 h-14'}`}>
-                  <img src={img.thumbnail_url} alt={img.title} className="w-3/4 h-3/4 object-contain group-hover:scale-110 transition duration-200" loading="lazy" />
+                  <Image
+                    src={img.thumbnail_url}
+                    alt={img.title}
+                    fill
+                    unoptimized
+                    sizes={viewMode === 'grid' ? '(max-width: 768px) 50vw, 150px' : '56px'}
+                    className="p-2 object-contain group-hover:scale-110 transition duration-200"
+                  />
                   {viewMode === 'grid' && (
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
                       <button

@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
+import Image from 'next/image';
 import { AssetType, DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
 import { Package, Plus, Search, Trash2, Edit, RefreshCw, FolderPlus, CheckCircle, XCircle, FileText, ImageIcon } from 'lucide-react';
 import { EmptyState, LoadingState, ErrorState } from '@/components/admin/shared';
 import { DesignAssetForm } from '@/components/admin/designer/DesignAssetForm';
 import { AssetCategoryForm } from '@/components/admin/designer/AssetCategoryForm';
 import { formatImageUrl } from '@/utils/imageUrl';
+import { useDebounce } from '@/hooks/useDebounce';
 
 type TabType = 'all' | AssetType | 'category';
 
@@ -64,12 +66,17 @@ const AssetCardMedia: React.FC<{ asset: DesignAsset }> = ({ asset }) => {
 
   if (targetUrl && !imgError) {
     return (
-      <img
-        src={formatImageUrl(targetUrl)}
-        alt={asset.name}
-        onError={() => setImgError(true)}
-        className="w-full h-full object-contain group-hover:scale-105 transition duration-200"
-      />
+      <div className="relative w-full h-full">
+        <Image
+          src={formatImageUrl(targetUrl)}
+          alt={asset.name}
+          fill
+          unoptimized
+          sizes="(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 16vw"
+          onError={() => setImgError(true)}
+          className="object-contain p-2 group-hover:scale-105 transition duration-200"
+        />
+      </div>
     );
   }
 
@@ -84,6 +91,7 @@ const AssetCardMedia: React.FC<{ asset: DesignAsset }> = ({ asset }) => {
 export default function AdminAssetsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebounce(searchQuery, 300);
   
   // Categories State
   const [categories, setCategories] = useState<DesignAssetCategory[]>([]);
@@ -100,7 +108,7 @@ export default function AdminAssetsPage() {
   const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<DesignAsset | null>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -115,8 +123,8 @@ export default function AdminAssetsPage() {
         if (activeTab !== 'all') {
           queryParams.asset_type = activeTab;
         }
-        if (searchQuery.trim()) {
-          queryParams.search = searchQuery.trim();
+        if (debouncedSearch.trim()) {
+          queryParams.search = debouncedSearch.trim();
         }
         const data = await designAssetService.getAdminAssets(queryParams);
         setAssets(data.data);
@@ -127,11 +135,11 @@ export default function AdminAssetsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeTab, debouncedSearch]);
 
   useEffect(() => {
     loadData();
-  }, [activeTab]);
+  }, [loadData]);
 
   const handleAddAssetClick = () => {
     setEditingAsset(null);

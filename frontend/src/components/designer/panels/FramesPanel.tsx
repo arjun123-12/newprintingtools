@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import NextImage from 'next/image';
 import { Search, Shapes, Image as ImageIcon } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
@@ -120,32 +121,42 @@ export const FramesPanel: React.FC<FramesPanelProps> = ({ canvasManager }) => {
           <EmptyState title="No frames found" />
         ) : (
           <div className="grid grid-cols-3 gap-3">
-            {filteredFrames.map((frame) => (
-              <button
-                key={frame.id}
-                onClick={() => handleAddFrame(frame)}
-                className="group relative flex flex-col items-center justify-center p-2 rounded-2xl border border-gray-200 bg-white hover:border-indigo-400 hover:shadow-md transition-all overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-indigo-50/0 group-hover:bg-indigo-50/50 transition-colors z-0" />
-                
-                <div className="relative z-10 w-full aspect-square flex items-center justify-center p-2">
-                  {frame.thumbnail_url || frame.file_url ? (
-                    <img src={frame.thumbnail_url || frame.file_url} alt={frame.name} className="w-full h-full object-contain drop-shadow-sm group-hover:scale-105 transition-transform" />
-                  ) : (
-                    <Shapes className="w-8 h-8 text-indigo-300 group-hover:scale-110 transition-transform" />
-                  )}
-                </div>
-                
-                <div className="w-full mt-2 text-center relative z-10">
-                  <span className="text-[10px] font-bold text-gray-700 block truncate px-1">
-                    {frame.name}
-                  </span>
-                  <span className="text-[9px] text-gray-400 truncate hidden group-hover:block">
-                    {frame.category?.name || 'Frame'}
-                  </span>
-                </div>
-              </button>
-            ))}
+            {filteredFrames.map((frame) => {
+              const frameUrl = frame.thumbnail_url || frame.file_url;
+              return (
+                <button
+                  key={frame.id}
+                  onClick={() => handleAddFrame(frame)}
+                  className="group relative flex flex-col items-center justify-center p-2 rounded-2xl border border-gray-200 bg-white hover:border-indigo-400 hover:shadow-md transition-all overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-indigo-50/0 group-hover:bg-indigo-50/50 transition-colors z-0" />
+                  
+                  <div className="relative z-10 w-full aspect-square flex items-center justify-center p-2">
+                    {frameUrl ? (
+                      <NextImage
+                        src={frameUrl}
+                        alt={frame.name}
+                        fill
+                        unoptimized
+                        sizes="(max-width: 768px) 33vw, 150px"
+                        className="p-2 object-contain drop-shadow-sm group-hover:scale-105 transition-transform"
+                      />
+                    ) : (
+                      <Shapes className="w-8 h-8 text-indigo-300 group-hover:scale-110 transition-transform" />
+                    )}
+                  </div>
+                  
+                  <div className="w-full mt-2 text-center relative z-10">
+                    <span className="text-[10px] font-bold text-gray-700 block truncate px-1">
+                      {frame.name}
+                    </span>
+                    <span className="text-[9px] text-gray-400 truncate hidden group-hover:block">
+                      {frame.category?.name || 'Frame'}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

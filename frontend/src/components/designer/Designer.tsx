@@ -174,6 +174,7 @@ export default function Designer({
 
   const artworkIdRef = useRef<string | null>(null);
   const designTemplateIdRef = useRef<string | null>(null);
+  const loadedTemplateKeyRef = useRef<string | null>(null);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveInProgressRef = useRef<boolean>(false);
   const saveQueuedRef = useRef<boolean>(false);
@@ -906,7 +907,7 @@ export default function Designer({
     } finally {
       saveInProgressRef.current = false;
     }
-  }, [handleSaveAdminTemplate, mode, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState]);
+  }, [handleSaveAdminTemplate, mode, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex]);
 
   const handleAddToCartClick = useCallback(async () => {
     if (canvasManagerRef.current) {
@@ -1009,11 +1010,18 @@ export default function Designer({
 
     if (!activeTmplId || !canvasManager) return;
 
+    const prodId = productId || productIdRef.current || 'default';
+    const currentMode = mode || '';
+    const loadKey = `${activeTmplId}:${prodId}:${currentMode}`;
+
+    if (loadedTemplateKeyRef.current === loadKey) {
+      return;
+    }
+
     let isMounted = true;
     const fetchTemplate = async () => {
       try {
         const authToken = localStorage.getItem('auth_token') || localStorage.getItem('token');
-        const prodId = productId || productIdRef.current || 'default';
         const isAdminMode =
           mode === 'admin-template' ||
           (typeof window !== 'undefined' &&
@@ -1053,6 +1061,7 @@ export default function Designer({
         if (!res.ok) return;
         const result = await res.json();
         if (result.success && result.data && isMounted) {
+          loadedTemplateKeyRef.current = loadKey;
           designTemplateIdRef.current = String(result.data.id);
 
           const loadedProductId =
@@ -1219,7 +1228,7 @@ export default function Designer({
     return () => {
       isMounted = false;
     };
-  }, [templateId, canvasManager]);
+  }, [templateId, canvasManager, mode, productId]);
 
   // Load artwork from DB if artworkIdProp is provided
   useEffect(() => {
