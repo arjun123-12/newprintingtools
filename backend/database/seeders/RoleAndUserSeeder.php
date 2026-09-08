@@ -12,12 +12,12 @@ class RoleAndUserSeeder extends Seeder
     public function run(): void
     {
         // 1. Super Admin Account
-        $admin = User::firstOrCreate(
+        $admin = User::updateOrCreate(
             ['email' => 'admin@printecommerce.com.au'],
             [
                 'name' => 'Print Operations Admin',
                 'phone' => '1300 000 789',
-                'company_name' => 'Print Ecommerce  Pty Ltd',
+                'company_name' => 'Print Ecommerce Pty Ltd',
                 'abn' => '12345678901',
                 'role' => 'admin',
                 'password' => Hash::make('SecretAdmin2026!'),

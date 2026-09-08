@@ -7,32 +7,23 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class ProductPrintArea extends Model
+class DesignTemplatePage extends Model
 {
     use HasFactory, HasUuids;
 
     protected $fillable = [
-        'product_id',
+        'design_template_id',
         'product_side_id',
-        'name',
-        'side',
-        'width_mm',
-        'height_mm',
-        'bleed_mm',
-        'safe_zone_mm',
-        'cut_line_color',
+        'canvas_json',
     ];
 
     protected $casts = [
-        'width_mm' => 'decimal:2',
-        'height_mm' => 'decimal:2',
-        'bleed_mm' => 'decimal:2',
-        'safe_zone_mm' => 'decimal:2',
+        'canvas_json' => 'array',
     ];
 
-    public function product(): BelongsTo
+    public function template(): BelongsTo
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo(DesignTemplate::class, 'design_template_id');
     }
 
     public function productSide(): BelongsTo

@@ -44,14 +44,26 @@ export interface VariantItem {
 }
 
 export interface PrintAreaItem {
-  id: string;
+  id?: string;
   name: string;
-  side: 'front' | 'back' | 'custom';
   width_mm: number;
   height_mm: number;
   bleed_mm: number;
   safe_zone_mm: number;
-  dpi: number;
+}
+
+export interface ProductSideItem {
+  id?: string;
+  side_number: number;
+  name: string;
+  type: string;
+  sort_order: number;
+  is_active: boolean;
+  background_color?: string;
+  background_image_url?: string;
+  preview_image_url?: string;
+  mockup_image_url?: string;
+  print_areas: PrintAreaItem[];
 }
 
 export interface ProductFormData {
@@ -68,7 +80,10 @@ export interface ProductFormData {
 
   // 3. Media
   featured_image_url: string;
-  gallery_images: string[];
+  media: {
+    front: string[];
+    back: string[];
+  };
 
   // 4. Configuration
   min_quantity: number;
@@ -89,14 +104,14 @@ export interface ProductFormData {
   cost_price: number | '';
   pricing_tiers: PricingTierItem[];
 
-  // 7. Print Areas & Physical Specifications
-  print_sides: 'front' | 'back' | 'both';
+  // 7. Dynamic Sides & Physical Specifications
+  sides_count: number;
+  sides: ProductSideItem[];
   width_mm: number | null;
   height_mm: number | null;
   margin_mm: number;
   bleed_mm: number;
   safe_area_mm: number;
-  print_areas: PrintAreaItem[];
 
   // 8. Design Templates
   design_template_ids: string[];

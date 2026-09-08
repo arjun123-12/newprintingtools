@@ -13,6 +13,9 @@ class Product extends Model
 {
     use HasFactory, HasUuids;
 
+    /**
+     * Fields that can be mass assigned.
+     */
     protected $fillable = [
         // Basic information
         'category_id',
@@ -23,7 +26,7 @@ class Product extends Model
         'description',
         'product_type',
 
-        // Quantity / production
+        // Quantity and production
         'min_quantity',
         'turnaround_days',
 
@@ -45,7 +48,7 @@ class Product extends Model
         'allow_custom_design',
         'allow_customer_upload',
 
-        // Print specifications & sides
+        // Print specifications
         'print_sides',
         'width_mm',
         'height_mm',
@@ -58,13 +61,17 @@ class Product extends Model
         'meta_description',
     ];
 
+    /**
+     * Attribute type casting.
+     */
     protected $casts = [
         // Enum
         'product_type' => ProductType::class,
 
-        // Numbers
+        // Integers
         'min_quantity' => 'integer',
         'turnaround_days' => 'integer',
+        'print_sides' => 'integer',
 
         // Print measurements
         'width_mm' => 'decimal:2',
@@ -78,7 +85,7 @@ class Product extends Model
         'sale_price' => 'decimal:2',
         'cost_price' => 'decimal:2',
 
-        // Boolean
+        // Booleans
         'is_active' => 'boolean',
         'is_featured' => 'boolean',
         'allow_custom_design' => 'boolean',
@@ -145,12 +152,21 @@ class Product extends Model
     }
 
     /**
- * Product gallery and featured images.
- */
-public function images(): HasMany
-{
-    return $this->hasMany(ProductImage::class)
-        ->orderByDesc('is_featured')
-        ->orderBy('sort_order');
-}
-}
+     * Product printable sides.
+     */
+    public function sides(): HasMany
+    {
+        return $this->hasMany(ProductSide::class)
+            ->orderBy('sort_order');
+    }
+
+    /**
+     * Product gallery and featured images.
+     */
+    public function images(): HasMany
+    {
+        return $this->hasMany(ProductImage::class)
+            ->orderByDesc('is_featured')
+            ->orderBy('sort_order');
+    }
+} // 

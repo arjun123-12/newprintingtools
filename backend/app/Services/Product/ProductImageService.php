@@ -22,14 +22,17 @@ class ProductImageService
         
         $image = ProductImage::create($data);
 
-        // Also update product's featured_image_url
-        $product = Product::find($productId);
-        if ($product) {
-            $isFeatured = !empty($data['is_featured']);
-            if ($isFeatured || empty($product->featured_image_url)) {
-                $product->update([
-                    'featured_image_url' => $url,
-                ]);
+        // Also update product's featured_image_url if this is a front image
+        $side = $data['side'] ?? 'front';
+        if ($side === 'front') {
+            $product = Product::find($productId);
+            if ($product) {
+                $isFeatured = !empty($data['is_featured']);
+                if ($isFeatured || empty($product->featured_image_url)) {
+                    $product->update([
+                        'featured_image_url' => $url,
+                    ]);
+                }
             }
         }
 

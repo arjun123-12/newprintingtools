@@ -34,7 +34,10 @@ class DesignerController extends Controller
             $query->where('product_id', $product->id);
         }
 
-        $templates = $query->with('product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm')->latest()->get();
+        $templates = $query->with([
+            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm',
+            'pages.productSide',
+        ])->latest()->get();
 
         return response()->json([
             'success' => true,
@@ -63,7 +66,10 @@ class DesignerController extends Controller
             ->where('id', $templateId)
             ->where('product_id', $product->id)
             ->where('is_active', true)
-            ->with('product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm')
+            ->with([
+                'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm',
+                'pages.productSide',
+            ])
             ->first();
 
         if (!$template) {

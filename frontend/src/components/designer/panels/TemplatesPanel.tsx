@@ -27,7 +27,7 @@ interface TemplatesPanelProps {
   productId: string;
 
   /** Callback fired when a template has been selected and applied to the canvas. */
-  onApplyTemplate?: (template: DesignerTemplate) => void;
+  onApplyTemplate?: (template: DesignerTemplate) => void | Promise<void>;
 }
 
 type ApiTemplate = Partial<DesignerTemplate> & {
@@ -99,6 +99,10 @@ function normalizeTemplate(row: ApiTemplate): PanelTemplate {
       designData.thumbnailBg ??
       DEFAULT_THUMBNAIL_BACKGROUND,
     thumbnailUrl: formattedThumb,
+    canvas_json: row.canvas_json ?? (designData as any).canvas_json ?? designData,
+    back_canvas_json: (row as any).back_canvas_json ?? (designData as any).back_canvas_json,
+    pages: (row as any).pages ?? (designData as any).pages,
+    print_sides: (row as any).print_sides ?? (designData as any).print_sides,
   } as PanelTemplate;
 }
 
@@ -297,12 +301,15 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
 
     try {
       setError('');
-      if ((template as any).artwork_config) {
-        canvasManager.initializeArtwork((template as any).artwork_config);
-      }
-      await canvasManager.loadTemplate(template);
       setActiveTemplateId(template.id);
-      onApplyTemplate?.(template);
+      if (onApplyTemplate) {
+        await onApplyTemplate(template);
+      } else {
+        if ((template as any).artwork_config) {
+          canvasManager.initializeArtwork((template as any).artwork_config);
+        }
+        await canvasManager.loadTemplate(template);
+      }
     } catch (applyError) {
       console.error('Template apply error:', applyError);
       setError('Could not apply this template to the canvas.');

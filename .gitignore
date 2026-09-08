@@ -64,5 +64,11 @@ backend/public/storage/*
 !backend/public/storage/.gitignore
 backend/test*.php
 
+# Large archives, dumps, and build info
+*.zip
+*.sql
+*.tsbuildinfo
+
 # Turborepo
 .turbo/
+

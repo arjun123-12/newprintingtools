@@ -28,6 +28,7 @@ import { ArtworkPreviewModal } from './controls/ArtworkPreviewModal';
 import { CustomBannerSizeModal } from './controls/CustomBannerSizeModal';
 import { AddToCartModal } from './controls/AddToCartModal';
 import { PageManagerTray, PageData } from './controls/PageManagerTray';
+import { renderCanvasJsonToThumbnail } from './utils/canvasThumbnail';
 import {
   updateTemplateDesign,
 } from '@/services/designTemplateService';
@@ -109,6 +110,100 @@ type ArtworkSaveStatus =
 
 const AUTOSAVE_DELAY_MS = 1500;
 
+function extractTemplatePages(
+  template: any,
+  defaultBackgroundColor: string = '#ffffff'
+): { pages: PageData[]; sideNames: string[]; printSides: PrintSides } {
+  const defaultEmptyCanvas = {
+    version: '6.0.0',
+    objects: [],
+    background: defaultBackgroundColor,
+  };
+
+  const pages: PageData[] = [];
+  const sideNames: string[] = [];
+
+  // 1. Check if template has an array of pages (e.g. from design_template_pages)
+  if (Array.isArray(template.pages) && template.pages.length > 0) {
+    template.pages.forEach((p: any, idx: number) => {
+      const pJson = p.canvas_json ?? p.template_json ?? (p.objects ? p : defaultEmptyCanvas);
+      const parsedJson = typeof pJson === 'string' ? JSON.parse(pJson) : pJson;
+      const name = p.product_side?.name ?? p.name ?? (template.pages.length === 2 ? (idx === 0 ? 'Front' : 'Back') : `Page ${idx + 1}`);
+      pages.push({
+        id: String(p.id || `page-${idx}-${Date.now()}`),
+        thumbnail: p.preview_image_url || p.thumbnail_url || (idx === 0 ? template.thumbnail_url : null) || null,
+        canvasJson: parsedJson || defaultEmptyCanvas,
+      });
+      sideNames.push(name);
+    });
+  }
+  // 2. Check if canvas_json itself is an array of page objects
+  else if (Array.isArray(template.canvas_json) && template.canvas_json.length > 0) {
+    template.canvas_json.forEach((cJson: any, idx: number) => {
+      const parsedJson = typeof cJson === 'string' ? JSON.parse(cJson) : cJson;
+      pages.push({
+        id: `page-${idx}-${Date.now()}`,
+        thumbnail: idx === 0 ? template.thumbnail_url || null : null,
+        canvasJson: parsedJson || defaultEmptyCanvas,
+      });
+      sideNames.push(template.canvas_json.length === 2 ? (idx === 0 ? 'Front' : 'Back') : `Page ${idx + 1}`);
+    });
+  }
+  // 3. Check if back_canvas_json exists (2 sides: Front & Back)
+  else if (template.back_canvas_json && Object.keys(template.back_canvas_json).length > 0) {
+    const frontJson = template.canvas_json ?? template.template_json ?? defaultEmptyCanvas;
+    const backJson = template.back_canvas_json;
+    const parsedFront = typeof frontJson === 'string' ? JSON.parse(frontJson) : frontJson;
+    const parsedBack = typeof backJson === 'string' ? JSON.parse(backJson) : backJson;
+
+    pages.push({
+      id: `page-front-${Date.now()}`,
+      thumbnail: template.thumbnail_url || null,
+      canvasJson: parsedFront || defaultEmptyCanvas,
+    });
+    pages.push({
+      id: `page-back-${Date.now() + 1}`,
+      thumbnail: null,
+      canvasJson: parsedBack || defaultEmptyCanvas,
+    });
+    sideNames.push('Front', 'Back');
+  }
+  // 4. Check if print_sides is explicitly 'both' (2 sides: Front & Back)
+  else if (template.print_sides === 'both') {
+    const frontJson = template.canvas_json ?? template.template_json ?? defaultEmptyCanvas;
+    const backJson = template.back_canvas_json || defaultEmptyCanvas;
+    const parsedFront = typeof frontJson === 'string' ? JSON.parse(frontJson) : frontJson;
+    const parsedBack = typeof backJson === 'string' ? JSON.parse(backJson) : backJson;
+
+    pages.push({
+      id: `page-front-${Date.now()}`,
+      thumbnail: template.thumbnail_url || null,
+      canvasJson: parsedFront || defaultEmptyCanvas,
+    });
+    pages.push({
+      id: `page-back-${Date.now() + 1}`,
+      thumbnail: null,
+      canvasJson: parsedBack || defaultEmptyCanvas,
+    });
+    sideNames.push('Front', 'Back');
+  }
+  // 5. Default single page (1 side: Front)
+  else {
+    const frontJson = template.canvas_json ?? template.template_json ?? defaultEmptyCanvas;
+    const parsedFront = typeof frontJson === 'string' ? JSON.parse(frontJson) : frontJson;
+    pages.push({
+      id: `page-front-${Date.now()}`,
+      thumbnail: template.thumbnail_url || null,
+      canvasJson: parsedFront || defaultEmptyCanvas,
+    });
+    sideNames.push('Front');
+  }
+
+  const printSides: PrintSides = pages.length > 1 ? (template.print_sides === 'back' ? 'back' : 'both') : 'front';
+
+  return { pages, sideNames, printSides };
+}
+
 export default function Designer({
   productId,
   templateId,
@@ -153,6 +248,7 @@ export default function Designer({
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
   const [printSides, setPrintSides] = useState<PrintSides>('front');
   const [activeSide, setActiveSide] = useState<'front' | 'back'>('front');
+  const [sideNames, setSideNames] = useState<string[]>([]);
 
   const canvasManagerRef = useRef<CanvasManager | null>(null);
   const dimensionsRef = useRef<CanvasDimensions>(dimensions);
@@ -534,26 +630,6 @@ export default function Designer({
     return updatedPages;
   }, [activePageIndex, pages]);
 
-  const handlePageSelect = useCallback(async (index: number) => {
-    if (index === activePageIndex) return;
-    if (!canvasManagerRef.current) return;
-
-    // Save current before switching
-    await getCurrentPagesState();
-
-    setActivePageIndex(index);
-    if (printSides === 'both') {
-      setActiveSide(index === 0 ? 'front' : 'back');
-    }
-    const nextPage = pages[index] || pages[0]; // fallback
-    if (nextPage) {
-      await canvasManagerRef.current.loadTemplate({
-        canvas_json: nextPage.canvasJson,
-        backgroundColor: documentSettingsRef.current.backgroundColor,
-      } as any);
-    }
-  }, [activePageIndex, pages, getCurrentPagesState, printSides]);
-
   const handleSwitchSide = useCallback(async (targetSide: 'front' | 'back') => {
     if (targetSide === activeSide) return;
     if (!canvasManagerRef.current) return;
@@ -562,11 +638,10 @@ export default function Designer({
     const currentPages = await getCurrentPagesState();
 
     const targetIndex = targetSide === 'front' ? 0 : 1;
-    let targetPage = currentPages[targetIndex];
 
-    if (!targetPage) {
-      targetPage = {
-        id: `page-${targetSide}-${Date.now()}`,
+    if (targetIndex === 1 && currentPages.length < 2) {
+      const newPage: PageData = {
+        id: `page-back-${Date.now()}`,
         thumbnail: null,
         canvasJson: {
           version: '6.0.0',
@@ -574,18 +649,53 @@ export default function Designer({
           background: documentSettingsRef.current.backgroundColor || '#ffffff',
         },
       };
-      currentPages[targetIndex] = targetPage;
-      setPages([...currentPages]);
+      const updated = [...currentPages, newPage];
+      setPages(updated);
+      setSideNames(['Front', 'Back']);
+      setActiveSide('back');
+      setActivePageIndex(1);
+      await canvasManagerRef.current.loadTemplate({
+        canvas_json: newPage.canvasJson,
+        backgroundColor: documentSettingsRef.current.backgroundColor,
+      } as any);
+      return;
     }
 
+    if (targetIndex === activePageIndex) return;
     setActiveSide(targetSide);
     setActivePageIndex(targetIndex);
 
-    await canvasManagerRef.current.loadTemplate({
-      canvas_json: targetPage.canvasJson,
-      backgroundColor: documentSettingsRef.current.backgroundColor,
-    } as any);
-  }, [activeSide, getCurrentPagesState]);
+    const targetPage = currentPages[targetIndex];
+    if (targetPage) {
+      await canvasManagerRef.current.loadTemplate({
+        canvas_json: targetPage.canvasJson,
+        backgroundColor: documentSettingsRef.current.backgroundColor,
+      } as any);
+    }
+  }, [activeSide, activePageIndex, getCurrentPagesState]);
+
+  const handlePageSelect = useCallback(async (index: number) => {
+    if (index === activePageIndex) return;
+    if (!canvasManagerRef.current) return;
+
+    // Snapshot current active canvas to pages before switching
+    const currentPages = await getCurrentPagesState();
+
+    if (index === 0) {
+      setActiveSide('front');
+    } else if (index === 1 && currentPages.length === 2) {
+      setActiveSide('back');
+    }
+
+    setActivePageIndex(index);
+    const nextPage = currentPages[index] || currentPages[0];
+    if (nextPage) {
+      await canvasManagerRef.current.loadTemplate({
+        canvas_json: nextPage.canvasJson,
+        backgroundColor: documentSettingsRef.current.backgroundColor,
+      } as any);
+    }
+  }, [activePageIndex, getCurrentPagesState]);
 
   const handleAddPage = useCallback(async () => {
     const updatedPages = await getCurrentPagesState();
@@ -600,9 +710,22 @@ export default function Designer({
       },
     };
 
-    setPages([...updatedPages, newPage]);
-    handlePageSelect(updatedPages.length);
-  }, [getCurrentPagesState, handlePageSelect]);
+    const newPages = [...updatedPages, newPage];
+    setPages(newPages);
+    setSideNames((prev) => [...prev, `Page ${newPages.length}`]);
+    const newIndex = updatedPages.length;
+    setActivePageIndex(newIndex);
+    if (newPages.length > 2) {
+      setPrintSides('both');
+    }
+
+    if (canvasManagerRef.current) {
+      await canvasManagerRef.current.loadTemplate({
+        canvas_json: newPage.canvasJson,
+        backgroundColor: documentSettingsRef.current.backgroundColor || '#ffffff',
+      } as any);
+    }
+  }, [getCurrentPagesState]);
 
   const handleDuplicatePage = useCallback(async (index: number) => {
     const updatedPages = await getCurrentPagesState();
@@ -619,8 +742,21 @@ export default function Designer({
     const newPages = [...updatedPages];
     newPages.splice(index + 1, 0, newPage);
     setPages(newPages);
-    handlePageSelect(index + 1);
-  }, [getCurrentPagesState, handlePageSelect]);
+    setSideNames((prev) => {
+      const next = [...prev];
+      next.splice(index + 1, 0, `Page ${newPages.length}`);
+      return next;
+    });
+
+    const newIndex = index + 1;
+    setActivePageIndex(newIndex);
+    if (canvasManagerRef.current) {
+      await canvasManagerRef.current.loadTemplate({
+        canvas_json: newPage.canvasJson,
+        backgroundColor: documentSettingsRef.current.backgroundColor || '#ffffff',
+      } as any);
+    }
+  }, [getCurrentPagesState]);
 
   const handleDeletePage = useCallback(async (index: number) => {
     if (pages.length <= 1) return; // Cannot delete the last page
@@ -628,11 +764,21 @@ export default function Designer({
     const updatedPages = await getCurrentPagesState();
     const newPages = updatedPages.filter((_, i) => i !== index);
     setPages(newPages);
+    setSideNames((prev) => prev.filter((_, i) => i !== index));
+
+    if (newPages.length === 1) {
+      setPrintSides('front');
+    }
 
     if (activePageIndex === index) {
       // If we deleted the active page, switch to the previous one (or first one)
       const nextIndex = Math.max(0, index - 1);
       setActivePageIndex(nextIndex);
+      if (nextIndex === 0) {
+        setActiveSide('front');
+      } else if (nextIndex === 1 && newPages.length === 2) {
+        setActiveSide('back');
+      }
       if (canvasManagerRef.current && newPages[nextIndex]) {
         await canvasManagerRef.current.loadTemplate({
           canvas_json: newPages[nextIndex].canvasJson,
@@ -1143,79 +1289,61 @@ export default function Designer({
             setIsAutoFit(true);
           }
 
-          // 2. Load template JSON after canvas is dynamically initialized with correct dimensions
-          const defaultEmptyCanvas = {
-            version: '6.0.0',
-            objects: [],
-            background: templateArtworkConfig.backgroundColor,
-          };
+          // 2. Load template pages dynamically using extractTemplatePages
+          const extracted = extractTemplatePages(
+            t,
+            templateArtworkConfig.backgroundColor
+          );
+          setPages(extracted.pages);
+          setSideNames(extracted.sideNames);
+          setActivePageIndex(0);
+          setActiveSide('front');
+          setPrintSides(extracted.printSides);
 
-          const frontJson = t.canvas_json ?? t.template_json ?? defaultEmptyCanvas;
-          const backJson = t.back_canvas_json ?? null;
+          // Render thumbnails for non-active pages (like Back side) asynchronously
+          extracted.pages.forEach((p, idx) => {
+            if (idx > 0 && !p.thumbnail && p.canvasJson && (p.canvasJson.objects?.length > 0 || p.canvasJson.background)) {
+              void renderCanvasJsonToThumbnail(
+                p.canvasJson,
+                Math.round(dimensionsRef.current?.widthPx ? dimensionsRef.current.widthPx * 0.25 : 320),
+                Math.round(dimensionsRef.current?.heightPx ? dimensionsRef.current.heightPx * 0.25 : 200),
+                templateArtworkConfig.backgroundColor
+              ).then((thumb) => {
+                if (thumb) {
+                  setPages((prev) => {
+                    const next = [...prev];
+                    if (next[idx]) {
+                      next[idx] = { ...next[idx], thumbnail: thumb };
+                    }
+                    return next;
+                  });
+                }
+              });
+            }
+          });
 
-          if (resolvedSides === 'both') {
-            const initialPages: PageData[] = [
-              {
-                id: `page-front-${Date.now()}`,
-                thumbnail: null,
-                canvasJson: frontJson,
-              },
-              {
-                id: `page-back-${Date.now() + 1}`,
-                thumbnail: null,
-                canvasJson: backJson || defaultEmptyCanvas,
-              },
-            ];
-            setPages(initialPages);
-            setActivePageIndex(0);
-            setActiveSide('front');
-
+          const firstPage = extracted.pages[0];
+          if (firstPage) {
             await canvasManager.loadTemplate({
               id: String(t.id),
               title: t.name,
               category: t.category || 'Corporate',
-              template_json: initialPages[0].canvasJson,
-              canvas_json: initialPages[0].canvasJson,
+              template_json: firstPage.canvasJson,
+              canvas_json: firstPage.canvasJson,
+              backgroundColor: templateArtworkConfig.backgroundColor,
             } as any);
-          } else if (resolvedSides === 'back') {
-            const initialPages: PageData[] = [
-              {
-                id: `page-back-${Date.now()}`,
-                thumbnail: null,
-                canvasJson: backJson || frontJson,
-              },
-            ];
-            setPages(initialPages);
-            setActivePageIndex(0);
-            setActiveSide('back');
 
-            await canvasManager.loadTemplate({
-              id: String(t.id),
-              title: t.name,
-              category: t.category || 'Corporate',
-              template_json: initialPages[0].canvasJson,
-              canvas_json: initialPages[0].canvasJson,
-            } as any);
-          } else {
-            // Front only (default)
-            const initialPages: PageData[] = [
-              {
-                id: `page-front-${Date.now()}`,
-                thumbnail: null,
-                canvasJson: frontJson,
-              },
-            ];
-            setPages(initialPages);
-            setActivePageIndex(0);
-            setActiveSide('front');
-
-            await canvasManager.loadTemplate({
-              id: String(t.id),
-              title: t.name,
-              category: t.category || 'Corporate',
-              template_json: initialPages[0].canvasJson,
-              canvas_json: initialPages[0].canvasJson,
-            } as any);
+            // Generate first page thumbnail immediately
+            const frontThumb = await canvasManager.getCleanPreviewDataUrl(0.35);
+            if (frontThumb) {
+              setPages((prev) => {
+                const next = [...prev];
+                if (next[0]) {
+                  next[0] = { ...next[0], thumbnail: frontThumb };
+                }
+                return next;
+              });
+            }
           }
         }
       } catch (err) {
@@ -1429,8 +1557,8 @@ export default function Designer({
     }
   }, [handleSaveAdminTemplate, mode, uploadBase64ImagesInCanvas, replaceEmbeddedImageSourcesInJson]);
 
-  // Template apply handler (tracks design_template_id, applies dynamic artwork configuration, and triggers autosave)
-  const handleApplyTemplate = useCallback((template: DesignerTemplate | any) => {
+  // Template apply handler (tracks design_template_id, applies dynamic artwork configuration, updates pages, and triggers autosave)
+  const handleApplyTemplate = useCallback(async (template: DesignerTemplate | any) => {
     designTemplateIdRef.current = String(template.id);
     const templateTitle = template.title || template.name;
     if (templateTitle) {
@@ -1488,11 +1616,39 @@ export default function Designer({
         '#ffffff',
     };
 
-    const resolvedPrintSides = (
-      template.print_sides ?? product.print_sides ?? 'front'
-    ) as PrintSides;
-    setPrintSides(resolvedPrintSides);
-    setActiveSide(resolvedPrintSides === 'back' ? 'back' : 'front');
+    // Extract pages from the selected template (1 page -> 1, 2 pages -> 2, 3 pages -> 3, etc.)
+    const extracted = extractTemplatePages(
+      template,
+      templateArtworkConfig.backgroundColor
+    );
+
+    setPages(extracted.pages);
+    setSideNames(extracted.sideNames);
+    setActivePageIndex(0);
+    setActiveSide('front');
+    setPrintSides(extracted.printSides);
+
+    // Render thumbnails for non-active pages (like Back side) asynchronously
+    extracted.pages.forEach((p, idx) => {
+      if (idx > 0 && !p.thumbnail && p.canvasJson && (p.canvasJson.objects?.length > 0 || p.canvasJson.background)) {
+        void renderCanvasJsonToThumbnail(
+          p.canvasJson,
+          Math.round(dimensionsRef.current?.widthPx ? dimensionsRef.current.widthPx * 0.25 : 320),
+          Math.round(dimensionsRef.current?.heightPx ? dimensionsRef.current.heightPx * 0.25 : 200),
+          templateArtworkConfig.backgroundColor
+        ).then((thumb) => {
+          if (thumb) {
+            setPages((prev) => {
+              const next = [...prev];
+              if (next[idx]) {
+                next[idx] = { ...next[idx], thumbnail: thumb };
+              }
+              return next;
+            });
+          }
+        });
+      }
+    });
 
     if (canvasManagerRef.current) {
       const newDocSettings = canvasManagerRef.current.initializeArtwork(templateArtworkConfig);
@@ -1506,6 +1662,31 @@ export default function Designer({
       if (w > 0 && h > 0) {
         canvasManagerRef.current.fitToViewport(w, h, 32, 48);
         setIsAutoFit(true);
+      }
+
+      // Load first page of the template onto canvas
+      const firstPage = extracted.pages[0];
+      if (firstPage) {
+        await canvasManagerRef.current.loadTemplate({
+          id: String(template.id),
+          title: templateTitle,
+          category: template.category || 'Corporate',
+          template_json: firstPage.canvasJson,
+          canvas_json: firstPage.canvasJson,
+          backgroundColor: templateArtworkConfig.backgroundColor,
+        } as any);
+
+        // Generate first page thumbnail immediately
+        const frontThumb = await canvasManagerRef.current.getCleanPreviewDataUrl(0.35);
+        if (frontThumb) {
+          setPages((prev) => {
+            const next = [...prev];
+            if (next[0]) {
+              next[0] = { ...next[0], thumbnail: frontThumb };
+            }
+            return next;
+          });
+        }
       }
     }
 
@@ -1881,8 +2062,8 @@ export default function Designer({
               </div>
             )}
 
-          {/* Front / Back Side Switcher for print_sides === 'both' */}
-          {printSides === 'both' && (
+          {/* Front / Back Side Switcher for print_sides === 'both' and 2 pages */}
+          {printSides === 'both' && pages.length === 2 && (
             <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center bg-white/95 backdrop-blur-md px-1.5 py-1 rounded-2xl shadow-lg border border-gray-200">
               <button
                 type="button"
@@ -1929,7 +2110,23 @@ export default function Designer({
             onAddPage={handleAddPage}
             onDuplicatePage={handleDuplicatePage}
             onDeletePage={handleDeletePage}
+            onUpdatePageThumbnail={(idx, thumb) => {
+              setPages((prev) => {
+                if (prev[idx]?.thumbnail === thumb) return prev;
+                const next = [...prev];
+                if (next[idx]) {
+                  next[idx] = { ...next[idx], thumbnail: thumb };
+                }
+                return next;
+              });
+            }}
+            onOpenPreview={async () => {
+              await getCurrentPagesState();
+              setIsPreviewOpen(true);
+            }}
             canvasManager={canvasManager}
+            printSides={printSides}
+            sideNames={sideNames}
           />
 
           {/* Inline Ready for Print Preflight Checklist Card */}
@@ -1980,6 +2177,9 @@ export default function Designer({
         dimensions={dimensions}
         canvasManager={canvasManager}
         preflightReport={preflightReport}
+        pages={pages}
+        activePageIndex={activePageIndex}
+        printSides={printSides}
         onExportPdf={handleExportPdf}
         onExportPng={handleExportPng}
         onExportJpg={handleExportJpg}

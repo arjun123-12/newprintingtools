@@ -48,11 +48,6 @@ class UpdateProductRequest extends FormRequest
                 'required',
                 new Enum(ProductType::class),
             ],
-            'print_sides' => [
-                'sometimes',
-                'nullable',
-                Rule::in(['front', 'back', 'both']),
-            ],
             'width_mm' => [
                 'sometimes',
                 'nullable',
@@ -136,6 +131,29 @@ class UpdateProductRequest extends FormRequest
                 'nullable',
                 'string',
             ],
+            'sides' => [
+                'sometimes',
+                'nullable',
+                'array',
+            ],
+            'sides.*.id' => ['nullable', 'string'],
+            'sides.*.side_number' => ['required_with:sides', 'integer'],
+            'sides.*.name' => ['required_with:sides', 'string', 'max:255'],
+            'sides.*.type' => ['required_with:sides', 'string', 'max:50'],
+            'sides.*.sort_order' => ['nullable', 'integer'],
+            'sides.*.is_active' => ['nullable', 'boolean'],
+            'sides.*.background_color' => ['nullable', 'string', 'max:50'],
+            'sides.*.background_image_url' => ['nullable', 'string', 'max:500'],
+            'sides.*.preview_image_url' => ['nullable', 'string', 'max:500'],
+            'sides.*.mockup_image_url' => ['nullable', 'string', 'max:500'],
+            
+            'sides.*.print_areas' => ['nullable', 'array'],
+            'sides.*.print_areas.*.id' => ['nullable', 'string'],
+            'sides.*.print_areas.*.name' => ['required_with:sides.*.print_areas', 'string', 'max:255'],
+            'sides.*.print_areas.*.width_mm' => ['nullable', 'numeric', 'min:0'],
+            'sides.*.print_areas.*.height_mm' => ['nullable', 'numeric', 'min:0'],
+            'sides.*.print_areas.*.bleed_mm' => ['nullable', 'numeric', 'min:0'],
+            'sides.*.print_areas.*.safe_zone_mm' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 }

@@ -21,6 +21,8 @@ import { DocumentSettings, CanvasDimensions } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { PreflightReport } from '../utils/preflightCheck';
 import { Artwork3DViewer } from './Artwork3DViewer';
+import { PageData } from './PageManagerTray';
+import { renderCanvasJsonToThumbnail } from '../utils/canvasThumbnail';
 
 interface ArtworkPreviewModalProps {
   isOpen: boolean;
@@ -29,6 +31,9 @@ interface ArtworkPreviewModalProps {
   dimensions: CanvasDimensions;
   canvasManager: CanvasManager | null;
   preflightReport: PreflightReport | null;
+  pages?: PageData[];
+  activePageIndex?: number;
+  printSides?: string;
   onExportPdf?: () => void;
   onExportPng: () => void;
   onExportJpg: () => void;
@@ -60,6 +65,9 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
   dimensions,
   canvasManager,
   preflightReport,
+  pages,
+  activePageIndex = 0,
+  printSides = 'both',
   onExportPdf,
   onExportPng,
   onExportJpg,
@@ -67,10 +75,29 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(null);
+  const [resolvedBackThumb, setResolvedBackThumb] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<PreviewMode>('3d');
+  const [selectedPageIndex, setSelectedPageIndex] = useState<number>(activePageIndex || 0);
   const [previewZoom, setPreviewZoom] = useState<number>(1.0);
   const [baseFitZoom, setBaseFitZoom] = useState<number>(1.0);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Synchronize Back side thumbnail from pages or render offscreen
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (pages && pages[1]) {
+      if (pages[1].thumbnail) {
+        setResolvedBackThumb(pages[1].thumbnail);
+      } else if (pages[1].canvasJson) {
+        void renderCanvasJsonToThumbnail(pages[1].canvasJson, 800, 500).then((thumb) => {
+          if (thumb) setResolvedBackThumb(thumb);
+        });
+      }
+    } else {
+      setResolvedBackThumb(null);
+    }
+  }, [isOpen, pages]);
 
   // Keep the clean preview synchronized with edits made on the live Fabric canvas.
   useEffect(() => {
@@ -261,6 +288,26 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
             </button>
           </div>
 
+          {/* 2D Side Switcher (Front / Back / Pages) */}
+          {viewMode !== '3d' && pages && pages.length > 1 && (
+            <div className="flex items-center bg-slate-800/90 p-1 rounded-xl border border-slate-700 text-xs">
+              {pages.map((p, idx) => (
+                <button
+                  key={p.id || idx}
+                  type="button"
+                  onClick={() => setSelectedPageIndex(idx)}
+                  className={`px-3 py-1.5 rounded-lg font-semibold transition ${
+                    selectedPageIndex === idx
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {idx === 0 ? 'Front' : idx === 1 ? 'Back' : `Page ${idx + 1}`}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* 2D Zoom Controls (shown only when in 2D modes) */}
           {viewMode !== '3d' && (
             <div className="flex items-center bg-slate-800/90 rounded-xl border border-slate-700 p-1 text-xs">
@@ -363,11 +410,31 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
             <div className="w-9 h-9 border-3 border-purple-500 border-t-transparent rounded-full animate-spin" />
             <p className="text-xs font-medium">Generating crystal-clear 3D presentation...</p>
           </div>
-        ) : previewDataUrl ? (
-          viewMode === '3d' ? (
+        ) : (previewDataUrl || (pages && pages[0]?.thumbnail)) ? (() => {
+          const frontPreviewUrl =
+            (activePageIndex === 0 && previewDataUrl) ||
+            pages?.[0]?.thumbnail ||
+            previewDataUrl ||
+            '';
+
+          const backPreviewUrl =
+            (activePageIndex === 1 && previewDataUrl) ||
+            resolvedBackThumb ||
+            pages?.[1]?.thumbnail ||
+            null;
+
+          const current2dUrl =
+            selectedPageIndex === 0
+              ? frontPreviewUrl
+              : selectedPageIndex === 1
+              ? backPreviewUrl || frontPreviewUrl
+              : pages?.[selectedPageIndex]?.thumbnail || frontPreviewUrl;
+
+          return viewMode === '3d' ? (
             /* 3D INTERACTIVE PRESENTATION VIEW */
             <Artwork3DViewer
-              previewUrl={previewDataUrl}
+              previewUrl={frontPreviewUrl}
+              backPreviewUrl={backPreviewUrl}
               documentSettings={documentSettings}
               dimensions={dimensions}
             />
@@ -393,7 +460,7 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={previewDataUrl}
+                      src={current2dUrl}
                       alt="Artwork Print Preview"
                       className="block max-w-none select-none pointer-events-none absolute"
                       style={{
@@ -415,7 +482,7 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={previewDataUrl}
+                      src={current2dUrl}
                       alt="Artwork Print Preview"
                       className="block max-w-none select-none pointer-events-none"
                       style={{
@@ -437,8 +504,8 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
                 )}
               </div>
             </div>
-          )
-        ) : (
+          );
+        })() : (
           <div className="text-slate-400 text-sm">Unable to render artwork preview.</div>
         )}
       </div>

@@ -84,4 +84,9 @@ class DesignTemplate extends Model
     {
         return $this->hasMany(Artwork::class, 'template_id');
     }
+
+    public function pages(): HasMany
+    {
+        return $this->hasMany(DesignTemplatePage::class);
+    }
 }

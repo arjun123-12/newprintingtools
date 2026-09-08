@@ -24,8 +24,26 @@ class ProductController extends Controller
      */
     public function store(StoreProductRequest $request): JsonResponse
     {
-        $product = $this->productService->createProduct($request->validated());
-        $product->load(['category', 'images']);
+        $validated = $request->validated();
+        $sides = $validated['sides'] ?? [];
+        unset($validated['sides']);
+
+        $product = $this->productService->createProduct($validated);
+        
+        if (!empty($sides)) {
+            foreach ($sides as $sideData) {
+                $printAreas = $sideData['print_areas'] ?? [];
+                unset($sideData['print_areas']);
+                
+                $side = $product->sides()->create($sideData);
+                
+                if (!empty($printAreas)) {
+                    $side->printAreas()->createMany($printAreas);
+                }
+            }
+        }
+        
+        $product->load(['category', 'images', 'sides.printAreas']);
 
         return response()->json([
             'success' => true,
@@ -33,9 +51,10 @@ class ProductController extends Controller
             'data' => new ProductResource($product)
         ], 201);
     }
+    
     public function index(): JsonResponse
     {
-        $products = Product::with(['category', 'images'])
+        $products = Product::with(['category', 'images', 'sides.printAreas'])
             ->orderByDesc('created_at')
             ->get();
 
@@ -47,7 +66,7 @@ class ProductController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $product = Product::with(['category', 'images'])
+        $product = Product::with(['category', 'images', 'sides.printAreas'])
             ->where('id', $id)
             ->orWhere('slug', $id)
             ->firstOrFail();
@@ -64,8 +83,29 @@ class ProductController extends Controller
     ): JsonResponse {
         $product = Product::findOrFail($id);
 
-        $product->update($request->validated());
-        $product->load(['category', 'images']);
+        $validated = $request->validated();
+        
+        DB::transaction(function () use ($product, $validated) {
+            if (isset($validated['sides'])) {
+                // Delete existing sides and let cascade drop print areas and template pages
+                $product->sides()->delete();
+                
+                foreach ($validated['sides'] as $sideData) {
+                    $printAreas = $sideData['print_areas'] ?? [];
+                    unset($sideData['print_areas']);
+                    
+                    $side = $product->sides()->create($sideData);
+                    
+                    if (!empty($printAreas)) {
+                        $side->printAreas()->createMany($printAreas);
+                    }
+                }
+                unset($validated['sides']);
+            }
+            $product->update($validated);
+        });
+        
+        $product->load(['category', 'images', 'sides.printAreas']);
 
         return response()->json([
             'success' => true,

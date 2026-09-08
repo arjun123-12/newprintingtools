@@ -55,7 +55,10 @@ const defaultInitialForm: ProductFormData = {
   short_description: '',
   description: '',
   featured_image_url: '',
-  gallery_images: [],
+  media: {
+    front: [],
+    back: [],
+  },
   min_quantity: 1,
   turnaround_days: 3,
   allow_custom_design: true,
@@ -69,13 +72,22 @@ const defaultInitialForm: ProductFormData = {
   sale_price: '',
   cost_price: '',
   pricing_tiers: [],
-  print_sides: 'front',
+  sides_count: 1,
+  sides: [
+    {
+      side_number: 1,
+      name: 'Front',
+      type: 'front',
+      sort_order: 1,
+      is_active: true,
+      print_areas: [],
+    }
+  ],
   width_mm: null,
   height_mm: null,
   margin_mm: 0,
   bleed_mm: 0,
   safe_area_mm: 0,
-  print_areas: [],
   design_template_ids: [],
   track_inventory: false,
   stock_quantity: 0,
@@ -89,16 +101,7 @@ const defaultInitialForm: ProductFormData = {
   meta_description: '',
 };
 
-type FormTab = 'general' | 'pricing' | 'media' | 'print_setup' | 'inventory' | 'seo';
-
-const TABS: { id: FormTab; label: string; icon: React.FC<{ className?: string }> }[] = [
-  { id: 'general', label: '1. General Details', icon: FileText },
-  { id: 'pricing', label: '2. Attributes & Pricing', icon: Sliders },
-  { id: 'media', label: '3. Media & Images', icon: ImageIcon },
-  { id: 'print_setup', label: '4. Print Areas & Templates', icon: Printer },
-  { id: 'inventory', label: '5. Inventory & Shipping', icon: Package },
-  { id: 'seo', label: '6. SEO & Storefront', icon: Search },
-];
+type FormTab = 'general' | 'pricing' | 'inventory' | 'seo' | string;
 
 export const ProductForm: React.FC<ProductFormProps> = ({
   mode,
@@ -120,6 +123,29 @@ export const ProductForm: React.FC<ProductFormProps> = ({
   const [errors, setErrors] = useState<FormErrors>({});
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const TABS = useMemo(() => {
+    const baseTabs: { id: FormTab; label: string; icon: React.FC<{ className?: string }> }[] = [
+      { id: 'general', label: '1. General Details', icon: FileText },
+    ];
+
+    formData.sides.forEach((side, index) => {
+      baseTabs.push({
+        id: `side_${index}`,
+        label: `${index + 2}. ${side.name || `Side ${index + 1}`}`,
+        icon: ImageIcon,
+      });
+    });
+
+    const offset = formData.sides.length + 2;
+    baseTabs.push(
+      { id: 'pricing', label: `${offset}. Attributes & Pricing`, icon: Sliders },
+      { id: 'inventory', label: `${offset + 1}. Inventory & Shipping`, icon: Package },
+      { id: 'seo', label: `${offset + 2}. SEO & Storefront`, icon: Search }
+    );
+
+    return baseTabs;
+  }, [formData.sides]);
+
   // Load categories
   useEffect(() => {
     let isMounted = true;
@@ -128,7 +154,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
         setCategoriesLoading(true);
         const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
         const res = await fetch(`${API_URL}/admin/categories`, {
-          headers: { 
+          headers: {
             Accept: 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
@@ -174,9 +200,10 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       short_description: p.short_description || '',
       description: p.description || '',
       featured_image_url: p.featured_image_url || '',
-      gallery_images: Array.isArray(p.images) 
-        ? p.images.map((img: any) => img.url).filter((url: string) => url !== p.featured_image_url) 
-        : (Array.isArray(p.gallery_images) ? p.gallery_images : []),
+      media: {
+        front: p.media?.front ? p.media.front.map((img: any) => img.url).filter((url: string) => url !== p.featured_image_url) : (Array.isArray(p.images) ? p.images.filter((i: any) => i.side === 'front').map((img: any) => img.url).filter((url: string) => url !== p.featured_image_url) : []),
+        back: p.media?.back ? p.media.back.map((img: any) => img.url) : (Array.isArray(p.images) ? p.images.filter((i: any) => i.side === 'back').map((img: any) => img.url) : []),
+      },
       min_quantity: typeof p.min_quantity === 'number' ? p.min_quantity : 1,
       turnaround_days: typeof p.turnaround_days === 'number' ? p.turnaround_days : 3,
       allow_custom_design: p.allow_custom_design !== false,
@@ -190,13 +217,36 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       sale_price: p.sale_price !== null && p.sale_price !== undefined && p.sale_price !== '' ? parseFloat(p.sale_price) : '',
       cost_price: p.cost_price !== null && p.cost_price !== undefined && p.cost_price !== '' ? parseFloat(p.cost_price) : '',
       pricing_tiers: Array.isArray(p.pricing_tiers) ? p.pricing_tiers : [],
-      print_sides: p.print_sides || 'front',
+      sides_count: Array.isArray(p.sides) && p.sides.length > 0 ? p.sides.length : 1,
+      sides: Array.isArray(p.sides) && p.sides.length > 0
+        ? p.sides.map((side: any) => ({
+          id: side.id,
+          side_number: side.side_number,
+          name: side.name,
+          type: side.type,
+          sort_order: side.sort_order,
+          is_active: side.is_active !== false,
+          background_color: side.background_color,
+          background_image_url: side.background_image_url,
+          preview_image_url: side.preview_image_url,
+          mockup_image_url: side.mockup_image_url,
+          print_areas: Array.isArray(side.print_areas) ? side.print_areas : [],
+        }))
+        : [
+          {
+            side_number: 1,
+            name: 'Front',
+            type: 'front',
+            sort_order: 1,
+            is_active: true,
+            print_areas: [],
+          }
+        ],
       width_mm: p.width_mm !== null && p.width_mm !== undefined && p.width_mm !== '' ? parseFloat(p.width_mm) : null,
       height_mm: p.height_mm !== null && p.height_mm !== undefined && p.height_mm !== '' ? parseFloat(p.height_mm) : null,
       margin_mm: p.margin_mm !== null && p.margin_mm !== undefined && p.margin_mm !== '' ? parseFloat(p.margin_mm) : 0,
       bleed_mm: p.bleed_mm !== null && p.bleed_mm !== undefined && p.bleed_mm !== '' ? parseFloat(p.bleed_mm) : 0,
       safe_area_mm: p.safe_area_mm !== null && p.safe_area_mm !== undefined && p.safe_area_mm !== '' ? parseFloat(p.safe_area_mm) : 0,
-      print_areas: Array.isArray(p.print_areas) ? p.print_areas : [],
       design_template_ids: Array.isArray(p.design_template_ids) ? p.design_template_ids : [],
       track_inventory: Boolean(p.track_inventory),
       stock_quantity: typeof p.stock_quantity === 'number' ? p.stock_quantity : 0,
@@ -258,7 +308,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     const errs: FormErrors = {};
     if (!formData.name.trim()) errs.name = 'Product name is required.';
     if (!formData.sku.trim()) errs.sku = 'SKU is required.';
-    if (!formData.category_id) errs.category_id = 'Please select a category.';
     if (formData.base_price < 0 || isNaN(formData.base_price)) errs.base_price = 'Base price must be a positive number.';
     if (formData.min_quantity < 1) errs.min_quantity = 'Minimum quantity must be at least 1.';
     if (formData.turnaround_days < 1) errs.turnaround_days = 'Turnaround time must be at least 1 day.';
@@ -282,12 +331,12 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     setErrors(errs);
 
     if (Object.keys(errs).length > 0) {
-      if (errs.name || errs.sku || errs.category_id || errs.min_quantity || errs.turnaround_days) {
+      if (errs.name || errs.sku || errs.min_quantity || errs.turnaround_days) {
         setCurrentTab('general');
       } else if (errs.base_price) {
         setCurrentTab('pricing');
       } else if (errs.width_mm || errs.height_mm || errs.margin_mm || errs.bleed_mm || errs.safe_area_mm) {
-        setCurrentTab('print_setup');
+        setCurrentTab('general');
       }
     }
 
@@ -310,12 +359,60 @@ export const ProductForm: React.FC<ProductFormProps> = ({
 
     const isDataUri = formData.featured_image_url?.startsWith('data:');
     const featuredUrlToSend = isDataUri ? null : formData.featured_image_url || null;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+
+    // Helper to detect correct file extension from blob MIME type
+    const getExtFromMime = (mime: string) => {
+      if (mime.includes('svg')) return 'svg';
+      if (mime.includes('pdf')) return 'pdf';
+      if (mime.includes('tiff') || mime.includes('tif')) return 'tif';
+      if (mime.includes('jpeg') || mime.includes('jpg')) return 'jpg';
+      if (mime.includes('webp')) return 'webp';
+      return 'png';
+    };
+
+    // Ensure all side background images that are data URIs get uploaded to server
+    const processedSides = await Promise.all(
+      formData.sides.map(async (side, sIdx) => {
+        let bgUrl = side.background_image_url;
+        if (bgUrl && bgUrl.startsWith('data:')) {
+          try {
+            const blob = await fetch(bgUrl).then((r) => r.blob());
+            const ext = getExtFromMime(blob.type);
+            const uploadFormData = new FormData();
+            uploadFormData.append('image', blob, `side_${sIdx + 1}_bg.${ext}`);
+            const uploadRes = await fetch(`${API_URL}/designer/uploads/canvas-image`, {
+              method: 'POST',
+              headers: {
+                Accept: 'application/json',
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+              body: uploadFormData,
+            });
+            const uploadJson = await uploadRes.json();
+            if (uploadJson.success && uploadJson.data?.url) {
+              bgUrl = uploadJson.data.url;
+            }
+          } catch (e) {
+            console.warn('Failed to upload side background image:', e);
+          }
+        }
+        return {
+          ...side,
+          background_image_url: bgUrl || undefined,
+          print_areas: side.print_areas.map((pa) => ({ ...pa })),
+        };
+      })
+    );
+
+    // Sync permanent URLs back to local state
+    setFormData((prev) => ({ ...prev, sides: processedSides }));
 
     const payload = {
       name: formData.name.trim(),
       slug: formData.slug.trim() || formData.name.toLowerCase().replace(/\s+/g, '-'),
       sku: formData.sku.trim().toUpperCase(),
-      category_id: formData.category_id,
+      category_id: formData.category_id || null,
       product_type: formData.product_type,
       short_description: formData.short_description || null,
       description: formData.description || null,
@@ -325,13 +422,12 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       sale_price: formData.sale_price !== '' && formData.sale_price !== null ? Number(formData.sale_price) : null,
       cost_price: formData.cost_price !== '' && formData.cost_price !== null ? Number(formData.cost_price) : null,
       featured_image_url: featuredUrlToSend,
-      gallery_images: formData.gallery_images.filter((img) => !img.startsWith('data:image/')),
-      print_sides: formData.print_sides || 'front',
       width_mm: typeof formData.width_mm === 'number' && !isNaN(formData.width_mm) ? formData.width_mm : null,
       height_mm: typeof formData.height_mm === 'number' && !isNaN(formData.height_mm) ? formData.height_mm : null,
       margin_mm: typeof formData.margin_mm === 'number' && !isNaN(formData.margin_mm) ? formData.margin_mm : 0,
       bleed_mm: typeof formData.bleed_mm === 'number' && !isNaN(formData.bleed_mm) ? formData.bleed_mm : 0,
       safe_area_mm: typeof formData.safe_area_mm === 'number' && !isNaN(formData.safe_area_mm) ? formData.safe_area_mm : 0,
+      sides: processedSides,
       status: saveAsDraft ? 'draft' : formData.is_active ? 'published' : 'draft',
       is_active: saveAsDraft ? false : formData.is_active,
       is_featured: formData.is_featured,
@@ -346,7 +442,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     const method = isEdit ? 'PATCH' : 'POST';
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
 
       const res = await fetch(url, {
         method,
@@ -398,6 +493,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
           const imageFormData = new FormData();
           imageFormData.append('image', blob, `featured_image.${ext}`);
           imageFormData.append('is_featured', '1');
+          imageFormData.append('side', 'front');
           imageFormData.append('alt_text', formData.name);
 
           await fetch(`${API_URL}/admin/products/${targetId}/images`, {
@@ -413,18 +509,19 @@ export const ProductForm: React.FC<ProductFormProps> = ({
         }
       }
 
-      // Upload gallery images
-      if (targetId && formData.gallery_images.length > 0) {
-        for (let i = 0; i < formData.gallery_images.length; i++) {
-          const galleryUrl = formData.gallery_images[i];
+      // Upload front media
+      if (targetId && formData.media.front.length > 0) {
+        for (let i = 0; i < formData.media.front.length; i++) {
+          const galleryUrl = formData.media.front[i];
           if (galleryUrl.startsWith('data:')) {
             try {
               const blob = await fetch(galleryUrl).then((r) => r.blob());
               const ext = getExtFromMime(blob.type);
               const imageFormData = new FormData();
-              imageFormData.append('image', blob, `gallery_image_${i}.${ext}`);
+              imageFormData.append('image', blob, `front_media_${i}.${ext}`);
               imageFormData.append('is_featured', '0');
-              imageFormData.append('alt_text', `${formData.name} - Gallery ${i + 1}`);
+              imageFormData.append('side', 'front');
+              imageFormData.append('alt_text', `${formData.name} - Front Media ${i + 1}`);
 
               await fetch(`${API_URL}/admin/products/${targetId}/images`, {
                 method: 'POST',
@@ -435,7 +532,36 @@ export const ProductForm: React.FC<ProductFormProps> = ({
                 body: imageFormData,
               });
             } catch (imgErr) {
-              console.warn(`Could not upload gallery image ${i}:`, imgErr);
+              console.warn(`Could not upload front media image ${i}:`, imgErr);
+            }
+          }
+        }
+      }
+
+      // Upload back media
+      if (targetId && formData.media.back.length > 0) {
+        for (let i = 0; i < formData.media.back.length; i++) {
+          const galleryUrl = formData.media.back[i];
+          if (galleryUrl.startsWith('data:')) {
+            try {
+              const blob = await fetch(galleryUrl).then((r) => r.blob());
+              const ext = getExtFromMime(blob.type);
+              const imageFormData = new FormData();
+              imageFormData.append('image', blob, `back_media_${i}.${ext}`);
+              imageFormData.append('is_featured', '0');
+              imageFormData.append('side', 'back');
+              imageFormData.append('alt_text', `${formData.name} - Back Media ${i + 1}`);
+
+              await fetch(`${API_URL}/admin/products/${targetId}/images`, {
+                method: 'POST',
+                headers: {
+                  Accept: 'application/json',
+                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: imageFormData,
+              });
+            } catch (imgErr) {
+              console.warn(`Could not upload back media image ${i}:`, imgErr);
             }
           }
         }
@@ -542,11 +668,10 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       {/* Notice Banner */}
       {notice && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between gap-3 animate-in fade-in duration-200 ${
-            notice.type === 'success'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-              : 'bg-rose-50 border-rose-200 text-rose-800'
-          }`}
+          className={`p-4 rounded-xl border flex items-center justify-between gap-3 animate-in fade-in duration-200 ${notice.type === 'success'
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            : 'bg-rose-50 border-rose-200 text-rose-800'
+            }`}
         >
           <div className="flex items-center gap-2.5 text-xs font-medium">
             {notice.type === 'success' ? (
@@ -572,7 +697,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
           const Icon = tab.icon;
           const isActive = currentTab === tab.id;
           const hasError =
-            (tab.id === 'general' && (errors.name || errors.sku || errors.category_id || errors.min_quantity || errors.turnaround_days)) ||
+            (tab.id === 'general' && (errors.name || errors.sku || errors.min_quantity || errors.turnaround_days)) ||
             (tab.id === 'pricing' && errors.base_price);
 
           return (
@@ -617,31 +742,35 @@ export const ProductForm: React.FC<ProductFormProps> = ({
             />
             <ProductContent formData={formData} setFormData={setFormData} errors={errors} />
             <ProductConfiguration formData={formData} setFormData={setFormData} errors={errors} />
+            <ProductPrintDimensions formData={formData} setFormData={setFormData} errors={errors} />
           </div>
         )}
 
-        {/* TAB 2: Attributes, Pricing & Live Preview */}
+        {/* DYNAMIC SIDE TABS */}
+        {formData.sides.map((side, index) => {
+          const tabId = `side_${index}`;
+          if (currentTab !== tabId) return null;
+
+          return (
+            <div key={tabId} className="space-y-6 animate-in fade-in duration-150">
+              <ProductMedia
+                formData={formData}
+                setFormData={setFormData}
+                sideIndex={index}
+                onSelectSide={(targetIndex) => setCurrentTab(`side_${targetIndex}`)}
+              />
+              <ProductPrintAreas formData={formData} setFormData={setFormData} sideIndex={index} />
+              {index === 0 && <ProductTemplates formData={formData} setFormData={setFormData} />}
+            </div>
+          );
+        })}
+
+        {/* TAB 4: Attributes & Pricing */}
         {currentTab === 'pricing' && (
           <div className="space-y-6 animate-in fade-in duration-150">
             <ProductPricing formData={formData} setFormData={setFormData} errors={errors} />
             <ProductAttributes formData={formData} setFormData={setFormData} />
             <ProductVariants formData={formData} setFormData={setFormData} />
-          </div>
-        )}
-
-        {/* TAB 3: Media & Images */}
-        {currentTab === 'media' && (
-          <div className="space-y-6 animate-in fade-in duration-150">
-            <ProductMedia formData={formData} setFormData={setFormData} />
-          </div>
-        )}
-
-        {/* TAB 4: Print Areas & Starter Templates */}
-        {currentTab === 'print_setup' && (
-          <div className="space-y-6 animate-in fade-in duration-150">
-            <ProductPrintDimensions formData={formData} setFormData={setFormData} errors={errors} />
-            <ProductPrintAreas formData={formData} setFormData={setFormData} />
-            <ProductTemplates formData={formData} setFormData={setFormData} />
           </div>
         )}
 

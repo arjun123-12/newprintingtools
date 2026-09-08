@@ -8,58 +8,65 @@ import { Plus, Trash2, Printer } from 'lucide-react';
 interface ProductPrintAreasProps {
   formData: ProductFormData;
   setFormData: React.Dispatch<React.SetStateAction<ProductFormData>>;
+  sideIndex: number;
 }
-
-const SIDE_OPTIONS = [
-  { value: 'front', label: 'Front Side' },
-  { value: 'back', label: 'Back Side' },
-  { value: 'custom', label: 'Custom Placement' },
-];
 
 export const ProductPrintAreas: React.FC<ProductPrintAreasProps> = ({
   formData,
   setFormData,
+  sideIndex,
 }) => {
+  const sideObj = formData.sides[sideIndex];
+  const areas = sideObj.print_areas || [];
+
   const addPrintArea = () => {
-    const isFirst = formData.print_areas.length === 0;
-    const isSecond = formData.print_areas.length === 1;
+    const isFirst = areas.length === 0;
 
     const newArea: PrintAreaItem = {
       id: `area_${Date.now()}`,
-      name: isFirst ? 'Front Side' : isSecond ? 'Back Side' : `Print Area ${formData.print_areas.length + 1}`,
-      side: isFirst ? 'front' : isSecond ? 'back' : 'custom',
-      width_mm: 90,
-      height_mm: 55,
-      bleed_mm: 3,
-      safe_zone_mm: 3,
-      dpi: 300,
+      name: isFirst ? sideObj.name : `Print Area ${areas.length + 1}`,
+      width_mm: formData.width_mm || 90,
+      height_mm: formData.height_mm || 55,
+      bleed_mm: formData.bleed_mm || 3,
+      safe_zone_mm: formData.safe_area_mm || 3,
     };
 
-    setFormData((prev) => ({
-      ...prev,
-      print_areas: [...prev.print_areas, newArea],
-    }));
+    setFormData((prev) => {
+      const newSides = [...prev.sides];
+      newSides[sideIndex] = {
+        ...newSides[sideIndex],
+        print_areas: [...newSides[sideIndex].print_areas, newArea]
+      };
+      return { ...prev, sides: newSides };
+    });
   };
 
   const removePrintArea = (index: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      print_areas: prev.print_areas.filter((_, i) => i !== index),
-    }));
+    setFormData((prev) => {
+      const newSides = [...prev.sides];
+      newSides[sideIndex] = {
+        ...newSides[sideIndex],
+        print_areas: newSides[sideIndex].print_areas.filter((_, i) => i !== index)
+      };
+      return { ...prev, sides: newSides };
+    });
   };
 
   const updateArea = (index: number, field: keyof PrintAreaItem, val: any) => {
     setFormData((prev) => {
-      const updated = [...prev.print_areas];
-      updated[index] = { ...updated[index], [field]: val };
-      return { ...prev, print_areas: updated };
+      const newSides = [...prev.sides];
+      const updatedAreas = [...newSides[sideIndex].print_areas];
+      updatedAreas[index] = { ...updatedAreas[index], [field]: val };
+      newSides[sideIndex] = { ...newSides[sideIndex], print_areas: updatedAreas };
+      
+      return { ...prev, sides: newSides };
     });
   };
 
   return (
     <FormSection
-      title="Print Areas & Preflight Specifications"
-      description="Define the exact physical print boundaries, bleed margins, safe cut zones, and output resolution."
+      title={`${sideObj.name || `Side ${sideIndex + 1}`} Print Areas`}
+      description={`Define the exact physical print boundaries, bleed margins, and safe cut zones for this side.`}
       action={
         <button
           type="button"
@@ -71,9 +78,9 @@ export const ProductPrintAreas: React.FC<ProductPrintAreasProps> = ({
         </button>
       }
     >
-      {formData.print_areas.length > 0 ? (
+      {areas.length > 0 ? (
         <div className="space-y-4">
-          {formData.print_areas.map((area, idx) => (
+          {areas.map((area, idx) => (
             <div
               key={area.id || idx}
               className="p-4 bg-gray-50/70 border border-gray-200 rounded-xl space-y-4 transition-all"
@@ -98,22 +105,13 @@ export const ProductPrintAreas: React.FC<ProductPrintAreasProps> = ({
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                 <div className="sm:col-span-2">
                   <AdminInput
                     label="Area Name"
                     value={area.name}
                     placeholder="e.g. Front Cover"
                     onChange={(e) => updateArea(idx, 'name', e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <AdminSelect
-                    label="Side"
-                    value={area.side}
-                    options={SIDE_OPTIONS}
-                    onChange={(e) => updateArea(idx, 'side', e.target.value)}
                   />
                 </div>
 
@@ -158,17 +156,6 @@ export const ProductPrintAreas: React.FC<ProductPrintAreasProps> = ({
                   value={area.safe_zone_mm}
                   onChange={(val) => updateArea(idx, 'safe_zone_mm', typeof val === 'number' ? val : 3)}
                   helperText="Safe interior margin from the trim cut line for text and logos."
-                />
-
-                <AdminNumberInput
-                  label="Resolution (DPI)"
-                  suffix="DPI"
-                  min={72}
-                  max={1200}
-                  step={50}
-                  value={area.dpi}
-                  onChange={(val) => updateArea(idx, 'dpi', typeof val === 'number' ? val : 300)}
-                  helperText="Recommended minimum resolution for preflight verification (standard: 300 DPI)."
                 />
               </div>
             </div>

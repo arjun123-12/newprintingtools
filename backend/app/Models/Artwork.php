@@ -98,4 +98,9 @@ class Artwork extends Model
     {
         return $this->hasMany(OrderItem::class);
     }
+
+    public function pages(): HasMany
+    {
+        return $this->hasMany(ArtworkPage::class);
+    }
 }

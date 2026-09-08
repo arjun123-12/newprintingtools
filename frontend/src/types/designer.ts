@@ -334,6 +334,7 @@ export type ActiveSidebarTab =
   | 'elements'
   | 'frames'
   | 'photos'
+  | 'pixabay'
   | 'icons'
   | 'text'
   | 'uploads'

@@ -19,6 +19,7 @@ import { DocumentSettings, CanvasDimensions } from '@/types/designer';
 
 interface Artwork3DViewerProps {
   previewUrl: string;
+  backPreviewUrl?: string | null;
   documentSettings: DocumentSettings;
   dimensions: CanvasDimensions;
   className?: string;
@@ -27,6 +28,7 @@ interface Artwork3DViewerProps {
 
 export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
   previewUrl,
+  backPreviewUrl,
   documentSettings,
   dimensions,
   className = '',
@@ -201,26 +203,37 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
             />
           </div>
 
-          {/* BACK FACE (Realistic Clean Matte Print Backing) */}
+          {/* BACK FACE (Printed Artwork or Clean Backing) */}
           <div
-            className="absolute inset-0 bg-[#fbfbfb] rounded-xs overflow-hidden backface-hidden ring-1 ring-black/10 flex flex-col items-center justify-center p-4 text-slate-300"
+            className="absolute inset-0 bg-[#fbfbfb] rounded-xs overflow-hidden backface-hidden ring-1 ring-black/10 flex flex-col items-center justify-center"
             style={{
               transform: 'rotateY(180deg) translateZ(1.5px)',
               boxShadow:
                 '0 0 0 1px rgba(0,0,0,0.08), -1px 1px 0 #cbd5e1, -2px 2px 0 #94a3b8, 0 20px 45px -10px rgba(0,0,0,0.5)',
             }}
           >
-            <div className="border border-slate-200/80 rounded p-3 w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-50 to-slate-100">
-              <div className="w-6 h-6 rounded-full bg-slate-200/80 flex items-center justify-center text-slate-400">
-                <Rotate3d className="w-3.5 h-3.5" />
+            {backPreviewUrl ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={backPreviewUrl}
+                alt="3D Back Artwork"
+                className="w-full h-full object-cover select-none pointer-events-none block"
+              />
+            ) : (
+              <div className="p-4 w-full h-full flex flex-col items-center justify-center">
+                <div className="border border-slate-200/80 rounded p-3 w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-50 to-slate-100">
+                  <div className="w-6 h-6 rounded-full bg-slate-200/80 flex items-center justify-center text-slate-400">
+                    <Rotate3d className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">
+                    {documentSettings.name || 'Commercial Print Product'}
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-mono">
+                    {documentSettings.width} × {documentSettings.height} {documentSettings.unit}
+                  </span>
+                </div>
               </div>
-              <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">
-                {documentSettings.name || 'Commercial Print Product'}
-              </span>
-              <span className="text-[9px] text-slate-400 font-mono">
-                {documentSettings.width} × {documentSettings.height} {documentSettings.unit}
-              </span>
-            </div>
+            )}
 
             {/* Dynamic Back Specular Glare */}
             <div
@@ -285,6 +298,16 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
             >
               Front
             </button>
+            {backPreviewUrl && (
+              <button
+                type="button"
+                onClick={() => applyPreset(0, 180)}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition text-purple-300 hover:text-purple-200"
+                title="Direct Back 2D/3D View"
+              >
+                Back
+              </button>
+            )}
             <button
               type="button"
               onClick={() => applyPreset(6, 85)}

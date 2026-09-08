@@ -41,22 +41,29 @@ class ProductImageController extends Controller
                 'integer',
                 'min:0',
             ],
+            'side' => [
+                'nullable',
+                'string',
+                'max:50',
+            ],
         ]);
 
         $product = Product::findOrFail($id);
 
         // The frontend uses this endpoint for the main product image.
         $isFeatured = $request->boolean('is_featured', true);
+        $side = $validated['side'] ?? 'front';
 
         $image = DB::transaction(function () use (
             $request,
             $validated,
             $product,
-            $isFeatured
+            $isFeatured,
+            $side
         ) {
             if ($isFeatured) {
-                // Ensure that only the newly uploaded image is featured.
-                $product->images()->update([
+                // Ensure that only the newly uploaded image is featured for this side.
+                $product->images()->where('side', $side)->update([
                     'is_featured' => false,
                 ]);
             }
@@ -67,6 +74,7 @@ class ProductImageController extends Controller
                     'alt_text' => $validated['alt_text'] ?? $product->name,
                     'is_featured' => $isFeatured,
                     'sort_order' => $validated['sort_order'] ?? 0,
+                    'side' => $side,
                 ],
                 $request->file('image')
             );

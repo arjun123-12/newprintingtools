@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
-import { FormSection, FormGrid, AdminNumberInput, AdminSwitch } from '@/components/admin/shared';
-import { ProductFormData, FormErrors } from './types';
+import React, { useState } from 'react';
+import { FormSection, FormGrid, AdminNumberInput, AdminSwitch, AdminSelect } from '@/components/admin/shared';
+import { ProductFormData, FormErrors, ProductSideItem } from './types';
 
 interface ProductConfigurationProps {
   formData: ProductFormData;
@@ -15,6 +15,49 @@ export const ProductConfiguration: React.FC<ProductConfigurationProps> = ({
   setFormData,
   errors,
 }) => {
+  const [pendingSidesCount, setPendingSidesCount] = useState<number | null>(null);
+
+  const handleSidesChange = (newCount: number) => {
+    if (newCount === formData.sides_count) return;
+
+    if (newCount < formData.sides_count) {
+      // Need confirmation
+      setPendingSidesCount(newCount);
+    } else {
+      // Add sides
+      setFormData(prev => {
+        const newSides = [...prev.sides];
+        for (let i = prev.sides_count; i < newCount; i++) {
+          const sideName = i === 0 ? 'Front' : i === 1 ? 'Back' : `Side ${i + 1}`;
+          const sideType = i === 0 ? 'front' : i === 1 ? 'back' : 'inside';
+          newSides.push({
+            side_number: i + 1,
+            name: sideName,
+            type: sideType,
+            sort_order: i + 1,
+            is_active: true,
+            print_areas: []
+          });
+        }
+        return { ...prev, sides_count: newCount, sides: newSides };
+      });
+    }
+  };
+
+  const confirmSideReduction = () => {
+    if (pendingSidesCount === null) return;
+    setFormData(prev => ({
+      ...prev,
+      sides_count: pendingSidesCount,
+      sides: prev.sides.slice(0, pendingSidesCount)
+    }));
+    setPendingSidesCount(null);
+  };
+
+  const cancelSideReduction = () => {
+    setPendingSidesCount(null);
+  };
+
   return (
     <FormSection
       title="Product Configuration"
@@ -22,6 +65,27 @@ export const ProductConfiguration: React.FC<ProductConfigurationProps> = ({
     >
       <div className="space-y-6">
         <FormGrid cols={2} gap="md">
+          <div className="sm:col-span-2">
+            <AdminSelect
+              label="Number of Sides / Pages"
+              value={formData.sides_count.toString()}
+              onChange={(e) => handleSidesChange(parseInt(e.target.value, 10))}
+              options={Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }))}
+              helperText="Determines how many independent printable surfaces or pages the user can design."
+            />
+            {pendingSidesCount !== null && (
+              <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
+                <span className="text-amber-800 font-medium">
+                  Reducing sides from {formData.sides_count} to {pendingSidesCount} will delete existing configuration for the removed sides. Continue?
+                </span>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={cancelSideReduction} className="px-3 py-1.5 text-xs font-semibold text-gray-600 bg-white border border-gray-300 rounded hover:bg-gray-50">Cancel</button>
+                  <button type="button" onClick={confirmSideReduction} className="px-3 py-1.5 text-xs font-semibold text-white bg-amber-600 rounded hover:bg-amber-700">Yes, Remove Sides</button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <AdminNumberInput
             label="Minimum Order Quantity"
             placeholder="1"

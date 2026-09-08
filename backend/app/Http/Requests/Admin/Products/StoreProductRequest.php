@@ -30,8 +30,6 @@ class StoreProductRequest extends FormRequest
             'sku' => ['required', 'string', 'max:255', 'unique:products,sku'],
             'category_id' => ['required', 'exists:categories,id'],
             'product_type' => ['required', new Enum(ProductType::class)],
-
-            'print_sides' => ['nullable', Rule::in(['front', 'back', 'both'])],
             'width_mm' => ['nullable', 'numeric', 'gt:0'],
             'height_mm' => ['nullable', 'numeric', 'gt:0'],
             'margin_mm' => ['nullable', 'numeric', 'min:0'],
@@ -58,6 +56,26 @@ class StoreProductRequest extends FormRequest
             
             'meta_title' => ['nullable', 'string', 'max:255'],
             'meta_description' => ['nullable', 'string', 'max:255'],
+            
+            'sides' => ['nullable', 'array'],
+            'sides.*.id' => ['nullable', 'string'],
+            'sides.*.side_number' => ['required', 'integer'],
+            'sides.*.name' => ['required', 'string', 'max:255'],
+            'sides.*.type' => ['required', 'string', 'max:50'],
+            'sides.*.sort_order' => ['nullable', 'integer'],
+            'sides.*.is_active' => ['nullable', 'boolean'],
+            'sides.*.background_color' => ['nullable', 'string', 'max:50'],
+            'sides.*.background_image_url' => ['nullable', 'string', 'max:500'],
+            'sides.*.preview_image_url' => ['nullable', 'string', 'max:500'],
+            'sides.*.mockup_image_url' => ['nullable', 'string', 'max:500'],
+            
+            'sides.*.print_areas' => ['nullable', 'array'],
+            'sides.*.print_areas.*.id' => ['nullable', 'string'],
+            'sides.*.print_areas.*.name' => ['required', 'string', 'max:255'],
+            'sides.*.print_areas.*.width_mm' => ['nullable', 'numeric', 'min:0'],
+            'sides.*.print_areas.*.height_mm' => ['nullable', 'numeric', 'min:0'],
+            'sides.*.print_areas.*.bleed_mm' => ['nullable', 'numeric', 'min:0'],
+            'sides.*.print_areas.*.safe_zone_mm' => ['nullable', 'numeric', 'min:0'],
         ];
     }
 }

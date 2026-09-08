@@ -11,23 +11,13 @@ interface ProductPrintDimensionsProps {
   errors?: FormErrors;
 }
 
-const PRINT_SIDE_OPTIONS = [
-  { value: 'front', label: 'Front Side Only' },
-  { value: 'back', label: 'Back Side Only' },
-  { value: 'both', label: 'Front and Back' },
-];
+
 
 export const ProductPrintDimensions: React.FC<ProductPrintDimensionsProps> = ({
   formData,
   setFormData,
   errors = {},
 }) => {
-  const handleSideChange = (val: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      print_sides: val as 'front' | 'back' | 'both',
-    }));
-  };
 
   const handleNumericChange = (
     field: 'width_mm' | 'height_mm' | 'margin_mm' | 'bleed_mm' | 'safe_area_mm',
@@ -58,14 +48,7 @@ export const ProductPrintDimensions: React.FC<ProductPrintDimensionsProps> = ({
     >
       <div className="space-y-4">
         <FormGrid cols={3} gap="md">
-          {/* Print Sides Selection */}
-          <AdminSelect
-            label="Print Sides"
-            value={formData.print_sides || 'front'}
-            options={PRINT_SIDE_OPTIONS}
-            onChange={(e) => handleSideChange(e.target.value)}
-            helperText="Choose whether customers design the front, back, or both sides."
-          />
+
 
           {/* Width in mm */}
           <AdminInput
@@ -141,11 +124,7 @@ export const ProductPrintDimensions: React.FC<ProductPrintDimensionsProps> = ({
             <Layers className="w-4 h-4 text-blue-600 shrink-0" />
             <span>
               <strong>Sides:</strong>{' '}
-              {formData.print_sides === 'both'
-                ? 'Front and Back (Dual Canvas)'
-                : formData.print_sides === 'back'
-                ? 'Back Side Only'
-                : 'Front Side Only'}
+              {formData.sides_count} {formData.sides_count === 1 ? 'Side' : 'Sides'}
               {formData.width_mm && formData.height_mm ? (
                 <>
                   {' '}• <strong>Artwork Size:</strong> {formData.width_mm} × {formData.height_mm} mm
