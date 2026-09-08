@@ -134,11 +134,10 @@ export const ProductSidesPreview: React.FC<ProductSidesPreviewProps> = ({
           <button
             type="button"
             onClick={() => setShowGuidelines(!showGuidelines)}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5 ${
-              showGuidelines
-                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-            }`}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1.5 ${showGuidelines
+              ? 'bg-blue-50 text-blue-700 border-blue-200'
+              : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
             title="Toggle print safe zone & bleed lines"
           >
             <Printer className="w-3.5 h-3.5" />
@@ -151,22 +150,20 @@ export const ProductSidesPreview: React.FC<ProductSidesPreviewProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('grid')}
-                className={`px-2.5 py-1 rounded-md font-medium transition-all ${
-                  viewMode === 'grid'
-                    ? 'bg-white text-gray-900 shadow-2xs'
-                    : 'text-gray-500 hover:text-gray-900'
-                }`}
+                className={`px-2.5 py-1 rounded-md font-medium transition-all ${viewMode === 'grid'
+                  ? 'bg-white text-gray-900 shadow-2xs'
+                  : 'text-gray-500 hover:text-gray-900'
+                  }`}
               >
                 Side-by-Side
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('flip')}
-                className={`px-2.5 py-1 rounded-md font-medium transition-all flex items-center gap-1 ${
-                  viewMode === 'flip'
-                    ? 'bg-white text-gray-900 shadow-2xs'
-                    : 'text-gray-500 hover:text-gray-900'
-                }`}
+                className={`px-2.5 py-1 rounded-md font-medium transition-all flex items-center gap-1 ${viewMode === 'flip'
+                  ? 'bg-white text-gray-900 shadow-2xs'
+                  : 'text-gray-500 hover:text-gray-900'
+                  }`}
               >
                 <ArrowRightLeft className="w-3 h-3" />
                 <span>Flip Card</span>
@@ -318,11 +315,10 @@ const SidePreviewCard: React.FC<SidePreviewCardProps> = ({
 
   return (
     <div
-      className={`rounded-2xl border transition-all bg-white overflow-hidden shadow-2xs flex flex-col ${
-        isActive
-          ? 'border-blue-400 ring-2 ring-blue-100'
-          : 'border-gray-200 hover:border-gray-300'
-      }`}
+      className={`rounded-2xl border transition-all bg-white overflow-hidden shadow-2xs flex flex-col ${isActive
+        ? 'border-blue-400 ring-2 ring-blue-100'
+        : 'border-gray-200 hover:border-gray-300'
+        }`}
     >
       {/* Side Card Header */}
       <div className="p-3 bg-white border-b border-gray-100 flex items-center justify-between gap-2">
@@ -352,11 +348,10 @@ const SidePreviewCard: React.FC<SidePreviewCardProps> = ({
             <button
               type="button"
               onClick={() => onSelectSide(index)}
-              className={`px-2 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${
-                isActive
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
-              }`}
+              className={`px-2 py-1 text-[11px] font-semibold rounded-lg border transition-colors ${isActive
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                }`}
             >
               {isActive ? 'Editing' : 'Edit'}
             </button>
@@ -376,16 +371,19 @@ const SidePreviewCard: React.FC<SidePreviewCardProps> = ({
           }}
         >
           {/* Background Image / Mockup */}
+
           {hasValidImage && formattedUrl ? (
-            <img
-              src={formattedUrl}
-              alt={side.name || 'Side Mockup'}
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                // Prevent infinite loop if image fails
-                (e.target as HTMLElement).style.display = 'none';
-              }}
-            />
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={formattedUrl}
+                alt={side.name || 'Side Mockup'}
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            </>
           ) : (
             <div className="text-center p-4 space-y-1 select-none">
               <FileCheck className="w-8 h-8 text-gray-300 mx-auto" />
