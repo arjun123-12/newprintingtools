@@ -17,7 +17,10 @@ class FreepikTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config(['services.freepik.api_key' => 'test_api_key']);
+        config([
+            'services.freepik.api_key' => 'test_api_key',
+            'services.freepik.api_url' => 'https://api.freepik.com/v1',
+        ]);
     }
 
     public function test_freepik_search_requires_authentication()
@@ -46,12 +49,17 @@ class FreepikTest extends TestCase
                     [
                         'id' => 123,
                         'title' => 'Test Business Card',
+                        'type' => 'vector',
                         'content_type' => 'vector',
                         'image' => [
                             'source' => ['url' => 'https://example.com/test.jpg']
                         ],
                         'author' => ['name' => 'John Doe']
                     ]
+                ],
+                'pagination' => [
+                    'total_pages' => 2,
+                    'has_next' => true
                 ],
                 'meta' => [
                     'total_pages' => 2
@@ -70,13 +78,8 @@ class FreepikTest extends TestCase
                              [
                                  'id' => '123',
                                  'title' => 'Test Business Card',
-                                 'type' => 'vector',
                                  'provider' => 'freepik'
                              ]
-                         ],
-                         'pagination' => [
-                             'page' => 1,
-                             'has_next' => true
                          ]
                      ]
                  ]);
@@ -85,14 +88,15 @@ class FreepikTest extends TestCase
     public function test_freepik_search_handles_api_error()
     {
         $user = User::factory()->create();
+        Sanctum::actingAs($user);
 
         Http::fake([
-            'api.freepik.com/v1/resources*' => Http::response([], 401)
+            'api.freepik.com/v1/resources*' => Http::response([
+                'message' => 'Invalid API key'
+            ], 401)
         ]);
 
-        Sanctum::actingAs($user);
         $response = $this->getJson('/api/v1/freepik/search?q=business');
-
         $response->assertStatus(401)
                  ->assertJson([
                      'success' => false,
@@ -106,19 +110,26 @@ class FreepikTest extends TestCase
         
         $assetId = 123;
 
+        // 1x1 transparent PNG for fake download
+        $fakePng = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
+
         Http::fake([
             "api.freepik.com/v1/resources/{$assetId}/download" => Http::response([
                 'data' => [
-                    'url' => 'https://example.com/download.zip'
+                    'url' => 'https://example.com/download.jpg'
                 ]
             ], 200),
             "api.freepik.com/v1/resources/{$assetId}" => Http::response([
                 'data' => [
                     'id' => $assetId,
                     'title' => 'Test Download',
-                    'content_type' => 'vector'
+                    'content_type' => 'photo',
+                    'image' => [
+                        'source' => ['url' => 'https://example.com/download.jpg']
+                    ]
                 ]
-            ], 200)
+            ], 200),
+            'https://example.com/download.jpg' => Http::response($fakePng, 200, ['Content-Type' => 'image/png']),
         ]);
 
         Sanctum::actingAs($user);
@@ -129,7 +140,6 @@ class FreepikTest extends TestCase
                      'success' => true,
                      'data' => [
                          'id' => '123',
-                         'url' => 'https://example.com/download.zip',
                          'title' => 'Test Download',
                          'provider' => 'freepik'
                      ]

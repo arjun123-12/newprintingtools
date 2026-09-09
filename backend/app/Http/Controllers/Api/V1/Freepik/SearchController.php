@@ -22,7 +22,7 @@ class SearchController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'q' => ['nullable', 'string', 'max:100'],
+            'q' => ['required', 'string', 'max:100'],
             'type' => ['nullable', 'string', 'in:vector,photo,icon,psd,all'],
             'page' => ['sometimes', 'integer', 'min:1'],
             'limit' => ['sometimes', 'integer', 'min:1', 'max:50'],

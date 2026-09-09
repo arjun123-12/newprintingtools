@@ -178,6 +178,13 @@ export interface SelectedObjectState {
   processedUrl?: string;
   processedFileId?: string;
   processingType?: string;
+  // Image Quality & Real-ESRGAN Upscaling properties
+  effectiveDpi?: number;
+  qualityLevel?: 'excellent' | 'acceptable' | 'low' | 'enhancing' | 'unavailable';
+  upscaleStatus?: 'not_required' | 'pending' | 'processing' | 'completed' | 'failed';
+  upscaleFactor?: 1 | 2 | 4;
+  upscaledSrc?: string;
+  imageId?: string;
   // Frame specific properties
   isFrame?: boolean;
   frameShape?: string;
@@ -387,3 +394,5 @@ export interface ProductPrintPreset {
   safeArea: number;
   description?: string;
 }
+
+export type { DesignImageMetadata, QualityPreset, ExportFormat } from './imageUpscaler';

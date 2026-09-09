@@ -1,158 +1,229 @@
-import { writePsd, Psd, Layer } from 'ag-psd';
-import { Canvas, FabricObject, Textbox, IText } from 'fabric';
+import { writePsd, type Layer, type Psd } from 'ag-psd';
+import { type FabricObject } from 'fabric';
 import { CanvasDimensions, DocumentSettings } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { downloadFile } from './exportService';
 
+function getObjectValue(obj: FabricObject, key: string): unknown {
+  return typeof (obj as any).get === 'function'
+    ? (obj as any).get(key)
+    : (obj as any)[key];
+}
+
+function isEditorOnlyObject(obj: FabricObject): boolean {
+  return Boolean(
+    getObjectValue(obj, 'isGuide') ||
+    getObjectValue(obj, 'isPrintGuide') ||
+    getObjectValue(obj, 'isRulerGuide') ||
+    getObjectValue(obj, 'excludeFromSelection')
+  );
+}
+
+function createCanvas(width: number, height: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(width));
+  canvas.height = Math.max(1, Math.ceil(height));
+  return canvas;
+}
+
+function loadImage(source: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Failed to load rendered artwork for PSD export'));
+    image.src = source;
+  });
+}
+
 /**
- * Generates an authentic layered Adobe Photoshop (.psd) file from the Fabric.js canvas
- * at 300 DPI print resolution, preserving individual text, shape, image, and background layers.
+ * Renders through Fabric's supported object exporter. This preserves groups,
+ * clip paths, filters, crop state, rotations, shadows and image transforms.
  */
+function renderFabricObjectLayer(
+  obj: FabricObject,
+  documentWidth: number,
+  documentHeight: number
+): { canvas: HTMLCanvasElement; left: number; top: number } | null {
+  obj.setCoords();
+  const bounds = obj.getBoundingRect();
+
+  if (
+    !Number.isFinite(bounds.left) ||
+    !Number.isFinite(bounds.top) ||
+    !Number.isFinite(bounds.width) ||
+    !Number.isFinite(bounds.height) ||
+    bounds.width <= 0 ||
+    bounds.height <= 0
+  ) {
+    return null;
+  }
+
+  const rawLeft = Math.floor(bounds.left);
+  const rawTop = Math.floor(bounds.top);
+  const rawRight = Math.ceil(bounds.left + bounds.width);
+  const rawBottom = Math.ceil(bounds.top + bounds.height);
+
+  // PSD layer rectangles are clipped to the actual document bounds.
+  const left = Math.max(0, rawLeft);
+  const top = Math.max(0, rawTop);
+  const right = Math.min(documentWidth, rawRight);
+  const bottom = Math.min(documentHeight, rawBottom);
+
+  if (right <= left || bottom <= top) return null;
+
+  const sourceCanvas = obj.toCanvasElement({
+    multiplier: 1,
+    enableRetinaScaling: false,
+  });
+
+  const outputCanvas = createCanvas(right - left, bottom - top);
+  const context = outputCanvas.getContext('2d');
+  if (!context) return null;
+
+  const scaleX = sourceCanvas.width / Math.max(bounds.width, 1);
+  const scaleY = sourceCanvas.height / Math.max(bounds.height, 1);
+  const sourceX = Math.max(0, (left - bounds.left) * scaleX);
+  const sourceY = Math.max(0, (top - bounds.top) * scaleY);
+  const sourceWidth = Math.min(sourceCanvas.width - sourceX, (right - left) * scaleX);
+  const sourceHeight = Math.min(sourceCanvas.height - sourceY, (bottom - top) * scaleY);
+
+  context.drawImage(
+    sourceCanvas,
+    sourceX,
+    sourceY,
+    Math.max(sourceWidth, 1),
+    Math.max(sourceHeight, 1),
+    0,
+    0,
+    outputCanvas.width,
+    outputCanvas.height
+  );
+
+  return { canvas: outputCanvas, left, top };
+}
+
+/** Generates a layered, Photoshop-compatible PSD from the Fabric canvas. */
 export async function exportLayeredPsd(
   canvasManager: CanvasManager,
   documentSettings: DocumentSettings,
   dimensions: CanvasDimensions,
   filename?: string
 ): Promise<void> {
-  const canvas = canvasManager.getCanvas();
-  if (!canvas) {
-    throw new Error('Canvas is not initialized');
+  const fabricCanvas = canvasManager.getCanvas();
+  if (!fabricCanvas) throw new Error('Canvas is not initialized');
+
+  const width = Math.max(1, Math.round(dimensions.widthPx || 1063));
+  const height = Math.max(1, Math.round(dimensions.heightPx || 591));
+
+  if (width > 30000 || height > 30000) {
+    throw new Error(
+      `PSD dimensions (${width}x${height}px) exceed Photoshop's 30,000px limit.`
+    );
   }
 
-  const width = dimensions.widthPx || 1063;
-  const height = dimensions.heightPx || 591;
-
-  // 1. Create Background Layer
-  const bgCanvas = document.createElement('canvas');
-  bgCanvas.width = width;
-  bgCanvas.height = height;
-  const bgCtx = bgCanvas.getContext('2d');
-  if (bgCtx) {
-    if (canvas.backgroundImage) {
-      bgCtx.save();
-      try {
-        canvas.backgroundImage.render(bgCtx);
-      } catch {
-        bgCtx.fillStyle = '#ffffff';
-        bgCtx.fillRect(0, 0, width, height);
-      }
-      bgCtx.restore();
-    } else if (canvas.backgroundColor) {
-      if (typeof canvas.backgroundColor === 'string') {
-        bgCtx.fillStyle = canvas.backgroundColor;
-        bgCtx.fillRect(0, 0, width, height);
-      } else {
-        const grad = (canvas.backgroundColor as any).toLive ? (canvas.backgroundColor as any).toLive(bgCtx) : null;
-        if (grad) {
-          bgCtx.fillStyle = grad;
-          bgCtx.fillRect(0, 0, width, height);
-        } else {
-          bgCtx.fillStyle = documentSettings.backgroundColor || '#ffffff';
-          bgCtx.fillRect(0, 0, width, height);
-        }
-      }
-    } else {
-      bgCtx.fillStyle = documentSettings.backgroundColor || '#ffffff';
-      bgCtx.fillRect(0, 0, width, height);
-    }
+  await canvasManager.waitForAllImagesToLoad(15000);
+  if (typeof document !== 'undefined' && document.fonts) {
+    await document.fonts.ready;
   }
 
   const layers: Layer[] = [];
+  const backgroundCanvas = createCanvas(width, height);
+  const backgroundContext = backgroundCanvas.getContext('2d');
 
-  // Add Background Layer
+  if (!backgroundContext) {
+    throw new Error('Unable to create the PSD background layer');
+  }
+
+  const backgroundColor =
+    typeof fabricCanvas.backgroundColor === 'string' && fabricCanvas.backgroundColor !== 'transparent'
+      ? fabricCanvas.backgroundColor
+      : documentSettings.backgroundColor || '#ffffff';
+
+  backgroundContext.fillStyle = backgroundColor;
+  backgroundContext.fillRect(0, 0, width, height);
+
+  if (fabricCanvas.backgroundImage) {
+    const renderedBackground = renderFabricObjectLayer(
+      fabricCanvas.backgroundImage,
+      width,
+      height
+    );
+    if (renderedBackground) {
+      backgroundContext.drawImage(
+        renderedBackground.canvas,
+        renderedBackground.left,
+        renderedBackground.top
+      );
+    }
+  }
+
   layers.push({
     name: 'Background',
-    canvas: bgCanvas,
+    canvas: backgroundCanvas,
     left: 0,
     top: 0,
     opacity: 1,
   });
 
-  // 2. Process all Fabric Canvas Objects into Individual Layers
-  const objects = canvas.getObjects();
-
-  for (let i = 0; i < objects.length; i++) {
-    const obj = objects[i];
-    // Skip internal guides or snapping lines
-    if (obj.get('isGuide' as any) || (obj as any).isRulerGuide) {
-      continue;
-    }
+  const objects = fabricCanvas.getObjects();
+  for (let index = 0; index < objects.length; index++) {
+    const obj = objects[index];
+    if (isEditorOnlyObject(obj)) continue;
 
     try {
-      const objName =
-        (obj.get('name' as any) as string) ||
-        `${obj.type.charAt(0).toUpperCase() + obj.type.slice(1)} ${i + 1}`;
+      const rendered = renderFabricObjectLayer(obj, width, height);
+      if (!rendered) continue;
 
-      const bound = obj.getBoundingRect();
-      const layerW = Math.max(Math.ceil(bound.width), 1);
-      const layerH = Math.max(Math.ceil(bound.height), 1);
+      const fallbackType = obj.type || 'object';
+      const objectName =
+        String(getObjectValue(obj, 'name') || '').trim() ||
+        `${fallbackType.charAt(0).toUpperCase()}${fallbackType.slice(1)} ${index + 1}`;
 
-      // Render individual object to isolated offscreen canvas
-      const objCanvas = document.createElement('canvas');
-      objCanvas.width = layerW;
-      objCanvas.height = layerH;
-      const objCtx = objCanvas.getContext('2d');
-
-      if (objCtx) {
-        objCtx.save();
-        // Translate origin to capture object inside its local bounds
-        objCtx.translate(-bound.left, -bound.top);
-        obj.render(objCtx);
-        objCtx.restore();
-      }
-
-      const layer: Layer = {
-        name: objName,
-        canvas: objCanvas,
-        left: Math.round(bound.left),
-        top: Math.round(bound.top),
-        opacity: obj.opacity !== undefined ? obj.opacity : 1,
-        hidden: !obj.visible,
-      };
-
-      // If text object, add metadata
-      if (obj.type === 'textbox' || obj.type === 'i-text' || obj.type === 'text') {
-        const textObj = obj as Textbox | IText;
-        layer.text = {
-          text: textObj.text || '',
-        };
-      }
-
-      layers.push(layer);
-    } catch (err) {
-      console.warn('Skipping layer during PSD export:', err);
+      layers.push({
+        name: objectName,
+        canvas: rendered.canvas,
+        left: rendered.left,
+        top: rendered.top,
+        // Fabric has already rendered opacity into the layer pixels.
+        // Applying it again here would make the PSD layer too transparent.
+        opacity: 1,
+        hidden: obj.visible === false,
+      });
+    } catch (error) {
+      console.warn('Skipping unsupported PSD layer:', obj.type, error);
     }
   }
 
-  // 3. Create Merged Composite Canvas for Document Preview / Compatibility
-  const compositeCanvas = document.createElement('canvas');
-  compositeCanvas.width = width;
-  compositeCanvas.height = height;
-  const compCtx = compositeCanvas.getContext('2d');
-  if (compCtx) {
-    // Draw background
-    compCtx.drawImage(bgCanvas, 0, 0);
-    // Draw each object
-    for (const obj of objects) {
-      if (!obj.get('isGuide' as any)) {
-        obj.render(compCtx);
-      }
-    }
+  /*
+   * Store a guaranteed merged preview in the PSD document. Photoshop and other
+   * PSD readers use this composite while loading and when a layer is unsupported.
+   */
+  const compositeDataUrl = await canvasManager.getCleanPreviewDataUrl(1);
+  if (!compositeDataUrl || !compositeDataUrl.startsWith('data:image/')) {
+    throw new Error('Fabric canvas did not produce a PSD composite preview');
   }
 
-  // 4. Construct PSD Document Structure with 300 DPI resolution
+  const compositeImage = await loadImage(compositeDataUrl);
+  const compositeCanvas = createCanvas(width, height);
+  const compositeContext = compositeCanvas.getContext('2d');
+  if (!compositeContext) {
+    throw new Error('Unable to create the PSD composite preview');
+  }
+  compositeContext.drawImage(compositeImage, 0, 0, width, height);
+
+  const targetDpi = Math.max(1, documentSettings.dpi || dimensions.dpi || 300);
   const psd: Psd = {
     width,
     height,
     channels: 4,
     bitsPerChannel: 8,
-    colorMode: 3, // RGB
+    colorMode: 3,
     imageResources: {
       resolutionInfo: {
-        horizontalResolution: 300,
+        horizontalResolution: targetDpi,
         horizontalResolutionUnit: 'PPI',
         widthUnit: 'Inches',
-        verticalResolution: 300,
+        verticalResolution: targetDpi,
         verticalResolutionUnit: 'PPI',
         heightUnit: 'Inches',
       },
@@ -161,22 +232,21 @@ export async function exportLayeredPsd(
     children: layers,
   };
 
-  // 5. Generate Binary Buffer & Trigger Download
-  const buffer = writePsd(psd, {
-    generateThumbnail: true,
-  });
+  const buffer = writePsd(psd, { generateThumbnail: true });
+  if (!buffer || buffer.byteLength === 0) {
+    throw new Error('PSD generation produced an empty file');
+  }
 
   const blob = new Blob([buffer], { type: 'image/vnd.adobe.photoshop' });
   const objectUrl = URL.createObjectURL(blob);
-
   const safeName = (documentSettings.name || 'print_artwork')
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, '_');
-  const finalFilename = filename || `${safeName}_300dpi.psd`;
+  const finalFilename = filename || `${safeName}_${targetDpi}dpi.psd`;
 
-  downloadFile(objectUrl, finalFilename);
-
-  setTimeout(() => {
-    URL.revokeObjectURL(objectUrl);
-  }, 10000);
+  try {
+    downloadFile(objectUrl, finalFilename);
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+  }
 }

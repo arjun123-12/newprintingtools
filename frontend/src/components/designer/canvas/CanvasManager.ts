@@ -44,7 +44,7 @@ import { applyCanvaControlsGlobal, applyCanvaControlsToObject } from './CanvaCon
 import { createFrameClipPath } from './frameHelpers';
 import { CANVA_FRAME_PLACEHOLDER_SVG, FRAME_PRESETS } from '../data/framesData';
 import { POPULAR_FONTS, loadFont } from '../utils/fonts';
-import { calculateImageQuality } from '../utils/imageQuality';
+import { calculateImageQuality, calculateFabricImageEffectiveDpi } from '../utils/imageQuality';
 import { runPreflightCheck, PreflightReport } from '../utils/preflightCheck';
 import { urlToSafeDataUrl, formatImageUrl, getProxiedImageUrl } from '@/utils/imageUrl';
 import { isSvg, normalizeSvgUrl } from '@/utils/svgNormalizer';
@@ -107,7 +107,23 @@ export { urlToSafeDataUrl, formatImageUrl, getProxiedImageUrl };
 export const CUSTOM_CANVAS_PROPERTIES = [
   'id',
   'name',
+  'isGuide',
+  'isPrintGuide',
+  'isRulerGuide',
+  'isBackground',
+  'excludeFromSelection',
+  'isBrushPath',
+  'isPencilStroke',
+  'brushType',
+  'imageId',
+  'previewSrc',
   'originalSrc',
+  'upscaledSrc',
+  'sourceWidth',
+  'sourceHeight',
+  'effectiveDpi',
+  'upscaleFactor',
+  'upscaleStatus',
   'sourceUrl',
   'sourceType',
   'provider',
@@ -118,8 +134,6 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   'slotId',
   'isCanvaPlaceholder',
   'frameShape',
-  'brushType',
-  'isBrushPath',
   'cropX',
   'cropY',
   'cropWidth',
@@ -799,9 +813,31 @@ export class CanvasManager {
   }
 
   /** Restores selection without unlocking objects explicitly locked by the user. */
-  private restoreObjectInteractivity(obj: FabricObject): void {
-    if (this.isNonInteractiveObject(obj)) {
-      obj.set({
+  /** Restores selection without unlocking objects explicitly locked by the user. */
+  private restoreObjectInteractivity(obj: unknown): void {
+    // Sometimes mouse events can return a wrapper/plain object.
+    // Only process a real Fabric-like object.
+    if (
+      !obj ||
+      typeof obj !== 'object' ||
+      typeof (obj as any).set !== 'function' ||
+      typeof (obj as any).setCoords !== 'function'
+    ) {
+      return;
+    }
+
+    const fabricObject = obj as FabricObject;
+
+    const getValue = (key: string): any => {
+      if (typeof (fabricObject as any).get === 'function') {
+        return (fabricObject as any).get(key);
+      }
+
+      return (fabricObject as any)[key];
+    };
+
+    if (this.isNonInteractiveObject(fabricObject)) {
+      fabricObject.set({
         selectable: false,
         evented: false,
         hasControls: false,
@@ -809,17 +845,21 @@ export class CanvasManager {
         hoverCursor: 'default',
         moveCursor: 'default',
       });
-      obj.setCoords();
+
+      fabricObject.setCoords();
       return;
     }
 
-    // Explicitly locked check: check isLocked property or lockMovementX + lockMovementY
     const isLocked =
-      obj.get('isLocked' as any) === true ||
-      (obj.lockMovementX === true && obj.lockMovementY === true && obj.get('isLocked' as any) !== false);
+      getValue('isLocked') === true ||
+      (
+        fabricObject.lockMovementX === true &&
+        fabricObject.lockMovementY === true &&
+        getValue('isLocked') !== false
+      );
 
     if (isLocked) {
-      obj.set({
+      fabricObject.set({
         selectable: true,
         evented: true,
         lockMovementX: true,
@@ -833,7 +873,7 @@ export class CanvasManager {
         moveCursor: 'default',
       });
     } else {
-      obj.set({
+      fabricObject.set({
         selectable: true,
         evented: true,
         hasControls: true,
@@ -843,13 +883,14 @@ export class CanvasManager {
         lockRotation: false,
         lockScalingX: false,
         lockScalingY: false,
+        lockScalingFlip: true,
         hoverCursor: 'move',
         moveCursor: 'move',
       });
     }
 
-    applyCanvaControlsToObject(obj);
-    obj.setCoords();
+    applyCanvaControlsToObject(fabricObject);
+    fabricObject.setCoords();
   }
 
   /** Activates the normal pointer/select tool. */
@@ -3897,6 +3938,8 @@ export class CanvasManager {
       );
     }
 
+    const imageDpiCalc = imageObj ? this.calculateImageDpi(imageObj) : null;
+
     const isPath = active instanceof Path || Boolean(active.get('isBrushPath' as any));
     const brushType = (active.get('brushType' as any) as BrushType) || undefined;
     const isBrushPath = isPath || Boolean(active.get('isBrushPath' as any));
@@ -3970,6 +4013,12 @@ export class CanvasManager {
       processedUrl: imageObj ? (imageObj.get('processedUrl' as any) as string) : undefined,
       processedFileId: imageObj ? (imageObj.get('processedFileId' as any) as string) : undefined,
       processingType: imageObj ? (imageObj.get('processingType' as any) as string) : undefined,
+      effectiveDpi: imageDpiCalc ? imageDpiCalc.effectiveDpi : undefined,
+      qualityLevel: imageDpiCalc ? imageDpiCalc.qualityLevel : undefined,
+      upscaleStatus: imageObj ? ((imageObj.get('upscaleStatus' as any) as any) || 'not_required') : undefined,
+      upscaleFactor: imageObj ? ((imageObj.get('upscaleFactor' as any) as any) || 1) : undefined,
+      upscaledSrc: imageObj ? ((imageObj.get('upscaledSrc' as any) as string) || undefined) : undefined,
+      imageId: imageObj ? ((imageObj.get('imageId' as any) as string) || undefined) : undefined,
     };
   }
 
@@ -3990,9 +4039,14 @@ export class CanvasManager {
           ? (this.canvas as any).findTarget(opt.e)
           : null) ||
         this.canvas.getActiveObject();
-      const target = rawTarget?.target || rawTarget;
+      const target = rawTarget;
 
-      if (target && !this.isNonInteractiveObject(target)) {
+      if (
+        target &&
+        typeof target.set === 'function' &&
+        typeof target.setCoords === 'function' &&
+        !this.isNonInteractiveObject(target)
+      ) {
         this.restoreObjectInteractivity(target);
       }
     });
@@ -4266,6 +4320,103 @@ export class CanvasManager {
       img.set('isFrame' as any, true);
       img.set('isCanvaPlaceholder' as any, false);
       this.canvas?.requestRenderAll();
+    }
+  }
+
+  /**
+   * Calculate effective print DPI for an image object on the canvas.
+   */
+  public calculateImageDpi(obj: FabricObject): {
+    effectiveDpi: number;
+    qualityLevel: 'excellent' | 'acceptable' | 'low';
+    targetDpi: number;
+    printedWidthInches: number;
+    printedHeightInches: number;
+    recommendedScale: 1 | 2 | 4;
+    requiresUpscale: boolean;
+  } | null {
+    if (!obj || (obj.type !== 'image' && obj.type !== 'fabricImage')) {
+      return null;
+    }
+
+    const dims = this.dimensions;
+    const sourceWidth = Number((obj as any).sourceWidth || (obj as any).width || 100);
+    const sourceHeight = Number((obj as any).sourceHeight || (obj as any).height || 100);
+    const objW = Number(obj.width || 100);
+    const objH = Number(obj.height || 100);
+    const scaleX = Number(obj.scaleX || 1.0);
+    const scaleY = Number(obj.scaleY || 1.0);
+
+    const crop = {
+      cropX: (obj as any).cropX,
+      cropY: (obj as any).cropY,
+      cropWidth: (obj as any).cropWidth,
+      cropHeight: (obj as any).cropHeight,
+    };
+
+    return calculateFabricImageEffectiveDpi(
+      sourceWidth,
+      sourceHeight,
+      objW,
+      objH,
+      scaleX,
+      scaleY,
+      dims.widthPx || 1063,
+      dims.heightPx || 591,
+      dims.widthMm || 90,
+      dims.heightMm || 50,
+      crop,
+      dims.dpi || 300
+    );
+  }
+
+  /**
+   * Replace low-res image element with an AI-upscaled version without changing coordinates, scale, or position.
+   */
+  public async applyUpscaledSourceToObject(
+    obj: FabricObject,
+    upscaledSrc: string,
+    upscaleFactor: 1 | 2 | 4
+  ): Promise<boolean> {
+    if (!obj || (obj.type !== 'image' && obj.type !== 'fabricImage')) {
+      return false;
+    }
+
+    try {
+      (obj as any).upscaledSrc = upscaledSrc;
+      (obj as any).upscaleFactor = upscaleFactor;
+      (obj as any).upscaleStatus = 'completed';
+
+      // Load upscaled image HTML element
+      const imgEl = new Image();
+      imgEl.crossOrigin = 'anonymous';
+
+      await new Promise<void>((resolve, reject) => {
+        imgEl.onload = () => resolve();
+        imgEl.onerror = () => reject(new Error('Failed to load upscaled image'));
+        imgEl.src = upscaledSrc;
+      });
+
+      const fabricImg = obj as FabricImage;
+      if (typeof fabricImg.setElement === 'function') {
+        fabricImg.setElement(imgEl);
+      }
+
+      // Preserve on-screen displayed dimensions by dividing scale by upscaleFactor
+      if (upscaleFactor > 1) {
+        fabricImg.set({
+          scaleX: (fabricImg.scaleX || 1) / upscaleFactor,
+          scaleY: (fabricImg.scaleY || 1) / upscaleFactor,
+        });
+      }
+
+      fabricImg.setCoords();
+      this.canvas?.requestRenderAll();
+      this.notifyChange();
+      return true;
+    } catch (err) {
+      console.error('Failed to apply upscaled image to object:', err);
+      return false;
     }
   }
 

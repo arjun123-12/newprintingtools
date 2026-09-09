@@ -27,6 +27,7 @@ import { PreflightBadge } from './controls/PreflightBadge';
 import { ArtworkPreviewModal } from './controls/ArtworkPreviewModal';
 import { CustomBannerSizeModal } from './controls/CustomBannerSizeModal';
 import { AddToCartModal } from './controls/AddToCartModal';
+import { DownloadExportModal } from './controls/DownloadExportModal';
 import { PageManagerTray, PageData } from './controls/PageManagerTray';
 import { renderCanvasJsonToThumbnail } from './utils/canvasThumbnail';
 import {
@@ -234,6 +235,7 @@ export default function Designer({
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [isCustomSizeOpen, setIsCustomSizeOpen] = useState<boolean>(false);
   const [isAddToCartOpen, setIsAddToCartOpen] = useState<boolean>(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [previewThumbnailUrl, setPreviewThumbnailUrl] = useState<string | null>(null);
   const [isAutoFit, setIsAutoFit] = useState<boolean>(true);
   const [canUndo, setCanUndo] = useState<boolean>(false);
@@ -2075,6 +2077,7 @@ export default function Designer({
         onExportPng={handleExportPng}
         onExportJpg={handleExportJpg}
         onExportPsd={handleExportPsd}
+        onOpenExportModal={() => setIsExportModalOpen(true)}
         canvasManager={canvasManager}
         preflightReport={preflightReport}
         onAddToCart={handleAddToCartClick}
@@ -2315,6 +2318,18 @@ export default function Designer({
         artworkName={designName}
         previewDataUrl={previewThumbnailUrl}
         dimensionsText={`${documentSettings.width} × ${documentSettings.height} ${documentSettings.unit || 'mm'} (${documentSettings.dpi || 300} DPI)`}
+      />
+
+      {/* AI Upscaling & Multi-Format Download Modal */}
+      <DownloadExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        canvasManager={canvasManager}
+        dimensions={dimensions}
+        documentSettings={documentSettings}
+        pages={pages}
+        activePageIndex={activePageIndex}
+        designName={designName}
       />
     </div>
   );

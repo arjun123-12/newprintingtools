@@ -64,48 +64,142 @@ export function formatFileSize(bytes: number): string {
 }
 
 /**
+ * Exact print DPI formula accounting for canvas coordinates, document mm, and crop.
+ */
+export function calculateFabricImageEffectiveDpi(
+  sourceWidth: number,
+  sourceHeight: number,
+  objectWidth: number,
+  objectHeight: number,
+  scaleX: number = 1.0,
+  scaleY: number = 1.0,
+  canvasWidthPx: number = 1063,
+  canvasHeightPx: number = 591,
+  documentWidthMm: number = 90,
+  documentHeightMm: number = 50,
+  crop?: { cropX?: number; cropY?: number; cropWidth?: number; cropHeight?: number },
+  targetDpi: number = 300
+): {
+  effectiveDpi: number;
+  qualityLevel: 'excellent' | 'acceptable' | 'low';
+  targetDpi: number;
+  printedWidthInches: number;
+  printedHeightInches: number;
+  recommendedScale: 1 | 2 | 4;
+  requiresUpscale: boolean;
+} {
+  let effectiveSourceW = sourceWidth || objectWidth || 100;
+  let effectiveSourceH = sourceHeight || objectHeight || 100;
+
+  if (crop && crop.cropWidth && crop.cropWidth > 0 && crop.cropHeight && crop.cropHeight > 0) {
+    effectiveSourceW = crop.cropWidth;
+    effectiveSourceH = crop.cropHeight;
+  }
+
+  const cvW = Math.max(canvasWidthPx, 1);
+  const cvH = Math.max(canvasHeightPx, 1);
+  const docW = Math.max(documentWidthMm, 1);
+  const docH = Math.max(documentHeightMm, 1);
+
+  const displayedWidthPx = Math.max(1, Math.abs(objectWidth * scaleX));
+  const displayedHeightPx = Math.max(1, Math.abs(objectHeight * scaleY));
+
+  const displayedWidthMm = (displayedWidthPx / cvW) * docW;
+  const displayedHeightMm = (displayedHeightPx / cvH) * docH;
+
+  const printedWidthInches = Math.max(0.01, displayedWidthMm / 25.4);
+  const printedHeightInches = Math.max(0.01, displayedHeightMm / 25.4);
+
+  const dpiX = effectiveSourceW / printedWidthInches;
+  const dpiY = effectiveSourceH / printedHeightInches;
+  const effectiveDpi = Math.round(Math.min(dpiX, dpiY));
+
+  let qualityLevel: 'excellent' | 'acceptable' | 'low' = 'excellent';
+  if (effectiveDpi < 150) {
+    qualityLevel = 'low';
+  } else if (effectiveDpi < targetDpi) {
+    qualityLevel = 'acceptable';
+  }
+
+  const requiresUpscale = effectiveDpi < targetDpi;
+  let recommendedScale: 1 | 2 | 4 = 1;
+  if (requiresUpscale) {
+    recommendedScale = (effectiveDpi * 2 >= targetDpi) ? 2 : 4;
+  }
+
+  return {
+    effectiveDpi,
+    qualityLevel,
+    targetDpi,
+    printedWidthInches: Number(printedWidthInches.toFixed(2)),
+    printedHeightInches: Number(printedHeightInches.toFixed(2)),
+    recommendedScale,
+    requiresUpscale,
+  };
+}
+
+/**
  * Returns badge styling and advice text for DPI status
  */
-export function getQualityBadgeDetails(status: ArtworkQuality): {
+export function getQualityBadgeDetails(
+  status: 'excellent' | 'acceptable' | 'good' | 'low' | 'critical' | 'enhancing' | 'unavailable' | string
+): {
   label: string;
   badgeBg: string;
   badgeText: string;
   badgeBorder: string;
+  dotColor: string;
   description: string;
 } {
   switch (status) {
     case 'excellent':
       return {
-        label: 'Excellent (300+ DPI)',
-        badgeBg: 'bg-emerald-50',
+        label: 'Excellent',
+        badgeBg: 'bg-emerald-50 text-emerald-700',
         badgeText: 'text-emerald-700',
         badgeBorder: 'border-emerald-200',
-        description: 'Crystal clear commercial print quality.',
+        dotColor: 'bg-emerald-500',
+        description: 'Crystal clear commercial print quality (300+ DPI).',
       };
+    case 'acceptable':
     case 'good':
       return {
-        label: 'Good (200-299 DPI)',
-        badgeBg: 'bg-blue-50',
-        badgeText: 'text-blue-700',
-        badgeBorder: 'border-blue-200',
-        description: 'Acceptable sharpness for most print products.',
-      };
-    case 'low':
-      return {
-        label: 'Low Resolution (150-199 DPI)',
-        badgeBg: 'bg-amber-50',
+        label: 'Acceptable',
+        badgeBg: 'bg-amber-50 text-amber-700',
         badgeText: 'text-amber-700',
         badgeBorder: 'border-amber-200',
-        description: 'May appear slightly soft or pixelated up close.',
+        dotColor: 'bg-amber-500',
+        description: 'Acceptable sharpness (150-299 DPI). Enhancing will sharpen.',
       };
+    case 'low':
     case 'critical':
+      return {
+        label: 'Low Quality',
+        badgeBg: 'bg-rose-50 text-rose-700',
+        badgeText: 'text-rose-700',
+        badgeBorder: 'border-rose-200',
+        dotColor: 'bg-rose-500',
+        description: 'Low resolution (<150 DPI). AI Enhancement strongly recommended.',
+      };
+    case 'enhancing':
+      return {
+        label: 'Enhancing...',
+        badgeBg: 'bg-blue-50 text-blue-700',
+        badgeText: 'text-blue-700',
+        badgeBorder: 'border-blue-200',
+        dotColor: 'bg-blue-500',
+        description: 'Real-ESRGAN AI upscaling in progress...',
+      };
+    case 'unavailable':
     default:
       return {
-        label: 'Critical (< 150 DPI)',
-        badgeBg: 'bg-red-50',
-        badgeText: 'text-red-700',
-        badgeBorder: 'border-red-200',
-        description: 'Noticeable pixelation will occur on final print. Use a larger image.',
+        label: 'Enhance Unavailable',
+        badgeBg: 'bg-gray-100 text-gray-700',
+        badgeText: 'text-gray-700',
+        badgeBorder: 'border-gray-300',
+        dotColor: 'bg-gray-400',
+        description: 'AI upscaling is not required or unavailable for this item.',
       };
   }
 }
+

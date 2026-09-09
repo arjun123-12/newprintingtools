@@ -299,6 +299,26 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   const textAlign = selected?.textAlign || 'left';
   const fontSize = selected?.fontSize || 32;
 
+  /*
+   * Canva-style rounding uses the selected element's size instead of a small
+   * fixed slider maximum. Shapes store rx/ry in their unscaled local space,
+   * while image clip-path rounding is handled in rendered screen pixels by
+   * CanvasManager, so calculate the correct maximum for each object type.
+   */
+  const cornerMaxRadius = selected
+    ? Math.max(
+      1,
+      Math.min(
+        isImage
+          ? selected.width || 1
+          : (selected.width || 1) / Math.max(Math.abs(selected.scaleX || 1), 0.001),
+        isImage
+          ? selected.height || 1
+          : (selected.height || 1) / Math.max(Math.abs(selected.scaleY || 1), 0.001)
+      ) / 2
+    )
+    : 1;
+
   const handleUpdate = <K extends keyof SelectedObjectState>(
     prop: K,
     value: SelectedObjectState[K]
@@ -957,6 +977,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               {activePopover === 'cornerRounding' && (
                 <CornerRoundingPopover
                   rx={selected.rx || 0}
+                  maxRadius={cornerMaxRadius}
                   onChange={(rx) => handleUpdate('rx', rx)}
                   onClose={() => setActivePopover(null)}
                 />
@@ -1031,6 +1052,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               {activePopover === 'cornerRounding' && (
                 <CornerRoundingPopover
                   rx={selected.rx || 0}
+                  maxRadius={cornerMaxRadius}
                   onChange={(rx) => handleUpdate('rx', rx)}
                   onClose={() => setActivePopover(null)}
                 />

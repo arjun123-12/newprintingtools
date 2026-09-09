@@ -5,6 +5,7 @@ import { Lock, Unlock, Copy, Trash2, MoreHorizontal, Group as GroupIcon, Ungroup
 import { SelectedObjectState } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { MoreMenuPopover } from './MoreMenuPopover';
+import { QualityBadge } from './QualityBadge';
 
 interface ElementActionBarProps {
   selected: SelectedObjectState;
@@ -139,6 +140,21 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
         onClick={(e) => e.stopPropagation()}
         className="pointer-events-auto flex items-center gap-1 bg-white px-1.5 py-1 rounded-full shadow-lg border border-gray-200 text-gray-700 animate-in fade-in zoom-in-95 duration-100"
       >
+        {/* Image Quality Badge */}
+        {selected.type === 'image' && (
+          <div className="flex items-center pl-1 pr-1.5 border-r border-gray-200">
+            <QualityBadge
+              effectiveDpi={selected.effectiveDpi || Math.round(selected.qualityInfo?.estimatedDpi || 300)}
+              qualityLevel={
+                selected.upscaleStatus === 'processing' || selected.upscaleStatus === 'pending'
+                  ? 'enhancing'
+                  : (selected.qualityLevel || (selected.effectiveDpi && selected.effectiveDpi >= 300 ? 'excellent' : selected.effectiveDpi && selected.effectiveDpi >= 150 ? 'acceptable' : 'low'))
+              }
+              isUpscaling={selected.upscaleStatus === 'processing' || selected.upscaleStatus === 'pending'}
+            />
+          </div>
+        )}
+
         {/* Lock / Unlock */}
         <button
           type="button"

@@ -12,6 +12,8 @@ use App\Http\Controllers\Api\V1\Freepik\ResourceController;
 use App\Http\Controllers\Api\V1\Freepik\SearchController;
 use App\Http\Controllers\Api\V1\Freepik\UseAssetController;
 use App\Http\Controllers\Api\V1\Freepik\UseIconController;
+use App\Http\Controllers\Api\V1\ImageQualityController;
+use App\Http\Controllers\Api\V1\Designer\ExportController;
 use Illuminate\Support\Facades\Route;
 /*
 |--------------------------------------------------------------------------
@@ -54,6 +56,21 @@ Route::prefix('designer/uploads')
             'storeProcessedImage',
         ]);
     });
+
+// Image Quality Analysis and Local Real-ESRGAN Upscaling
+Route::prefix('images')->group(function () {
+    Route::post('/analyze-quality', [ImageQualityController::class, 'analyzeQuality']);
+    Route::post('/register', [ImageQualityController::class, 'registerImage']);
+    Route::post('/{image}/upscale', [ImageQualityController::class, 'upscale']);
+    Route::get('/{image}/upscale-status', [ImageQualityController::class, 'upscaleStatus']);
+});
+
+// Multi-Format Designer Export Engine (JPEG, PNG, WebP, PDF, TIFF, PSD)
+Route::prefix('designer')->group(function () {
+    Route::post('/export', [ExportController::class, 'export']);
+    Route::get('/exports/{export}/status', [ExportController::class, 'status']);
+    Route::get('/exports/{export}/download', [ExportController::class, 'download']);
+});
 
 // ==========================================
 // PUBLIC ROUTES

@@ -1,94 +1,133 @@
 'use client';
 
-import React from 'react';
-import { Minus, Plus, X } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { RotateCcw, X } from 'lucide-react';
 
-interface CornerRoundingPopoverProps {
+export interface CornerRoundingPopoverProps {
   rx: number;
+  maxRadius?: number;
   onChange: (radius: number) => void;
   onClose: () => void;
 }
 
-const PRESETS = [0, 6, 12, 20, 32, 50];
-
 export const CornerRoundingPopover: React.FC<CornerRoundingPopoverProps> = ({
-  rx = 0,
+  rx,
+  maxRadius = 200,
   onChange,
   onClose,
 }) => {
+  const safeMax = useMemo(
+    () => Math.max(1, Number.isFinite(maxRadius) ? maxRadius : 200),
+    [maxRadius]
+  );
+
+  const radius = Math.min(safeMax, Math.max(0, Number(rx) || 0));
+  const percentage = Math.round((radius / safeMax) * 100);
+  const sliderStep = Math.max(0.1, safeMax / 100);
+
+  const updateRadius = (value: number) => {
+    const nextValue = Number.isFinite(value)
+      ? Math.min(safeMax, Math.max(0, value))
+      : 0;
+
+    onChange(Number(nextValue.toFixed(2)));
+  };
+
+  const setPercentage = (value: number) => {
+    updateRadius((safeMax * value) / 100);
+  };
+
   return (
     <div
-      onMouseDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-      className="absolute top-full left-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-gray-200 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none space-y-3 text-gray-800"
+      className="absolute right-0 top-full z-[80] mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl"
+      onMouseDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-bold text-gray-900">Corner rounding</span>
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-bold text-gray-900">Corner rounding</h3>
+          <p className="mt-0.5 text-[11px] text-gray-500">
+            Round every corner equally
+          </p>
+        </div>
+
         <button
           type="button"
           onClick={onClose}
-          className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition"
+          className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+          title="Close"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* Slider & Stepper */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={rx}
-            onChange={(e) => onChange(Number(e.target.value))}
-            className="flex-1 accent-[#7c3aed] cursor-pointer h-1.5 bg-gray-200 rounded-lg"
+      <div className="mb-3 flex items-center gap-3">
+        <div className="relative h-11 flex-1 overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+          <div
+            className="absolute inset-y-0 left-0 bg-purple-100 transition-[width] duration-75"
+            style={{ width: `${percentage}%` }}
           />
-          <div className="flex items-center h-8 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden shrink-0">
-            <button
-              type="button"
-              onClick={() => onChange(Math.max(0, rx - 2))}
-              className="px-1.5 h-full hover:bg-gray-200 text-gray-600 transition"
-            >
-              <Minus className="w-3 h-3" />
-            </button>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              value={rx}
-              onChange={(e) => onChange(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
-              className="w-10 bg-transparent text-center text-xs font-mono font-bold text-gray-800 focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => onChange(Math.min(100, rx + 2))}
-              className="px-1.5 h-full hover:bg-gray-200 text-gray-600 transition"
-            >
-              <Plus className="w-3 h-3" />
-            </button>
+          <div className="relative flex h-full items-center justify-between px-3">
+            <span className="text-xs font-semibold text-gray-600">Radius</span>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={0}
+                max={Math.ceil(safeMax)}
+                step={sliderStep}
+                value={Number(radius.toFixed(1))}
+                onChange={(event) => updateRadius(Number(event.target.value))}
+                className="w-16 rounded-lg border border-gray-200 bg-white px-2 py-1 text-right text-xs font-bold text-gray-900 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+              />
+              <span className="text-[10px] font-medium text-gray-400">px</span>
+            </div>
           </div>
         </div>
 
-        {/* Quick Presets */}
-        <div className="flex items-center justify-between gap-1 pt-1">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              onClick={() => onChange(preset)}
-              className={`px-2 py-1 rounded-md text-[11px] font-semibold transition ${
-                rx === preset
-                  ? 'bg-[#f0ebff] text-[#7c3aed] border border-[#8b5cf6]'
-                  : 'bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100'
+        <button
+          type="button"
+          onClick={() => updateRadius(0)}
+          className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700"
+          title="Reset corner rounding"
+        >
+          <RotateCcw className="h-4 w-4" />
+        </button>
+      </div>
+
+      <input
+        type="range"
+        min={0}
+        max={safeMax}
+        step={sliderStep}
+        value={radius}
+        onChange={(event) => updateRadius(Number(event.target.value))}
+        className="h-2 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-[#8b3dff]"
+        aria-label="Corner radius"
+      />
+
+      <div className="mt-2 flex justify-between text-[10px] font-medium text-gray-400">
+        <span>Square</span>
+        <span>{percentage}% rounded</span>
+        <span>Maximum</span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-5 gap-1.5">
+        {[0, 25, 50, 75, 100].map((preset) => (
+          <button
+            key={preset}
+            type="button"
+            onClick={() => setPercentage(preset)}
+            className={`rounded-lg border px-1 py-1.5 text-[10px] font-bold transition ${Math.abs(percentage - preset) <= 1
+              ? 'border-[#8b3dff] bg-purple-50 text-[#7c3aed]'
+              : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50'
               }`}
-            >
-              {preset}
-            </button>
-          ))}
-        </div>
+          >
+            {preset}%
+          </button>
+        ))}
       </div>
     </div>
   );
 };
+
+export default CornerRoundingPopover;
