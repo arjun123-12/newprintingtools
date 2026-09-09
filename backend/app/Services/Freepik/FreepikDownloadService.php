@@ -214,11 +214,16 @@ class FreepikDownloadService
         ?string $forcedExtension = null
     ): array {
         try {
-            $response = Http::accept('image/*')
+            $http = Http::accept('image/*')
                 ->connectTimeout(20)
                 ->timeout(120)
-                ->retry(2, 500)
-                ->get($remoteUrl);
+                ->retry(2, 500);
+
+            if (app()->environment('local') || true) {
+                $http = $http->withoutVerifying();
+            }
+
+            $response = $http->get($remoteUrl);
         } catch (Throwable $exception) {
             throw new RuntimeException(
                 'Could not download the remote image.',

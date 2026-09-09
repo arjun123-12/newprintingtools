@@ -38,6 +38,9 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
   const activePageIndexRef = useRef(activePageIndex);
   activePageIndexRef.current = activePageIndex;
 
+  const onUpdatePageThumbnailRef = useRef(onUpdatePageThumbnail);
+  onUpdatePageThumbnailRef.current = onUpdatePageThumbnail;
+
   // Initialize and synchronize thumbnails from incoming `pages` prop
   useEffect(() => {
     pages.forEach((page, idx) => {
@@ -54,12 +57,12 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
         void renderCanvasJsonToThumbnail(page.canvasJson, 320, 200).then((thumb) => {
           if (thumb) {
             setLiveThumbnails((prev) => ({ ...prev, [idx]: thumb }));
-            onUpdatePageThumbnail?.(idx, thumb);
+            onUpdatePageThumbnailRef.current?.(idx, thumb);
           }
         });
       }
     });
-  }, [pages, onUpdatePageThumbnail]);
+  }, [pages]);
 
   // Real-time canvas listener: continuously updates active page thumbnail on any canvas modification
   useEffect(() => {
@@ -71,16 +74,21 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(async () => {
         try {
+          const cv = canvasManager.getCanvas();
+          if (!cv || (cv as any)._currentTransform) {
+            // Do not capture thumbnail during user drag or transform
+            return;
+          }
           const currentIdx = activePageIndexRef.current;
           const dataUrl = await canvasManager.getCleanPreviewDataUrl(0.35);
           if (dataUrl && isMounted) {
             setLiveThumbnails((prev) => ({ ...prev, [currentIdx]: dataUrl }));
-            onUpdatePageThumbnail?.(currentIdx, dataUrl);
+            onUpdatePageThumbnailRef.current?.(currentIdx, dataUrl);
           }
         } catch {
           // Ignore preview snapshot error
         }
-      }, 120);
+      }, 300);
     };
 
     const fabric = canvasManager.getCanvas();
@@ -96,7 +104,6 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
       ];
 
       events.forEach((ev) => fabric.on(ev as any, scheduleThumbUpdate));
-      // Trigger initial snapshot
       scheduleThumbUpdate();
 
       return () => {
@@ -105,7 +112,7 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
         events.forEach((ev) => fabric.off(ev as any, scheduleThumbUpdate));
       };
     }
-  }, [canvasManager, activePageIndex, onUpdatePageThumbnail]);
+  }, [canvasManager]);
 
   // Derive human-friendly labels (Front, Back, Page 1, Page 2, etc.)
   const getPageLabel = useCallback(

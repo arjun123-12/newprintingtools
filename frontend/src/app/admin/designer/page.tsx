@@ -18,10 +18,12 @@ function AdminDesignerInner() {
   const searchParams = useSearchParams();
   const productId = searchParams.get('productId') || undefined;
   const templateId = searchParams.get('templateId') || undefined;
+  const artworkId = searchParams.get('artworkId') || undefined;
+  const mode = searchParams.get('mode') || (templateId ? 'admin-template' : undefined);
 
   return (
     <div className="w-full h-full min-h-[85vh] flex flex-col">
-      <Designer productId={productId} templateId={templateId} />
+      <Designer productId={productId} templateId={templateId} artworkId={artworkId} mode={mode} />
     </div>
   );
 }

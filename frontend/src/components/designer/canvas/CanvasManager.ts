@@ -9,6 +9,7 @@ import {
   FabricImage,
   FabricObject,
   ActiveSelection,
+  Group,
   TPointerEventInfo,
   Point,
   PencilBrush,
@@ -62,6 +63,7 @@ export type GuidesEventCallback = (visible: boolean) => void;
 export type LayersEventCallback = (layers: LayerItem[]) => void;
 export type PreflightEventCallback = (report: PreflightReport) => void;
 export type DrawingModeEventCallback = (enabled: boolean) => void;
+export type PanModeEventCallback = (enabled: boolean) => void;
 export type BrushSettingsEventCallback = (settings: BrushSettings) => void;
 export type BackgroundEventCallback = (settings: BackgroundSettings) => void;
 
@@ -128,10 +130,13 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   'strokeUniform',
   'lockMovementX',
   'lockMovementY',
+  'isLocked',
   'lockRotation',
   'lockScalingX',
   'lockScalingY',
   'hasControls',
+  'selectable',
+  'evented',
   'naturalWidth',
   'naturalHeight',
   'fileSizeBytes',
@@ -158,14 +163,14 @@ export class CanvasManager {
     strokeLineJoin: 'round',
     sprayDensity: 25,
     sprayDotWidth: 2,
-    calligraphyAngle: 45,
+    calligraphyAngle: 30,
   };
   private backgroundSettings: BackgroundSettings = {
     type: 'color',
     color: '#ffffff',
   };
 
-  // Listeners
+  // Event Listeners
   private selectionListeners: Set<SelectionEventCallback> = new Set();
   private zoomListeners: Set<ZoomEventCallback> = new Set();
   private changeListeners: Set<CanvasEventCallback> = new Set();
@@ -173,6 +178,7 @@ export class CanvasManager {
   private layersListeners: Set<LayersEventCallback> = new Set();
   private preflightListeners: Set<PreflightEventCallback> = new Set();
   private drawingModeListeners: Set<DrawingModeEventCallback> = new Set();
+  private panModeListeners: Set<PanModeEventCallback> = new Set();
   private brushSettingsListeners: Set<BrushSettingsEventCallback> = new Set();
   private backgroundListeners: Set<BackgroundEventCallback> = new Set();
   private historyListeners: Set<(canUndo: boolean, canRedo: boolean) => void> = new Set();
@@ -183,11 +189,47 @@ export class CanvasManager {
   private isProcessingHistory: boolean = false;
   private maxHistoryLength: number = 50;
   private historyDebounceTimer: NodeJS.Timeout | null = null;
+  private preventNativeDragHandler: ((e: DragEvent) => void) | null = null;
 
   constructor(dimensions: CanvasDimensions, initialGuidesSettings?: Partial<PrintGuidesSettings>) {
     this.dimensions = dimensions;
     this.guides = new CanvasGuides(dimensions, initialGuidesSettings);
     this.snapping = new CanvasSnapping(dimensions);
+  }
+
+  /**
+   * Disables HTML5 native drag-and-drop on Fabric's upper canvas.
+   * In modern browsers, upperCanvasEl having draggable="true" intercepts mousedown/mousemove
+   * and fires HTML5 'dragstart', completely killing Fabric's mouse/drag transform loop.
+   */
+  public ensureUpperCanvasNonDraggable(): void {
+    if (!this.canvas?.upperCanvasEl) return;
+    const upperEl = this.canvas.upperCanvasEl;
+
+    upperEl.draggable = false;
+    upperEl.removeAttribute('draggable');
+
+    if (!(upperEl as any)._hasDragPreventer) {
+      (upperEl as any)._hasDragPreventer = true;
+      const preventNativeDrag = (e: DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      };
+      upperEl.addEventListener('dragstart', preventNativeDrag, { capture: true });
+      this.preventNativeDragHandler = preventNativeDrag;
+
+      // Prevent Fabric 7 or any extensions from resetting draggable="true"
+      const origSetAttribute = upperEl.setAttribute.bind(upperEl);
+      upperEl.setAttribute = function (name: string, value: string) {
+        if (name.toLowerCase() === 'draggable') {
+          origSetAttribute('draggable', 'false');
+          this.draggable = false;
+          return;
+        }
+        return origSetAttribute(name, value);
+      };
+    }
   }
 
   public initialize(
@@ -224,15 +266,27 @@ export class CanvasManager {
       fireRightClick: true,
       enableRetinaScaling: true,
       imageSmoothingEnabled: true,
+      uniformScaling: true,
+      // Resize from the dragged control and keep the opposite corner fixed.
+      // Centered scaling makes left/top appear to drift while resizing.
+      centeredScaling: false,
     });
+    (canvas as any).uniformScaling = true;
+    (canvas as any).centeredScaling = false;
 
     applyCanvaControlsGlobal();
     canvas.setZoom(this.zoom);
 
     this.canvas = canvas;
+    if (typeof window !== 'undefined') {
+      (window as any).__fabricCanvas = canvas;
+      (window as any).__canvasManager = this;
+    }
+    this.ensureUpperCanvasNonDraggable();
     this.guides.attach(canvas);
     this.snapping.attach(canvas);
     this.bindEvents();
+    canvas.calcOffset();
 
     // Initialize history baseline
     this.undoStack = [];
@@ -265,8 +319,22 @@ export class CanvasManager {
       });
 
       this.canvas.setZoom(this.zoom);
+      this.canvas.calcOffset();
+      this.canvas.forEachObject((obj) => {
+        obj.setCoords();
+      });
       this.canvas.requestRenderAll();
       this.notifyChange();
+
+      if (typeof requestAnimationFrame !== 'undefined') {
+        requestAnimationFrame(() => {
+          if (!this.canvas) return;
+          this.canvas.calcOffset();
+          this.canvas.forEachObject((obj) => {
+            obj.setCoords();
+          });
+        });
+      }
     }
   }
 
@@ -660,8 +728,22 @@ export class CanvasManager {
     });
 
     this.canvas.setZoom(this.zoom);
+    this.canvas.calcOffset();
+    this.canvas.forEachObject((obj) => {
+      obj.setCoords();
+    });
     this.canvas.requestRenderAll();
     this.notifyZoom();
+
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(() => {
+        if (!this.canvas) return;
+        this.canvas.calcOffset();
+        this.canvas.forEachObject((obj) => {
+          obj.setCoords();
+        });
+      });
+    }
   }
 
   public zoomIn(): void {
@@ -696,24 +778,133 @@ export class CanvasManager {
     this.setZoom(Number(Math.max(fitZoom, 0.05).toFixed(3)));
   }
 
+  /** Returns true for editor-only objects that must never capture clicks. */
+  private isNonInteractiveObject(obj: FabricObject | null | undefined): boolean {
+    if (!obj) return false;
+
+    const getValue = (key: string): unknown => {
+      if (typeof (obj as any).get === 'function') {
+        return (obj as any).get(key);
+      }
+
+      return (obj as any)[key];
+    };
+
+    return Boolean(
+      getValue('isGuide') ||
+      getValue('isPrintGuide') ||
+      getValue('excludeFromSelection') ||
+      getValue('isBackground')
+    );
+  }
+
+  /** Restores selection without unlocking objects explicitly locked by the user. */
+  private restoreObjectInteractivity(obj: FabricObject): void {
+    if (this.isNonInteractiveObject(obj)) {
+      obj.set({
+        selectable: false,
+        evented: false,
+        hasControls: false,
+        hasBorders: false,
+        hoverCursor: 'default',
+        moveCursor: 'default',
+      });
+      obj.setCoords();
+      return;
+    }
+
+    // Explicitly locked check: check isLocked property or lockMovementX + lockMovementY
+    const isLocked =
+      obj.get('isLocked' as any) === true ||
+      (obj.lockMovementX === true && obj.lockMovementY === true && obj.get('isLocked' as any) !== false);
+
+    if (isLocked) {
+      obj.set({
+        selectable: true,
+        evented: true,
+        lockMovementX: true,
+        lockMovementY: true,
+        lockRotation: true,
+        lockScalingX: true,
+        lockScalingY: true,
+        hasControls: false,
+        hasBorders: true,
+        hoverCursor: 'default',
+        moveCursor: 'default',
+      });
+    } else {
+      obj.set({
+        selectable: true,
+        evented: true,
+        hasControls: true,
+        hasBorders: true,
+        lockMovementX: false,
+        lockMovementY: false,
+        lockRotation: false,
+        lockScalingX: false,
+        lockScalingY: false,
+        hoverCursor: 'move',
+        moveCursor: 'move',
+      });
+    }
+
+    applyCanvaControlsToObject(obj);
+    obj.setCoords();
+  }
+
+  /** Activates the normal pointer/select tool. */
+  public enableSelectionMode(): void {
+    this.isPanMode = false;
+    this.isDrawing = false;
+    this.isErasing = false;
+    this.lastErasePoint = null;
+
+    if (!this.canvas) return;
+
+    (this.canvas as any).isDragging = false;
+    this.canvas.selection = true;
+    this.canvas.skipTargetFind = false;
+    this.canvas.isDrawingMode = false;
+    this.canvas.freeDrawingBrush = undefined;
+    this.canvas.defaultCursor = 'default';
+    this.canvas.hoverCursor = 'move';
+    this.canvas.moveCursor = 'move';
+    this.canvas.setCursor('default');
+
+    this.ensureUpperCanvasNonDraggable();
+
+    this.canvas.forEachObject((obj) => {
+      this.restoreObjectInteractivity(obj);
+    });
+
+    this.canvas.calcOffset();
+    this.canvas.requestRenderAll();
+    this.drawingModeListeners.forEach((cb) => cb(false));
+    this.notifyPanMode(false);
+  }
+
   public setPanMode(enabled: boolean): void {
     this.isPanMode = enabled;
     if (!this.canvas) return;
 
     if (enabled) {
+      this.canvas.isDrawingMode = false;
+      this.isDrawing = false;
+      this.canvas.skipTargetFind = true;
+      (this.canvas as any).isDragging = false;
       this.canvas.defaultCursor = 'grab';
+      this.canvas.hoverCursor = 'grab';
+      this.canvas.moveCursor = 'grabbing';
+      this.canvas.setCursor('grab');
       this.canvas.selection = false;
       this.canvas.forEachObject((obj) => {
         obj.selectable = false;
         obj.evented = false;
       });
+      this.notifyPanMode(true);
     } else {
-      this.canvas.defaultCursor = 'default';
-      this.canvas.selection = true;
-      this.canvas.forEachObject((obj) => {
-        obj.selectable = true;
-        obj.evented = true;
-      });
+      this.enableSelectionMode();
+      return;
     }
     this.canvas.requestRenderAll();
   }
@@ -733,14 +924,13 @@ export class CanvasManager {
     if (!this.canvas) return;
 
     if (enabled) {
+      this.isPanMode = false;
+      this.notifyPanMode(false);
       this.canvas.discardActiveObject();
       this.applyBrushSettings();
     } else {
-      this.canvas.isDrawingMode = false;
-      this.canvas.freeDrawingBrush = undefined;
-      this.canvas.selection = true;
-      this.canvas.defaultCursor = 'default';
-      this.canvas.hoverCursor = 'move';
+      this.enableSelectionMode();
+      return;
     }
 
     this.canvas.requestRenderAll();
@@ -1008,19 +1198,32 @@ export class CanvasManager {
 
     const imagePromises: Promise<void>[] = [];
 
-    const checkElement = (imgEl: any) => {
+    const checkElement = (imgEl: any, parentObj?: any) => {
       if (!imgEl || typeof imgEl !== 'object') return;
       if (!(imgEl instanceof HTMLImageElement || imgEl.tagName === 'IMG' || typeof imgEl.src === 'string')) return;
 
       if (!imgEl.complete || imgEl.naturalWidth === 0) {
         imagePromises.push(
           new Promise<void>((resolve) => {
-            const timer = setTimeout(() => resolve(), timeoutMs);
+            const timer = setTimeout(() => {
+              if (parentObj && typeof parentObj.setCoords === 'function') {
+                parentObj.setCoords();
+              }
+              resolve();
+            }, timeoutMs);
             const onComplete = () => {
               clearTimeout(timer);
               if (typeof imgEl.decode === 'function') {
-                imgEl.decode().catch(() => { }).finally(() => resolve());
+                imgEl.decode().catch(() => { }).finally(() => {
+                  if (parentObj && typeof parentObj.setCoords === 'function') {
+                    parentObj.setCoords();
+                  }
+                  resolve();
+                });
               } else {
+                if (parentObj && typeof parentObj.setCoords === 'function') {
+                  parentObj.setCoords();
+                }
                 resolve();
               }
             };
@@ -1036,7 +1239,13 @@ export class CanvasManager {
           })
         );
       } else if (typeof imgEl.decode === 'function') {
-        imagePromises.push(imgEl.decode().catch(() => { }));
+        imagePromises.push(
+          imgEl.decode().catch(() => { }).finally(() => {
+            if (parentObj && typeof parentObj.setCoords === 'function') {
+              parentObj.setCoords();
+            }
+          })
+        );
       }
     };
 
@@ -1050,7 +1259,7 @@ export class CanvasManager {
         obj._originalElement;
 
       if (el) {
-        checkElement(el);
+        checkElement(el, obj);
       }
 
       if (obj.clipPath) {
@@ -1087,19 +1296,27 @@ export class CanvasManager {
    * Generates a clean Canva-style presentation snapshot without selection borders,
    * handles, or editor guides.
    */
+  /**
+   * Generates a clean Canva-style presentation snapshot without selection borders,
+   * handles, or editor guides.
+   */
   public async getCleanPreviewDataUrl(multiplier: number = 1.0): Promise<string | null> {
     if (!this.canvas) return null;
+
+    // Do NOT generate previews if user is actively dragging or transforming an object
+    if ((this.canvas as any)._currentTransform) {
+      return null;
+    }
 
     // Ensure all canvas textures are fully loaded and decoded
     await this.waitForAllImagesToLoad();
 
     const wasGuidesVisible = this.guides.getVisible();
-    const activeObj = this.canvas.getActiveObject();
 
     try {
-      this.guides.setVisible(false);
-      this.canvas.discardActiveObject();
-      this.canvas.requestRenderAll();
+      if (wasGuidesVisible) {
+        this.guides.setVisible(false);
+      }
 
       const currentZoom = this.zoom || 1.0;
       const effectiveMultiplier = (1 / currentZoom) * multiplier;
@@ -1107,6 +1324,8 @@ export class CanvasManager {
       let dataUrl: string | null = null;
 
       try {
+        // In Fabric.js, toDataURL() exports only lowerCanvas objects.
+        // UpperCanvas selection outlines and control handles are never exported.
         dataUrl = this.canvas.toDataURL({
           format: 'png',
           multiplier: effectiveMultiplier,
@@ -1129,17 +1348,24 @@ export class CanvasManager {
       console.error('Failed to generate clean preview data URL:', err);
       return null;
     } finally {
-      this.guides.setVisible(wasGuidesVisible);
-      if (activeObj) {
-        this.canvas.setActiveObject(activeObj);
+      if (wasGuidesVisible) {
+        this.guides.setVisible(true);
       }
-      this.canvas.requestRenderAll();
     }
   }
 
   public onDrawingModeChange(cb: DrawingModeEventCallback): () => void {
     this.drawingModeListeners.add(cb);
     return () => this.drawingModeListeners.delete(cb);
+  }
+
+  public onPanModeChange(cb: PanModeEventCallback): () => void {
+    this.panModeListeners.add(cb);
+    return () => this.panModeListeners.delete(cb);
+  }
+
+  private notifyPanMode(enabled: boolean): void {
+    this.panModeListeners.forEach((cb) => cb(enabled));
   }
 
   public onBrushSettingsChange(cb: BrushSettingsEventCallback): () => void {
@@ -1211,16 +1437,7 @@ export class CanvasManager {
   }
 
   public disableDrawingMode(): void {
-    this.isDrawing = false;
-
-    if (!this.canvas) return;
-
-    this.canvas.isDrawingMode = false;
-    this.canvas.freeDrawingBrush = undefined;
-
-    this.drawingModeListeners.forEach((cb) => cb(false));
-
-    this.canvas.requestRenderAll();
+    this.enableSelectionMode();
   }
 
   public duplicateSelected(): void {
@@ -1255,6 +1472,108 @@ export class CanvasManager {
       this.notifySelection();
       this.notifyLayers();
     });
+  }
+
+  // --- Canva Grouping & Ungrouping Engine ---
+
+  public canGroup(): boolean {
+    if (!this.canvas) return false;
+    const active = this.canvas.getActiveObject();
+    if (!active || !(active instanceof ActiveSelection)) return false;
+    const valid = active.getObjects().filter(
+      (obj) => !obj.get('isGuide' as any) && !(obj.lockMovementX && obj.lockMovementY)
+    );
+    return valid.length >= 2;
+  }
+
+  public canUngroup(): boolean {
+    if (!this.canvas) return false;
+    const active = this.canvas.getActiveObject();
+    if (!active) return false;
+    return (
+      (active.type === 'Group' || active.type === 'group' || active instanceof Group) &&
+      !(active instanceof ActiveSelection)
+    );
+  }
+
+  public groupSelected(): void {
+    if (!this.canvas || !this.canGroup()) return;
+    const active = this.canvas.getActiveObject();
+    if (!active || !(active instanceof ActiveSelection)) return;
+
+    const objects = active.getObjects().filter(
+      (obj) => !obj.get('isGuide' as any) && !(obj.lockMovementX && obj.lockMovementY)
+    );
+    if (objects.length < 2) return;
+
+    // Preserve lowest canvas stacking index
+    const allCanvasObjs = this.canvas.getObjects();
+    const indices = objects.map((o) => allCanvasObjs.indexOf(o)).filter((i) => i >= 0);
+    const insertIndex = Math.min(...indices);
+
+    // Discard active selection to restore objects to canvas coordinate space
+    this.canvas.discardActiveObject();
+
+    // Remove objects from canvas
+    objects.forEach((obj) => this.canvas?.remove(obj));
+
+    // Create new Group with objects
+    const group = new Group(objects, {
+      subTargetCheck: true,
+    });
+    this.ensureObjectId(group, 'Group');
+
+    this.canvas.insertAt(insertIndex, group);
+    group.setCoords();
+    this.canvas.setActiveObject(group);
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+    this.notifyLayers();
+  }
+
+  public ungroupSelected(): void {
+    if (!this.canvas || !this.canUngroup()) return;
+    const active = this.canvas.getActiveObject();
+    if (
+      !active ||
+      !(active.type === 'Group' || active.type === 'group' || active instanceof Group) ||
+      active instanceof ActiveSelection
+    ) {
+      return;
+    }
+
+    const group = active as Group;
+    const children = group.getObjects();
+    if (children.length === 0) return;
+
+    const groupIndex = this.canvas.getObjects().indexOf(group);
+    this.canvas.discardActiveObject();
+    this.canvas.remove(group);
+
+    // In Fabric 7, group.remove(child) triggers exitGroup(child, false), which
+    // applies the group transformation matrix to child and resets coordinates to canvas space!
+    const restoredChildren: FabricObject[] = [];
+    let currentIdx = groupIndex >= 0 ? groupIndex : this.canvas.getObjects().length;
+
+    // Shallow copy of children because group.remove mutates internal objects array
+    const childrenCopy = [...children];
+    for (const child of childrenCopy) {
+      group.remove(child);
+      this.canvas.insertAt(currentIdx++, child);
+      child.setCoords();
+      restoredChildren.push(child);
+    }
+
+    if (restoredChildren.length > 0) {
+      const sel = new ActiveSelection(restoredChildren, { canvas: this.canvas });
+      this.canvas.setActiveObject(sel);
+    }
+
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+    this.notifyLayers();
   }
 
   // --- Templates Engine ---
@@ -1436,6 +1755,10 @@ export class CanvasManager {
           });
           this.canvas.setZoom(this.zoom);
           this.guides.updateDimensions(this.dimensions);
+          this.canvas.calcOffset();
+          this.canvas.forEachObject((obj) => {
+            obj.setCoords();
+          });
           this.canvas.requestRenderAll();
           await this.waitForAllImagesToLoad();
 
@@ -1600,6 +1923,50 @@ export class CanvasManager {
   }
 
   /**
+   * Refreshes interactive flags, coordinate geometry, and Canva controls for all canvas objects.
+   * Ensures that deserialized or dynamically loaded elements can immediately be clicked,
+   * selected, and moved without glitches across any zoom level.
+   */
+  public refreshCanvasInteractivity(): void {
+    if (!this.canvas) return;
+
+    this.enableSelectionMode();
+
+    this.canvas.forEachObject((obj) => {
+      if (this.isNonInteractiveObject(obj)) return;
+
+      // Border frames or transparent shapes should allow clicks to pass through to underlying objects
+      const fill = obj.fill;
+      const isTransparentFill =
+        !fill ||
+        fill === 'transparent' ||
+        fill === '' ||
+        fill === 'rgba(0,0,0,0)' ||
+        fill === 'rgba(0, 0, 0, 0)';
+      if (isTransparentFill) {
+        obj.set({
+          perPixelTargetFind: true,
+          strokeUniform: true,
+        });
+      }
+
+      this.restoreObjectInteractivity(obj);
+    });
+
+    this.canvas.requestRenderAll();
+
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(() => {
+        if (!this.canvas) return;
+        this.canvas.calcOffset();
+        this.canvas.forEachObject((obj) => {
+          obj.setCoords();
+        });
+      });
+    }
+  }
+
+  /**
    * Finalize every template-loading path in one place.
    *
    * Manual canvas edits emit Fabric object events automatically, but an
@@ -1610,6 +1977,8 @@ export class CanvasManager {
    */
   private finishTemplateLoading(): void {
     if (!this.canvas) return;
+
+    this.refreshCanvasInteractivity();
 
     this.canvas.discardActiveObject();
     this.canvas.renderAll();
@@ -1632,6 +2001,8 @@ export class CanvasManager {
     options?: { left?: number; top?: number; width?: number; height?: number }
   ): void {
     if (!this.canvas) return;
+
+    this.enableSelectionMode();
 
     const preset = FRAME_PRESETS.find((p) => p.shape === shapeType) || FRAME_PRESETS[0];
     const aspectRatio = preset.aspectRatio || 1.0;
@@ -1852,6 +2223,9 @@ export class CanvasManager {
   ): Promise<FabricImage | null> {
     if (!this.canvas) return null;
 
+    // Adding an asset always returns the editor to the pointer/select tool.
+    this.enableSelectionMode();
+
     try {
       let safeUrl = await urlToSafeDataUrl(url);
 
@@ -1900,17 +2274,33 @@ export class CanvasManager {
       const canvasW = this.dimensions.widthPx || 1063;
       const canvasH = this.dimensions.heightPx || 591;
 
-      const maxW = Math.min(canvasW * 0.6, 500);
-      const maxH = Math.min(canvasH * 0.6, 400);
+      const maxDisplayWidth = canvasW * 0.6;
+      const maxDisplayHeight = canvasH * 0.6;
 
       const naturalW = metadata?.naturalWidth || svgNormWidth || img.width || 400;
       const naturalH = metadata?.naturalHeight || svgNormHeight || img.height || 300;
 
-      const scale = Math.min(maxW / naturalW, maxH / naturalH, 1.0);
+      const scale = Math.min(
+        maxDisplayWidth / naturalW,
+        maxDisplayHeight / naturalH,
+        1.0
+      );
 
       img.set({
         scaleX: scale,
         scaleY: scale,
+        lockUniScaling: true,
+        selectable: true,
+        evented: true,
+        hasControls: true,
+        hasBorders: true,
+        lockMovementX: false,
+        lockMovementY: false,
+        lockRotation: false,
+        lockScalingX: false,
+        lockScalingY: false,
+        hoverCursor: 'move',
+        moveCursor: 'move',
         cornerColor: '#ffffff',
         cornerStrokeColor: '#8b3dff',
         borderColor: '#8b3dff',
@@ -2014,7 +2404,7 @@ export class CanvasManager {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
     if (!active || !(active instanceof FabricImage)) return;
-    
+
     const originalUrl = active.get('originalUrl' as any);
     if (!originalUrl) return;
 
@@ -2059,11 +2449,11 @@ export class CanvasManager {
       newImg.set('provider' as any, active.get('provider' as any));
       newImg.set('providerAssetId' as any, active.get('providerAssetId' as any));
       newImg.set('sourceType' as any, active.get('sourceType' as any));
-      
+
       // Restore original metadata
       newImg.set('originalUrl' as any, originalUrl);
       newImg.set('originalFileId' as any, active.get('originalFileId' as any));
-      
+
       // Clear processed flags
       newImg.set('backgroundRemoved' as any, false);
       newImg.set('processedFileId' as any, null);
@@ -2072,10 +2462,10 @@ export class CanvasManager {
 
       this.canvas.insertAt(prevIndex, newImg);
       newImg.setCoords();
-      
+
       this.canvas.setActiveObject(newImg);
       this.canvas.requestRenderAll();
-      
+
       this.notifyChange();
       this.notifySelection();
       this.notifyLayers();
@@ -2089,12 +2479,12 @@ export class CanvasManager {
     onProgress?: (progress: { stage: string; message: string; progress?: number }) => void
   ): Promise<void> {
     if (!this.canvas) return;
-    
+
     const active = this.canvas.getActiveObject();
     if (!active || !(active instanceof FabricImage)) {
       throw new Error('Please select an image first.');
     }
-    
+
     // Reject SVGs
     const src = active.getSrc();
     if (src && src.toLowerCase().includes('.svg')) {
@@ -2111,7 +2501,7 @@ export class CanvasManager {
 
     // Dynamically import the background removal service
     const { removeImageBackground } = await import('@/services/backgroundRemoval');
-    
+
     let bgResult: any;
     try {
       bgResult = await removeImageBackground(src, onProgress as any);
@@ -2124,18 +2514,18 @@ export class CanvasManager {
     if (!currentActive || currentActive.get('id' as any) !== activeId) {
       return;
     }
-    
+
     onProgress?.({ stage: 'complete', message: 'Updating canvas...' });
 
     const resultUrl = bgResult.fileUrl || bgResult.url;
     const newImg = await FabricImage.fromURL(resultUrl, { crossOrigin: 'anonymous' });
-    
+
     const displayedWidth = active.getScaledWidth();
     const displayedHeight = active.getScaledHeight();
 
     const newScaleX = displayedWidth / newImg.width!;
     const newScaleY = displayedHeight / newImg.height!;
-    
+
     const prevIndex = this.canvas.getObjects().indexOf(active);
     this.canvas.remove(active);
 
@@ -2167,11 +2557,11 @@ export class CanvasManager {
     newImg.set('provider' as any, active.get('provider' as any));
     newImg.set('providerAssetId' as any, active.get('providerAssetId' as any));
     newImg.set('sourceType' as any, active.get('sourceType' as any));
-    
+
     // Save metadata
     newImg.set('originalUrl' as any, active.get('originalUrl' as any) || src);
     newImg.set('originalFileId' as any, active.get('originalFileId' as any));
-    
+
     newImg.set('backgroundRemoved' as any, true);
     newImg.set('processedFileId' as any, bgResult.filePath || bgResult.url);
     newImg.set('processedUrl' as any, resultUrl);
@@ -2179,15 +2569,15 @@ export class CanvasManager {
 
     this.canvas.insertAt(prevIndex, newImg);
     newImg.setCoords();
-    
+
     this.canvas.setActiveObject(newImg);
     this.canvas.requestRenderAll();
-    
+
     this.notifyChange();
     this.notifySelection();
     this.notifyLayers();
     this.scheduleHistorySave();
-    
+
     onProgress?.({ stage: 'complete', message: 'Background removed' });
   }
 
@@ -2266,7 +2656,7 @@ export class CanvasManager {
             (obj.get('name' as any) as string) ||
             `${type.charAt(0).toUpperCase() + type.slice(1)}`,
           type,
-          isLocked: Boolean(obj.lockMovementX),
+          isLocked: obj.get('isLocked' as any) === true,
           isVisible: obj.visible !== false,
           zIndex: index,
           textPreview,
@@ -2279,6 +2669,7 @@ export class CanvasManager {
     if (!this.canvas) return;
     const obj = this.canvas.getObjects().find((o) => o.get('id' as any) === id);
     if (obj && obj.visible && !obj.get('isGuide' as any)) {
+      this.restoreObjectInteractivity(obj);
       this.canvas.setActiveObject(obj);
       this.canvas.requestRenderAll();
       this.notifySelection();
@@ -2305,6 +2696,7 @@ export class CanvasManager {
     if (!this.canvas) return;
     const obj = this.canvas.getObjects().find((o) => o.get('id' as any) === id);
     if (obj) {
+      obj.set('isLocked' as any, isLocked);
       obj.set({
         lockMovementX: isLocked,
         lockMovementY: isLocked,
@@ -2312,7 +2704,12 @@ export class CanvasManager {
         lockScalingX: isLocked,
         lockScalingY: isLocked,
         hasControls: !isLocked,
+        hoverCursor: isLocked ? 'default' : 'move',
+        moveCursor: isLocked ? 'default' : 'move',
+        selectable: true,
+        evented: true,
       });
+      obj.setCoords();
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
@@ -2488,6 +2885,7 @@ export class CanvasManager {
       active.set('paintFirst', value as 'fill' | 'stroke');
     } else if (prop === 'isLocked') {
       const locked = value as boolean;
+      active.set('isLocked' as any, locked);
       active.set({
         lockMovementX: locked,
         lockMovementY: locked,
@@ -2495,7 +2893,12 @@ export class CanvasManager {
         lockScalingX: locked,
         lockScalingY: locked,
         hasControls: !locked,
+        hoverCursor: locked ? 'default' : 'move',
+        moveCursor: locked ? 'default' : 'move',
+        selectable: true,
+        evented: true,
       });
+      active.setCoords();
     }
     // Typography properties
     else if (isText && prop === 'text') {
@@ -2862,9 +3265,9 @@ export class CanvasManager {
     this.notifyLayers();
   }
 
-  // --- Alignment ---
+  // --- Alignment & Distribution Engine ---
 
-  public alignSelected(type: AlignmentType): void {
+  public alignSelected(type: AlignmentType, relativeTo: 'page' | 'selection' = 'page'): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
     if (!active) return;
@@ -2872,10 +3275,75 @@ export class CanvasManager {
     const canvasWidth = this.dimensions.widthPx || 1063;
     const canvasHeight = this.dimensions.heightPx || 591;
 
+    if (active instanceof ActiveSelection && relativeTo === 'selection') {
+      // Multi-object alignment relative to the selection's own outer bounds
+      const objects = active.getObjects().filter((o) => !o.get('isGuide' as any));
+      if (objects.length < 2) return;
+
+      // Temporarily discard active selection so objects are in canvas space
+      this.canvas.discardActiveObject();
+
+      const bounds = objects.map((o) => {
+        o.setCoords();
+        const b = o.getBoundingRect();
+        return {
+          obj: o,
+          bound: b,
+          deltaX: (o.left ?? 0) - b.left,
+          deltaY: (o.top ?? 0) - b.top,
+        };
+      });
+
+      const selMinLeft = Math.min(...bounds.map((b) => b.bound.left));
+      const selMaxRight = Math.max(...bounds.map((b) => b.bound.left + b.bound.width));
+      const selMinTop = Math.min(...bounds.map((b) => b.bound.top));
+      const selMaxBottom = Math.max(...bounds.map((b) => b.bound.top + b.bound.height));
+      const selCenterX = selMinLeft + (selMaxRight - selMinLeft) / 2;
+      const selCenterY = selMinTop + (selMaxBottom - selMinTop) / 2;
+
+      bounds.forEach(({ obj, bound, deltaX, deltaY }) => {
+        switch (type) {
+          case 'left':
+            obj.set('left', selMinLeft + deltaX);
+            break;
+          case 'center':
+          case 'center-h':
+            obj.set('left', selCenterX - bound.width / 2 + deltaX);
+            break;
+          case 'right':
+            obj.set('left', selMaxRight - bound.width + deltaX);
+            break;
+          case 'top':
+            obj.set('top', selMinTop + deltaY);
+            break;
+          case 'middle':
+          case 'center-v':
+            obj.set('top', selCenterY - bound.height / 2 + deltaY);
+            break;
+          case 'bottom':
+            obj.set('top', selMaxBottom - bound.height + deltaY);
+            break;
+          case 'center-both':
+            obj.set({
+              left: selCenterX - bound.width / 2 + deltaX,
+              top: selCenterY - bound.height / 2 + deltaY,
+            });
+            break;
+        }
+        obj.setCoords();
+      });
+
+      const newSel = new ActiveSelection(objects, { canvas: this.canvas });
+      this.canvas.setActiveObject(newSel);
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+      return;
+    }
+
+    // Align active selection or single object to page / canvas boundaries
     active.setCoords();
     const bound = active.getBoundingRect();
-
-    // The offset between the object's origin coordinate (left, top) and its transformed bounding box
     const currentLeft = active.left ?? 0;
     const currentTop = active.top ?? 0;
     const deltaX = currentLeft - bound.left;
@@ -2927,6 +3395,120 @@ export class CanvasManager {
     this.notifySelection();
   }
 
+  public distributeSelected(direction: 'horizontal' | 'vertical'): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active || !(active instanceof ActiveSelection)) return;
+
+    const objects = active.getObjects().filter((o) => !o.get('isGuide' as any));
+    if (objects.length < 3) return;
+
+    this.canvas.discardActiveObject();
+
+    const items = objects.map((obj) => {
+      obj.setCoords();
+      const b = obj.getBoundingRect();
+      return {
+        obj,
+        bound: b,
+        centerX: b.left + b.width / 2,
+        centerY: b.top + b.height / 2,
+        deltaX: (obj.left ?? 0) - b.left,
+        deltaY: (obj.top ?? 0) - b.top,
+      };
+    });
+
+    if (direction === 'horizontal') {
+      items.sort((a, b) => a.centerX - b.centerX);
+      const firstCenter = items[0].centerX;
+      const lastCenter = items[items.length - 1].centerX;
+      const step = (lastCenter - firstCenter) / (items.length - 1);
+
+      for (let i = 1; i < items.length - 1; i++) {
+        const targetCenterX = firstCenter + step * i;
+        const targetLeft = targetCenterX - items[i].bound.width / 2;
+        items[i].obj.set('left', targetLeft + items[i].deltaX);
+        items[i].obj.setCoords();
+      }
+    } else {
+      items.sort((a, b) => a.centerY - b.centerY);
+      const firstCenter = items[0].centerY;
+      const lastCenter = items[items.length - 1].centerY;
+      const step = (lastCenter - firstCenter) / (items.length - 1);
+
+      for (let i = 1; i < items.length - 1; i++) {
+        const targetCenterY = firstCenter + step * i;
+        const targetTop = targetCenterY - items[i].bound.height / 2;
+        items[i].obj.set('top', targetTop + items[i].deltaY);
+        items[i].obj.setCoords();
+      }
+    }
+
+    const newSel = new ActiveSelection(objects, { canvas: this.canvas });
+    this.canvas.setActiveObject(newSel);
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+  }
+
+  public spaceEvenlySelected(direction: 'horizontal' | 'vertical'): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active || !(active instanceof ActiveSelection)) return;
+
+    const objects = active.getObjects().filter((o) => !o.get('isGuide' as any));
+    if (objects.length < 3) return;
+
+    this.canvas.discardActiveObject();
+
+    const items = objects.map((obj) => {
+      obj.setCoords();
+      const b = obj.getBoundingRect();
+      return {
+        obj,
+        bound: b,
+        deltaX: (obj.left ?? 0) - b.left,
+        deltaY: (obj.top ?? 0) - b.top,
+      };
+    });
+
+    if (direction === 'horizontal') {
+      items.sort((a, b) => a.bound.left - b.bound.left);
+      const minLeft = items[0].bound.left;
+      const maxRight = items[items.length - 1].bound.left + items[items.length - 1].bound.width;
+      const totalWidths = items.reduce((sum, item) => sum + item.bound.width, 0);
+      const totalGap = maxRight - minLeft - totalWidths;
+      const gap = totalGap / (items.length - 1);
+
+      let currentLeft = minLeft;
+      for (let i = 0; i < items.length; i++) {
+        items[i].obj.set('left', currentLeft + items[i].deltaX);
+        items[i].obj.setCoords();
+        currentLeft += items[i].bound.width + gap;
+      }
+    } else {
+      items.sort((a, b) => a.bound.top - b.bound.top);
+      const minTop = items[0].bound.top;
+      const maxBottom = items[items.length - 1].bound.top + items[items.length - 1].bound.height;
+      const totalHeights = items.reduce((sum, item) => sum + item.bound.height, 0);
+      const totalGap = maxBottom - minTop - totalHeights;
+      const gap = totalGap / (items.length - 1);
+
+      let currentTop = minTop;
+      for (let i = 0; i < items.length; i++) {
+        items[i].obj.set('top', currentTop + items[i].deltaY);
+        items[i].obj.setCoords();
+        currentTop += items[i].bound.height + gap;
+      }
+    }
+
+    const newSel = new ActiveSelection(objects, { canvas: this.canvas });
+    this.canvas.setActiveObject(newSel);
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+  }
+
   public centerObjectOnCanvas(obj: FabricObject): void {
     const canvasW = this.dimensions.widthPx || 1063;
     const canvasH = this.dimensions.heightPx || 591;
@@ -2952,6 +3534,8 @@ export class CanvasManager {
 
   public addText(options?: AddTextOptions): void {
     if (!this.canvas) return;
+
+    this.enableSelectionMode();
 
     const fontItem = POPULAR_FONTS.find(
       (f) => f.family === options?.fontFamily || f.name === options?.fontFamily
@@ -3004,6 +3588,8 @@ export class CanvasManager {
 
   public addShape(shapeType: string, color = '#2563eb'): void {
     if (!this.canvas) return;
+
+    this.enableSelectionMode();
 
     let shapeObj: FabricObject;
 
@@ -3201,6 +3787,7 @@ export class CanvasManager {
       const previousState = this.undoStack[this.undoStack.length - 1];
       if (previousState) {
         await this.canvas.loadFromJSON(JSON.parse(previousState));
+        this.refreshCanvasInteractivity();
         this.canvas.requestRenderAll();
         this.notifySelection();
         this.notifyLayers();
@@ -3223,6 +3810,7 @@ export class CanvasManager {
       if (nextState) {
         this.undoStack.push(nextState);
         await this.canvas.loadFromJSON(JSON.parse(nextState));
+        this.refreshCanvasInteractivity();
         this.canvas.requestRenderAll();
         this.notifySelection();
         this.notifyLayers();
@@ -3343,7 +3931,7 @@ export class CanvasManager {
       strokeLineJoin: (active.strokeLineJoin as 'round' | 'bevel' | 'miter') || undefined,
       flipX: Boolean(active.flipX),
       flipY: Boolean(active.flipY),
-      isLocked: Boolean(active.lockMovementX),
+      isLocked: active.get('isLocked' as any) === true,
       isVisible: active.visible !== false,
       isFrame,
       frameShape,
@@ -3389,6 +3977,25 @@ export class CanvasManager {
 
   private bindEvents(): void {
     if (!this.canvas) return;
+
+    this.canvas.on('mouse:down:before', (opt: any) => {
+      if (!this.canvas) return;
+      this.canvas.calcOffset();
+
+      // Clear stale movement flags before Fabric creates its drag transform.
+      // Explicitly locked objects remain locked.
+      const rawTarget =
+        opt?.target ||
+        (opt?.e && typeof (this.canvas as any).findTarget === 'function'
+          ? (this.canvas as any).findTarget(opt.e)
+          : null) ||
+        this.canvas.getActiveObject();
+      const target = rawTarget?.target || rawTarget;
+
+      if (target && !this.isNonInteractiveObject(target)) {
+        this.restoreObjectInteractivity(target);
+      }
+    });
 
     this.canvas.on('after:render', (opt) => {
       if (opt.ctx) {
@@ -3502,37 +4109,74 @@ export class CanvasManager {
 
     this.canvas.on('object:added', (opt: any) => {
       if (opt.target) {
-        applyCanvaControlsToObject(opt.target);
+        if (this.isPanMode) {
+          opt.target.set({ selectable: false, evented: false });
+        } else if (!this.isDrawing) {
+          this.restoreObjectInteractivity(opt.target);
+        } else {
+          applyCanvaControlsToObject(opt.target);
+        }
       }
       this.notifyLayers();
     });
     this.canvas.on('object:removed', () => this.notifyLayers());
 
-    this.canvas.on('object:modified', () => {
+    this.canvas.on('object:modified', (opt: any) => {
       this.snapping.clearGuides();
+      if (opt?.target) {
+        opt.target.setCoords();
+      }
       this.notifyChange();
       this.notifySelection();
       this.notifyLayers();
+      this.notifyPreflight();
     });
 
     this.canvas.on('object:moving', (opt) => {
       if (opt.target) {
         this.snapping.handleObjectMove(opt.target);
       }
-      this.notifySelection();
-      this.notifyPreflight();
     });
     this.canvas.on('object:scaling', (opt) => {
-      if (opt.target) {
-        this.snapping.handleObjectMove(opt.target);
-      }
-      this.notifySelection();
-      this.notifyPreflight();
+      const target = opt.target;
+      if (!target || this.isNonInteractiveObject(target)) return;
+
+      /*
+       * IMPORTANT:
+       * Do not call snapping.handleObjectMove() while scaling. That method is
+       * intended for object:moving and may update left/top on every pointer
+       * event. Repeated position updates cause the visible slow resize drift.
+       * Fabric's scale control already keeps the opposite corner anchored.
+       */
+      target.set({
+        lockScalingFlip: true,
+      });
+      target.setCoords();
+      this.canvas?.requestRenderAll();
     });
     this.canvas.on('object:rotating', () => {
-      this.notifySelection();
-      this.notifyPreflight();
     });
+
+    if (process.env.NODE_ENV !== 'production') {
+      const logDiag = (eventName: string, target?: any) => {
+        const t = target || this.canvas?.getActiveObject();
+        console.debug(`[CanvasDiag] ${eventName}:`, {
+          id: t?.get?.('id') || (t as any)?.id,
+          selectable: t?.selectable,
+          evented: t?.evented,
+          isLocked: t?.get?.('isLocked') === true,
+          lockMovementX: t?.lockMovementX,
+          lockMovementY: t?.lockMovementY,
+          isPanMode: this.isPanMode,
+          isDrawing: this.isDrawing,
+        });
+      };
+
+      this.canvas.on('mouse:down', (opt: any) => logDiag('mouse:down', opt.target));
+      this.canvas.on('selection:created', (opt: any) => logDiag('selection:created', opt.selected?.[0] || opt.target));
+      this.canvas.on('object:moving', (opt: any) => logDiag('object:moving', opt.target));
+      this.canvas.on('object:modified', (opt: any) => logDiag('object:modified', opt.target));
+    }
 
     // Wheel zoom on Ctrl/Cmd + wheel
     this.canvas.on('mouse:wheel', (opt: TPointerEventInfo<WheelEvent>) => {
@@ -3561,6 +4205,7 @@ export class CanvasManager {
     options?: Partial<FabricObject> & { name?: string }
   ): Promise<void> {
     if (!this.canvas) return;
+    this.enableSelectionMode();
     try {
       const safeUrl = await urlToSafeDataUrl(url);
       const res = await loadSVGFromURL(safeUrl);
@@ -3626,6 +4271,14 @@ export class CanvasManager {
 
   public dispose(): void {
     if (this.canvas) {
+      if (this.canvas.upperCanvasEl && this.preventNativeDragHandler) {
+        try {
+          this.canvas.upperCanvasEl.removeEventListener('dragstart', this.preventNativeDragHandler, { capture: true } as any);
+        } catch {
+          // ignore
+        }
+        this.preventNativeDragHandler = null;
+      }
       try {
         this.canvas.dispose();
       } catch {
@@ -3642,6 +4295,7 @@ export class CanvasManager {
     this.layersListeners.clear();
     this.preflightListeners.clear();
     this.drawingModeListeners.clear();
+    this.panModeListeners.clear();
     this.brushSettingsListeners.clear();
   }
 }

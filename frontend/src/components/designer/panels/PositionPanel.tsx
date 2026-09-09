@@ -21,6 +21,10 @@ import {
   RotateCw,
   Layers,
   Sliders,
+  Group as GroupIcon,
+  Ungroup,
+  AlignHorizontalSpaceBetween,
+  AlignVerticalSpaceBetween,
 } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { AlignmentType, SelectedObjectState } from '@/types/designer';
@@ -61,7 +65,17 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
 
   const handleAlign = (type: AlignmentType) => {
     if (!canvasManager) return;
-    canvasManager.alignSelected(type);
+    canvasManager.alignSelected(type, 'page');
+  };
+
+  const handleAlignSelection = (type: AlignmentType) => {
+    if (!canvasManager) return;
+    canvasManager.alignSelected(type, 'selection');
+  };
+
+  const handleSpaceEvenly = (direction: 'horizontal' | 'vertical') => {
+    if (!canvasManager) return;
+    canvasManager.spaceEvenlySelected(direction);
   };
 
   const handleWidthChange = (newWidth: number) => {
@@ -183,7 +197,33 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
           </div>
         ) : (
           <>
-            {/* 3A. LAYER ORDER (Forward / Backward / To front / To back) */}
+            {/* 3A. GROUP / UNGROUP QUICK ACTIONS */}
+            {(canvasManager?.canGroup() || canvasManager?.canUngroup()) && (
+              <div className="flex gap-2">
+                {canvasManager?.canGroup() && (
+                  <button
+                    type="button"
+                    onClick={() => canvasManager?.groupSelected()}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold border border-purple-200 transition shadow-2xs"
+                  >
+                    <GroupIcon className="w-4 h-4" />
+                    <span>Group</span>
+                  </button>
+                )}
+                {canvasManager?.canUngroup() && (
+                  <button
+                    type="button"
+                    onClick={() => canvasManager?.ungroupSelected()}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold border border-purple-200 transition shadow-2xs"
+                  >
+                    <Ungroup className="w-4 h-4" />
+                    <span>Ungroup</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* 3B. LAYER ORDER (Forward / Backward / To front / To back) */}
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -234,7 +274,7 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
               </div>
             </div>
 
-            {/* 3B. ALIGN TO PAGE */}
+            {/* 3C. ALIGN TO PAGE */}
             <div className="space-y-2 pt-2 border-t border-gray-100">
               <span className="text-xs font-bold text-gray-900 block">
                 Align to page
@@ -301,6 +341,98 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* 3D. ALIGN ELEMENTS (When multiple objects selected) */}
+            {(selected?.isMultiple || (selected?.count ?? 0) > 1) && (
+              <div className="space-y-2 pt-2 border-t border-gray-100 animate-in fade-in duration-150">
+                <span className="text-xs font-bold text-gray-900 block">
+                  Align elements
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleAlignSelection('top')}
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 text-xs font-semibold text-gray-800 shadow-2xs transition"
+                  >
+                    <AlignStartHorizontal className="w-4 h-4 text-purple-600 shrink-0" />
+                    <span>Top</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAlignSelection('left')}
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 text-xs font-semibold text-gray-800 shadow-2xs transition"
+                  >
+                    <AlignStartVertical className="w-4 h-4 text-purple-600 shrink-0" />
+                    <span>Left</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAlignSelection('middle')}
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 text-xs font-semibold text-gray-800 shadow-2xs transition"
+                  >
+                    <AlignCenterHorizontal className="w-4 h-4 text-purple-600 shrink-0" />
+                    <span>Middle</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAlignSelection('center')}
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 text-xs font-semibold text-gray-800 shadow-2xs transition"
+                  >
+                    <AlignCenterVertical className="w-4 h-4 text-purple-600 shrink-0" />
+                    <span>Centre</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAlignSelection('bottom')}
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 text-xs font-semibold text-gray-800 shadow-2xs transition"
+                  >
+                    <AlignEndHorizontal className="w-4 h-4 text-purple-600 shrink-0" />
+                    <span>Bottom</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAlignSelection('right')}
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 text-xs font-semibold text-gray-800 shadow-2xs transition"
+                  >
+                    <AlignEndVertical className="w-4 h-4 text-purple-600 shrink-0" />
+                    <span>Right</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 3E. SPACE EVENLY (Canva Tidy Up / Distribution) */}
+            {(selected?.isMultiple || (selected?.count ?? 0) > 2) && (
+              <div className="space-y-2 pt-2 border-t border-gray-100 animate-in fade-in duration-150">
+                <span className="text-xs font-bold text-gray-900 block">
+                  Space evenly
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSpaceEvenly('horizontal')}
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 text-xs font-semibold text-gray-800 shadow-2xs transition"
+                  >
+                    <AlignHorizontalSpaceBetween className="w-4 h-4 text-purple-600 shrink-0" />
+                    <span>Horizontal</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSpaceEvenly('vertical')}
+                    className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 text-xs font-semibold text-gray-800 shadow-2xs transition"
+                  >
+                    <AlignVerticalSpaceBetween className="w-4 h-4 text-purple-600 shrink-0" />
+                    <span>Vertical</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* 3C. ADVANCED (Width, Height, Ratio, X, Y, Rotate) */}
             <div className="space-y-3 pt-2 border-t border-gray-100">

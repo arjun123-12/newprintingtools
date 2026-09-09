@@ -61,6 +61,10 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
     }
     updateTimerRef.current = setTimeout(async () => {
       try {
+        const cv = canvasManager.getCanvas();
+        if (cv && (cv as any)._currentTransform) {
+          return;
+        }
         const url = await canvasManager.getCleanPreviewDataUrl(1.0);
         if (url) {
           setPreviewUrl(url);
@@ -68,7 +72,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
       } catch (err) {
         console.error('Failed to generate sidebar preview:', err);
       }
-    }, 150);
+    }, 250);
   }, [canvasManager]);
 
   useEffect(() => {

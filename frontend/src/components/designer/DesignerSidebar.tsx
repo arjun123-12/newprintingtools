@@ -22,6 +22,8 @@ import { ElementsPanel } from './panels/ElementsPanel';
 import { FramesPanel } from './panels/FramesPanel';
 import { StockPhotosPanel } from './panels/StockPhotosPanel';
 import { PixabayPanel } from './panels/PixabayPanel';
+import { FreepikPanel } from './panels/FreepikPanel';
+import { PexelsPanel } from './panels/PexelsPanel';
 import { UploadsPanel } from './panels/UploadsPanel';
 import { IconsPanel } from './panels/IconsPanel';
 import { TextPanel } from './panels/TextPanel';
@@ -52,12 +54,14 @@ interface TabItem {
 const SIDEBAR_TABS: TabItem[] = [
   { id: 'templates', label: 'Templates', icon: LayoutTemplate },
   { id: 'elements', label: 'Elements', icon: Sparkles },
-  { id: 'pixabay', label: 'Pixabay', icon: Camera },
-  { id: 'icons', label: 'Icons', icon: Smile },
-  { id: 'frames', label: 'Frames', icon: Crop },
-  { id: 'photos', label: 'Photos', icon: ImageIcon },
   { id: 'text', label: 'Text', icon: Type },
   { id: 'uploads', label: 'Uploads', icon: UploadCloud },
+  { id: 'photos', label: 'Photos', icon: ImageIcon },
+  { id: 'pexels', label: 'Pexels', icon: Camera },
+  { id: 'pixabay', label: 'Pixabay', icon: ImagePlus },
+  { id: 'freepik', label: 'Freepik', icon: Sparkles },
+  { id: 'icons', label: 'Icons', icon: Smile },
+  { id: 'frames', label: 'Frames', icon: Crop },
   { id: 'draw', label: 'Draw', icon: Paintbrush },
   { id: 'background', label: 'Background', icon: Wallpaper },
   { id: 'layers', label: 'Layers', icon: Layers },
@@ -91,6 +95,8 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   };
 
   const getPanelTitle = () => {
+    if (activeTab === 'pexels') return 'Pexels Photography';
+    if (activeTab === 'freepik') return 'Freepik Media';
     if (activeTab === 'pixabay') return 'Pixabay Media';
     if (activeTab === 'photos') return 'Stock Photos';
     if (activeTab === 'icons') return 'Icons Library';
@@ -102,7 +108,7 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   return (
     <div className="flex h-full min-h-0 flex-shrink-0 z-30 select-none bg-white">
       {/* Icon Navigation Dock */}
-      <aside className="w-18 bg-white border-r border-gray-200 flex flex-col items-center py-3 gap-2 z-20 shadow-xs">
+      <aside className="w-18 bg-white border-r border-gray-200 flex flex-col items-center py-2.5 gap-1.5 z-20 shadow-xs h-full overflow-y-auto overflow-x-hidden custom-scrollbar">
         {SIDEBAR_TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -112,8 +118,8 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
               type="button"
               onClick={() => handleTabClick(tab.id)}
               className={`
-    w-16 h-15 rounded-xl py-2 flex flex-col items-center justify-center gap-1
-    border transition-all duration-200 ease-in-out
+    w-16 h-14 rounded-xl py-1.5 flex flex-col items-center justify-center gap-1
+    border transition-all duration-200 ease-in-out shrink-0
     ${isActive
                   ? `
           bg-[#f0ebff]
@@ -189,7 +195,9 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
             {activeTab === 'frames' && <FramesPanel canvasManager={canvasManager} />}
             {activeTab === 'icons' && <IconsPanel canvasManager={canvasManager} />}
             {activeTab === 'photos' && <StockPhotosPanel canvasManager={canvasManager} />}
+            {activeTab === 'pexels' && <PexelsPanel canvasManager={canvasManager} />}
             {activeTab === 'pixabay' && <PixabayPanel canvasManager={canvasManager} />}
+            {activeTab === 'freepik' && <FreepikPanel canvasManager={canvasManager} />}
             {activeTab === 'text' && <TextPanel canvasManager={canvasManager} selected={selected} />}
             {activeTab === 'uploads' && <UploadsPanel canvasManager={canvasManager} />}
             {activeTab === 'background' && <BackgroundPanel canvasManager={canvasManager} />}

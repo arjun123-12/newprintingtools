@@ -65,6 +65,7 @@ class ProductResource extends JsonResource
             'is_featured' => $this->is_featured,
             'allow_custom_design' => $this->allow_custom_design,
             'allow_customer_upload' => $this->allow_customer_upload,
+            'print_sides' => $this->print_sides,
             'width_mm' => $this->width_mm !== null ? (float) $this->width_mm : null,
             'height_mm' => $this->height_mm !== null ? (float) $this->height_mm : null,
             'margin_mm' => (float) ($this->margin_mm ?? 0),

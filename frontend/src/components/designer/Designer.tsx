@@ -268,9 +268,14 @@ export default function Designer({
   const documentSettingsRef = useRef<DocumentSettings>(documentSettings);
   documentSettingsRef.current = documentSettings;
 
-  const artworkIdRef = useRef<string | null>(null);
+  const artworkIdRef = useRef<string | null>(artworkIdProp || null);
+  const pagesRef = useRef<PageData[]>(pages);
+  pagesRef.current = pages;
+  const activePageIndexRef = useRef<number>(activePageIndex);
+  activePageIndexRef.current = activePageIndex;
   const designTemplateIdRef = useRef<string | null>(null);
   const loadedTemplateKeyRef = useRef<string | null>(null);
+  const loadSequenceRef = useRef<number>(0);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveInProgressRef = useRef<boolean>(false);
   const saveQueuedRef = useRef<boolean>(false);
@@ -351,6 +356,28 @@ export default function Designer({
       }
       return next;
     });
+  }, []);
+
+  const handlePanMode = useCallback(() => {
+    setIsPanMode(true);
+    if (canvasManagerRef.current) {
+      canvasManagerRef.current.setPanMode(true);
+    }
+  }, []);
+
+  // Explicit pointer/select action. The pointer and hand buttons must not
+  // share the same toggle callback, otherwise clicking Pointer can enable pan.
+  const handleSelectMode = useCallback(() => {
+    setIsPanMode(false);
+
+    const manager = canvasManagerRef.current;
+    if (manager) {
+      manager.enableSelectionMode();
+    }
+
+    setActiveSidebarTab((currentTab) =>
+      currentTab === 'draw' ? null : currentTab
+    );
   }, []);
 
 
@@ -609,24 +636,19 @@ export default function Designer({
       console.warn('Could not create the page thumbnail:', error);
     }
 
-    setPages(prev => {
-      const next = [...prev];
-      if (next[activePageIndex]) {
-        next[activePageIndex] = {
-          ...next[activePageIndex],
-          canvasJson: rawCanvasJson,
-          thumbnail: thumbDataUrl,
-        };
-      }
-      return next;
-    });
+    const currentPages = pagesRef.current && pagesRef.current.length > 0 ? pagesRef.current : pages;
+    const currentIdx = activePageIndexRef.current ?? activePageIndex;
 
-    // Return the updated array directly so callers don't have to wait for the React re-render
-    const updatedPages = [...pages];
-    if (updatedPages[activePageIndex]) {
-      updatedPages[activePageIndex].canvasJson = rawCanvasJson;
-      updatedPages[activePageIndex].thumbnail = thumbDataUrl;
+    const updatedPages = [...currentPages];
+    if (updatedPages[currentIdx]) {
+      updatedPages[currentIdx] = {
+        ...updatedPages[currentIdx],
+        canvasJson: rawCanvasJson,
+        thumbnail: thumbDataUrl,
+      };
     }
+    pagesRef.current = updatedPages;
+    setPages(updatedPages);
     return updatedPages;
   }, [activePageIndex, pages]);
 
@@ -1111,10 +1133,14 @@ export default function Designer({
 
   // Reuse the same backend artwork row after page refresh.
   useEffect(() => {
+    if (artworkIdProp) {
+      artworkIdRef.current = artworkIdProp;
+      return;
+    }
     artworkIdRef.current = productId
       ? designerService.loadRememberedArtworkId(productId)
       : null;
-  }, [productId]);
+  }, [productId, artworkIdProp]);
 
   // Autosave every meaningful CanvasManager mutation, including template loads.
   useEffect(() => {
@@ -1146,8 +1172,11 @@ export default function Designer({
 
   const [templateSavedMsg, setTemplateSavedMsg] = useState<string | null>(null);
 
-  // Load template from DB if templateId is provided
+  // Load template from DB if templateId is provided (and not editing an existing artwork)
   useEffect(() => {
+    // When editing an existing artwork, never fetch and overwrite with raw template!
+    if (artworkIdProp) return;
+
     const activeTmplId =
       templateId ||
       (typeof window !== 'undefined'
@@ -1165,6 +1194,8 @@ export default function Designer({
     }
 
     let isMounted = true;
+    const currentSequence = ++loadSequenceRef.current;
+
     const fetchTemplate = async () => {
       try {
         const authToken = localStorage.getItem('auth_token') || localStorage.getItem('token');
@@ -1356,17 +1387,19 @@ export default function Designer({
     return () => {
       isMounted = false;
     };
-  }, [templateId, canvasManager, mode, productId]);
+  }, [templateId, canvasManager, mode, productId, artworkIdProp]);
 
   // Load artwork from DB if artworkIdProp is provided
   useEffect(() => {
     if (!artworkIdProp || !canvasManager) return;
 
     let isMounted = true;
+    const currentSequence = ++loadSequenceRef.current;
+
     const loadArtwork = async () => {
       try {
         const artwork = await designerService.fetchArtwork(artworkIdProp);
-        if (!isMounted) return;
+        if (!isMounted || currentSequence !== loadSequenceRef.current) return;
 
         // Restore design name
         if (artwork.name) {
@@ -1374,11 +1407,13 @@ export default function Designer({
         }
 
         // Restore document settings
+        let currentDims = dimensionsRef.current;
         if (artwork.document_settings) {
           setDocumentSettings(artwork.document_settings);
           const newDims = calculateCanvasDimensions(artwork.document_settings);
           setDimensions(newDims);
           canvasManager.setDimensions(newDims);
+          currentDims = newDims;
           const { w, h } = containerDimensionsRef.current;
           if (w > 0 && h > 0) {
             canvasManager.fitToViewport(w, h, 32, 48);
@@ -1387,28 +1422,98 @@ export default function Designer({
 
         // Load fully editable JSON into CanvasManager
         if (artwork.canvas_json) {
-          let loadedPages = Array.isArray(artwork.canvas_json)
-            ? artwork.canvas_json
-            : [artwork.canvas_json];
+          let rawJson = artwork.canvas_json;
+          if (typeof rawJson === 'string') {
+            try {
+              rawJson = JSON.parse(rawJson);
+            } catch (e) {
+              console.warn('Failed to parse artwork.canvas_json string:', e);
+            }
+          }
+
+          let loadedPages: any[] = Array.isArray(rawJson) ? rawJson : [rawJson];
+          // Ensure each page json is parsed if stored as string
+          loadedPages = loadedPages.map((p) => {
+            if (typeof p === 'string') {
+              try { return JSON.parse(p); } catch { return p; }
+            }
+            return p;
+          });
+
+          const detectedSides = (artwork.print_sides || (loadedPages.length > 1 ? 'both' : 'front')) as PrintSides;
+          setPrintSides(detectedSides);
+
+          if (loadedPages.length === 2) {
+            setSideNames(['Front', 'Back']);
+          } else if (loadedPages.length > 2) {
+            setSideNames(loadedPages.map((_, i) => (i === 0 ? 'Front' : `Page ${i + 1}`)));
+          }
 
           // Set pages state
-          setPages(loadedPages.map((json: any, idx: number) => ({
+          const newPages = loadedPages.map((json: any, idx: number) => ({
             id: `page-${idx}-${Date.now()}`,
             thumbnail: null,
-            canvasJson: json
-          })));
+            canvasJson: json,
+          }));
+          pagesRef.current = newPages;
+          setPages(newPages);
           setActivePageIndex(0);
+          setActiveSide('front');
 
           await canvasManager.loadTemplate({
             canvas_json: loadedPages[0],
             backgroundColor: artwork.document_settings?.backgroundColor || undefined,
           } as any);
+
+          canvasManager.refreshCanvasInteractivity();
+
+          if (!isMounted || currentSequence !== loadSequenceRef.current) return;
+
+          // Generate front thumbnail
+          const frontThumb = await canvasManager.getCleanPreviewDataUrl(0.35);
+          if (frontThumb && isMounted) {
+            setPages((prev) => {
+              const next = [...prev];
+              if (next[0]) {
+                next[0] = { ...next[0], thumbnail: frontThumb };
+              }
+              pagesRef.current = next;
+              return next;
+            });
+          }
+
+          // Render thumbnails for non-active pages asynchronously
+          const targetW = Math.round(currentDims?.widthPx ? currentDims.widthPx * 0.25 : 320);
+          const targetH = Math.round(currentDims?.heightPx ? currentDims.heightPx * 0.25 : 200);
+          loadedPages.forEach((pJson, idx) => {
+            if (idx > 0 && pJson) {
+              void renderCanvasJsonToThumbnail(
+                pJson,
+                targetW,
+                targetH,
+                artwork.document_settings?.backgroundColor
+              ).then((thumb) => {
+                if (thumb && isMounted && currentSequence === loadSequenceRef.current) {
+                  setPages((prev) => {
+                    const next = [...prev];
+                    if (next[idx]) {
+                      next[idx] = { ...next[idx], thumbnail: thumb };
+                    }
+                    return next;
+                  });
+                }
+              });
+            }
+          });
         }
 
         // Keep track of IDs so saves update the same row
         artworkIdRef.current = artwork.id;
         if (artwork.design_template_id) {
           designTemplateIdRef.current = String(artwork.design_template_id);
+        }
+        if (artwork.product_id) {
+          productIdRef.current = String(artwork.product_id);
         }
       } catch (err) {
         console.warn('Could not pre-load artwork:', err);
@@ -1817,6 +1922,11 @@ export default function Designer({
         setCanRedo(r);
       });
 
+      // Listen for pan mode events
+      const unsubscribePanMode = manager.onPanModeChange((isPan) => {
+        setIsPanMode(isPan);
+      });
+
       // Initial fit to screen with full visible canvas
       const fitZ = calculateFitZoom(currentDims.widthPx, currentDims.heightPx, containerW, containerH, 32, 48);
       manager.setZoom(fitZ);
@@ -1827,6 +1937,7 @@ export default function Designer({
         unsubscribeGuides();
         unsubscribePreflight();
         unsubscribeHistory();
+        unsubscribePanMode();
         manager.dispose();
         canvasManagerRef.current = null;
         setCanvasManager(null);
@@ -1858,9 +1969,9 @@ export default function Designer({
         else if (isCustomSizeOpen) setIsCustomSizeOpen(false);
         else manager.deselectAll();
       } else if (e.key === 'v' || e.key === 'V') {
-        if (isPanMode) handleTogglePanMode();
+        handleSelectMode();
       } else if (e.key === 'h' || e.key === 'H') {
-        if (!isPanMode) handleTogglePanMode();
+        handlePanMode();
       } else if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
         e.preventDefault();
         manager.zoomIn();
@@ -1900,7 +2011,7 @@ export default function Designer({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleFitCanvas, handleSaveDraft, handleToggleGuides, handleTogglePanMode, isPanMode, isPreviewOpen, isCustomSizeOpen]);
+  }, [handleFitCanvas, handleSaveDraft, handleSelectMode, handlePanMode, handleToggleGuides, handleTogglePanMode, isPanMode, isPreviewOpen, isCustomSizeOpen]);
 
   useEffect(() => {
     const hasAlert =
@@ -1939,6 +2050,7 @@ export default function Designer({
         onDesignNameChange={setDesignName}
         documentSettings={documentSettings}
         isPanMode={isPanMode}
+        onSelectMode={handleSelectMode}
         onTogglePanMode={handleTogglePanMode}
         zoom={zoom}
         onZoomChange={handleZoomChange}

@@ -71,7 +71,7 @@ class Product extends Model
         // Integers
         'min_quantity' => 'integer',
         'turnaround_days' => 'integer',
-        'print_sides' => 'integer',
+        'print_sides' => 'string',
 
         // Print measurements
         'width_mm' => 'decimal:2',

@@ -65,32 +65,6 @@ export const RotationBadge: React.FC<RotationBadgeProps> = ({
     };
   }, [canvasManager]);
 
-  // Also trigger brief badge when selected angle is changed externally (e.g. from toolbar)
-  useEffect(() => {
-    if (!selected || selected.angle === undefined || !canvasManager) return;
-    const canvas = canvasManager.getCanvas();
-    if (!canvas) return;
-    const active = canvas.getActiveObject();
-    if (!active) return;
-
-    const center = active.getCenterPoint ? active.getCenterPoint() : { x: selected.left, y: selected.top };
-    let rawAngle = Math.round(selected.angle || 0) % 360;
-    if (rawAngle < 0) rawAngle += 360;
-
-    setRotationState({
-      visible: true,
-      angle: rawAngle,
-      x: center.x,
-      y: center.y,
-    });
-
-    const timer = setTimeout(() => {
-      setRotationState((prev) => (prev ? { ...prev, visible: false } : null));
-    }, 1200);
-
-    return () => clearTimeout(timer);
-  }, [selected, canvasManager]);
-
   if (!rotationState || !rotationState.visible) return null;
 
   return (

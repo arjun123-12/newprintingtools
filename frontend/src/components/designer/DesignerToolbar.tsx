@@ -42,6 +42,7 @@ interface DesignerToolbarProps {
   onDesignNameChange: (name: string) => void;
   documentSettings: DocumentSettings;
   isPanMode: boolean;
+  onSelectMode: () => void;
   onTogglePanMode: () => void;
   zoom: number;
   onZoomChange: (zoom: number) => void;
@@ -77,6 +78,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
   onDesignNameChange,
   documentSettings,
   isPanMode,
+  onSelectMode,
   onTogglePanMode,
   zoom,
   onZoomChange,
@@ -388,7 +390,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
         <div className="flex items-center bg-gray-100/80 rounded-lg p-0.5">
           <button
             type="button"
-            onClick={onTogglePanMode}
+            onClick={onSelectMode}
             title="Select & Move Objects (V)"
             className={`p-1.5 rounded-md transition ${!isPanMode
               ? 'bg-white text-blue-600 shadow-xs font-semibold'

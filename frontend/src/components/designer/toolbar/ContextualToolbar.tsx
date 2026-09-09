@@ -31,6 +31,8 @@ import {
   Trash2,
   Loader2,
   Wand2,
+  Group as GroupIcon,
+  Ungroup,
 } from 'lucide-react';
 import { SelectedObjectState, BrushSettings, BrushType, ActiveSidebarTab } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -1235,6 +1237,32 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               />
             )}
           </div>
+
+          {/* Canva Group Button */}
+          {canvasManager?.canGroup() && (
+            <button
+              type="button"
+              onClick={() => canvasManager.groupSelected()}
+              title="Group (Ctrl+G)"
+              className="h-8 px-3 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
+            >
+              <GroupIcon className="w-3.5 h-3.5" />
+              <span>Group</span>
+            </button>
+          )}
+
+          {/* Canva Ungroup Button */}
+          {canvasManager?.canUngroup() && (
+            <button
+              type="button"
+              onClick={() => canvasManager.ungroupSelected()}
+              title="Ungroup (Ctrl+Shift+G)"
+              className="h-8 px-3 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
+            >
+              <Ungroup className="w-3.5 h-3.5" />
+              <span>Ungroup</span>
+            </button>
+          )}
 
           {/* Position Sidebar Toggle Button (Canva Style - Opens in Sidebar) */}
           <button

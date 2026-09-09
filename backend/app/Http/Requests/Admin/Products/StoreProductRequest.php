@@ -30,6 +30,7 @@ class StoreProductRequest extends FormRequest
             'sku' => ['required', 'string', 'max:255', 'unique:products,sku'],
             'category_id' => ['required', 'exists:categories,id'],
             'product_type' => ['required', new Enum(ProductType::class)],
+            'print_sides' => ['nullable', 'string', 'in:front,back,both,multi'],
             'width_mm' => ['nullable', 'numeric', 'gt:0'],
             'height_mm' => ['nullable', 'numeric', 'gt:0'],
             'margin_mm' => ['nullable', 'numeric', 'min:0'],

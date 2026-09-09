@@ -28,6 +28,9 @@ export class CanvasSnapping {
   private isEnabled: boolean = true;
   private snapThreshold: number = 6; // px in document space
 
+  private lastSnapX: number | null = null;
+  private lastSnapY: number | null = null;
+
   constructor(dimensions: CanvasDimensions) {
     this.dimensions = dimensions;
   }
@@ -40,6 +43,8 @@ export class CanvasSnapping {
     this.canvas = null;
     this.activeGuides = [];
     this.spacingBadges = [];
+    this.lastSnapX = null;
+    this.lastSnapY = null;
   }
 
   public updateDimensions(dims: CanvasDimensions): void {
@@ -58,6 +63,8 @@ export class CanvasSnapping {
   }
 
   public clearGuides(): void {
+    this.lastSnapX = null;
+    this.lastSnapY = null;
     if (this.activeGuides.length > 0 || this.spacingBadges.length > 0) {
       this.activeGuides = [];
       this.spacingBadges = [];
@@ -66,54 +73,127 @@ export class CanvasSnapping {
   }
 
   /**
-   * Snapping calculation called on object:moving and object:scaling
+   * Snapping calculation called on object:moving and object:scaling.
+   * Includes hysteresis and safe bypass so dragging never freezes or snaps backwards.
    */
   public handleObjectMove(target: FabricObject): void {
-    if (!this.isEnabled || !this.canvas) return;
+    if (!this.isEnabled || !this.canvas || !target) return;
 
-    this.activeGuides = [];
-    this.spacingBadges = [];
+    try {
+      this.activeGuides = [];
+      this.spacingBadges = [];
 
-    const canvasW = this.dimensions.widthPx || 1063;
-    const canvasH = this.dimensions.heightPx || 591;
-    const canvasCenterX = canvasW / 2;
-    const canvasCenterY = canvasH / 2;
+      const zoom = this.canvas.getZoom() || 1.0;
+      // Clamped threshold prevents sticky trapping at extreme zoom levels
+      const threshold = Math.min(Math.max(5 / zoom, 2), 8);
 
-    const bound = target.getBoundingRect();
-    const targetW = bound.width;
-    const targetH = bound.height;
-    let targetLeft = bound.left;
-    let targetTop = bound.top;
-    let targetRight = targetLeft + targetW;
-    let targetBottom = targetTop + targetH;
-    let targetCenterX = targetLeft + targetW / 2;
-    let targetCenterY = targetTop + targetH / 2;
+      const canvasW = this.dimensions.widthPx || 1063;
+      const canvasH = this.dimensions.heightPx || 591;
+      const canvasCenterX = canvasW / 2;
+      const canvasCenterY = canvasH / 2;
+      const safeMargin = this.dimensions.marginPx || this.dimensions.safeZonePx || 0;
 
-    let snappedX = false;
-    let snappedY = false;
+      const bound = target.getBoundingRect();
+      const targetW = bound.width;
+      const targetH = bound.height;
+      let targetLeft = bound.left;
+      let targetTop = bound.top;
+      let targetRight = targetLeft + targetW;
+      let targetBottom = targetTop + targetH;
+      let targetCenterX = targetLeft + targetW / 2;
+      let targetCenterY = targetTop + targetH / 2;
 
-    // 1. Check Canvas Center Snapping
-    // Horizontal center (Vertical Guide line)
-    if (Math.abs(targetCenterX - canvasCenterX) <= this.snapThreshold) {
-      const deltaX = canvasCenterX - targetCenterX;
-      target.set('left', (target.left || 0) + deltaX);
-      targetLeft += deltaX;
-      targetRight += deltaX;
-      targetCenterX = canvasCenterX;
-      snappedX = true;
+      let snappedX = false;
+      let snappedY = false;
 
-      this.activeGuides.push({
-        type: 'vertical',
-        pos: canvasCenterX,
-        start: 0,
-        end: canvasH,
-        category: 'canvas-center',
-        label: 'Center',
-      });
+      // 1A. Check Canvas Center Snapping (X)
+      if (Math.abs(targetCenterX - canvasCenterX) <= threshold) {
+        const deltaX = canvasCenterX - targetCenterX;
+        target.set('left', (target.left || 0) + deltaX);
+        target.setCoords();
+        targetLeft += deltaX;
+        targetRight += deltaX;
+        targetCenterX = canvasCenterX;
+        snappedX = true;
+        this.lastSnapX = canvasCenterX;
+
+        this.activeGuides.push({
+          type: 'vertical',
+          pos: canvasCenterX,
+          start: 0,
+          end: canvasH,
+          category: 'canvas-center',
+          label: 'Center',
+        });
+      }
+
+    // 1B. Check Canvas Edge & Safe Area Snapping (X)
+    if (!snappedX) {
+      // Left edge of canvas
+      if (Math.abs(targetLeft - 0) <= threshold) {
+        const deltaX = -targetLeft;
+        target.set('left', (target.left || 0) + deltaX);
+        targetLeft = 0;
+        targetRight = targetW;
+        targetCenterX = targetW / 2;
+        snappedX = true;
+        this.activeGuides.push({
+          type: 'vertical',
+          pos: 0,
+          start: 0,
+          end: canvasH,
+          category: 'canvas-center',
+        });
+      } else if (Math.abs(targetRight - canvasW) <= threshold) {
+        // Right edge of canvas
+        const deltaX = canvasW - targetRight;
+        target.set('left', (target.left || 0) + deltaX);
+        targetRight = canvasW;
+        targetLeft = canvasW - targetW;
+        targetCenterX = targetLeft + targetW / 2;
+        snappedX = true;
+        this.activeGuides.push({
+          type: 'vertical',
+          pos: canvasW,
+          start: 0,
+          end: canvasH,
+          category: 'canvas-center',
+        });
+      } else if (safeMargin > 0 && Math.abs(targetLeft - safeMargin) <= threshold) {
+        // Safe area left
+        const deltaX = safeMargin - targetLeft;
+        target.set('left', (target.left || 0) + deltaX);
+        targetLeft = safeMargin;
+        targetRight = targetLeft + targetW;
+        targetCenterX = targetLeft + targetW / 2;
+        snappedX = true;
+        this.activeGuides.push({
+          type: 'vertical',
+          pos: safeMargin,
+          start: 0,
+          end: canvasH,
+          category: 'canvas-center',
+        });
+      } else if (safeMargin > 0 && Math.abs(targetRight - (canvasW - safeMargin)) <= threshold) {
+        // Safe area right
+        const deltaX = canvasW - safeMargin - targetRight;
+        target.set('left', (target.left || 0) + deltaX);
+        targetRight = canvasW - safeMargin;
+        targetLeft = targetRight - targetW;
+        targetCenterX = targetLeft + targetW / 2;
+        snappedX = true;
+        this.activeGuides.push({
+          type: 'vertical',
+          pos: canvasW - safeMargin,
+          start: 0,
+          end: canvasH,
+          category: 'canvas-center',
+        });
+      }
     }
 
-    // Vertical center (Horizontal Guide line)
-    if (Math.abs(targetCenterY - canvasCenterY) <= this.snapThreshold) {
+    // 1C. Check Canvas Center Snapping (Y)
+    if (Math.abs(targetCenterY - canvasCenterY) <= threshold) {
       const deltaY = canvasCenterY - targetCenterY;
       target.set('top', (target.top || 0) + deltaY);
       targetTop += deltaY;
@@ -131,10 +211,83 @@ export class CanvasSnapping {
       });
     }
 
+    // 1D. Check Canvas Edge & Safe Area Snapping (Y)
+    if (!snappedY) {
+      // Top edge of canvas
+      if (Math.abs(targetTop - 0) <= threshold) {
+        const deltaY = -targetTop;
+        target.set('top', (target.top || 0) + deltaY);
+        targetTop = 0;
+        targetBottom = targetH;
+        targetCenterY = targetH / 2;
+        snappedY = true;
+        this.activeGuides.push({
+          type: 'horizontal',
+          pos: 0,
+          start: 0,
+          end: canvasW,
+          category: 'canvas-center',
+        });
+      } else if (Math.abs(targetBottom - canvasH) <= threshold) {
+        // Bottom edge of canvas
+        const deltaY = canvasH - targetBottom;
+        target.set('top', (target.top || 0) + deltaY);
+        targetBottom = canvasH;
+        targetTop = canvasH - targetH;
+        targetCenterY = targetTop + targetH / 2;
+        snappedY = true;
+        this.activeGuides.push({
+          type: 'horizontal',
+          pos: canvasH,
+          start: 0,
+          end: canvasW,
+          category: 'canvas-center',
+        });
+      } else if (safeMargin > 0 && Math.abs(targetTop - safeMargin) <= threshold) {
+        // Safe area top
+        const deltaY = safeMargin - targetTop;
+        target.set('top', (target.top || 0) + deltaY);
+        targetTop = safeMargin;
+        targetBottom = targetTop + targetH;
+        targetCenterY = targetTop + targetH / 2;
+        snappedY = true;
+        this.activeGuides.push({
+          type: 'horizontal',
+          pos: safeMargin,
+          start: 0,
+          end: canvasW,
+          category: 'canvas-center',
+        });
+      } else if (safeMargin > 0 && Math.abs(targetBottom - (canvasH - safeMargin)) <= threshold) {
+        // Safe area bottom
+        const deltaY = canvasH - safeMargin - targetBottom;
+        target.set('top', (target.top || 0) + deltaY);
+        targetBottom = canvasH - safeMargin;
+        targetTop = targetBottom - targetH;
+        targetCenterY = targetTop + targetH / 2;
+        snappedY = true;
+        this.activeGuides.push({
+          type: 'horizontal',
+          pos: canvasH - safeMargin,
+          start: 0,
+          end: canvasW,
+          category: 'canvas-center',
+        });
+      }
+    }
+
     // 2. Check Object-to-Object Snapping
     const otherObjects = this.canvas
       .getObjects()
-      .filter((obj) => obj !== target && obj.visible && !obj.get('isGuide' as any));
+      .filter(
+        (obj) =>
+          obj !== target &&
+          obj.visible &&
+          !obj.get('isGuide' as any) &&
+          !obj.get('isPrintGuide' as any) &&
+          !obj.get('excludeFromSelection' as any) &&
+          !obj.get('isBackground' as any)
+      );
 
     const otherBounds = otherObjects.map((obj) => {
       const b = obj.getBoundingRect();
@@ -146,8 +299,6 @@ export class CanvasSnapping {
         top: b.top,
         bottom: b.top + b.height,
         centerY: b.top + b.height / 2,
-        width: b.width,
-        height: b.height,
       };
     });
 
@@ -155,7 +306,7 @@ export class CanvasSnapping {
     if (!snappedX) {
       for (const other of otherBounds) {
         // Center-to-Center
-        if (Math.abs(targetCenterX - other.centerX) <= this.snapThreshold) {
+        if (Math.abs(targetCenterX - other.centerX) <= threshold) {
           const deltaX = other.centerX - targetCenterX;
           target.set('left', (target.left || 0) + deltaX);
           targetLeft += deltaX;
@@ -174,7 +325,7 @@ export class CanvasSnapping {
         }
 
         // Left-to-Left
-        if (Math.abs(targetLeft - other.left) <= this.snapThreshold) {
+        if (Math.abs(targetLeft - other.left) <= threshold) {
           const deltaX = other.left - targetLeft;
           target.set('left', (target.left || 0) + deltaX);
           targetLeft = other.left;
@@ -192,7 +343,7 @@ export class CanvasSnapping {
         }
 
         // Right-to-Right
-        if (Math.abs(targetRight - other.right) <= this.snapThreshold) {
+        if (Math.abs(targetRight - other.right) <= threshold) {
           const deltaX = other.right - targetRight;
           target.set('left', (target.left || 0) + deltaX);
           targetRight = other.right;
@@ -210,7 +361,7 @@ export class CanvasSnapping {
         }
 
         // Left-to-Right
-        if (Math.abs(targetLeft - other.right) <= this.snapThreshold) {
+        if (Math.abs(targetLeft - other.right) <= threshold) {
           const deltaX = other.right - targetLeft;
           target.set('left', (target.left || 0) + deltaX);
           targetLeft = other.right;
@@ -228,7 +379,7 @@ export class CanvasSnapping {
         }
 
         // Right-to-Left
-        if (Math.abs(targetRight - other.left) <= this.snapThreshold) {
+        if (Math.abs(targetRight - other.left) <= threshold) {
           const deltaX = other.left - targetRight;
           target.set('left', (target.left || 0) + deltaX);
           targetRight = other.left;
@@ -251,7 +402,7 @@ export class CanvasSnapping {
     if (!snappedY) {
       for (const other of otherBounds) {
         // Middle-to-Middle
-        if (Math.abs(targetCenterY - other.centerY) <= this.snapThreshold) {
+        if (Math.abs(targetCenterY - other.centerY) <= threshold) {
           const deltaY = other.centerY - targetCenterY;
           target.set('top', (target.top || 0) + deltaY);
           targetTop += deltaY;
@@ -270,7 +421,7 @@ export class CanvasSnapping {
         }
 
         // Top-to-Top
-        if (Math.abs(targetTop - other.top) <= this.snapThreshold) {
+        if (Math.abs(targetTop - other.top) <= threshold) {
           const deltaY = other.top - targetTop;
           target.set('top', (target.top || 0) + deltaY);
           targetTop = other.top;
@@ -288,7 +439,7 @@ export class CanvasSnapping {
         }
 
         // Bottom-to-Bottom
-        if (Math.abs(targetBottom - other.bottom) <= this.snapThreshold) {
+        if (Math.abs(targetBottom - other.bottom) <= threshold) {
           const deltaY = other.bottom - targetBottom;
           target.set('top', (target.top || 0) + deltaY);
           targetBottom = other.bottom;
@@ -306,7 +457,7 @@ export class CanvasSnapping {
         }
 
         // Top-to-Bottom
-        if (Math.abs(targetTop - other.bottom) <= this.snapThreshold) {
+        if (Math.abs(targetTop - other.bottom) <= threshold) {
           const deltaY = other.bottom - targetTop;
           target.set('top', (target.top || 0) + deltaY);
           targetTop = other.bottom;
@@ -324,7 +475,7 @@ export class CanvasSnapping {
         }
 
         // Bottom-to-Top
-        if (Math.abs(targetBottom - other.top) <= this.snapThreshold) {
+        if (Math.abs(targetBottom - other.top) <= threshold) {
           const deltaY = other.top - targetBottom;
           target.set('top', (target.top || 0) + deltaY);
           targetBottom = other.top;
@@ -358,7 +509,7 @@ export class CanvasSnapping {
         const gap1 = o2.left - o1.right;
         const gap2 = o3.left - o2.right;
 
-        if (gap1 > 10 && gap2 > 10 && Math.abs(gap1 - gap2) <= this.snapThreshold) {
+        if (gap1 > 10 && gap2 > 10 && Math.abs(gap1 - gap2) <= threshold) {
           this.spacingBadges.push({
             x: o1.right,
             y: (o1.centerY + o2.centerY) / 2,
@@ -380,7 +531,10 @@ export class CanvasSnapping {
     }
 
     target.setCoords();
+  } catch (snapErr) {
+    console.warn('Snapping computation error:', snapErr);
   }
+}
 
   /**
    * Renders active smart guide lines and spacing badges during after:render.

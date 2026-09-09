@@ -42,6 +42,8 @@ export interface SavedArtwork {
   width_px: number | null;
   height_px: number | null;
   dpi: number | null;
+  print_sides?: string | null;
+  preview_url?: string | null;
   updated_at: string;
 }
 
@@ -177,6 +179,12 @@ export class DesignerService {
     }
 
     if (!response.ok || !result?.success || !result.data) {
+      if (response.status === 403 && isUpdate) {
+        // Current user/guest does not own this existing artwork.
+        // Fork into a new draft so their edits are preserved and saved!
+        return this.saveArtworkDraft(null, payload);
+      }
+
       const validationMessage = result?.errors
         ? Object.values(result.errors).flat().join(' ')
         : null;

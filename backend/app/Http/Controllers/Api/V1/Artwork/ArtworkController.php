@@ -638,14 +638,12 @@ class ArtworkController extends Controller
     }
 
     /**
-     * Return one artwork publicly (for loading in the designer with fallback, enforcing ownership).
+     * Return one artwork publicly (for loading in the designer with fallback).
      */
     public function showPublic(Request $request, string $artworkId): JsonResponse
     {
         $artwork = Artwork::with(['product', 'template', 'designTemplate'])
             ->findOrFail($artworkId);
-
-        $this->ensureOwner($request, $artwork);
 
         return response()->json([
             'success' => true,
@@ -654,7 +652,7 @@ class ArtworkController extends Controller
     }
 
     /**
-     * Ensure customers can only access their own designs.
+     * Ensure customers can only access their own designs, while admins can manage all designs.
      */
     private function ensureOwner(
         Request $request,
@@ -662,8 +660,11 @@ class ArtworkController extends Controller
     ): void {
         $user = $this->resolveUser($request);
 
-        // 1. Authenticated user ownership
+        // 1. Authenticated user ownership and staff roles
         if ($user) {
+            if (in_array($user->role, ['admin', 'production_manager', 'prepress_operator', 'support'], true)) {
+                return;
+            }
             if ($artwork->user_id && (int) $artwork->user_id === (int) $user->id) {
                 return;
             }

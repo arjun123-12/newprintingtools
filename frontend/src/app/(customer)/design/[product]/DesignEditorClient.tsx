@@ -83,11 +83,33 @@ export default function DesignEditorClient({
   const [templateError, setTemplateError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (initialProductId) {
+    if (initialProductId && initialProductId !== 'default') {
       setResolvedProductId(initialProductId);
       setIsResolvingTemplate(false);
       setTemplateError(null);
       return;
+    }
+
+    if (artworkId && (!initialProductId || initialProductId === 'default')) {
+      const controller = new AbortController();
+      const resolveArtworkProduct = async () => {
+        try {
+          const res = await fetch(`${API_URL}/artworks/${encodeURIComponent(artworkId)}/public`, {
+            signal: controller.signal,
+            headers: { Accept: 'application/json' },
+          });
+          if (res.ok) {
+            const result = await res.json();
+            const prodId = result?.data?.product_id || result?.data?.product?.id;
+            if (prodId) {
+              setResolvedProductId(String(prodId));
+            }
+          }
+        } catch {
+          // ignore network or abort errors
+        }
+      };
+      void resolveArtworkProduct();
     }
 
     if (mode !== 'admin-template') {
@@ -179,7 +201,7 @@ export default function DesignEditorClient({
     return () => {
       controller.abort();
     };
-  }, [initialProductId, mode, router, templateId]);
+  }, [initialProductId, mode, router, templateId, artworkId]);
 
   if (isResolvingTemplate) {
     return <LoadingStudio message="Loading template product..." />;

@@ -338,17 +338,82 @@ export function createTextboxCanvaControls(): Record<string, Control> {
 }
 
 /**
+ * Creates Canva-style controls for Raster Images & Frames.
+ * Contains only corner handles (proportional uniform scaling) and rotation handle.
+ * Edge handles (ml, mr, mt, mb) are omitted to completely prevent raster image stretching / distortion.
+ */
+export function createImageCanvaControls(): Record<string, Control> {
+  const controls: Record<string, Control> = {
+    tl: new Control({
+      x: -0.5,
+      y: -0.5,
+      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
+      actionHandler: controlsUtils.scalingEqually,
+      render: renderCanvaCornerHandle,
+    }),
+    tr: new Control({
+      x: 0.5,
+      y: -0.5,
+      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
+      actionHandler: controlsUtils.scalingEqually,
+      render: renderCanvaCornerHandle,
+    }),
+    bl: new Control({
+      x: -0.5,
+      y: 0.5,
+      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
+      actionHandler: controlsUtils.scalingEqually,
+      render: renderCanvaCornerHandle,
+    }),
+    br: new Control({
+      x: 0.5,
+      y: 0.5,
+      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
+      actionHandler: controlsUtils.scalingEqually,
+      render: renderCanvaCornerHandle,
+    }),
+    mbr: new Control({
+      x: 0,
+      y: 0.5,
+      offsetY: 34,
+      cursorStyleHandler: controlsUtils.rotationStyleHandler,
+      actionHandler: controlsUtils.rotationWithSnapping,
+      actionName: 'rotate',
+      withConnection: false,
+      render: renderCanvaRotationHandle,
+    }),
+  };
+
+  return controls;
+}
+
+/**
  * Explicitly applies Canva styling and controls to a single FabricObject instance.
  */
 export function applyCanvaControlsToObject(obj: FabricObject): void {
   if (!obj) return;
+  const rawType = String((obj as any).type || '').toLowerCase();
   const isText =
     obj instanceof Textbox ||
     obj instanceof IText ||
-    (obj as any).type === 'textbox' ||
-    (obj as any).type === 'i-text';
+    rawType === 'textbox' ||
+    rawType === 'i-text';
 
-  obj.controls = isText ? createTextboxCanvaControls() : createCanvaControls();
+  const isImage =
+    obj instanceof FabricImage ||
+    rawType === 'image' ||
+    rawType === 'fabricimage' ||
+    Boolean((obj as any).isFrame);
+
+  if (isText) {
+    obj.controls = createTextboxCanvaControls();
+  } else if (isImage) {
+    obj.controls = createImageCanvaControls();
+    (obj as any).lockUniScaling = true;
+  } else {
+    obj.controls = createCanvaControls();
+  }
+
   obj.borderColor = CANVA_PURPLE;
   obj.borderScaleFactor = 1.5;
   obj.borderOpacityWhenMoving = 0.95;
@@ -365,11 +430,20 @@ export function applyCanvaControlsToObject(obj: FabricObject): void {
  * Apply Canva style frame and handles globally to FabricObject, ActiveSelection and all element prototypes.
  */
 export function applyCanvaControlsGlobal(): void {
-  const canvaControls = createCanvaControls();
-  const textboxControls = createTextboxCanvaControls();
+  // 1. Override static createControls factory methods in Fabric 7 so newly constructed objects get Canva controls
+  (FabricObject as any).createControls = () => ({ controls: createCanvaControls() });
+  (Textbox as any).createControls = () => ({ controls: createTextboxCanvaControls() });
+  (IText as any).createControls = () => ({ controls: createTextboxCanvaControls() });
+  (FabricImage as any).createControls = () => ({ controls: createImageCanvaControls() });
+  (ActiveSelection as any).createControls = () => ({ controls: createCanvaControls() });
+  (Rect as any).createControls = () => ({ controls: createCanvaControls() });
+  (Circle as any).createControls = () => ({ controls: createCanvaControls() });
+  (Polygon as any).createControls = () => ({ controls: createCanvaControls() });
+  (Path as any).createControls = () => ({ controls: createCanvaControls() });
+  (Group as any).createControls = () => ({ controls: createCanvaControls() });
 
-  const applyDefaults = (proto: any, customControls?: Record<string, Control>) => {
-    proto.controls = customControls || canvaControls;
+  const applyDefaults = (proto: any, getCustomControls?: () => Record<string, Control>) => {
+    proto.controls = getCustomControls ? getCustomControls() : createCanvaControls();
     proto.borderColor = CANVA_PURPLE;
     proto.borderScaleFactor = 1.5;
     proto.borderOpacityWhenMoving = 0.95;
@@ -383,7 +457,7 @@ export function applyCanvaControlsGlobal(): void {
   };
 
   const applyTextboxDefaults = (proto: any) => {
-    proto.controls = textboxControls;
+    proto.controls = createTextboxCanvaControls();
     proto.borderColor = CANVA_PURPLE;
     proto.borderScaleFactor = 1.5;
     proto.borderOpacityWhenMoving = 0.95;
@@ -404,7 +478,8 @@ export function applyCanvaControlsGlobal(): void {
   applyDefaults(ActiveSelection.prototype);
   applyTextboxDefaults(Textbox.prototype);
   applyTextboxDefaults(IText.prototype);
-  applyDefaults(FabricImage.prototype);
+  applyDefaults(FabricImage.prototype, createImageCanvaControls);
+  (FabricImage.prototype as any).lockUniScaling = true;
   applyDefaults(Rect.prototype);
   applyDefaults(Circle.prototype);
   applyDefaults(Polygon.prototype);

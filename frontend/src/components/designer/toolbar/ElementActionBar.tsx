@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Lock, Unlock, Copy, Trash2, MoreHorizontal } from 'lucide-react';
+import { Lock, Unlock, Copy, Trash2, MoreHorizontal, Group as GroupIcon, Ungroup } from 'lucide-react';
 import { SelectedObjectState } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { MoreMenuPopover } from './MoreMenuPopover';
@@ -61,27 +61,39 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
     }
   }, [canvasManager, selected, zoom]);
 
+  const animFrameRef = useRef<number | null>(null);
+
+  const scheduleUpdatePosition = useCallback(() => {
+    if (animFrameRef.current !== null) return;
+    animFrameRef.current = requestAnimationFrame(() => {
+      animFrameRef.current = null;
+      updatePosition();
+    });
+  }, [updatePosition]);
+
   useEffect(() => {
     updatePosition();
     if (!canvasManager) return;
     const canvas = canvasManager.getCanvas();
     if (!canvas) return;
 
-    const handleCanvasEvent = () => updatePosition();
+    const handleCanvasEvent = () => scheduleUpdatePosition();
     canvas.on('object:moving', handleCanvasEvent);
     canvas.on('object:scaling', handleCanvasEvent);
     canvas.on('object:rotating', handleCanvasEvent);
     canvas.on('object:modified', handleCanvasEvent);
-    canvas.on('after:render', handleCanvasEvent);
 
     return () => {
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
       canvas.off('object:moving', handleCanvasEvent);
       canvas.off('object:scaling', handleCanvasEvent);
       canvas.off('object:rotating', handleCanvasEvent);
       canvas.off('object:modified', handleCanvasEvent);
-      canvas.off('after:render', handleCanvasEvent);
     };
-  }, [canvasManager, updatePosition]);
+  }, [canvasManager, updatePosition, scheduleUpdatePosition]);
 
   if (!coords) return null;
 
@@ -113,27 +125,56 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
 
   return (
     <div
-      ref={barRef}
-      onMouseDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
       style={{
         position: 'absolute',
         left: `${coords.x}px`,
         top: `${coords.y}px`,
-        transform: 'translateX(3%)',
+        transform: 'translateX(-50%)',
       }}
-      className="z-10 flex items-center gap-1 bg-white px-1.5 py-1 rounded-full shadow-lg border border-gray-200 text-gray-700 animate-in fade-in zoom-in-95 duration-100 select-none"
+      className="pointer-events-none z-10 select-none"
     >
-      {/* Lock / Unlock */}
-      <button
-        type="button"
-        onClick={handleToggleLock}
+      <div
+        ref={barRef}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        className="pointer-events-auto flex items-center gap-1 bg-white px-1.5 py-1 rounded-full shadow-lg border border-gray-200 text-gray-700 animate-in fade-in zoom-in-95 duration-100"
+      >
+        {/* Lock / Unlock */}
+        <button
+          type="button"
+          onClick={handleToggleLock}
         title={selected.isLocked ? 'Unlock (Ctrl+L)' : 'Lock (Ctrl+L)'}
         className={`p-1.5 rounded-full hover:bg-gray-100 transition ${selected.isLocked ? 'text-amber-600 bg-amber-50' : 'text-gray-600 hover:text-gray-900'
           }`}
       >
         {selected.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
       </button>
+
+      {/* Group */}
+      {canvasManager?.canGroup() && (
+        <button
+          type="button"
+          onClick={() => canvasManager?.groupSelected()}
+          title="Group (Ctrl+G)"
+          className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold transition shadow-2xs"
+        >
+          <GroupIcon className="w-3.5 h-3.5" />
+          <span>Group</span>
+        </button>
+      )}
+
+      {/* Ungroup */}
+      {canvasManager?.canUngroup() && (
+        <button
+          type="button"
+          onClick={() => canvasManager?.ungroupSelected()}
+          title="Ungroup (Ctrl+Shift+G)"
+          className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold transition shadow-2xs"
+        >
+          <Ungroup className="w-3.5 h-3.5" />
+          <span>Ungroup</span>
+        </button>
+      )}
 
       {/* Duplicate */}
       <button
@@ -177,5 +218,6 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
         )}
       </div>
     </div>
+  </div>
   );
 };
