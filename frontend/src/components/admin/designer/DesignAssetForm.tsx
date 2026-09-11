@@ -1947,7 +1947,7 @@ export function DesignAssetForm({
 
                     <p className="text-[11px] text-gray-500 mt-1">
                       Upload the decorative SVG/PNG
-                      that appears above the customer's
+                      that appears above the customer
                       photo.
                     </p>
                   </div>
@@ -2004,7 +2004,7 @@ export function DesignAssetForm({
 
                     <p className="text-[11px] text-gray-500 mt-1">
                       Select the area where the
-                      customer's image will appear.
+                      customer image will appear.
                     </p>
                   </div>
 
