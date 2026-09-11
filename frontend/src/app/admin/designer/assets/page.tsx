@@ -3,10 +3,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import { AssetType, DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
-import { Package, Plus, Search, Trash2, Edit, RefreshCw, FolderPlus, CheckCircle, XCircle, FileText, ImageIcon } from 'lucide-react';
+import { Package, Plus, Search, Trash2, Edit, RefreshCw, FolderPlus, FolderUp, CheckCircle, XCircle, FileText, ImageIcon } from 'lucide-react';
 import { EmptyState, LoadingState, ErrorState } from '@/components/admin/shared';
 import { DesignAssetForm } from '@/components/admin/designer/DesignAssetForm';
 import { AssetCategoryForm } from '@/components/admin/designer/AssetCategoryForm';
+import { BulkAssetUploadModal } from '@/components/admin/designer/BulkAssetUploadModal';
 import { formatImageUrl } from '@/utils/imageUrl';
 import { useDebounce } from '@/hooks/useDebounce';
 
@@ -107,6 +108,8 @@ export default function AdminAssetsPage() {
 
   const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<DesignAsset | null>(null);
+
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -219,6 +222,15 @@ export default function AdminAssetsPage() {
           </button>
 
           <button
+            onClick={() => setIsBulkModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition shadow-2xs"
+            title="Upload entire folder of assets (frames, photos, elements, backgrounds)"
+          >
+            <FolderUp className="w-4 h-4 text-blue-600" />
+            <span>Folder Upload</span>
+          </button>
+
+          <button
             onClick={handleAddAssetClick}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition shadow-xs"
           >
@@ -237,6 +249,7 @@ export default function AdminAssetsPage() {
               { id: 'text', label: 'Text' },
               { id: 'photo', label: 'Photos' },
               { id: 'frame', label: 'Frames' },
+              { id: 'shape', label: 'Shapes' },
               { id: 'element', label: 'Elements' },
               { id: 'background', label: 'Backgrounds' },
               { id: 'category', label: 'Categories' },
@@ -416,6 +429,14 @@ export default function AdminAssetsPage() {
         onClose={() => setIsCategoryModalOpen(false)}
         category={editingCategory}
         activeType={currentAssetType}
+        onSaved={loadData}
+      />
+
+      <BulkAssetUploadModal
+        isOpen={isBulkModalOpen}
+        onClose={() => setIsBulkModalOpen(false)}
+        activeType={currentAssetType}
+        categories={categories}
         onSaved={loadData}
       />
     </div>

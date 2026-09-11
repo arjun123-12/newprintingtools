@@ -48,20 +48,26 @@ type UnifiedAsset = {
 };
 
 function adminToUnified(a: DesignAsset): UnifiedAsset {
+  const fileUrl = a.file_url || (a as any).asset_url || '';
+  const thumbUrl = a.thumbnail_url || (a as any).asset_thumbnail_url || fileUrl;
+  const rawPath = a.file_path || fileUrl;
+  const ext = (rawPath.split('?')[0] || '').split('.').pop()?.toLowerCase() || 'png';
+  const isVector = ext === 'svg' || Boolean(a.metadata?.is_vector);
+
   return {
     id: `admin:${a.id}`,
     title: a.name,
-    thumbnail_url: a.thumbnail_url || a.file_url || '',
-    preview_url: a.file_url || a.thumbnail_url || '',
+    thumbnail_url: thumbUrl,
+    preview_url: fileUrl,
     provider: 'admin',
     provider_asset_id: a.id,
-    asset_type: 'element',
-    format: (a.file_url || '').split('.').pop()?.toLowerCase() || 'png',
-    is_vector: (a.file_url || '').toLowerCase().endsWith('.svg'),
-    attribution: null,
-    license: null,
-    width: 400,
-    height: 400,
+    asset_type: a.asset_type || 'element',
+    format: ext,
+    is_vector: isVector,
+    attribution: a.attribution || null,
+    license: a.license_name || null,
+    width: a.metadata?.width || 400,
+    height: a.metadata?.height || 400,
     _adminAsset: a,
   };
 }
@@ -148,7 +154,7 @@ interface ElementsPanelProps {
   onSelectTab?: (tab: ActiveSidebarTab) => void;
 }
 
-export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager }) => {
+export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onSelectTab }) => {
   // ─── State ─────────────────────────────────────────────────────
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -199,11 +205,83 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager }) =
     setProviderErrors({});
 
     try {
-      const results: UnifiedAsset[] = [];
+      const adminResults: UnifiedAsset[] = [];
+      const externalResults: UnifiedAsset[] = [];
       let combinedHasNext = false;
       const pErrors: Record<string, string> = {};
 
-      // 1. External APIs (unless user picked admin-only)
+      // 1. Admin library FIRST (when 'all' or 'admin') - loaded on initial/reset page
+      if (selectedProvider === 'all' || selectedProvider === 'admin') {
+        if (targetPage === 1) {
+          try {
+            const adminRes = await designAssetService.getPublicAssets({
+              asset_type: 'all',
+              per_page: 100,
+              search: debouncedQuery || undefined,
+            });
+            if (rid !== requestIdRef.current) return;
+
+            const adminItems = (adminRes.data || []).map(adminToUnified);
+            // Filter by category / format client-side for admin assets
+            const filtered = adminItems.filter((a) => {
+              // Exclude text presets or empty items without media
+              if (a.asset_type === 'text') return false;
+              if (!a.thumbnail_url && !a.preview_url) return false;
+
+              if (selectedCategory !== 'All') {
+                const catLower = selectedCategory.toLowerCase();
+                const typeLower = (a.asset_type || '').toLowerCase();
+                const customCat = a._adminAsset?.category?.name?.toLowerCase() || '';
+
+                if (catLower === 'photos') {
+                  if (typeLower === 'photo') return true;
+                  if (!a.is_vector && (a.format === 'jpg' || a.format === 'jpeg' || a.format === 'png' || a.format === 'webp' || a.format === 'avif')) return true;
+                  return false;
+                } else if (catLower === 'frames') {
+                  if (typeLower !== 'frame') return false;
+                } else if (catLower === 'backgrounds') {
+                  if (typeLower !== 'background') return false;
+                } else if (
+                  catLower === 'graphics' ||
+                  catLower === 'illustrations' ||
+                  catLower === 'icons' ||
+                  catLower === 'shapes' ||
+                  catLower === 'stickers'
+                ) {
+                  // Keep vector SVG graphics and design elements; exclude photos, frames, backgrounds
+                  if (typeLower === 'photo' && !a.is_vector) return false;
+                  if (typeLower === 'frame' || typeLower === 'background') return false;
+                } else if (customCat && customCat !== catLower && !a.title.toLowerCase().includes(catLower)) {
+                  return false;
+                }
+              }
+
+              if (selectedFormat !== 'All') {
+                const fmt = selectedFormat.toLowerCase();
+                if (fmt === 'svg') {
+                  if (!a.is_vector && a.format !== 'svg') return false;
+                } else if (fmt === 'photo') {
+                  if (a.is_vector) return false;
+                } else if (fmt === 'jpg' || fmt === 'jpeg') {
+                  if (a.format !== 'jpg' && a.format !== 'jpeg') return false;
+                } else if (fmt === 'png') {
+                  if (a.format !== 'png') return false;
+                } else {
+                  if (a.format !== fmt) return false;
+                }
+              }
+
+              return true;
+            });
+            adminResults.push(...filtered);
+          } catch (err: any) {
+            console.error('Admin assets error', err);
+            pErrors['admin'] = err?.message || 'Admin library failed';
+          }
+        }
+      }
+
+      // 2. External APIs (unless user picked admin-only)
       if (selectedProvider !== 'admin') {
         try {
           const params: Record<string, string | number> = {
@@ -219,7 +297,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager }) =
           if (rid !== requestIdRef.current) return; // stale
 
           if (res?.success && res.data) {
-            results.push(...(res.data.items || []).map(externalToUnified));
+            externalResults.push(...(res.data.items || []).map(externalToUnified));
             if (res.data.pagination?.has_next) combinedHasNext = true;
 
             // Collect partial errors
@@ -237,35 +315,8 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager }) =
         }
       }
 
-      // 2. Admin library (when 'all' or 'admin')
-      if (selectedProvider === 'all' || selectedProvider === 'admin') {
-        try {
-          const adminRes = await designAssetService.getPublicAssets({
-            asset_type: 'element',
-            per_page: 100,
-            search: debouncedQuery || undefined,
-          });
-          if (rid !== requestIdRef.current) return;
-
-          const adminItems = (adminRes.data || []).map(adminToUnified);
-          // Filter by category / format client-side for admin assets
-          const filtered = adminItems.filter((a) => {
-            if (selectedCategory !== 'All') {
-              // admin assets don't have rich categories, allow all through
-            }
-            if (selectedFormat !== 'All') {
-              const fmt = selectedFormat.toLowerCase();
-              if (fmt === 'photo') return !a.is_vector;
-              if (a.format !== fmt) return false;
-            }
-            return true;
-          });
-          results.push(...filtered);
-        } catch (err: any) {
-          console.error('Admin assets error', err);
-          pErrors['admin'] = err?.message || 'Admin library failed';
-        }
-      }
+      // Priority ordering: Admin Library assets (Photos, SVGs, Graphics) are at the FRONT!
+      const results = [...adminResults, ...externalResults];
 
       if (rid !== requestIdRef.current) return; // stale
 
@@ -313,8 +364,49 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager }) =
 
     try {
       if (asset.provider === 'admin') {
-        // Admin asset — use file_url directly or web-renderable preview
-        const rawUrl = asset._adminAsset?.file_url || asset.preview_url;
+        // 1. Admin frame or shape asset
+        if (
+          asset.asset_type === 'frame' ||
+          asset.asset_type === 'shape' ||
+          asset._adminAsset?.asset_type === 'frame' ||
+          asset._adminAsset?.asset_type === 'shape'
+        ) {
+          const rawUrl = asset._adminAsset?.file_url || (asset._adminAsset as any)?.asset_url || asset.preview_url;
+          const maskUrl = asset._adminAsset?.metadata?.maskUrl || asset._adminAsset?.metadata?.frame?.maskUrl || null;
+          const photoFit = asset._adminAsset?.metadata?.frame?.photoFit || asset._adminAsset?.metadata?.photoFit || 'cover';
+          const shape = asset._adminAsset?.metadata?.shape || asset._adminAsset?.metadata?.frame?.shape || 'rounded-rect';
+          if (rawUrl) {
+            await canvasManager.addFrameAsset(formatImageUrl(rawUrl), {
+              assetId: asset.provider_asset_id,
+              name: asset.title,
+              provider: 'admin',
+              maskUrl: maskUrl ? formatImageUrl(maskUrl) : undefined,
+              photoFit: photoFit as any,
+              shape,
+            });
+          } else {
+            canvasManager.addFrame(shape as any);
+          }
+          return;
+        }
+
+        // 2. Admin typography / text asset
+        if (asset.asset_type === 'text' || asset._adminAsset?.asset_type === 'text') {
+          if (asset._adminAsset?.fabric_json) {
+            canvasManager.addText({
+              text: asset._adminAsset.fabric_json.text || asset.title,
+              fontFamily: asset._adminAsset.fabric_json.fontFamily || 'Inter',
+              fontSize: asset._adminAsset.fabric_json.fontSize || 24,
+              fontWeight: asset._adminAsset.fabric_json.fontWeight || 'normal',
+              fill: asset._adminAsset.fabric_json.fill || '#111111',
+              textAlign: asset._adminAsset.fabric_json.textAlign || 'center',
+            });
+          }
+          return;
+        }
+
+        // 3. Admin photo / element / background / vector graphic
+        const rawUrl = asset._adminAsset?.file_url || (asset._adminAsset as any)?.asset_url || asset.preview_url;
         if (!rawUrl) return;
 
         const isUnrenderable = (u?: string | null) => {
@@ -324,7 +416,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager }) =
         };
 
         const renderUrl = isUnrenderable(rawUrl)
-          ? (asset._adminAsset?.thumbnail_url || asset.thumbnail_url || rawUrl)
+          ? (asset._adminAsset?.thumbnail_url || (asset._adminAsset as any)?.asset_thumbnail_url || asset.thumbnail_url || rawUrl)
           : rawUrl;
 
         const originalSourceUrl = unwrapProxyImageUrl(rawUrl);
@@ -339,7 +431,12 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager }) =
           editable: true,
         };
 
-        if (asset.is_vector && (rawUrl.toLowerCase().endsWith('.svg') || renderUrl.toLowerCase().endsWith('.svg'))) {
+        const isSvg =
+          asset.is_vector ||
+          rawUrl.toLowerCase().split('?')[0].endsWith('.svg') ||
+          renderUrl.toLowerCase().split('?')[0].endsWith('.svg');
+
+        if (isSvg) {
           await canvasManager.addSvgFromUrl(formatImageUrl(renderUrl), {
             ...metadata,
           } as any);
@@ -458,7 +555,13 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager }) =
           {CATEGORY_CHIPS.map((cat) => (
             <button
               key={cat}
-              onClick={() => setSelectedCategory(cat)}
+              onClick={() => {
+                if (cat === 'Frames' && onSelectTab) {
+                  onSelectTab('frames');
+                  return;
+                }
+                setSelectedCategory(cat);
+              }}
               className={`px-2.5 py-1 text-[11px] font-semibold rounded-full whitespace-nowrap transition-all ${selectedCategory === cat
                   ? 'bg-purple-600 text-white shadow-sm shadow-purple-200'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -599,6 +702,18 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager }) =
                     {isInserting === asset.id && (
                       <div className="absolute inset-0 bg-white/70 backdrop-blur-sm flex items-center justify-center rounded-xl">
                         <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+                      </div>
+                    )}
+                    {/* Badge for Admin uploaded assets */}
+                    {asset.provider === 'admin' && (
+                      <div className="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.5 rounded-md bg-purple-600/90 text-white text-[9px] font-bold tracking-wider uppercase shadow-xs backdrop-blur-xs flex items-center gap-0.5">
+                        {asset.is_vector || asset.format === 'svg'
+                          ? 'SVG'
+                          : asset.asset_type === 'photo'
+                          ? 'PHOTO'
+                          : asset.asset_type && asset.asset_type !== 'element'
+                          ? asset.asset_type.toUpperCase()
+                          : 'ADMIN'}
                       </div>
                     )}
                   </div>

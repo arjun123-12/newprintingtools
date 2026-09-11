@@ -70,6 +70,8 @@ export type BackgroundEventCallback = (settings: BackgroundSettings) => void;
 export interface AddTextOptions {
   text?: string;
   fontSize?: number;
+  /** Canva-style typographic size, converted using the artwork DPI. */
+  fontSizePt?: number;
   fontFamily?: string;
   fontWeight?: string | number;
   fontStyle?: string;
@@ -87,6 +89,27 @@ export interface ImageMetadata {
   fileSizeBytes?: number;
   originalSrc?: string;
   name?: string;
+  photoFit?: 'cover' | 'contain';
+}
+
+export interface FrameAssetMetadata extends ImageMetadata {
+  assetId?: string | null;
+  provider?: string | null;
+  overlayUrl?: string | null;
+  maskUrl?: string | null;
+  maskType?: string | null;
+  shape?: string | null;
+  width?: number | null;
+  height?: number | null;
+}
+
+export interface ShapeAssetMetadata extends ImageMetadata {
+  assetId?: string;
+  provider?: string;
+  photoFit?: 'cover' | 'contain';
+  fill?: string;
+  recolourable?: boolean;
+  allowPhotoDrop?: boolean;
 }
 
 export function hexWithAlpha(hex: string, alpha: number): string {
@@ -130,10 +153,23 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   'providerAssetId',
   'assetId',
   'isFrame',
+  'isShape',
   'frameId',
   'slotId',
   'isCanvaPlaceholder',
   'frameShape',
+  'shapeType',
+  'photoFit',
+  'isCustomFrame',
+  'frameOverlayUrl',
+  'frameMaskUrl',
+  'frameMaskType',
+  'frameWidth',
+  'frameHeight',
+  'frameRole',
+  'customShapeUrl',
+  'allowPhotoDrop',
+  'isPhotoShapeGroup',
   'cropX',
   'cropY',
   'cropWidth',
@@ -151,10 +187,32 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   'hasControls',
   'selectable',
   'evented',
+  'fontSizePt',
   'naturalWidth',
   'naturalHeight',
   'fileSizeBytes',
 ];
+
+/** Properties that must be painted on Group children, not only on the Group wrapper. */
+const GROUP_RECURSIVE_PROPERTIES = new Set<keyof SelectedObjectState>([
+  'fill',
+  'stroke',
+  'strokeWidth',
+  'strokeDashArray',
+  'strokeLineCap',
+  'strokeLineJoin',
+  'rx',
+  'ry',
+  'fontFamily',
+  'fontSize',
+  'fontWeight',
+  'fontStyle',
+  'underline',
+  'linethrough',
+  'textAlign',
+  'charSpacing',
+  'lineHeight',
+]);
 
 export class CanvasManager {
   private canvas: Canvas | null = null;
@@ -196,14 +254,24 @@ export class CanvasManager {
   private brushSettingsListeners: Set<BrushSettingsEventCallback> = new Set();
   private backgroundListeners: Set<BackgroundEventCallback> = new Set();
   private historyListeners: Set<(canUndo: boolean, canRedo: boolean) => void> = new Set();
+  private isPreflightScheduled: boolean = false;
 
   // History / Undo & Redo Stack
   private undoStack: string[] = [];
   private redoStack: string[] = [];
   private isProcessingHistory: boolean = false;
   private maxHistoryLength: number = 50;
-  private historyDebounceTimer: NodeJS.Timeout | null = null;
+  private historyDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private preventNativeDragHandler: ((e: DragEvent) => void) | null = null;
+
+  // Shape-to-Image / Image-to-Shape Hover & Fit State
+  private currentHoverFitTarget: FabricObject | null = null;
+  private origHoverTargetProps: {
+    stroke?: any;
+    strokeWidth?: number;
+    strokeDashArray?: any;
+  } | null = null;
+  private isProcessingShapeFit: boolean = false;
 
   constructor(dimensions: CanvasDimensions, initialGuidesSettings?: Partial<PrintGuidesSettings>) {
     this.dimensions = dimensions;
@@ -566,8 +634,18 @@ export class CanvasManager {
     const name = options?.name || 'Background Image';
 
     try {
-      const img = await FabricImage.fromURL(url, { crossOrigin: 'anonymous' });
+      // A browser <img> preview can display a cross-origin storage URL even
+      // when Fabric cannot safely read it. Convert/proxy the source first so
+      // the same admin image can be used by the canvas and later exported.
+      const safeUrl = await urlToSafeDataUrl(url);
+      const img = await FabricImage.fromURL(safeUrl, {
+        crossOrigin: 'anonymous',
+      });
       if (!this.canvas) return;
+
+      if (!img.width || !img.height) {
+        throw new Error('The background image has invalid dimensions.');
+      }
 
       const baseW = this.dimensions.widthPx || 1063;
       const baseH = this.dimensions.heightPx || 591;
@@ -625,6 +703,11 @@ export class CanvasManager {
       this.notifyChange();
     } catch (err) {
       console.error('Failed to load background image:', err);
+      // Let the panel keep the Photos tab open and show a useful error instead
+      // of incorrectly marking a failed background as selected.
+      throw err instanceof Error
+        ? err
+        : new Error('Failed to load background image.');
     }
   }
 
@@ -1564,6 +1647,21 @@ export class CanvasManager {
     });
     this.ensureObjectId(group, 'Group');
 
+    // Store representative visual values on the wrapper for toolbar display.
+    const styleSource = objects.find((obj) => !this.isNonInteractiveObject(obj));
+    if (styleSource) {
+      group.set({
+        fill: typeof styleSource.fill === 'string' ? styleSource.fill : undefined,
+        stroke: typeof styleSource.stroke === 'string' ? styleSource.stroke : undefined,
+        strokeWidth: styleSource.strokeWidth || 0,
+        strokeDashArray: styleSource.strokeDashArray || undefined,
+        strokeLineCap: styleSource.strokeLineCap,
+        strokeLineJoin: styleSource.strokeLineJoin,
+      } as any);
+      group.set('rx' as any, Number((styleSource as any).rx) || 0);
+      group.set('ry' as any, Number((styleSource as any).ry) || 0);
+    }
+
     this.canvas.insertAt(insertIndex, group);
     group.setCoords();
     this.canvas.setActiveObject(group);
@@ -1869,7 +1967,16 @@ export class CanvasManager {
           padding: 6,
           selectable: true,
           evented: true,
+          objectCaching: false,
+          noScaleCache: false,
+          strokeUniform: true,
         });
+
+        tb.set('sourceType' as any, 'vector-text');
+        tb.set(
+          'fontSizePt' as any,
+          (fontSize * 72) / Math.max(72, Number(this.dimensions.dpi) || 96)
+        );
 
         this.ensureObjectId(tb, (objDef.name as string) || 'Template Text');
         this.canvas.add(tb);
@@ -2019,6 +2126,20 @@ export class CanvasManager {
   private finishTemplateLoading(): void {
     if (!this.canvas) return;
 
+    // Imported Fabric JSON may contain the default bitmap cache setting.
+    // Force every editable text object to render from glyph/vector data.
+    this.canvas.getObjects().forEach((object) => {
+      if (object instanceof Textbox || object instanceof IText) {
+        object.set({
+          objectCaching: false,
+          noScaleCache: false,
+          strokeUniform: true,
+          dirty: true,
+        });
+        object.set('sourceType' as any, 'vector-text');
+      }
+    });
+
     this.refreshCanvasInteractivity();
 
     this.canvas.discardActiveObject();
@@ -2035,6 +2156,146 @@ export class CanvasManager {
   }
 
   // --- Canva Photo Frames Engine (with ClipPaths & Image Slotting) ---
+
+  private async loadFrameOverlayObject(url: string): Promise<FabricObject> {
+    let safeUrl = await urlToSafeDataUrl(url);
+
+    if (isSvg(url) || isSvg(safeUrl)) {
+      try {
+        const normalized = await normalizeSvgUrl(safeUrl);
+        safeUrl = normalized.dataUrl;
+      } catch (error) {
+        console.warn('Frame SVG normalization failed; using the original SVG source:', error);
+      }
+    }
+
+    return FabricImage.fromURL(safeUrl, { crossOrigin: 'anonymous' });
+  }
+
+  private async loadFrameMaskObject(url: string): Promise<FabricImage> {
+    let safeUrl = await urlToSafeDataUrl(url);
+
+    try {
+      const normalized = await normalizeSvgUrl(safeUrl);
+      safeUrl = normalized.dataUrl;
+    } catch (error) {
+      console.warn('Frame mask normalization failed; using the original SVG source:', error);
+    }
+
+    return FabricImage.fromURL(safeUrl, { crossOrigin: 'anonymous' });
+  }
+
+  private async createCustomFrameGroup(
+    overlayUrl: string,
+    maskUrl: string,
+    photoUrl: string,
+    metadata: FrameAssetMetadata,
+    frameWidth: number,
+    frameHeight: number,
+    isPlaceholder: boolean
+  ): Promise<Group> {
+    const [overlay, mask, safePhotoUrl] = await Promise.all([
+      this.loadFrameOverlayObject(overlayUrl),
+      this.loadFrameMaskObject(maskUrl),
+      urlToSafeDataUrl(photoUrl),
+    ]);
+    const photo = await FabricImage.fromURL(safePhotoUrl, { crossOrigin: 'anonymous' });
+
+    const naturalWidth = metadata.naturalWidth || photo.width || frameWidth;
+    const naturalHeight = metadata.naturalHeight || photo.height || frameHeight;
+    const photoFit = metadata.photoFit === 'contain' ? 'contain' : 'cover';
+    const photoScale = photoFit === 'contain'
+      ? Math.min(frameWidth / naturalWidth, frameHeight / naturalHeight)
+      : Math.max(frameWidth / naturalWidth, frameHeight / naturalHeight);
+
+    let visibleSourceWidth = naturalWidth;
+    let visibleSourceHeight = naturalHeight;
+    let cropX = 0;
+    let cropY = 0;
+
+    if (photoFit === 'cover') {
+      visibleSourceWidth = Math.min(naturalWidth, frameWidth / photoScale);
+      visibleSourceHeight = Math.min(naturalHeight, frameHeight / photoScale);
+      cropX = Math.max(0, (naturalWidth - visibleSourceWidth) / 2);
+      cropY = Math.max(0, (naturalHeight - visibleSourceHeight) / 2);
+    }
+
+    photo.set({
+      originX: 'center',
+      originY: 'center',
+      left: 0,
+      top: 0,
+      width: visibleSourceWidth,
+      height: visibleSourceHeight,
+      cropX,
+      cropY,
+      scaleX: photoScale,
+      scaleY: photoScale,
+      selectable: false,
+      evented: false,
+    });
+
+    const clipWidth = frameWidth / photoScale;
+    const clipHeight = frameHeight / photoScale;
+    mask.set({
+      originX: 'center',
+      originY: 'center',
+      left: 0,
+      top: 0,
+      scaleX: clipWidth / Math.max(mask.width || 1, 1),
+      scaleY: clipHeight / Math.max(mask.height || 1, 1),
+      absolutePositioned: false,
+    });
+    photo.set('clipPath', mask);
+    photo.set('frameRole' as any, 'photo');
+
+    overlay.set({
+      originX: 'center',
+      originY: 'center',
+      left: 0,
+      top: 0,
+      scaleX: frameWidth / Math.max(overlay.width || 1, 1),
+      scaleY: frameHeight / Math.max(overlay.height || 1, 1),
+      selectable: false,
+      evented: false,
+    });
+    overlay.set('frameRole' as any, 'overlay');
+
+    const group = new Group([photo, overlay], {
+      originX: 'center',
+      originY: 'center',
+      cornerColor: '#ffffff',
+      cornerStrokeColor: '#8b3dff',
+      borderColor: '#8b3dff',
+      cornerStyle: 'circle',
+      cornerSize: 12,
+      transparentCorners: false,
+    });
+
+    const frameName = metadata.name || 'Custom Photo Frame';
+    this.ensureObjectId(group, frameName);
+    group.set('isFrame' as any, true);
+    group.set('isShape' as any, true);
+    group.set('isCustomFrame' as any, true);
+    group.set('frameShape' as any, metadata.shape || 'custom-svg');
+    group.set('shapeType' as any, metadata.shape || 'custom-svg');
+    group.set('sourceType' as any, 'frame');
+    group.set('assetId' as any, metadata.assetId);
+    group.set('provider' as any, metadata.provider || 'admin');
+    group.set('photoFit' as any, photoFit);
+    group.set('isCanvaPlaceholder' as any, isPlaceholder);
+    group.set('originalSrc' as any, metadata.originalSrc || photoUrl);
+    group.set('naturalWidth' as any, naturalWidth);
+    group.set('naturalHeight' as any, naturalHeight);
+    group.set('fileSizeBytes' as any, metadata.fileSizeBytes || 0);
+    group.set('frameOverlayUrl' as any, overlayUrl);
+    group.set('frameMaskUrl' as any, maskUrl);
+    group.set('frameMaskType' as any, metadata.maskType || 'svg_mask');
+    group.set('frameWidth' as any, frameWidth);
+    group.set('frameHeight' as any, frameHeight);
+
+    return group;
+  }
 
   public addFrame(
     shapeType: FrameShapeType,
@@ -2116,6 +2377,7 @@ export class CanvasManager {
 
   /**
    * Slots an image into an existing Frame object, preserving its shape mask, position, scale, and angle.
+   * Accurately constrains the image to the frame bounds with cover or contain fit.
    */
   public async slotImageIntoFrame(
     frameObj: FabricObject,
@@ -2125,31 +2387,301 @@ export class CanvasManager {
     if (!this.canvas || !frameObj) return null;
 
     try {
-      const shapeType = (frameObj.get('frameShape' as any) as FrameShapeType) || 'circle';
-      const left = frameObj.left || 0;
-      const top = frameObj.top || 0;
+      const customShapeUrl = frameObj.get('customShapeUrl' as any) as string;
+
+      if (customShapeUrl) {
+        const angle = frameObj.angle || 0;
+        const targetScaledW = frameObj.getScaledWidth();
+        const targetScaledH = frameObj.getScaledHeight();
+        const centerPoint = frameObj.getCenterPoint();
+        const objects = this.canvas.getObjects();
+        const zIndex = objects.indexOf(frameObj);
+        const safeImageUrl = await urlToSafeDataUrl(newImageUrl);
+        const newImg = await FabricImage.fromURL(safeImageUrl, {
+          crossOrigin: 'anonymous',
+        });
+        const [clipPath, shapeOutline] = await Promise.all([
+          this.loadCustomShapeObject(customShapeUrl),
+          this.loadCustomShapeObject(customShapeUrl),
+        ]);
+
+        const natW = metadata?.naturalWidth || newImg.width || 400;
+        const natH = metadata?.naturalHeight || newImg.height || 400;
+        const photoFit =
+          metadata?.photoFit ||
+          (frameObj.get('photoFit' as any) as 'cover' | 'contain') ||
+          'cover';
+        const scaleFit =
+          photoFit === 'contain'
+            ? Math.min(targetScaledW / natW, targetScaledH / natH)
+            : Math.max(targetScaledW / natW, targetScaledH / natH);
+        let visibleSourceWidth = natW;
+        let visibleSourceHeight = natH;
+        let cropX = 0;
+        let cropY = 0;
+
+        if (photoFit === 'cover') {
+          visibleSourceWidth = Math.min(natW, targetScaledW / scaleFit);
+          visibleSourceHeight = Math.min(natH, targetScaledH / scaleFit);
+          cropX = Math.max(0, (natW - visibleSourceWidth) / 2);
+          cropY = Math.max(0, (natH - visibleSourceHeight) / 2);
+        }
+
+        const clipW = targetScaledW / scaleFit;
+        const clipH = targetScaledH / scaleFit;
+
+        clipPath.set({
+          originX: 'center',
+          originY: 'center',
+          left: 0,
+          top: 0,
+          angle: 0,
+          scaleX: clipW / Math.max(clipPath.width || 1, 1),
+          scaleY: clipH / Math.max(clipPath.height || 1, 1),
+          absolutePositioned: false,
+        });
+
+        newImg.set({
+          originX: 'center',
+          originY: 'center',
+          left: 0,
+          top: 0,
+          angle: 0,
+          width: visibleSourceWidth,
+          height: visibleSourceHeight,
+          cropX,
+          cropY,
+          scaleX: scaleFit,
+          scaleY: scaleFit,
+          clipPath,
+          cornerColor: '#ffffff',
+          cornerStrokeColor: '#8b3dff',
+          borderColor: '#8b3dff',
+          cornerStyle: 'circle',
+          cornerSize: 12,
+          transparentCorners: false,
+        });
+
+        newImg.set('isFrame' as any, true);
+        newImg.set('isShape' as any, true);
+        newImg.set('frameShape' as any, 'custom-svg');
+        newImg.set('shapeType' as any, 'custom-svg');
+        newImg.set('sourceType' as any, 'shape');
+        newImg.set('customShapeUrl' as any, customShapeUrl);
+        newImg.set('assetId' as any, frameObj.get('assetId' as any));
+        newImg.set('provider' as any, frameObj.get('provider' as any));
+        newImg.set('photoFit' as any, photoFit);
+        newImg.set('allowPhotoDrop' as any, true);
+        newImg.set('isCanvaPlaceholder' as any, false);
+        newImg.set('originalSrc' as any, metadata?.originalSrc || newImageUrl);
+        newImg.set('naturalWidth' as any, natW);
+        newImg.set('naturalHeight' as any, natH);
+        newImg.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
+        newImg.set('frameRole' as any, 'photo');
+
+        shapeOutline.set({
+          originX: 'center',
+          originY: 'center',
+          left: 0,
+          top: 0,
+          scaleX: targetScaledW / Math.max(shapeOutline.width || 1, 1),
+          scaleY: targetScaledH / Math.max(shapeOutline.height || 1, 1),
+          selectable: false,
+          evented: false,
+        });
+        shapeOutline.set('frameRole' as any, 'shape-outline');
+        this.applyShapeOutlineProperty(
+          shapeOutline,
+          'stroke',
+          (frameObj.get('stroke' as any) as string) || 'transparent'
+        );
+        this.applyShapeOutlineProperty(
+          shapeOutline,
+          'strokeWidth',
+          Number(frameObj.get('strokeWidth' as any)) || 0
+        );
+        const existingDash = frameObj.get('strokeDashArray' as any) as number[] | null;
+        if (existingDash) {
+          this.applyShapeOutlineProperty(shapeOutline, 'strokeDashArray', existingDash);
+        }
+
+        // Both children use the same rendered bounds. This keeps Fabric's
+        // controls around the real shape instead of around the uncropped photo.
+        if (photoFit === 'contain') {
+          newImg.set({
+            left: 0,
+            top: 0,
+          });
+        } else {
+          newImg.set({
+            scaleX: targetScaledW / Math.max(visibleSourceWidth, 1),
+            scaleY: targetScaledH / Math.max(visibleSourceHeight, 1),
+          });
+        }
+
+        const photoShapeGroup = new Group([newImg, shapeOutline], {
+          originX: 'center',
+          originY: 'center',
+          left: centerPoint.x,
+          top: centerPoint.y,
+          angle,
+          cornerColor: '#ffffff',
+          cornerStrokeColor: '#8b3dff',
+          borderColor: '#8b3dff',
+          cornerStyle: 'circle',
+          cornerSize: 12,
+          transparentCorners: false,
+        });
+
+        const objectName =
+          (frameObj.get('name' as any) as string) || 'Custom Photo Shape';
+        this.ensureObjectId(photoShapeGroup, objectName);
+        photoShapeGroup.set('isFrame' as any, true);
+        photoShapeGroup.set('isShape' as any, true);
+        photoShapeGroup.set('isPhotoShapeGroup' as any, true);
+        photoShapeGroup.set('frameShape' as any, 'custom-svg');
+        photoShapeGroup.set('shapeType' as any, 'custom-svg');
+        photoShapeGroup.set('sourceType' as any, 'shape');
+        photoShapeGroup.set('customShapeUrl' as any, customShapeUrl);
+        photoShapeGroup.set('assetId' as any, frameObj.get('assetId' as any));
+        photoShapeGroup.set('provider' as any, frameObj.get('provider' as any));
+        photoShapeGroup.set('photoFit' as any, photoFit);
+        photoShapeGroup.set('allowPhotoDrop' as any, true);
+        photoShapeGroup.set('isCanvaPlaceholder' as any, false);
+        photoShapeGroup.set('originalSrc' as any, metadata?.originalSrc || newImageUrl);
+        photoShapeGroup.set('naturalWidth' as any, natW);
+        photoShapeGroup.set('naturalHeight' as any, natH);
+        photoShapeGroup.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
+        photoShapeGroup.set('stroke' as any, frameObj.get('stroke' as any) || 'transparent');
+        photoShapeGroup.set('strokeWidth' as any, Number(frameObj.get('strokeWidth' as any)) || 0);
+        photoShapeGroup.set('strokeDashArray' as any, existingDash || null);
+
+        this.canvas.remove(frameObj);
+        this.canvas.insertAt(
+          zIndex >= 0 ? zIndex : this.canvas.getObjects().length,
+          photoShapeGroup
+        );
+        photoShapeGroup.setCoords();
+        this.canvas.setActiveObject(photoShapeGroup);
+        this.canvas.requestRenderAll();
+        this.notifyChange();
+        this.notifySelection();
+        this.notifyLayers();
+        this.saveHistoryState();
+        return photoShapeGroup as unknown as FabricImage;
+      }
+
+      if (Boolean(frameObj.get('isCustomFrame' as any))) {
+        const overlayUrl = frameObj.get('frameOverlayUrl' as any) as string;
+        const maskUrl = frameObj.get('frameMaskUrl' as any) as string;
+        if (!overlayUrl || !maskUrl) {
+          throw new Error('Custom frame is missing its overlay or mask URL.');
+        }
+
+        const objects = this.canvas.getObjects();
+        const zIndex = objects.indexOf(frameObj);
+        const frameWidth = Number(frameObj.get('frameWidth' as any)) || frameObj.width || 500;
+        const frameHeight = Number(frameObj.get('frameHeight' as any)) || frameObj.height || 500;
+        const photoFit = metadata?.photoFit ||
+          (frameObj.get('photoFit' as any) as 'cover' | 'contain') ||
+          'cover';
+        const isPlaceholder = newImageUrl === CANVA_FRAME_PLACEHOLDER_SVG;
+
+        const replacement = await this.createCustomFrameGroup(
+          overlayUrl,
+          maskUrl,
+          newImageUrl,
+          {
+            ...metadata,
+            name: (frameObj.get('name' as any) as string) || metadata?.name,
+            assetId: frameObj.get('assetId' as any) as string,
+            provider: frameObj.get('provider' as any) as string,
+            maskType: frameObj.get('frameMaskType' as any) as string,
+            shape: frameObj.get('frameShape' as any) as string,
+            photoFit,
+            originalSrc: metadata?.originalSrc || newImageUrl,
+          },
+          frameWidth,
+          frameHeight,
+          isPlaceholder
+        );
+
+        replacement.set({
+          left: frameObj.left,
+          top: frameObj.top,
+          angle: frameObj.angle || 0,
+          scaleX: frameObj.scaleX || 1,
+          scaleY: frameObj.scaleY || 1,
+          flipX: frameObj.flipX,
+          flipY: frameObj.flipY,
+          opacity: frameObj.opacity,
+          visible: frameObj.visible,
+        });
+        replacement.set('id' as any, frameObj.get('id' as any));
+        replacement.setCoords();
+
+        this.canvas.remove(frameObj);
+        this.canvas.insertAt(zIndex >= 0 ? zIndex : this.canvas.getObjects().length, replacement);
+        this.canvas.setActiveObject(replacement);
+        this.canvas.requestRenderAll();
+        this.notifyChange();
+        this.notifySelection();
+        this.notifyLayers();
+        this.saveHistoryState();
+
+        return replacement as unknown as FabricImage;
+      }
+
+      const shapeType =
+        (frameObj.get('frameShape' as any) as FrameShapeType) ||
+        this.getShapeTypeFromObject(frameObj);
       const angle = frameObj.angle || 0;
       const targetScaledW = frameObj.getScaledWidth();
       const targetScaledH = frameObj.getScaledHeight();
+      const centerPoint = frameObj.getCenterPoint();
 
       // Find z-index in canvas objects
       const objects = this.canvas.getObjects();
       const zIndex = objects.indexOf(frameObj);
 
-      const newImg = await FabricImage.fromURL(newImageUrl, { crossOrigin: 'anonymous' });
+      const safeUrl = await urlToSafeDataUrl(newImageUrl);
+      const newImg = await FabricImage.fromURL(safeUrl, { crossOrigin: 'anonymous' });
 
       const natW = metadata?.naturalWidth || newImg.width || 400;
       const natH = metadata?.naturalHeight || newImg.height || 400;
 
-      // Calculate scale to achieve "cover" fit inside the target dimensions
-      const scaleCover = Math.max(targetScaledW / natW, targetScaledH / natH);
+      const photoFit = metadata?.photoFit || (frameObj.get('photoFit' as any) as 'cover' | 'contain') || 'cover';
+
+      const scaleFit = photoFit === 'contain'
+        ? Math.min(targetScaledW / natW, targetScaledH / natH)
+        : Math.max(targetScaledW / natW, targetScaledH / natH);
+      let visibleSourceWidth = natW;
+      let visibleSourceHeight = natH;
+      let cropX = 0;
+      let cropY = 0;
+
+      if (photoFit === 'cover') {
+        visibleSourceWidth = Math.min(natW, targetScaledW / scaleFit);
+        visibleSourceHeight = Math.min(natH, targetScaledH / scaleFit);
+        cropX = Math.max(0, (natW - visibleSourceWidth) / 2);
+        cropY = Math.max(0, (natH - visibleSourceHeight) / 2);
+      }
+
+      const clipW = targetScaledW / scaleFit;
+      const clipH = targetScaledH / scaleFit;
 
       newImg.set({
-        left,
-        top,
-        angle,
-        scaleX: scaleCover,
-        scaleY: scaleCover,
+        originX: 'center',
+        originY: 'center',
+        left: 0,
+        top: 0,
+        angle: 0,
+        width: visibleSourceWidth,
+        height: visibleSourceHeight,
+        cropX,
+        cropY,
+        scaleX: scaleFit,
+        scaleY: scaleFit,
         cornerColor: '#ffffff',
         cornerStrokeColor: '#8b3dff',
         borderColor: '#8b3dff',
@@ -2158,35 +2690,117 @@ export class CanvasManager {
         transparentCorners: false,
       });
 
-      // Generate matching centered clipPath
-      const clipPath = createFrameClipPath(shapeType, natW, natH);
+      // Generate matching centered clipPath matching exact frame dimensions
+      const clipPath = createFrameClipPath(shapeType, clipW, clipH);
       newImg.set('clipPath', clipPath);
       newImg.set('isFrame' as any, true);
       newImg.set('frameShape' as any, shapeType);
+      newImg.set('photoFit' as any, photoFit);
       newImg.set('isCanvaPlaceholder' as any, false);
       newImg.set('originalSrc' as any, metadata?.originalSrc || newImageUrl);
       newImg.set('naturalWidth' as any, natW);
       newImg.set('naturalHeight' as any, natH);
       newImg.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
+      newImg.set('frameRole' as any, 'photo');
 
-      this.ensureObjectId(newImg, `${shapeType.charAt(0).toUpperCase() + shapeType.slice(1)} Frame`);
+      const shapeOutline = createFrameClipPath(shapeType, targetScaledW, targetScaledH);
+      shapeOutline.set({
+        originX: 'center',
+        originY: 'center',
+        left: 0,
+        top: 0,
+        selectable: false,
+        evented: false,
+      });
+      shapeOutline.set('frameRole' as any, 'shape-outline');
+      this.applyShapeOutlineProperty(
+        shapeOutline,
+        'stroke',
+        (frameObj.get('stroke' as any) as string) || 'transparent'
+      );
+      this.applyShapeOutlineProperty(
+        shapeOutline,
+        'strokeWidth',
+        Number(frameObj.get('strokeWidth' as any)) || 0
+      );
+      const existingDash = frameObj.get('strokeDashArray' as any) as number[] | null;
+      if (existingDash) {
+        this.applyShapeOutlineProperty(shapeOutline, 'strokeDashArray', existingDash);
+      }
+
+      const photoShapeGroup = new Group([newImg, shapeOutline], {
+        originX: 'center',
+        originY: 'center',
+        left: centerPoint.x,
+        top: centerPoint.y,
+        angle,
+        cornerColor: '#ffffff',
+        cornerStrokeColor: '#8b3dff',
+        borderColor: '#8b3dff',
+        cornerStyle: 'circle',
+        cornerSize: 12,
+        transparentCorners: false,
+      });
+
+      const shapeName = `${shapeType.charAt(0).toUpperCase() + shapeType.slice(1)} Photo Shape`;
+      this.ensureObjectId(photoShapeGroup, shapeName);
+      photoShapeGroup.set('isFrame' as any, true);
+      photoShapeGroup.set('isShape' as any, true);
+      photoShapeGroup.set('isPhotoShapeGroup' as any, true);
+      photoShapeGroup.set('frameShape' as any, shapeType);
+      photoShapeGroup.set('shapeType' as any, shapeType);
+      photoShapeGroup.set('sourceType' as any, 'shape');
+      photoShapeGroup.set('photoFit' as any, photoFit);
+      photoShapeGroup.set('isCanvaPlaceholder' as any, false);
+      photoShapeGroup.set('originalSrc' as any, metadata?.originalSrc || newImageUrl);
+      photoShapeGroup.set('naturalWidth' as any, natW);
+      photoShapeGroup.set('naturalHeight' as any, natH);
+      photoShapeGroup.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
+      photoShapeGroup.set('stroke' as any, frameObj.get('stroke' as any) || 'transparent');
+      photoShapeGroup.set('strokeWidth' as any, Number(frameObj.get('strokeWidth' as any)) || 0);
+      photoShapeGroup.set('strokeDashArray' as any, existingDash || null);
 
       // Replace old frame object in canvas
       this.canvas.remove(frameObj);
-      this.canvas.insertAt(zIndex >= 0 ? zIndex : this.canvas.getObjects().length, newImg);
-      newImg.setCoords();
+      this.canvas.insertAt(
+        zIndex >= 0 ? zIndex : this.canvas.getObjects().length,
+        photoShapeGroup
+      );
+      photoShapeGroup.setCoords();
 
-      this.canvas.setActiveObject(newImg);
+      this.canvas.setActiveObject(photoShapeGroup);
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
       this.notifyLayers();
+      this.saveHistoryState();
 
-      return newImg;
+      return photoShapeGroup as unknown as FabricImage;
     } catch (err) {
       console.error('Failed to slot image into Canva Frame:', err);
       return null;
     }
+  }
+
+  /**
+   * Toggles the photo fit ('cover' vs 'contain') of the active frame or target frame.
+   */
+  public async toggleActiveFrameFit(targetFrame?: FabricObject): Promise<void> {
+    if (!this.canvas) return;
+
+    const frame = targetFrame || this.canvas.getActiveObject();
+    if (!frame || !frame.get('isFrame' as any)) return;
+
+    const currentFit = (frame.get('photoFit' as any) as 'cover' | 'contain') || 'cover';
+    const nextFit = currentFit === 'cover' ? 'contain' : 'cover';
+    const currentSrc = (frame.get('originalSrc' as any) as string) || (frame as any).getSrc?.();
+    if (!currentSrc) return;
+
+    await this.slotImageIntoFrame(frame, currentSrc, {
+      photoFit: nextFit,
+      naturalWidth: Number(frame.get('naturalWidth' as any)) || undefined,
+      naturalHeight: Number(frame.get('naturalHeight' as any)) || undefined,
+    });
   }
 
   /**
@@ -2239,14 +2853,324 @@ export class CanvasManager {
   }
 
   /**
-   * Checks if a point on canvas (pointer { x, y }) lies within any Frame object.
+   * Identifies whether a canvas object is a shape or frame capable of masking/fitting an image.
+   */
+  public isShapeObject(obj?: FabricObject | null): boolean {
+    if (!obj) return false;
+    if (obj.get('isGuide' as any) || (obj as any).excludeFromExport) return false;
+    if (obj.type === 'i-text' || obj.type === 'textbox' || obj.type === 'text') return false;
+
+    // Canva frames
+    if (obj.get('isFrame' as any)) return true;
+    // Explicit shape flag
+    if (obj.get('isShape' as any)) return true;
+
+    // Admin shapes & frames
+    const sourceType = obj.get('sourceType' as any) || (obj as any).metadata?.sourceType;
+    if (sourceType === 'shape' || sourceType === 'frame') return true;
+
+    const type = (obj.type || '').toLowerCase();
+    if (type === 'circle' || type === 'triangle' || type === 'polygon' || type === 'rect' || type === 'path') {
+      // Must not be a raster image
+      if (!obj.get('isImage' as any) && !(obj as any).getSrc) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Identifies whether a canvas object is an image (and not an empty placeholder frame).
+   */
+  public isImageObject(obj?: FabricObject | null): boolean {
+    if (!obj) return false;
+    if (obj.get('isGuide' as any) || (obj as any).excludeFromExport) return false;
+    if (obj.type === 'i-text' || obj.type === 'textbox' || obj.type === 'text') return false;
+
+    // Placeholder frames are shape containers waiting for photos
+    if (obj.get('isCanvaPlaceholder' as any)) return false;
+
+    const type = (obj.type || '').toLowerCase();
+    if (type === 'image' || obj instanceof FabricImage || obj.get('isImage' as any)) {
+      return true;
+    }
+
+    const src = obj.get('originalSrc' as any) || (obj as any).getSrc?.() || (obj as any)._element?.src;
+    if (src && typeof src === 'string' && src.length > 0 && !obj.get('isFrame' as any)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Derives a FrameShapeType from any shape object (basic shape, polygon, or frame).
+   */
+  public getShapeTypeFromObject(obj: FabricObject): FrameShapeType {
+    const metaShape =
+      (obj as any).metadata?.shape ||
+      (obj as any).metadata?.frame?.shape ||
+      obj.get('metadata' as any)?.shape ||
+      obj.get('metadata' as any)?.frame?.shape;
+
+    const explicit =
+      obj.get('frameShape' as any) ||
+      obj.get('shapeType' as any) ||
+      metaShape;
+
+    if (explicit && typeof explicit === 'string') {
+      const clean = explicit.toLowerCase().trim();
+      if (clean === 'rect' || clean === 'rectangle') return 'rounded-rect';
+      return clean as FrameShapeType;
+    }
+
+    const type = (obj.type || '').toLowerCase();
+    if (type === 'circle') return 'circle';
+    if (type === 'triangle') return 'triangle';
+    if (type === 'rect') {
+      const rect = obj as Rect;
+      if (rect.rx && rect.rx > 0) return 'rounded-rect';
+      const w = obj.getScaledWidth();
+      const h = obj.getScaledHeight();
+      return Math.abs(w - h) < 10 ? 'square' : 'rounded-rect';
+    }
+    if (type === 'polygon') {
+      const points = (obj as Polygon).points || [];
+      if (points.length === 10) return 'star';
+      if (points.length === 6) return 'hexagon';
+      if (points.length === 3) return 'triangle';
+      return 'star';
+    }
+
+    return 'circle';
+  }
+
+  /**
+   * Finds an overlapping candidate target (Image for a moving Shape, or Shape for a moving Image).
+   */
+  public findOverlappingTarget(movingObj: FabricObject): FabricObject | null {
+    if (!this.canvas || !movingObj) return null;
+
+    const isMovingShape = this.isShapeObject(movingObj);
+    const isMovingImage = this.isImageObject(movingObj);
+
+    if (!isMovingShape && !isMovingImage) return null;
+
+    const objects = this.canvas.getObjects().slice().reverse();
+    const movingCenter = movingObj.getCenterPoint();
+    const movingBounds = movingObj.getBoundingRect();
+
+    for (const other of objects) {
+      if (other === movingObj) continue;
+      if (other.visible === false || (other as any).excludeFromExport || other.get('isGuide' as any)) continue;
+
+      // Moving Shape searches for Images, Moving Image searches for Shapes
+      const otherIsTarget = isMovingShape ? this.isImageObject(other) : this.isShapeObject(other);
+      if (!otherIsTarget) continue;
+
+      const otherCenter = other.getCenterPoint();
+      const otherBounds = other.getBoundingRect();
+
+      // Check center inside bounds
+      const movingInOther =
+        movingCenter.x >= otherBounds.left &&
+        movingCenter.x <= otherBounds.left + otherBounds.width &&
+        movingCenter.y >= otherBounds.top &&
+        movingCenter.y <= otherBounds.top + otherBounds.height;
+
+      const otherInMoving =
+        otherCenter.x >= movingBounds.left &&
+        otherCenter.x <= movingBounds.left + movingBounds.width &&
+        otherCenter.y >= movingBounds.top &&
+        otherCenter.y <= movingBounds.top + movingBounds.height;
+
+      if (movingInOther || otherInMoving) {
+        return other;
+      }
+
+      // Check polygon containsPoint
+      if (
+        other.containsPoint(new Point(movingCenter.x, movingCenter.y)) ||
+        movingObj.containsPoint(new Point(otherCenter.x, otherCenter.y))
+      ) {
+        return other;
+      }
+
+      // Check bounding box intersection area >= 25% of smaller object
+      const overlapX = Math.max(
+        0,
+        Math.min(movingBounds.left + movingBounds.width, otherBounds.left + otherBounds.width) -
+        Math.max(movingBounds.left, otherBounds.left)
+      );
+      const overlapY = Math.max(
+        0,
+        Math.min(movingBounds.top + movingBounds.height, otherBounds.top + otherBounds.height) -
+        Math.max(movingBounds.top, otherBounds.top)
+      );
+      const overlapArea = overlapX * overlapY;
+      const minArea = Math.min(movingBounds.width * movingBounds.height, otherBounds.width * otherBounds.height);
+
+      if (minArea > 0 && overlapArea / minArea >= 0.25) {
+        return other;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Handles visual hover feedback when a shape is dragged over an image, or vice versa.
+   */
+  public handleShapeImageHover(movingObj: FabricObject): void {
+    if (!this.canvas || this.isProcessingShapeFit) return;
+
+    const target = this.findOverlappingTarget(movingObj);
+
+    if (target) {
+      if (target !== this.currentHoverFitTarget) {
+        this.clearHoverFitHighlight();
+        this.currentHoverFitTarget = target;
+        this.origHoverTargetProps = {
+          stroke: target.stroke,
+          strokeWidth: target.strokeWidth,
+          strokeDashArray: target.strokeDashArray,
+        };
+
+        // Canva-style purple dashed glowing border to signify "Drop here to fit image into shape"
+        target.set({
+          stroke: '#8b3dff',
+          strokeWidth: 3,
+          strokeDashArray: [6, 4],
+        });
+        this.canvas.requestRenderAll();
+      }
+    } else {
+      if (this.currentHoverFitTarget) {
+        this.clearHoverFitHighlight();
+      }
+    }
+  }
+
+  /**
+   * Clears any active hover fitting visual feedback.
+   */
+  public clearHoverFitHighlight(): void {
+    if (!this.canvas || !this.currentHoverFitTarget) return;
+
+    if (this.origHoverTargetProps) {
+      this.currentHoverFitTarget.set({
+        stroke: this.origHoverTargetProps.stroke,
+        strokeWidth: this.origHoverTargetProps.strokeWidth,
+        strokeDashArray: this.origHoverTargetProps.strokeDashArray,
+      });
+    }
+
+    this.currentHoverFitTarget = null;
+    this.origHoverTargetProps = null;
+    this.canvas.requestRenderAll();
+  }
+
+  /**
+   * Automatically fits an image into a shape when released on drop.
+   */
+  public async handleShapeImageDrop(movingObj: FabricObject): Promise<boolean> {
+    if (this.isProcessingShapeFit || !this.canvas || !movingObj) {
+      this.clearHoverFitHighlight();
+      return false;
+    }
+
+    const target = this.currentHoverFitTarget;
+    this.clearHoverFitHighlight();
+
+    if (!target) return false;
+
+    this.isProcessingShapeFit = true;
+    try {
+      const isMovingShape = this.isShapeObject(movingObj);
+      const isMovingImage = this.isImageObject(movingObj);
+      const isTargetShape = this.isShapeObject(target);
+      const isTargetImage = this.isImageObject(target);
+
+      if (isMovingShape && isTargetImage) {
+        // User dragged the shape over the image!
+        await this.fitImageIntoShape(movingObj, target);
+        return true;
+      } else if (isMovingImage && isTargetShape) {
+        // User dragged the image over the shape!
+        await this.fitImageIntoShape(target, movingObj);
+        return true;
+      }
+    } catch (err) {
+      console.error('Failed to fit image into shape on drop:', err);
+    } finally {
+      this.isProcessingShapeFit = false;
+    }
+
+    return false;
+  }
+
+  /**
+   * Fits an image into a shape (or frame), positioning and sizing the image to fit
+   * the shape's bounds with clipping/masking, and removing the loose image from canvas.
+   */
+  public async fitImageIntoShape(
+    shapeObj: FabricObject,
+    imageObjOrUrl: FabricObject | string,
+    metadata?: ImageMetadata
+  ): Promise<FabricImage | null> {
+    if (!this.canvas || !shapeObj) return null;
+
+    let imageUrl: string = '';
+    let imageMetadata: ImageMetadata | undefined = metadata;
+    let imageObjToRemove: FabricObject | null = null;
+
+    if (typeof imageObjOrUrl === 'string') {
+      imageUrl = imageObjOrUrl;
+    } else if (imageObjOrUrl && typeof imageObjOrUrl === 'object') {
+      imageObjToRemove = imageObjOrUrl;
+      imageUrl =
+        imageObjOrUrl.get('originalSrc' as any) ||
+        (imageObjOrUrl as any).getSrc?.() ||
+        (imageObjOrUrl as any)._element?.currentSrc ||
+        (imageObjOrUrl as any)._element?.src ||
+        '';
+      imageMetadata = {
+        naturalWidth: Number(imageObjOrUrl.get('naturalWidth' as any)) || (imageObjOrUrl as any).width || undefined,
+        naturalHeight: Number(imageObjOrUrl.get('naturalHeight' as any)) || (imageObjOrUrl as any).height || undefined,
+        originalSrc: imageUrl,
+        name: imageObjOrUrl.get('name' as any) || `${shapeObj.get('name') || 'Shape'} Image`,
+        ...(metadata || {}),
+      };
+    }
+
+    if (!imageUrl) return null;
+
+    const shapeType = this.getShapeTypeFromObject(shapeObj);
+    shapeObj.set('frameShape' as any, shapeType);
+    shapeObj.set('isFrame' as any, true);
+
+    const slotted = await this.slotImageIntoFrame(shapeObj, imageUrl, imageMetadata);
+
+    if (slotted && imageObjToRemove && imageObjToRemove !== shapeObj) {
+      this.canvas.remove(imageObjToRemove);
+      this.canvas.requestRenderAll();
+      this.notifyLayers();
+      this.saveHistoryState();
+    }
+
+    return slotted;
+  }
+
+  /**
+   * Checks if a point on canvas (pointer { x, y }) lies within any Frame or Shape object.
    */
   public getFrameUnderPoint(point: { x: number; y: number }): FabricObject | null {
     if (!this.canvas) return null;
 
     const objects = this.canvas.getObjects().slice().reverse();
     for (const obj of objects) {
-      if (obj.get('isFrame' as any) && obj.visible !== false) {
+      if ((obj.get('isFrame' as any) || this.isShapeObject(obj)) && obj.visible !== false) {
         if (obj.containsPoint(new Point(point.x, point.y))) {
           return obj;
         }
@@ -2260,9 +3184,26 @@ export class CanvasManager {
   public async addImageFromUrl(
     url: string,
     metadata?: ImageMetadata,
-    options?: Partial<FabricObject>
+    options?: Partial<FabricObject> & { skipFrameSlotting?: boolean }
   ): Promise<FabricImage | null> {
     if (!this.canvas) return null;
+
+    // Canva Frame & Shape automatic slotting:
+    // If a shape or frame is currently selected, or if an empty placeholder frame exists on the canvas,
+    // slot this image directly into the shape/frame so it catches its size and shape mask!
+    if (!options?.skipFrameSlotting && !(options as any)?.isFrame) {
+      let targetFrame: FabricObject | null | undefined = this.canvas.getActiveObject();
+      if (!targetFrame || (!targetFrame.get('isFrame' as any) && !this.isShapeObject(targetFrame))) {
+        const objects = this.canvas.getObjects();
+        targetFrame = objects.find(
+          (obj) => (obj.get('isFrame' as any) && Boolean(obj.get('isCanvaPlaceholder' as any)))
+        );
+      }
+
+      if (targetFrame && (targetFrame.get('isFrame' as any) || this.isShapeObject(targetFrame))) {
+        return this.fitImageIntoShape(targetFrame, url, metadata);
+      }
+    }
 
     // Adding an asset always returns the editor to the pointer/select tool.
     this.enableSelectionMode();
@@ -2828,6 +3769,211 @@ export class CanvasManager {
 
   // --- Object & Typography Modification ---
 
+  /** Returns the first real leaf object for displaying a group's current style. */
+  private getFirstGroupLeaf(root: FabricObject): FabricObject | null {
+    if (root.get('isPhotoShapeGroup' as any) && root instanceof Group) {
+      const outline = root
+        .getObjects()
+        .find((object) => object.get('frameRole' as any) === 'shape-outline');
+      if (outline) {
+        return this.getFirstGroupLeaf(outline);
+      }
+    }
+
+    const stack: FabricObject[] = [root];
+
+    while (stack.length > 0) {
+      const current = stack.shift();
+      if (!current) continue;
+
+      if (current instanceof Group || current instanceof ActiveSelection) {
+        stack.unshift(...current.getObjects());
+        continue;
+      }
+
+      if (!this.isNonInteractiveObject(current)) return current;
+    }
+
+    return null;
+  }
+
+  /**
+   * Applies visual properties to the leaf objects of nested Groups and active
+   * multi-selections. Fabric Group wrappers do not repaint child fill/stroke.
+   * This method deliberately performs only one final canvas render.
+   */
+  private applyPropertyToGroupChildren(
+    root: FabricObject,
+    prop: keyof SelectedObjectState,
+    value: SelectedObjectState[keyof SelectedObjectState]
+  ): void {
+    const shapeBorderProperties = new Set<keyof SelectedObjectState>([
+      'stroke',
+      'strokeWidth',
+      'strokeDashArray',
+      'strokeLineCap',
+      'strokeLineJoin',
+    ]);
+
+    // A filled photo shape contains two children: the clipped photo and a
+    // transparent SVG outline. Border controls must style only that outline;
+    // applying a stroke to the photo itself always produces a rectangle.
+    if (
+      root instanceof Group &&
+      root.get('isPhotoShapeGroup' as any) &&
+      shapeBorderProperties.has(prop)
+    ) {
+      const outline = root
+        .getObjects()
+        .find((object) => object.get('frameRole' as any) === 'shape-outline');
+
+      if (outline) {
+        this.applyShapeOutlineProperty(outline, prop, value);
+      }
+      root.set(prop as any, value as any);
+      root.set('dirty', true);
+      return;
+    }
+
+    const stack: FabricObject[] =
+      root instanceof Group || root instanceof ActiveSelection
+        ? [...root.getObjects()]
+        : [root];
+
+    while (stack.length > 0) {
+      const obj = stack.pop();
+      if (!obj || this.isNonInteractiveObject(obj)) continue;
+
+      if (obj instanceof Group || obj instanceof ActiveSelection) {
+        stack.push(...obj.getObjects());
+        obj.set('dirty', true);
+        continue;
+      }
+
+      const isImage = obj instanceof FabricImage || obj.type === 'image';
+      const isText = obj instanceof Textbox || obj instanceof IText;
+
+      if (prop === 'fill') {
+        if (!isImage) obj.set('fill', value as string);
+      } else if (prop === 'stroke') {
+        obj.set({ stroke: value as string, strokeUniform: true, paintFirst: 'fill' });
+      } else if (prop === 'strokeWidth') {
+        obj.set({
+          strokeWidth: Math.max(0, Number(value) || 0),
+          strokeUniform: true,
+          paintFirst: 'fill',
+        });
+      } else if (prop === 'strokeDashArray') {
+        obj.set('strokeDashArray', value ? (value as number[]) : null);
+      } else if (prop === 'strokeLineCap') {
+        obj.set('strokeLineCap', value as 'round' | 'square' | 'butt');
+      } else if (prop === 'strokeLineJoin') {
+        obj.set('strokeLineJoin', value as 'round' | 'bevel' | 'miter');
+      } else if (prop === 'rx' || prop === 'ry') {
+        const requestedRadius = Math.max(0, Number(value) || 0);
+
+        if (isImage) {
+          const width = Math.max(obj.width || 1, 1);
+          const height = Math.max(obj.height || 1, 1);
+          const objectScale = typeof (obj as any).getObjectScaling === 'function'
+            ? (obj as any).getObjectScaling()
+            : { x: obj.scaleX || 1, y: obj.scaleY || 1 };
+          const scaleX = Math.max(Math.abs(objectScale.x || 1), 0.001);
+          const scaleY = Math.max(Math.abs(objectScale.y || 1), 0.001);
+          const maxRenderedRadius = Math.min(width * scaleX, height * scaleY) / 2;
+          const renderedRadius = Math.min(requestedRadius, maxRenderedRadius);
+
+          (obj as any).rx = renderedRadius;
+          (obj as any).ry = renderedRadius;
+          obj.clipPath = renderedRadius > 0
+            ? new Rect({
+              width,
+              height,
+              rx: renderedRadius / scaleX,
+              ry: renderedRadius / scaleY,
+              originX: 'center',
+              originY: 'center',
+            })
+            : undefined;
+        } else if (obj instanceof Rect || obj.type === 'rect') {
+          const maxRadius = Math.min(obj.width || 1, obj.height || 1) / 2;
+          const radius = Math.min(requestedRadius, maxRadius);
+          obj.set({ rx: radius, ry: radius } as any);
+        }
+      } else if (isText && prop === 'fontFamily') {
+        (obj as Textbox | IText).set('fontFamily', String(value));
+      } else if (isText && prop === 'fontSize') {
+        const textObject = obj as Textbox | IText;
+        const nextFontSize = Math.max(1, Number(value) || 1);
+        textObject.set({ fontSize: nextFontSize, objectCaching: false, dirty: true });
+        textObject.set(
+          'fontSizePt' as any,
+          (nextFontSize * 72) /
+          Math.max(72, Number(this.dimensions.dpi) || 96)
+        );
+      } else if (isText && prop === 'fontWeight') {
+        (obj as Textbox | IText).set('fontWeight', value as string | number);
+      } else if (isText && prop === 'fontStyle') {
+        (obj as Textbox | IText).set('fontStyle', String(value));
+      } else if (isText && prop === 'underline') {
+        (obj as Textbox | IText).set('underline', Boolean(value));
+      } else if (isText && prop === 'linethrough') {
+        (obj as Textbox | IText).set('linethrough', Boolean(value));
+      } else if (isText && prop === 'textAlign') {
+        (obj as Textbox | IText).set(
+          'textAlign',
+          value as 'left' | 'center' | 'right' | 'justify'
+        );
+      } else if (isText && prop === 'charSpacing') {
+        (obj as Textbox | IText).set('charSpacing', Number(value));
+      } else if (isText && prop === 'lineHeight') {
+        (obj as Textbox | IText).set('lineHeight', Number(value));
+      }
+
+      obj.set('dirty', true);
+      obj.setCoords();
+    }
+  }
+
+  private applyShapeOutlineProperty(
+    root: FabricObject,
+    prop: keyof SelectedObjectState,
+    value: SelectedObjectState[keyof SelectedObjectState]
+  ): void {
+    const stack: FabricObject[] =
+      root instanceof Group ? [...root.getObjects()] : [root];
+
+    while (stack.length > 0) {
+      const object = stack.pop();
+      if (!object) continue;
+
+      if (object instanceof Group) {
+        stack.push(...object.getObjects());
+        object.set('dirty', true);
+        continue;
+      }
+
+      object.set({ fill: 'transparent', paintFirst: 'stroke', strokeUniform: true });
+
+      if (prop === 'stroke') {
+        object.set('stroke', String(value || 'transparent'));
+      } else if (prop === 'strokeWidth') {
+        object.set('strokeWidth', Math.max(0, Number(value) || 0));
+      } else if (prop === 'strokeDashArray') {
+        object.set('strokeDashArray', value ? (value as number[]) : null);
+      } else if (prop === 'strokeLineCap') {
+        object.set('strokeLineCap', value as 'round' | 'square' | 'butt');
+      } else if (prop === 'strokeLineJoin') {
+        object.set('strokeLineJoin', value as 'round' | 'bevel' | 'miter');
+      }
+
+      object.set('dirty', true);
+      object.setCoords();
+    }
+
+    root.set('dirty', true);
+  }
+
   public updateSelectedProperty<K extends keyof SelectedObjectState>(
     prop: K,
     value: SelectedObjectState[K]
@@ -2838,6 +3984,30 @@ export class CanvasManager {
 
     const isText = active instanceof Textbox || active instanceof IText;
     const isImage = active instanceof FabricImage || active.type === 'image';
+
+    const isGroupedSelection = active instanceof Group || active instanceof ActiveSelection;
+
+    if (isGroupedSelection && GROUP_RECURSIVE_PROPERTIES.has(prop)) {
+      this.applyPropertyToGroupChildren(
+        active,
+        prop,
+        value as SelectedObjectState[keyof SelectedObjectState]
+      );
+
+      // Summary properties keep toolbar controls synchronized with the group.
+      active.set(prop as any, value as any);
+      if (prop === 'rx' || prop === 'ry') {
+        active.set({ rx: Number(value) || 0, ry: Number(value) || 0 } as any);
+      }
+
+      active.set('dirty', true);
+      active.setCoords();
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+      this.notifyLayers();
+      return;
+    }
 
     if (prop === 'left') active.set('left', value as number);
     else if (prop === 'top') active.set('top', value as number);
@@ -2945,7 +4115,14 @@ export class CanvasManager {
     else if (isText && prop === 'text') {
       (active as Textbox | IText).set('text', String(value));
     } else if (isText && prop === 'fontSize') {
-      (active as Textbox | IText).set('fontSize', Number(value));
+      const textObject = active as Textbox | IText;
+      const nextFontSize = Math.max(1, Number(value) || 1);
+      textObject.set({ fontSize: nextFontSize, objectCaching: false, dirty: true });
+      textObject.set(
+        'fontSizePt' as any,
+        (nextFontSize * 72) /
+        Math.max(72, Number(this.dimensions.dpi) || 96)
+      );
     } else if (isText && prop === 'fontFamily') {
       const fontName = String(value);
       const fontItem = POPULAR_FONTS.find((f) => f.family === fontName || f.name === fontName);
@@ -3036,82 +4213,132 @@ export class CanvasManager {
     this.notifyLayers();
   }
 
+  /**
+   * Returns every image owned by the selected object, including images inside
+   * nested groups and frame images. A group can cache its rendered bitmap, so
+   * callers must also mark the selected root object as dirty after filtering.
+   */
+  private getImagesFromObject(root: FabricObject | null): FabricImage[] {
+    if (!root) return [];
+
+    const images: FabricImage[] = [];
+    const visitedObjects = new Set<FabricObject>();
+    const visitedImages = new Set<FabricImage>();
+    const pending: FabricObject[] = [root];
+
+    const addImage = (image: FabricImage): void => {
+      if (visitedImages.has(image)) return;
+      visitedImages.add(image);
+      images.push(image);
+    };
+
+    while (pending.length > 0) {
+      const current = pending.pop();
+      if (!current || visitedObjects.has(current)) continue;
+      visitedObjects.add(current);
+
+      if (current instanceof FabricImage || current.type === 'image') {
+        addImage(current as FabricImage);
+        continue;
+      }
+
+      const frameImage = (current as any)._frameImage;
+      if (frameImage instanceof FabricImage || frameImage?.type === 'image') {
+        addImage(frameImage as FabricImage);
+      }
+
+      const getObjects = (current as any).getObjects;
+      if (typeof getObjects === 'function') {
+        const children = getObjects.call(current) as FabricObject[];
+        pending.push(...children);
+      }
+    }
+
+    return images;
+  }
+
   public applyImageFilter(presetId: string, intensity: number = 1): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
     if (!active) return;
 
-    let targetImage: FabricImage | null = null;
-    if (active instanceof FabricImage) {
-      targetImage = active;
-    } else if ((active as any)._frameImage instanceof FabricImage) {
-      targetImage = (active as any)._frameImage;
-    }
+    const targetImages = this.getImagesFromObject(active);
 
-    if (targetImage) {
-      targetImage.filters = [];
+    if (targetImages.length > 0) {
+      for (const targetImage of targetImages) {
+        targetImage.filters = [];
 
-      switch (presetId) {
-        case 'grayscale':
-        case 'mono':
-          targetImage.filters.push(new filters.Grayscale());
-          break;
-        case 'sepia':
-          targetImage.filters.push(new filters.Sepia());
-          break;
-        case 'blackwhite':
-        case 'noir':
-          targetImage.filters.push(new filters.BlackWhite());
-          targetImage.filters.push(new filters.Contrast({ contrast: 0.3 * intensity }));
-          break;
-        case 'vintage':
-          targetImage.filters.push(new filters.Vintage());
-          break;
-        case 'kodachrome':
-        case 'vivid':
-          targetImage.filters.push(new filters.Kodachrome());
-          targetImage.filters.push(new filters.Saturation({ saturation: 0.4 * intensity }));
-          break;
-        case 'polaroid':
-        case 'warm':
-          targetImage.filters.push(new filters.Polaroid());
-          targetImage.filters.push(new filters.Gamma({ gamma: [1.1, 1.0, 0.9] }));
-          break;
-        case 'technicolor':
-        case 'solar':
-          targetImage.filters.push(new filters.Technicolor());
-          targetImage.filters.push(new filters.Brightness({ brightness: 0.1 * intensity }));
-          break;
-        case 'brownie':
-          targetImage.filters.push(new filters.Brownie());
-          break;
-        case 'invert':
-          targetImage.filters.push(new filters.Invert());
-          break;
-        case 'cool':
-          targetImage.filters.push(new filters.Gamma({ gamma: [0.9, 1.0, 1.15] }));
-          targetImage.filters.push(new filters.Saturation({ saturation: 0.15 * intensity }));
-          break;
-        case 'soft':
-          targetImage.filters.push(new filters.Brightness({ brightness: 0.12 * intensity }));
-          targetImage.filters.push(new filters.Contrast({ contrast: -0.15 * intensity }));
-          break;
-        case 'drama':
-          targetImage.filters.push(new filters.Contrast({ contrast: 0.4 * intensity }));
-          targetImage.filters.push(new filters.Saturation({ saturation: 0.25 * intensity }));
-          break;
-        case 'pixelate':
-          targetImage.filters.push(new filters.Pixelate({ blocksize: 6 }));
-          break;
-        case 'none':
-        default:
-          break;
+        switch (presetId) {
+          case 'grayscale':
+          case 'mono':
+            targetImage.filters.push(new filters.Grayscale());
+            break;
+          case 'sepia':
+            targetImage.filters.push(new filters.Sepia());
+            break;
+          case 'blackwhite':
+          case 'noir':
+            targetImage.filters.push(new filters.BlackWhite());
+            targetImage.filters.push(new filters.Contrast({ contrast: 0.3 * intensity }));
+            break;
+          case 'vintage':
+            targetImage.filters.push(new filters.Vintage());
+            break;
+          case 'kodachrome':
+          case 'vivid':
+            targetImage.filters.push(new filters.Kodachrome());
+            targetImage.filters.push(new filters.Saturation({ saturation: 0.4 * intensity }));
+            break;
+          case 'polaroid':
+          case 'warm':
+            targetImage.filters.push(new filters.Polaroid());
+            targetImage.filters.push(new filters.Gamma({ gamma: [1.1, 1.0, 0.9] }));
+            break;
+          case 'technicolor':
+          case 'solar':
+            targetImage.filters.push(new filters.Technicolor());
+            targetImage.filters.push(new filters.Brightness({ brightness: 0.1 * intensity }));
+            break;
+          case 'brownie':
+            targetImage.filters.push(new filters.Brownie());
+            break;
+          case 'invert':
+            targetImage.filters.push(new filters.Invert());
+            break;
+          case 'cool':
+            targetImage.filters.push(new filters.Gamma({ gamma: [0.9, 1.0, 1.15] }));
+            targetImage.filters.push(new filters.Saturation({ saturation: 0.15 * intensity }));
+            break;
+          case 'soft':
+            targetImage.filters.push(new filters.Brightness({ brightness: 0.12 * intensity }));
+            targetImage.filters.push(new filters.Contrast({ contrast: -0.15 * intensity }));
+            break;
+          case 'drama':
+            targetImage.filters.push(new filters.Contrast({ contrast: 0.4 * intensity }));
+            targetImage.filters.push(new filters.Saturation({ saturation: 0.25 * intensity }));
+            break;
+          case 'pixelate':
+            targetImage.filters.push(new filters.Pixelate({ blocksize: 6 }));
+            break;
+          case 'none':
+          default:
+            break;
+        }
+
+        (targetImage as any)._activeFilterPreset = presetId;
+        (targetImage as any)._filterIntensity = intensity;
+
+        targetImage.applyFilters();
+        let cachedObject: FabricObject | null = targetImage;
+        while (cachedObject) {
+          (cachedObject as any).dirty = true;
+          if (cachedObject === active) break;
+          cachedObject = ((cachedObject as any).group as FabricObject | undefined) || null;
+        }
       }
 
-      (targetImage as any)._activeFilterPreset = presetId;
-      (targetImage as any)._filterIntensity = intensity;
-
-      targetImage.applyFilters();
+      (active as any).dirty = true;
+      active.setCoords();
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
@@ -3146,53 +4373,59 @@ export class CanvasManager {
     const active = this.canvas.getActiveObject();
     if (!active) return;
 
-    let targetImage: FabricImage | null = null;
-    if (active instanceof FabricImage) {
-      targetImage = active;
-    } else if ((active as any)._frameImage instanceof FabricImage) {
-      targetImage = (active as any)._frameImage;
-    }
+    const targetImages = this.getImagesFromObject(active);
 
-    if (targetImage) {
-      const stored = (targetImage as any)._adjustments || {
-        brightness: 0,
-        contrast: 0,
-        saturation: 0,
-        vibrance: 0,
-        blur: 0,
-        hue: 0,
-        warmth: 0,
-      };
+    if (targetImages.length > 0) {
+      for (const targetImage of targetImages) {
+        const stored = (targetImage as any)._adjustments || {
+          brightness: 0,
+          contrast: 0,
+          saturation: 0,
+          vibrance: 0,
+          blur: 0,
+          hue: 0,
+          warmth: 0,
+        };
 
-      const updated = { ...stored, ...adjustments };
-      (targetImage as any)._adjustments = updated;
+        const updated = { ...stored, ...adjustments };
+        (targetImage as any)._adjustments = updated;
 
-      targetImage.filters = [];
+        targetImage.filters = [];
 
-      if (updated.brightness !== 0) {
-        targetImage.filters.push(new filters.Brightness({ brightness: updated.brightness / 100 }));
-      }
-      if (updated.contrast !== 0) {
-        targetImage.filters.push(new filters.Contrast({ contrast: updated.contrast / 100 }));
-      }
-      if (updated.saturation !== 0) {
-        targetImage.filters.push(new filters.Saturation({ saturation: updated.saturation / 100 }));
-      }
-      if (updated.vibrance !== 0) {
-        targetImage.filters.push(new filters.Vibrance({ vibrance: updated.vibrance / 100 }));
-      }
-      if (updated.blur > 0) {
-        targetImage.filters.push(new filters.Blur({ blur: updated.blur / 100 }));
-      }
-      if (updated.hue !== 0) {
-        targetImage.filters.push(new filters.HueRotation({ rotation: (updated.hue / 180) * Math.PI }));
-      }
-      if (updated.warmth !== 0) {
-        const factor = updated.warmth / 100;
-        targetImage.filters.push(new filters.Gamma({ gamma: [1 + factor * 0.2, 1, 1 - factor * 0.2] }));
+        if (updated.brightness !== 0) {
+          targetImage.filters.push(new filters.Brightness({ brightness: updated.brightness / 100 }));
+        }
+        if (updated.contrast !== 0) {
+          targetImage.filters.push(new filters.Contrast({ contrast: updated.contrast / 100 }));
+        }
+        if (updated.saturation !== 0) {
+          targetImage.filters.push(new filters.Saturation({ saturation: updated.saturation / 100 }));
+        }
+        if (updated.vibrance !== 0) {
+          targetImage.filters.push(new filters.Vibrance({ vibrance: updated.vibrance / 100 }));
+        }
+        if (updated.blur > 0) {
+          targetImage.filters.push(new filters.Blur({ blur: updated.blur / 100 }));
+        }
+        if (updated.hue !== 0) {
+          targetImage.filters.push(new filters.HueRotation({ rotation: (updated.hue / 180) * Math.PI }));
+        }
+        if (updated.warmth !== 0) {
+          const factor = updated.warmth / 100;
+          targetImage.filters.push(new filters.Gamma({ gamma: [1 + factor * 0.2, 1, 1 - factor * 0.2] }));
+        }
+
+        targetImage.applyFilters();
+        let cachedObject: FabricObject | null = targetImage;
+        while (cachedObject) {
+          (cachedObject as any).dirty = true;
+          if (cachedObject === active) break;
+          cachedObject = ((cachedObject as any).group as FabricObject | undefined) || null;
+        }
       }
 
-      targetImage.applyFilters();
+      (active as any).dirty = true;
+      active.setCoords();
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
@@ -3214,12 +4447,9 @@ export class CanvasManager {
     const active = this.canvas.getActiveObject();
     if (!active) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, blur: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
 
-    let targetImage: FabricImage | null = null;
-    if (active instanceof FabricImage) {
-      targetImage = active;
-    } else if ((active as any)._frameImage instanceof FabricImage) {
-      targetImage = (active as any)._frameImage;
-    }
+    // For a group, the first image represents the shared toolbar state. Any
+    // change made from the toolbar is still applied to every image in it.
+    const targetImage = this.getImagesFromObject(active)[0] || null;
 
     if (targetImage) {
       const adj = (targetImage as any)._adjustments || {};
@@ -3573,7 +4803,7 @@ export class CanvasManager {
 
   // --- Rich Textbox Inserter ---
 
-  public addText(options?: AddTextOptions): void {
+  public async addText(options?: AddTextOptions): Promise<void> {
     if (!this.canvas) return;
 
     this.enableSelectionMode();
@@ -3582,16 +4812,26 @@ export class CanvasManager {
       (f) => f.family === options?.fontFamily || f.name === options?.fontFamily
     );
     if (fontItem) {
-      loadFont(fontItem);
+      // Wait for the real web font before Fabric measures and draws the text.
+      try {
+        await loadFont(fontItem);
+      } catch (error) {
+        console.warn(`Could not preload font ${fontItem.family}:`, error);
+      }
+      if (!this.canvas) return;
     }
 
     const textWidth = options?.width || 420;
+    const artworkDpi = Math.max(72, Number(this.dimensions.dpi) || 96);
+    const fontSize = options?.fontSizePt
+      ? (options.fontSizePt * artworkDpi) / 72
+      : options?.fontSize || 36;
 
     const text = new Textbox(options?.text || 'Add text here', {
       left: 0,
       top: 0,
       width: textWidth,
-      fontSize: options?.fontSize || 36,
+      fontSize,
       fontFamily: options?.fontFamily || 'Inter, sans-serif',
       fontWeight: options?.fontWeight || 'normal',
       fontStyle: (options?.fontStyle as '' | 'normal' | 'italic' | 'oblique') || 'normal',
@@ -3605,7 +4845,18 @@ export class CanvasManager {
       transparentCorners: false,
       padding: 6,
       splitByGrapheme: false,
+      // Keep editable text sharp while zooming/resizing by redrawing glyphs
+      // instead of enlarging Fabric's cached bitmap representation.
+      objectCaching: false,
+      noScaleCache: false,
+      strokeUniform: true,
     });
+
+    text.set(
+      'fontSizePt' as any,
+      options?.fontSizePt || (fontSize * 72) / artworkDpi
+    );
+    text.set('sourceType' as any, 'vector-text');
 
     this.ensureObjectId(text, options?.name || 'Text Layer');
     this.canvas.add(text);
@@ -3645,6 +4896,9 @@ export class CanvasManager {
         cornerSize: 12,
         transparentCorners: false,
       });
+      shapeObj.set('isShape' as any, true);
+      shapeObj.set('shapeType' as any, 'circle');
+      shapeObj.set('frameShape' as any, 'circle');
       this.ensureObjectId(shapeObj, 'Circle Shape');
     } else if (shapeType === 'triangle') {
       shapeObj = new Triangle({
@@ -3658,6 +4912,9 @@ export class CanvasManager {
         cornerSize: 12,
         transparentCorners: false,
       });
+      shapeObj.set('isShape' as any, true);
+      shapeObj.set('shapeType' as any, 'triangle');
+      shapeObj.set('frameShape' as any, 'triangle');
       this.ensureObjectId(shapeObj, 'Triangle Shape');
     } else if (shapeType === 'star') {
       shapeObj = new Polygon(
@@ -3683,6 +4940,9 @@ export class CanvasManager {
           transparentCorners: false,
         }
       );
+      shapeObj.set('isShape' as any, true);
+      shapeObj.set('shapeType' as any, 'star');
+      shapeObj.set('frameShape' as any, 'star');
       this.ensureObjectId(shapeObj, 'Star Shape');
     } else {
       // Rectangle / Square
@@ -3699,6 +4959,9 @@ export class CanvasManager {
         cornerSize: 12,
         transparentCorners: false,
       });
+      shapeObj.set('isShape' as any, true);
+      shapeObj.set('shapeType' as any, 'rect');
+      shapeObj.set('frameShape' as any, 'rounded-rect');
       this.ensureObjectId(shapeObj, 'Rectangle Shape');
     }
 
@@ -3768,8 +5031,23 @@ export class CanvasManager {
   }
 
   private notifyPreflight(): void {
-    const report = this.getPreflightReport();
-    this.preflightListeners.forEach((cb) => cb(report));
+    // Many actions notify change + layers in the same tick. Coalesce their
+    // expensive full-canvas preflight scans into one calculation per frame.
+    if (this.isPreflightScheduled) return;
+    this.isPreflightScheduled = true;
+
+    const run = () => {
+      this.isPreflightScheduled = false;
+      if (!this.canvas || this.preflightListeners.size === 0) return;
+      const report = this.getPreflightReport();
+      this.preflightListeners.forEach((cb) => cb(report));
+    };
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(run);
+    } else {
+      Promise.resolve().then(run);
+    }
   }
 
   private notifyChange(): void {
@@ -3891,14 +5169,30 @@ export class CanvasManager {
     const active = this.canvas.getActiveObject();
     if (!active) return null;
 
+    const usesChildStyles = active instanceof Group || active instanceof ActiveSelection;
+    const styleSource =
+      usesChildStyles
+        ? this.getFirstGroupLeaf(active) || active
+        : active;
+
     const isMultiple = active instanceof ActiveSelection;
-    const count = isMultiple ? (active as ActiveSelection).getObjects().length : 1;
+    const count = usesChildStyles
+      ? (active as Group | ActiveSelection).getObjects().length
+      : 1;
 
     const isText = active instanceof Textbox || active instanceof IText;
     const textObj = isText ? (active as Textbox | IText) : null;
 
     const isImage = active instanceof FabricImage || active.type === 'image';
-    const imageObj = isImage ? (active as FabricImage) : null;
+    const isFrameObject = Boolean(active.get('isFrame' as any));
+    const customFramePhoto = active instanceof Group && isFrameObject
+      ? active.getObjects().find((object) => object.get('frameRole' as any) === 'photo')
+      : null;
+    const imageObj = isImage
+      ? (active as FabricImage)
+      : customFramePhoto instanceof FabricImage || customFramePhoto?.type === 'image'
+        ? (customFramePhoto as FabricImage)
+        : null;
 
     const renderedWidth = Math.round((active.width || 0) * (active.scaleX || 1));
     const renderedHeight = Math.round((active.height || 0) * (active.scaleY || 1));
@@ -3912,8 +5206,8 @@ export class CanvasManager {
     let cropY;
     let cropWidth;
     let cropHeight;
-    let isFrame = false;
-    let frameShape;
+    let isFrame = isFrameObject;
+    let frameShape = (active.get('frameShape' as any) as string) || undefined;
 
     if (imageObj) {
       naturalWidth = (imageObj.get('naturalWidth' as any) as number) || imageObj.width || 400;
@@ -3924,9 +5218,8 @@ export class CanvasManager {
       cropY = (imageObj.get('cropY' as any) as number) || imageObj.cropY || 0;
       cropWidth = (imageObj.get('cropWidth' as any) as number) || imageObj.width;
       cropHeight = (imageObj.get('cropHeight' as any) as number) || imageObj.height;
-      isFrame = Boolean(imageObj.get('isFrame' as any));
-      frameShape = (imageObj.get('frameShape' as any) as string) || undefined;
-      const isCanvaPlaceholder = Boolean(imageObj.get('isCanvaPlaceholder' as any));
+      isFrame = isFrameObject || Boolean(imageObj.get('isFrame' as any));
+      frameShape = frameShape || (imageObj.get('frameShape' as any) as string) || undefined;
 
       qualityInfo = calculateImageQuality(
         naturalWidth,
@@ -3943,7 +5236,8 @@ export class CanvasManager {
     const isPath = active instanceof Path || Boolean(active.get('isBrushPath' as any));
     const brushType = (active.get('brushType' as any) as BrushType) || undefined;
     const isBrushPath = isPath || Boolean(active.get('isBrushPath' as any));
-    const isCanvaPlaceholder = Boolean(imageObj?.get('isCanvaPlaceholder' as any));
+    const isCanvaPlaceholder = Boolean(active.get('isCanvaPlaceholder' as any)) ||
+      Boolean(imageObj?.get('isCanvaPlaceholder' as any));
 
     return {
       id: active.get('id' as any) as string,
@@ -3952,7 +5246,7 @@ export class CanvasManager {
         ? 'activeSelection'
         : isText
           ? 'textbox'
-          : isImage
+          : isImage || isFrameObject
             ? 'image'
             : isPath
               ? 'path'
@@ -3967,24 +5261,43 @@ export class CanvasManager {
       scaleY: Number((active.scaleY || 1).toFixed(2)),
       angle: Math.round(active.angle || 0),
       opacity: Number((active.opacity !== undefined ? active.opacity : 1).toFixed(2)),
-      fill: typeof active.fill === 'string' ? active.fill : '#2563eb',
-      stroke: typeof active.stroke === 'string' ? active.stroke : '#000000',
-      strokeWidth: active.strokeWidth || 0,
-      strokeLineCap: (active.strokeLineCap as 'round' | 'square' | 'butt') || undefined,
-      strokeLineJoin: (active.strokeLineJoin as 'round' | 'bevel' | 'miter') || undefined,
+      fill: usesChildStyles && typeof styleSource.fill === 'string'
+        ? styleSource.fill
+        : typeof active.fill === 'string'
+          ? active.fill
+          : '#2563eb',
+      stroke: usesChildStyles && typeof styleSource.stroke === 'string'
+        ? styleSource.stroke
+        : typeof active.stroke === 'string'
+          ? active.stroke
+          : '#000000',
+      strokeWidth: usesChildStyles
+        ? styleSource.strokeWidth || active.strokeWidth || 0
+        : active.strokeWidth || 0,
+      strokeLineCap:
+        (active.strokeLineCap as 'round' | 'square' | 'butt') ||
+        (styleSource.strokeLineCap as 'round' | 'square' | 'butt') ||
+        undefined,
+      strokeLineJoin:
+        (active.strokeLineJoin as 'round' | 'bevel' | 'miter') ||
+        (styleSource.strokeLineJoin as 'round' | 'bevel' | 'miter') ||
+        undefined,
       flipX: Boolean(active.flipX),
       flipY: Boolean(active.flipY),
       isLocked: active.get('isLocked' as any) === true,
       isVisible: active.visible !== false,
       isFrame,
       frameShape,
+      isShape: this.isShapeObject(active),
+      shapeType: this.isShapeObject(active) ? this.getShapeTypeFromObject(active) : undefined,
+      photoFit: isFrame ? ((active.get('photoFit' as any) as 'cover' | 'contain') || 'cover') : undefined,
       isCanvaPlaceholder,
       isBrushPath,
       brushType,
-      rx: (active as any).rx || 0,
-      ry: (active as any).ry || 0,
+      rx: (active as any).rx || (styleSource as any).rx || 0,
+      ry: (active as any).ry || (styleSource as any).ry || 0,
       curve: (active as any).curve || 0,
-      strokeDashArray: active.strokeDashArray || undefined,
+      strokeDashArray: active.strokeDashArray || styleSource.strokeDashArray || undefined,
       paintFirst: (active.paintFirst as 'fill' | 'stroke') || 'fill',
       // Text
       text: textObj ? textObj.text : undefined,
@@ -4124,7 +5437,7 @@ export class CanvasManager {
       }
     });
 
-    this.canvas.on('mouse:up', () => {
+    this.canvas.on('mouse:up', (opt: any) => {
       if (this.isErasing) {
         this.isErasing = false;
         this.lastErasePoint = null;
@@ -4137,6 +5450,15 @@ export class CanvasManager {
         }
       }
       this.snapping.clearGuides();
+
+      if (this.currentHoverFitTarget) {
+        const active = this.canvas?.getActiveObject() || opt?.target;
+        if (active) {
+          this.handleShapeImageDrop(active);
+        } else {
+          this.clearHoverFitHighlight();
+        }
+      }
     });
 
     this.canvas.on('selection:created', () => {
@@ -4156,6 +5478,7 @@ export class CanvasManager {
       this.notifyLayers();
     });
     this.canvas.on('selection:cleared', () => {
+      this.clearHoverFitHighlight();
       this.snapping.clearGuides();
       this.notifySelection();
       this.notifyLayers();
@@ -4175,20 +5498,23 @@ export class CanvasManager {
     });
     this.canvas.on('object:removed', () => this.notifyLayers());
 
-    this.canvas.on('object:modified', (opt: any) => {
+    this.canvas.on('object:modified', async (opt: any) => {
       this.snapping.clearGuides();
       if (opt?.target) {
-        opt.target.setCoords();
+        const handled = await this.handleShapeImageDrop(opt.target);
+        if (!handled) {
+          opt.target.setCoords();
+        }
       }
       this.notifyChange();
       this.notifySelection();
       this.notifyLayers();
-      this.notifyPreflight();
     });
 
     this.canvas.on('object:moving', (opt) => {
       if (opt.target) {
         this.snapping.handleObjectMove(opt.target);
+        this.handleShapeImageHover(opt.target);
       }
     });
     this.canvas.on('object:scaling', (opt) => {
@@ -4314,12 +5640,159 @@ export class CanvasManager {
     }
   }
 
-  public async addFrameAsset(url: string, metadata?: any): Promise<void> {
-    const img = await this.addImageFromUrl(url, metadata);
-    if (img) {
-      img.set('isFrame' as any, true);
-      img.set('isCanvaPlaceholder' as any, false);
-      this.canvas?.requestRenderAll();
+  private async loadCustomShapeObject(url: string): Promise<FabricObject> {
+    const safeUrl = await urlToSafeDataUrl(url);
+    const result = await loadSVGFromURL(safeUrl);
+    const objects = (result?.objects || []).filter(
+      (object): object is FabricObject => Boolean(object)
+    );
+
+    if (!objects.length) {
+      throw new Error('The custom shape SVG contains no drawable paths.');
+    }
+
+    return util.groupSVGElements(objects, result?.options || {});
+  }
+
+  /**
+   * Adds an admin-created SVG as a reusable photo shape.
+   * If an image is already selected, one click immediately clips that image.
+   * Otherwise the SVG is added as a placeholder which can be dragged over an image.
+   */
+  public async addCustomPhotoShape(
+    url: string,
+    metadata: ShapeAssetMetadata = {}
+  ): Promise<FabricObject | null> {
+    if (!this.canvas || !url) return null;
+
+    this.enableSelectionMode();
+
+    try {
+      const selected = this.canvas.getActiveObject();
+      const selectedImage = this.isImageObject(selected) ? selected : null;
+      const shape = await this.loadCustomShapeObject(url);
+      const canvasW = this.dimensions.widthPx || 1063;
+      const canvasH = this.dimensions.heightPx || 591;
+      const defaultSize = Math.min(canvasW * 0.3, canvasH * 0.45, 280);
+      const naturalW = Math.max(shape.width || 1, 1);
+      const naturalH = Math.max(shape.height || 1, 1);
+      const targetW = selectedImage?.getScaledWidth() || defaultSize;
+      const targetH = selectedImage?.getScaledHeight() ||
+        defaultSize * (naturalH / naturalW);
+
+      shape.set({
+        originX: 'center',
+        originY: 'center',
+        scaleX: targetW / naturalW,
+        scaleY: targetH / naturalH,
+        cornerColor: '#ffffff',
+        cornerStrokeColor: '#8b3dff',
+        borderColor: '#8b3dff',
+        cornerStyle: 'circle',
+        cornerSize: 12,
+        transparentCorners: false,
+      });
+      shape.set('isShape' as any, true);
+      shape.set('isFrame' as any, true);
+      shape.set('isCanvaPlaceholder' as any, true);
+      shape.set('shapeType' as any, 'custom-svg');
+      shape.set('frameShape' as any, 'custom-svg');
+      shape.set('sourceType' as any, 'shape');
+      shape.set('customShapeUrl' as any, url);
+      shape.set('assetId' as any, metadata.assetId);
+      shape.set('provider' as any, metadata.provider || 'admin');
+      shape.set('photoFit' as any, metadata.photoFit || 'cover');
+      shape.set('allowPhotoDrop' as any, metadata.allowPhotoDrop !== false);
+      this.ensureObjectId(shape, metadata.name || 'Custom Photo Shape');
+
+      if (selectedImage) {
+        const center = selectedImage.getCenterPoint();
+        shape.set({ left: center.x, top: center.y, angle: selectedImage.angle || 0 });
+      } else {
+        this.centerObjectOnCanvas(shape);
+      }
+
+      this.canvas.add(shape);
+      shape.setCoords();
+
+      if (selectedImage) {
+        return await this.fitImageIntoShape(shape, selectedImage, {
+          ...metadata,
+          photoFit: metadata.photoFit || 'cover',
+        });
+      }
+
+      this.canvas.setActiveObject(shape);
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+      this.notifyLayers();
+      this.saveHistoryState();
+      return shape;
+    } catch (error) {
+      console.error('Failed to add custom photo shape:', error);
+      return null;
+    }
+  }
+
+  public async addFrameAsset(url: string, metadata: FrameAssetMetadata = {}): Promise<void> {
+    if (!this.canvas) return;
+
+    const overlayUrl = metadata.overlayUrl || url;
+    const maskUrl = metadata.maskUrl;
+
+    if (!maskUrl || (metadata.maskType && metadata.maskType !== 'svg_mask')) {
+      console.warn('This frame has no usable custom SVG mask. Adding its overlay as artwork only.');
+      const overlay = await this.addImageFromUrl(
+        overlayUrl,
+        { ...metadata, name: metadata.name || 'Frame Overlay' },
+        { skipFrameSlotting: true } as any
+      );
+      overlay?.set('sourceType' as any, 'frame-overlay');
+      this.canvas.requestRenderAll();
+      return;
+    }
+
+    this.enableSelectionMode();
+
+    try {
+      const sourceWidth = Math.max(Number(metadata.width) || 500, 1);
+      const sourceHeight = Math.max(Number(metadata.height) || 500, 1);
+      const aspectRatio = sourceWidth / sourceHeight;
+      const canvasWidth = this.dimensions.widthPx || 1063;
+      const canvasHeight = this.dimensions.heightPx || 591;
+      const baseDimension = Math.min(canvasWidth * 0.32, canvasHeight * 0.48, 280);
+      const frameWidth = aspectRatio >= 1 ? baseDimension : baseDimension * aspectRatio;
+      const frameHeight = aspectRatio >= 1 ? baseDimension / aspectRatio : baseDimension;
+
+      const frame = await this.createCustomFrameGroup(
+        overlayUrl,
+        maskUrl,
+        CANVA_FRAME_PLACEHOLDER_SVG,
+        {
+          ...metadata,
+          overlayUrl,
+          maskUrl,
+          maskType: metadata.maskType || 'svg_mask',
+          photoFit: metadata.photoFit || 'cover',
+          originalSrc: CANVA_FRAME_PLACEHOLDER_SVG,
+        },
+        frameWidth,
+        frameHeight,
+        true
+      );
+
+      this.canvas.add(frame);
+      this.centerObjectOnCanvas(frame);
+      frame.setCoords();
+      this.canvas.setActiveObject(frame);
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+      this.notifyLayers();
+      this.saveHistoryState();
+    } catch (error) {
+      console.error('Failed to create custom frame asset:', error);
     }
   }
 

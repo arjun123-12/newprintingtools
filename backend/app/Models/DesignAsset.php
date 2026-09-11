@@ -38,6 +38,13 @@ class DesignAsset extends Model
         'sort_order' => 'integer',
     ];
 
+    protected $appends = ['path', 'asset_url', 'asset_thumbnail_url'];
+
+    public function getPathAttribute()
+    {
+        return $this->file_path;
+    }
+
     public function category(): BelongsTo
     {
         return $this->belongsTo(DesignAssetCategory::class, 'category_id');

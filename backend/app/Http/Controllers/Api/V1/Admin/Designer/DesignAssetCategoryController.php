@@ -36,7 +36,7 @@ class DesignAssetCategoryController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'slug' => 'required|string|max:255|unique:design_asset_categories,slug',
-            'asset_type' => 'required|string|in:text,frame,photo,element,background',
+            'asset_type' => 'required|string|in:text,frame,photo,element,background,shape',
             'description' => 'nullable|string',
             'is_active' => 'boolean',
             'sort_order' => 'integer',
@@ -66,7 +66,7 @@ class DesignAssetCategoryController extends Controller
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'slug' => 'sometimes|required|string|max:255|unique:design_asset_categories,slug,' . $assetCategory->id,
-            'asset_type' => 'sometimes|required|string|in:text,frame,photo,element,background',
+            'asset_type' => 'sometimes|required|string|in:text,frame,photo,element,background,shape',
             'description' => 'nullable|string',
             'is_active' => 'boolean',
             'sort_order' => 'integer',

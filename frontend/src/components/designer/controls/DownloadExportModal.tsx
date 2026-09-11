@@ -14,6 +14,64 @@ import { QualityPreset, ExportFormat } from '@/types/imageUpscaler';
 import { imageQualityService } from '@/services/imageQualityService';
 import { exportLayeredPsd } from '../services/psdExportService';
 import { downloadFile } from '../services/exportService';
+import { urlToSafeDataUrl } from '@/utils/imageUrl';
+
+type DownloadFormat = ExportFormat | 'svg';
+
+const downloadSvgFile = (svgMarkup: string, filename: string): void => {
+  const blob = new Blob([svgMarkup], {
+    type: 'image/svg+xml;charset=utf-8',
+  });
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+};
+
+/**
+ * Fabric keeps text, paths and shapes as SVG vectors. Raster photos are kept
+ * at their original pixel resolution and embedded as data URLs so the SVG is
+ * self-contained and does not break when opened on another computer.
+ */
+const inlineSvgRasterImages = async (svgMarkup: string): Promise<string> => {
+  const parser = new DOMParser();
+  const svgDocument = parser.parseFromString(svgMarkup, 'image/svg+xml');
+
+  if (svgDocument.querySelector('parsererror')) {
+    throw new Error('Fabric generated invalid SVG markup.');
+  }
+
+  const images = Array.from(svgDocument.querySelectorAll('image'));
+  await Promise.all(
+    images.map(async (image) => {
+      const href =
+        image.getAttribute('href') ||
+        image.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+
+      if (!href || href.startsWith('data:')) return;
+
+      const safeDataUrl = await urlToSafeDataUrl(href);
+      if (!safeDataUrl.startsWith('data:')) {
+        throw new Error(
+          'One raster image could not be embedded in the vector download.'
+        );
+      }
+
+      image.setAttribute('href', safeDataUrl);
+      image.setAttributeNS(
+        'http://www.w3.org/1999/xlink',
+        'xlink:href',
+        safeDataUrl
+      );
+    })
+  );
+
+  return new XMLSerializer().serializeToString(svgDocument);
+};
 
 export interface DownloadExportModalProps {
   isOpen: boolean;
@@ -42,7 +100,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
   activePageIndex = 0,
   designName = 'artwork',
 }) => {
-  const [format, setFormat] = useState<ExportFormat>('png');
+  const [format, setFormat] = useState<DownloadFormat>('png');
   const [qualityPreset, setQualityPreset] = useState<QualityPreset>('print');
   const [customDpi, setCustomDpi] = useState<number>(300);
   const [jpegQuality, setJpegQuality] = useState<number>(95);
@@ -134,7 +192,9 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
     const totalPixels = pxW * pxH;
     let estimatedMb = (totalPixels * 4) / (1024 * 1024);
 
-    if (format === 'jpeg' || format === 'webp') {
+    if (format === 'svg') {
+      estimatedMb = 0;
+    } else if (format === 'jpeg' || format === 'webp') {
       estimatedMb = estimatedMb * (jpegQuality / 100) * 0.15;
     } else if (format === 'png') {
       estimatedMb = estimatedMb * 0.45;
@@ -147,8 +207,14 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
       pxH,
       mmW: Math.round(mmW),
       mmH: Math.round(mmH),
-      estimatedSizeStr: estimatedMb < 1 ? `${Math.round(estimatedMb * 1024)} KB` : `${estimatedMb.toFixed(1)} MB`,
-      isUltraLarge: targetDpi >= 600 || totalPixels > 30000000,
+      estimatedSizeStr:
+        format === 'svg'
+          ? 'Vector + original images'
+          : estimatedMb < 1
+            ? `${Math.round(estimatedMb * 1024)} KB`
+            : `${estimatedMb.toFixed(1)} MB`,
+      isUltraLarge:
+        format !== 'svg' && (targetDpi >= 600 || totalPixels > 30000000),
     };
   }, [dimensions, targetDpi, format, jpegQuality]);
 
@@ -167,6 +233,64 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
     try {
       const sanitizedDocName = (designName || 'artwork').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
       const objects = canvas.getObjects();
+
+      // SVG is resolution-independent and must be generated before any
+      // rasterization or AI replacement step.
+      if (format === 'svg') {
+        setProgressMessage('Building self-contained vector artwork...');
+        setExportProgress(30);
+
+        await canvasManager.waitForAllImagesToLoad(15000);
+        if (typeof document !== 'undefined' && document.fonts) {
+          await document.fonts.ready;
+        }
+
+        const guidesWereVisible = canvasManager.getGuidesVisible();
+        const previousZoom = canvasManager.getZoom();
+
+        try {
+          canvasManager.setGuidesVisible(false);
+          canvas.discardActiveObject();
+          canvasManager.setZoom(1);
+          canvas.requestRenderAll();
+
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => resolve());
+          });
+
+          const canvasWidth = Math.max(dimensions.widthPx || 1063, 1);
+          const canvasHeight = Math.max(dimensions.heightPx || 591, 1);
+          const physicalWidthMm = Math.max(dimensions.widthMm || 90, 1);
+          const physicalHeightMm = Math.max(dimensions.heightMm || 50, 1);
+
+          const fabricSvg = canvas.toSVG({
+            suppressPreamble: true,
+            width: `${physicalWidthMm}mm`,
+            height: `${physicalHeightMm}mm`,
+            viewBox: {
+              x: 0,
+              y: 0,
+              width: canvasWidth,
+              height: canvasHeight,
+            },
+          });
+
+          setExportProgress(70);
+          setProgressMessage('Embedding original-resolution images...');
+
+          const selfContainedSvg = await inlineSvgRasterImages(fabricSvg);
+          downloadSvgFile(selfContainedSvg, `${sanitizedDocName}-vector.svg`);
+
+          setExportProgress(100);
+          setProgressMessage('Vector download ready.');
+          setIsExporting(false);
+          return;
+        } finally {
+          canvasManager.setZoom(previousZoom);
+          canvasManager.setGuidesVisible(guidesWereVisible);
+          canvas.requestRenderAll();
+        }
+      }
 
       // 1. If AI enhancement is requested, upscale any low-resolution raster images
       if (includeEnhanced) {
@@ -469,8 +593,9 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
               1. File Format
             </label>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {[
+                { id: 'svg', label: 'SVG', badge: 'True Vector' },
                 { id: 'png', label: 'PNG', badge: 'Lossless' },
                 { id: 'pdf', label: 'PDF', badge: 'Print Ready' },
                 { id: 'psd', label: 'PSD', badge: 'Layered' },
@@ -481,10 +606,10 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                 <button
                   key={fmt.id}
                   type="button"
-                  onClick={() => setFormat(fmt.id as ExportFormat)}
+                  onClick={() => setFormat(fmt.id as DownloadFormat)}
                   className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all ${format === fmt.id
-                      ? 'border-blue-600 bg-blue-50/60 ring-2 ring-blue-600/20 text-blue-900 font-bold shadow-xs'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 font-medium'
+                    ? 'border-blue-600 bg-blue-50/60 ring-2 ring-blue-600/20 text-blue-900 font-bold shadow-xs'
+                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 font-medium'
                     }`}
                 >
                   <span className="text-sm font-bold">{fmt.label}</span>
@@ -494,8 +619,19 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             </div>
           </div>
 
+          {format === 'svg' && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-900">
+              <div className="font-bold">Resolution-independent SVG export</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-emerald-800">
+                Text, paths and shapes stay editable vector objects. Photos and
+                backgrounds remain raster images, but their original full-resolution
+                pixels are embedded inside the SVG without JPEG recompression.
+              </p>
+            </div>
+          )}
+
           {/* Quality Presets */}
-          <div>
+          <div className={format === 'svg' ? 'hidden' : undefined}>
             <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
               2. Download Quality Preset
             </label>
@@ -512,8 +648,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                   type="button"
                   onClick={() => setQualityPreset(p.id as QualityPreset)}
                   className={`p-3 rounded-xl border text-left transition-all ${qualityPreset === p.id
-                      ? 'border-blue-600 bg-blue-50/60 ring-2 ring-blue-600/20 text-blue-900 shadow-xs font-bold'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 font-medium'
+                    ? 'border-blue-600 bg-blue-50/60 ring-2 ring-blue-600/20 text-blue-900 shadow-xs font-bold'
+                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 font-medium'
                     }`}
                 >
                   <div className="text-xs font-bold">{p.label}</div>
@@ -559,7 +695,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           </div>
 
           {/* Normal vs Enhanced Versions */}
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+          <div className={`${format === 'svg' ? 'hidden' : ''} p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-indigo-600" />
@@ -657,7 +793,13 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           {/* Technical Export Summary */}
           <div className="flex items-center justify-between text-xs text-gray-500 px-1 font-mono">
             <div>
-              Output: <span className="text-gray-800 font-bold">{calculatedSpecs.pxW} × {calculatedSpecs.pxH} px</span> ({calculatedSpecs.mmW} × {calculatedSpecs.mmH} mm)
+              Output:{' '}
+              <span className="text-gray-800 font-bold">
+                {format === 'svg'
+                  ? 'Resolution-independent vector'
+                  : `${calculatedSpecs.pxW} × ${calculatedSpecs.pxH} px`}
+              </span>{' '}
+              ({calculatedSpecs.mmW} × {calculatedSpecs.mmH} mm)
             </div>
             <div>
               Approx. Size: <span className="text-gray-800 font-bold">{calculatedSpecs.estimatedSizeStr}</span>
@@ -707,7 +849,10 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           <button
             type="button"
             onClick={handleStartExport}
-            disabled={isExporting || (!includeNormal && !includeEnhanced)}
+            disabled={
+              isExporting ||
+              (format !== 'svg' && !includeNormal && !includeEnhanced)
+            }
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isExporting ? (
@@ -718,7 +863,11 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             ) : (
               <>
                 <Download className="w-3.5 h-3.5" />
-                <span>Download {format.toUpperCase()} ({targetDpi} DPI)</span>
+                <span>
+                  {format === 'svg'
+                    ? 'Download SVG Vector'
+                    : `Download ${format.toUpperCase()} (${targetDpi} DPI)`}
+                </span>
               </>
             )}
           </button>

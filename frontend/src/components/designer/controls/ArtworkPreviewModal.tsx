@@ -296,11 +296,10 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
                   key={p.id || idx}
                   type="button"
                   onClick={() => setSelectedPageIndex(idx)}
-                  className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-                    selectedPageIndex === idx
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                  className={`px-3 py-1.5 rounded-lg font-semibold transition ${selectedPageIndex === idx
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-slate-200'
+                    }`}
                 >
                   {idx === 0 ? 'Front' : idx === 1 ? 'Back' : `Page ${idx + 1}`}
                 </button>
@@ -357,7 +356,7 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
 
         {/* Right Actions: Export Options & Close */}
         <div className="flex items-center gap-2 shrink-0">
-          {onExportPdf && (
+          {/* {onExportPdf && (
             <button
               type="button"
               onClick={onExportPdf}
@@ -367,9 +366,9 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
               <FileText className="w-3.5 h-3.5" />
               <span>Download Vector PDF</span>
             </button>
-          )}
+          )} */}
 
-          <button
+          {/* <button
             type="button"
             onClick={onExportPng}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold border border-slate-700 transition"
@@ -377,9 +376,9 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
           >
             <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />
             <span>PNG</span>
-          </button>
+          </button> */}
 
-          <button
+          {/* <button
             type="button"
             onClick={onExportPsd}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-lg shadow-sky-600/20 transition"
@@ -387,7 +386,7 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
           >
             <FileCode className="w-3.5 h-3.5" />
             <span>PSD</span>
-          </button>
+          </button> */}
 
           <button
             type="button"
@@ -427,8 +426,8 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
             selectedPageIndex === 0
               ? frontPreviewUrl
               : selectedPageIndex === 1
-              ? backPreviewUrl || frontPreviewUrl
-              : pages?.[selectedPageIndex]?.thumbnail || frontPreviewUrl;
+                ? backPreviewUrl || frontPreviewUrl
+                : pages?.[selectedPageIndex]?.thumbnail || frontPreviewUrl;
 
           return viewMode === '3d' ? (
             /* 3D INTERACTIVE PRESENTATION VIEW */

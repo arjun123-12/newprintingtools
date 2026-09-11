@@ -24,7 +24,7 @@ export const QualityBadge: React.FC<QualityBadgeProps> = ({
 
   return (
     <div
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border shadow-2xs transition-all ${badge.badgeBg} ${badge.badgeBorder} ${className}`}
+      className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[8px] font-semibold border shadow-2xs transition-all ${badge.badgeBg} ${badge.badgeBorder} ${className}`}
       title={badge.description}
     >
       <span className={`w-2 h-2 rounded-full ${badge.dotColor} ${isUpscaling ? 'animate-ping' : ''}`} />
@@ -46,10 +46,10 @@ export const QualityBadge: React.FC<QualityBadgeProps> = ({
             e.stopPropagation();
             onEnhanceClick();
           }}
-          className="ml-1 px-1.5 py-0.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold shadow-xs transition flex items-center gap-1"
+          className="ml-1 px-1.5 py-0.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[8px] font-bold shadow-xs transition flex items-center gap-1"
           title="Enhance this image locally using Real-ESRGAN"
         >
-          <Sparkles className="w-2.5 h-2.5" />
+          <Sparkles className="w-2 h-2" />
           <span>Enhance</span>
         </button>
       )}

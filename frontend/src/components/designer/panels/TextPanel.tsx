@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Type, Plus, Sparkles, Sliders } from 'lucide-react';
+import { Type, Plus, Minus, Sparkles, Sliders } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { SelectedObjectState } from '@/types/designer';
 import { ColorPicker } from '../controls/ColorPicker';
@@ -13,6 +13,25 @@ interface TextPanelProps {
   selected?: SelectedObjectState | null;
 }
 
+const DEFAULT_TEXT_SIZES_PT = {
+  heading: 32,
+  subheading: 20,
+  body: 11,
+} as const;
+
+const getArtworkDpi = (canvasManager: CanvasManager | null): number =>
+  Math.max(72, Number(canvasManager?.getDimensions().dpi) || 96);
+
+const pointsToCanvasPixels = (
+  points: number,
+  canvasManager: CanvasManager | null
+): number => (points * getArtworkDpi(canvasManager)) / 72;
+
+const canvasPixelsToPoints = (
+  pixels: number,
+  canvasManager: CanvasManager | null
+): number => (pixels * 72) / getArtworkDpi(canvasManager);
+
 export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [showStrokePicker, setShowStrokePicker] = useState(false);
@@ -21,6 +40,14 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
   const [presets, setPresets] = useState<DesignAsset[]>([]);
   const [categories, setCategories] = useState<DesignAssetCategory[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const artworkWidth = canvasManager?.getDimensions().widthPx || 1063;
+  const currentFontSizePt = Math.max(
+    1,
+    Math.round(
+      canvasPixelsToPoints(Number(selected?.fontSize) || 16, canvasManager) * 10
+    ) / 10
+  );
 
   useEffect(() => {
     const fetchData = async () => {
@@ -43,48 +70,53 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
 
   const handleAddHeading = () => {
     if (!canvasManager) return;
-    canvasManager.addText({
+    void canvasManager.addText({
       text: 'Add a heading',
-      fontSize: 48,
+      fontSizePt: DEFAULT_TEXT_SIZES_PT.heading,
       fontWeight: 'bold',
       fontFamily: 'Inter, sans-serif',
       fill: '#0f172a',
-      width: 450,
+      width: Math.max(180, artworkWidth * 0.72),
     });
   };
 
   const handleAddSubheading = () => {
     if (!canvasManager) return;
-    canvasManager.addText({
+    void canvasManager.addText({
       text: 'Add a subheading',
-      fontSize: 28,
+      fontSizePt: DEFAULT_TEXT_SIZES_PT.subheading,
       fontWeight: '600',
       fontFamily: 'Inter, sans-serif',
       fill: '#334155',
-      width: 380,
+      width: Math.max(160, artworkWidth * 0.62),
     });
   };
 
   const handleAddBody = () => {
     if (!canvasManager) return;
-    canvasManager.addText({
+    void canvasManager.addText({
       text: 'Add body text. Double-click to edit content directly on canvas.',
-      fontSize: 16,
+      fontSizePt: DEFAULT_TEXT_SIZES_PT.body,
       fontWeight: 'normal',
       fontFamily: 'Inter, sans-serif',
       fill: '#475569',
-      width: 340,
+      width: Math.max(150, artworkWidth * 0.55),
     });
   };
 
   const handleAddPreset = (asset: DesignAsset) => {
     if (!canvasManager) return;
     const config = asset.fabric_json || {};
-    
-    canvasManager.addText({
+    const configuredPoints = Number(
+      config.fontSizePt || asset.metadata?.fontSizePt || 0
+    );
+    const configuredWidth = Number(config.width) || Math.max(180, artworkWidth * 0.65);
+
+    void canvasManager.addText({
       ...config,
       text: config.text || asset.name,
-      width: 550,
+      width: configuredWidth,
+      fontSizePt: configuredPoints > 0 ? configuredPoints : undefined,
       textAlign: config.textAlign || 'center',
       assetId: asset.id,
       provider: asset.provider || 'admin',
@@ -105,6 +137,15 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
   const handleUpdateProperty = (prop: keyof SelectedObjectState, val: any) => {
     if (!canvasManager) return;
     canvasManager.updateSelectedProperty(prop, val);
+  };
+
+  const handleFontSizePtChange = (points: number) => {
+    if (!canvasManager) return;
+    const safePoints = Math.max(1, Math.min(500, points || 1));
+    handleUpdateProperty(
+      'fontSize',
+      pointsToCanvasPixels(safePoints, canvasManager)
+    );
   };
 
   return (
@@ -145,15 +186,74 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
             />
           </div>
 
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-semibold text-purple-900">
+                Font Size
+              </label>
+              <span className="text-[9px] font-bold uppercase tracking-wider text-purple-500">
+                Points (pt)
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleFontSizePtChange(currentFontSizePt - 1)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-purple-200 bg-white text-purple-700 transition hover:bg-purple-100"
+                title="Decrease font size"
+              >
+                <Minus className="h-3.5 w-3.5" />
+              </button>
+              <div className="relative flex-1">
+                <input
+                  type="number"
+                  min="1"
+                  max="500"
+                  step="1"
+                  value={currentFontSizePt}
+                  onChange={(event) =>
+                    handleFontSizePtChange(Number(event.target.value))
+                  }
+                  className="h-8 w-full rounded-lg border border-purple-200 bg-white px-2 pr-8 text-center text-xs font-bold text-gray-900 outline-none focus:ring-2 focus:ring-purple-400"
+                />
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400">
+                  pt
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleFontSizePtChange(currentFontSizePt + 1)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-purple-200 bg-white text-purple-700 transition hover:bg-purple-100"
+                title="Increase font size"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="flex gap-1">
+              {[8, 10, 12, 14, 18, 24, 32, 48].map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => handleFontSizePtChange(size)}
+                  className={`flex-1 rounded-md border py-1 text-[9px] font-bold transition ${Math.round(currentFontSizePt) === size
+                      ? 'border-purple-600 bg-purple-600 text-white'
+                      : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-100'
+                    }`}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="space-y-2 pt-1 border-t border-purple-200/60">
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-semibold text-purple-900">Border / Outline</label>
               <button
                 type="button"
                 onClick={() => handleUpdateProperty('strokeWidth', currentStrokeWidth > 0 ? 0 : 3)}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition ${
-                  currentStrokeWidth > 0 ? 'bg-purple-600 border-purple-600 text-white' : 'bg-white border-purple-200 text-purple-700 hover:bg-purple-100'
-                }`}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition ${currentStrokeWidth > 0 ? 'bg-purple-600 border-purple-600 text-white' : 'bg-white border-purple-200 text-purple-700 hover:bg-purple-100'
+                  }`}
               >
                 {currentStrokeWidth > 0 ? 'Border ON' : '+ Add Border'}
               </button>
@@ -188,18 +288,21 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
         <button onClick={handleAddHeading} className="w-full text-left p-3.5 rounded-xl border border-gray-200 bg-white hover:bg-purple-50 transition group">
           <div className="flex items-center justify-between">
             <span className="text-xl font-extrabold text-gray-900 group-hover:text-purple-700">Add a heading</span>
+            <span className="text-[10px] font-bold text-gray-400">32 pt</span>
             <Plus className="w-4 h-4 text-gray-400" />
           </div>
         </button>
         <button onClick={handleAddSubheading} className="w-full text-left p-3 rounded-xl border border-gray-200 bg-white hover:bg-purple-50 transition group">
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-800 group-hover:text-purple-700">Add a subheading</span>
+            <span className="text-[10px] font-bold text-gray-400">20 pt</span>
             <Plus className="w-4 h-4 text-gray-400" />
           </div>
         </button>
         <button onClick={handleAddBody} className="w-full text-left p-2.5 rounded-xl border border-gray-200 bg-white hover:bg-purple-50 transition group">
           <div className="flex items-center justify-between">
             <span className="text-xs text-gray-600 group-hover:text-purple-700">Add body text</span>
+            <span className="text-[10px] font-bold text-gray-400">11 pt</span>
             <Plus className="w-4 h-4 text-gray-400" />
           </div>
         </button>

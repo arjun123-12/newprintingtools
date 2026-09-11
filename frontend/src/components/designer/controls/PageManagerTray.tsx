@@ -163,9 +163,9 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
               title={`Switch to ${label}`}
             >
               <div
-                className={`relative flex h-[44px] w-[72px] items-center justify-center overflow-hidden rounded-[3px] bg-white transition-colors ${isActive
-                    ? 'border-2 border-sky-500'
-                    : 'border-2 border-gray-300 hover:border-gray-500'
+                className={`relative flex h-[84px] w-[120px] item-center justify-center overflow-hidden rounded-[3px] bg-white transition-colors ${isActive
+                  ? 'border-2 border-sky-500'
+                  : 'border-2 border-gray-300 hover:border-gray-500'
                   }`}
               >
                 {thumbSrc ? (
@@ -189,8 +189,8 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
 
               <span
                 className={`text-[12px] leading-none ${isActive
-                    ? 'font-semibold text-black dark:text-white'
-                    : 'font-normal text-gray-800 group-hover:text-black dark:text-gray-200 dark:group-hover:text-white'
+                  ? 'font-semibold text-black dark:text-white'
+                  : 'font-normal text-gray-800 group-hover:text-black dark:text-gray-200 dark:group-hover:text-white'
                   }`}
               >
                 {label}

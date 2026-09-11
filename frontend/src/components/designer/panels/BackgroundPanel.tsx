@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import NextImage from 'next/image';
 import {
   Search,
@@ -8,7 +8,6 @@ import {
   RotateCcw,
   Layers,
   Sliders,
-  Sparkles,
   Palette,
   Image as ImageIcon,
   Check,
@@ -21,18 +20,75 @@ import {
   ArrowLeftRight,
   Plus,
   Trash2,
-  CircleDot,
-  Compass,
+  RefreshCw,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { BackgroundSettings } from '@/types/designer';
 import { ColorPicker } from '../controls/ColorPicker';
 import {
-  SOLID_COLOR_PALETTES,
   GRADIENT_PRESETS,
   GradientPreset,
 } from '../data/backgroundsData';
 import { DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
+import { formatImageUrl } from '@/utils/imageUrl';
+
+export interface UnifiedBackgroundItem {
+  id: string;
+  name: string;
+  url: string;
+  thumbnailUrl: string;
+  categoryName: string;
+  tags?: string[];
+  isAdmin: boolean;
+  assetType?: string;
+}
+
+const BACKGROUND_PAGE_SIZE = 100;
+
+const getAssetFileUrl = (asset: DesignAsset): string =>
+  asset.file_url || (asset as DesignAsset & { asset_url?: string }).asset_url || '';
+
+const getAssetThumbnailUrl = (asset: DesignAsset): string =>
+  asset.thumbnail_url ||
+  (asset as DesignAsset & { asset_thumbnail_url?: string }).asset_thumbnail_url ||
+  getAssetFileUrl(asset);
+
+/** Fetch every page of active background assets from the public designer API. */
+const fetchAllBackgroundAssets = async (): Promise<DesignAsset[]> => {
+  const firstPage = await designAssetService.getPublicAssets({
+    asset_type: 'background',
+    page: 1,
+    per_page: BACKGROUND_PAGE_SIZE,
+    sort: 'sort_order',
+  });
+
+  const remainingPageNumbers = Array.from(
+    { length: Math.max(0, firstPage.last_page - 1) },
+    (_, index) => index + 2
+  );
+
+  const remainingPages = await Promise.all(
+    remainingPageNumbers.map((page) =>
+      designAssetService.getPublicAssets({
+        asset_type: 'background',
+        page,
+        per_page: BACKGROUND_PAGE_SIZE,
+        sort: 'sort_order',
+      })
+    )
+  );
+
+  return [firstPage, ...remainingPages]
+    .flatMap((response) => response.data || [])
+    .filter(
+      (asset) =>
+        asset.asset_type === 'background' &&
+        asset.is_active !== false &&
+        Boolean(getAssetFileUrl(asset))
+    );
+};
 
 interface BackgroundPanelProps {
   canvasManager: CanvasManager | null;
@@ -56,9 +112,11 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [bgAssets, setBgAssets] = useState<DesignAsset[]>([]);
+  const [unifiedItems, setUnifiedItems] = useState<UnifiedBackgroundItem[]>([]);
   const [bgCategories, setBgCategories] = useState<DesignAssetCategory[]>([]);
   const [loadingAssets, setLoadingAssets] = useState(true);
+  const [applyingBackgroundId, setApplyingBackgroundId] = useState<string | null>(null);
+  const [assetError, setAssetError] = useState<string>('');
 
   // Sync with CanvasManager background state
   useEffect(() => {
@@ -84,35 +142,93 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
     };
   }, [canvasManager]);
 
-  useEffect(() => {
-    const fetchBackgrounds = async () => {
-      try {
-        setLoadingAssets(true);
-        const [assetsRes, catsRes] = await Promise.all([
-          designAssetService.getPublicAssets({ asset_type: 'background', per_page: 50 }),
-          designAssetService.getPublicCategories('background')
-        ]);
-        setBgAssets(assetsRes.data);
-        setBgCategories(catsRes);
-      } catch (err) {
-        console.error('Failed to load backgrounds', err);
-      } finally {
-        setLoadingAssets(false);
-      }
-    };
-    fetchBackgrounds();
+  const fetchBackgrounds = useCallback(async () => {
+    try {
+      setLoadingAssets(true);
+      setAssetError('');
+      const [assetsRes, catsRes] = await Promise.all([
+        fetchAllBackgroundAssets(),
+        designAssetService.getPublicCategories('background'),
+      ]);
+
+      const adminItems: UnifiedBackgroundItem[] = assetsRes
+        .map((asset) => {
+          const fullUrl = getAssetFileUrl(asset);
+          const thumbUrl = getAssetThumbnailUrl(asset);
+          return {
+            id: `admin-${asset.id}`,
+            name: asset.name,
+            url: fullUrl,
+            thumbnailUrl: thumbUrl,
+            categoryName: asset.category?.name || 'Admin Uploads',
+            tags: [asset.name, asset.asset_type, 'admin', 'upload'],
+            isAdmin: true,
+            assetType: asset.asset_type,
+          };
+        });
+
+      setUnifiedItems(adminItems);
+      setBgCategories(
+        (catsRes || []).filter(
+          (category) =>
+            category.asset_type === 'background' &&
+            category.is_active !== false
+        )
+      );
+    } catch (err) {
+      console.error('Failed to load backgrounds', err);
+      setUnifiedItems([]);
+      setBgCategories([]);
+      setAssetError('Could not load background images from the admin library.');
+    } finally {
+      setLoadingAssets(false);
+    }
   }, []);
 
-  // Filter stock backgrounds
-  const filteredBackgrounds = bgAssets.filter((item) => {
-    const matchesCategory =
-      selectedCategory === 'All' || item.category?.name?.toLowerCase() === selectedCategory.toLowerCase();
-    const matchesSearch =
-      !searchQuery.trim() ||
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.category?.name?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  useEffect(() => {
+    fetchBackgrounds();
+  }, [fetchBackgrounds]);
+
+  // Derived available categories for filter pills
+  const availableCategories = useMemo(() => {
+    const set = new Set<string>();
+    set.add('All');
+
+    bgCategories.forEach((c) => {
+      if (c.name) set.add(c.name);
+    });
+
+    unifiedItems.forEach((i) => {
+      if (i.categoryName) {
+        set.add(i.categoryName);
+      }
+    });
+
+    return Array.from(set);
+  }, [unifiedItems, bgCategories]);
+
+  // Filter stock backgrounds and admin assets
+  const filteredBackgrounds = useMemo(() => {
+    return unifiedItems.filter((item) => {
+      let matchesCategory = false;
+      if (selectedCategory === 'All') {
+        matchesCategory = true;
+      } else {
+        matchesCategory =
+          item.categoryName.toLowerCase() === selectedCategory.toLowerCase() ||
+          Boolean(item.tags?.some((t) => t.toLowerCase() === selectedCategory.toLowerCase()));
+      }
+
+      const query = searchQuery.trim().toLowerCase();
+      const matchesSearch =
+        !query ||
+        item.name.toLowerCase().includes(query) ||
+        item.categoryName.toLowerCase().includes(query) ||
+        Boolean(item.tags?.some((t) => t.toLowerCase().includes(query)));
+
+      return matchesCategory && matchesSearch;
+    });
+  }, [unifiedItems, selectedCategory, searchQuery]);
 
   // Action handlers
   const handleSelectColor = (color: string) => {
@@ -186,18 +302,41 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
     applyGradient(type, gradientAngle, gradientStops);
   };
 
-  const handleSelectImage = async (item: any) => {
-    if (!canvasManager) return;
-    await canvasManager.setBackgroundImage(item.url, {
-      name: item.title,
-      fit: 'cover',
-      scale: 1.0,
-      offsetX: 0,
-      offsetY: 0,
-      opacity: 1.0,
-      blur: 0,
-    });
-    setActiveSubTab('adjust');
+  const handleSelectImage = async (item: UnifiedBackgroundItem) => {
+    if (!canvasManager || applyingBackgroundId) return;
+    const targetUrl = formatImageUrl(item.url);
+    if (!targetUrl) return;
+
+    try {
+      setAssetError('');
+      setApplyingBackgroundId(item.id);
+      await canvasManager.setBackgroundImage(targetUrl, {
+        name: item.name,
+        fit: 'cover',
+        scale: 1.0,
+        offsetX: 0,
+        offsetY: 0,
+        opacity: 1.0,
+        blur: 0,
+      });
+      setActiveSubTab('adjust');
+    } catch (err) {
+      console.error('Failed to apply artwork background:', err);
+      setAssetError('Could not apply this image as the artwork background.');
+    } finally {
+      setApplyingBackgroundId(null);
+    }
+  };
+
+  const isItemActive = (item: UnifiedBackgroundItem) => {
+    if (bgSettings.type !== 'image' || !bgSettings.image) return false;
+    const activeUrl = bgSettings.image.url;
+    const formattedItemUrl = formatImageUrl(item.url);
+    return (
+      activeUrl === item.url ||
+      activeUrl === formattedItemUrl ||
+      bgSettings.image.name === item.name
+    );
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -288,11 +427,10 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
           <button
             type="button"
             onClick={() => setActiveSubTab('photos')}
-            className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1.5 ${
-              activeSubTab === 'photos'
-                ? 'bg-white text-blue-600 shadow-xs font-bold'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
+            className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1.5 ${activeSubTab === 'photos'
+              ? 'bg-white text-blue-600 shadow-xs font-bold'
+              : 'text-gray-600 hover:text-gray-900'
+              }`}
           >
             <ImageIcon className="w-3.5 h-3.5" />
             <span>Textures</span>
@@ -301,11 +439,10 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
           <button
             type="button"
             onClick={() => setActiveSubTab('colors')}
-            className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1.5 ${
-              activeSubTab === 'colors'
-                ? 'bg-white text-blue-600 shadow-xs font-bold'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
+            className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1.5 ${activeSubTab === 'colors'
+              ? 'bg-white text-blue-600 shadow-xs font-bold'
+              : 'text-gray-600 hover:text-gray-900'
+              }`}
           >
             <Palette className="w-3.5 h-3.5" />
             <span>Colors</span>
@@ -314,11 +451,10 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
           <button
             type="button"
             onClick={() => setActiveSubTab('adjust')}
-            className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1.5 ${
-              activeSubTab === 'adjust'
-                ? 'bg-white text-blue-600 shadow-xs font-bold'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
+            className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1.5 ${activeSubTab === 'adjust'
+              ? 'bg-white text-blue-600 shadow-xs font-bold'
+              : 'text-gray-600 hover:text-gray-900'
+              }`}
           >
             <Sliders className="w-3.5 h-3.5" />
             <span>Adjust</span>
@@ -353,62 +489,87 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
               </button>
             </div>
 
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search marble, wood, texture..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-gray-100/80 border border-gray-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
-              />
+            {/* Search Input & Refresh Button */}
+            <div className="flex items-center gap-1.5">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search admin backgrounds..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 bg-gray-100/80 border border-gray-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={fetchBackgrounds}
+                title="Refresh backgrounds library"
+                disabled={loadingAssets}
+                className="p-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition shadow-2xs shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingAssets ? 'animate-spin text-purple-600' : ''}`} />
+              </button>
             </div>
+
+            {assetError && (
+              <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-[11px] text-red-700">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{assetError}</span>
+              </div>
+            )}
 
             {/* Category Pills */}
             <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar text-xs">
-              <button
-                type="button"
-                onClick={() => setSelectedCategory('All')}
-                className={`px-3 py-1.5 rounded-full font-medium whitespace-nowrap transition shadow-2xs ${
-                  selectedCategory === 'All'
+              {availableCategories.map((catName) => (
+                <button
+                  key={catName}
+                  type="button"
+                  onClick={() => setSelectedCategory(catName)}
+                  className={`px-3 py-1.5 rounded-full font-medium whitespace-nowrap transition shadow-2xs ${selectedCategory === catName
                     ? 'bg-purple-600 text-white'
                     : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                All
-              </button>
-              {bgCategories.map((cat) => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => setSelectedCategory(cat.name)}
-                  className={`px-3 py-1.5 rounded-full font-medium whitespace-nowrap transition shadow-2xs ${
-                    selectedCategory === cat.name
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-                  }`}
+                    }`}
                 >
-                  {cat.name}
+                  {catName}
                 </button>
               ))}
             </div>
 
+            {/* Count & Status */}
+            <div className="flex items-center justify-between text-[11px] text-gray-500 px-0.5">
+              <span>{filteredBackgrounds.length} {filteredBackgrounds.length === 1 ? 'background' : 'backgrounds'}</span>
+              {unifiedItems.some((i) => i.isAdmin) && (
+                <span className="text-[10px] text-purple-700 font-semibold bg-purple-50 border border-purple-100 px-1.5 py-0.5 rounded-md">
+                  {unifiedItems.filter((i) => i.isAdmin).length} Admin Backgrounds
+                </span>
+              )}
+            </div>
+
             {/* Background Gallery Grid */}
             {loadingAssets ? (
-              <div className="flex justify-center p-4"><span className="text-xs text-gray-500">Loading...</span></div>
+              <div className="flex flex-col items-center justify-center p-8 text-gray-400 space-y-2">
+                <Loader2 className="w-5 h-5 animate-spin text-purple-600" />
+                <span className="text-xs font-medium">Loading backgrounds...</span>
+              </div>
             ) : (
               <div className="grid grid-cols-2 gap-2 mt-2">
                 {filteredBackgrounds.map((bg) => {
-                  const bgUrl = bg.thumbnail_url || bg.file_url;
+                  const bgUrl = formatImageUrl(bg.thumbnailUrl || bg.url);
+                  const active = isItemActive(bg);
+                  const isApplying = applyingBackgroundId === bg.id;
                   return (
                     <button
                       key={bg.id}
                       type="button"
-                      onClick={() => handleSelectImage(bg)}
-                      className="group relative rounded-xl border border-gray-200 bg-gray-50 hover:border-purple-500 overflow-hidden cursor-pointer transition shadow-2xs aspect-[4/3]"
+                      onClick={() => void handleSelectImage(bg)}
+                      disabled={!canvasManager || Boolean(applyingBackgroundId)}
+                      className={`group relative rounded-xl border bg-gray-50 overflow-hidden cursor-pointer transition shadow-2xs aspect-[4/3] flex flex-col text-left ${active
+                        ? 'border-blue-600 ring-2 ring-blue-500/30'
+                        : 'border-gray-200 hover:border-purple-500'
+                        } disabled:cursor-wait disabled:opacity-70`}
                     >
-                      {bgUrl && (
+                      {bgUrl ? (
                         <NextImage
                           src={bgUrl}
                           alt={bg.name}
@@ -417,15 +578,36 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                           sizes="(max-width: 768px) 50vw, 200px"
                           className="object-cover group-hover:scale-105 transition duration-200"
                         />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
+                          <ImageIcon className="w-6 h-6" />
+                        </div>
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
+
+                      {/* Badge for Admin uploaded assets */}
+                      {bg.isAdmin && (
+                        <div className="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.5 rounded-md bg-purple-600/90 text-white text-[9px] font-bold tracking-wider uppercase shadow-xs backdrop-blur-xs">
+                          Admin
+                        </div>
+                      )}
+
+                      {/* Title overlay on hover */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2 z-10">
                         <span className="text-[11px] font-medium text-white line-clamp-1">
                           {bg.name}
                         </span>
                       </div>
-                      {bgSettings.type === 'image' && bgSettings.image?.url === bg.file_url && (
-                        <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-xs">
+
+                      {/* Selected Checkmark Indicator */}
+                      {active && (
+                        <div className="absolute top-1.5 right-1.5 z-20 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-xs">
                           <Check className="w-3 h-3" />
+                        </div>
+                      )}
+
+                      {isApplying && (
+                        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/45">
+                          <Loader2 className="h-5 w-5 animate-spin text-white" />
                         </div>
                       )}
                     </button>
@@ -435,9 +617,21 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
             )}
 
             {filteredBackgrounds.length === 0 && !loadingAssets && (
-              <div className="py-8 text-center text-gray-400 space-y-1">
+              <div className="py-8 text-center text-gray-400 space-y-2">
                 <ImageIcon className="w-8 h-8 mx-auto text-gray-300" />
-                <p>No backgrounds found</p>
+                <p className="font-medium text-xs text-gray-500">No backgrounds found</p>
+                <p className="text-[10px] text-gray-400">
+                  Upload an active Background asset from the admin panel.
+                </p>
+                {selectedCategory !== 'All' && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategory('All')}
+                    className="text-xs text-purple-600 hover:text-purple-700 font-semibold"
+                  >
+                    View all backgrounds
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -491,22 +685,20 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                   <button
                     type="button"
                     onClick={() => handleToggleGradientType('linear')}
-                    className={`py-1 text-[11px] font-semibold rounded-md transition ${
-                      gradientType === 'linear'
-                        ? 'bg-white text-blue-700 shadow-xs'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
+                    className={`py-1 text-[11px] font-semibold rounded-md transition ${gradientType === 'linear'
+                      ? 'bg-white text-blue-700 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                      }`}
                   >
                     Linear
                   </button>
                   <button
                     type="button"
                     onClick={() => handleToggleGradientType('radial')}
-                    className={`py-1 text-[11px] font-semibold rounded-md transition ${
-                      gradientType === 'radial'
-                        ? 'bg-white text-blue-700 shadow-xs'
-                        : 'text-gray-600 hover:text-gray-900'
-                    }`}
+                    className={`py-1 text-[11px] font-semibold rounded-md transition ${gradientType === 'radial'
+                      ? 'bg-white text-blue-700 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                      }`}
                   >
                     Radial
                   </button>
@@ -550,8 +742,8 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                       {idx === 0
                         ? 'Start'
                         : idx === gradientStops.length - 1
-                        ? 'End'
-                        : 'Mid'}
+                          ? 'End'
+                          : 'Mid'}
                     </span>
                     <input
                       type="color"
@@ -601,11 +793,10 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                         key={deg}
                         type="button"
                         onClick={() => handleCustomGradientAngleChange(deg)}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border transition ${
-                          gradientAngle === deg
-                            ? 'bg-blue-50 border-blue-400 text-blue-700'
-                            : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
-                        }`}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border transition ${gradientAngle === deg
+                          ? 'bg-blue-50 border-blue-400 text-blue-700'
+                          : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+                          }`}
                       >
                         {deg}°
                       </button>
@@ -630,12 +821,11 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                     onClick={() => handleSelectGradient(grad)}
                     style={{ background: grad.css }}
                     title={grad.name}
-                    className={`h-12 rounded-lg border border-gray-200 relative shadow-xs hover:scale-105 transition ${
-                      bgSettings.type === 'gradient' &&
+                    className={`h-12 rounded-lg border border-gray-200 relative shadow-xs hover:scale-105 transition ${bgSettings.type === 'gradient' &&
                       bgSettings.gradient?.stops[0]?.color === grad.stops[0]?.color
-                        ? 'ring-2 ring-blue-500 border-blue-600 shadow-md'
-                        : ''
-                    }`}
+                      ? 'ring-2 ring-blue-500 border-blue-600 shadow-md'
+                      : ''
+                      }`}
                   >
                     {bgSettings.type === 'gradient' &&
                       bgSettings.gradient?.stops[0]?.color === grad.stops[0]?.color && (
@@ -701,11 +891,10 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                     <button
                       type="button"
                       onClick={() => handleImageFitChange('cover')}
-                      className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1 ${
-                        bgSettings.image?.fit === 'cover'
-                          ? 'bg-white text-blue-600 shadow-xs font-bold'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
+                      className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1 ${bgSettings.image?.fit === 'cover'
+                        ? 'bg-white text-blue-600 shadow-xs font-bold'
+                        : 'text-gray-600 hover:text-gray-900'
+                        }`}
                     >
                       <Maximize2 className="w-3.5 h-3.5" />
                       <span>Cover</span>
@@ -713,11 +902,10 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                     <button
                       type="button"
                       onClick={() => handleImageFitChange('contain')}
-                      className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1 ${
-                        bgSettings.image?.fit === 'contain'
-                          ? 'bg-white text-blue-600 shadow-xs font-bold'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
+                      className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1 ${bgSettings.image?.fit === 'contain'
+                        ? 'bg-white text-blue-600 shadow-xs font-bold'
+                        : 'text-gray-600 hover:text-gray-900'
+                        }`}
                     >
                       <Minimize2 className="w-3.5 h-3.5" />
                       <span>Contain</span>
@@ -725,11 +913,10 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                     <button
                       type="button"
                       onClick={() => handleImageFitChange('stretch')}
-                      className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1 ${
-                        bgSettings.image?.fit === 'stretch'
-                          ? 'bg-white text-blue-600 shadow-xs font-bold'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
+                      className={`py-1.5 px-2 rounded-md font-semibold text-center transition flex items-center justify-center gap-1 ${bgSettings.image?.fit === 'stretch'
+                        ? 'bg-white text-blue-600 shadow-xs font-bold'
+                        : 'text-gray-600 hover:text-gray-900'
+                        }`}
                     >
                       <StretchHorizontal className="w-3.5 h-3.5" />
                       <span>Stretch</span>

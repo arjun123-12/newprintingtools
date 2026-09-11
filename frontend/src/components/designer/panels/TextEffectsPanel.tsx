@@ -59,6 +59,8 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
   canvasManager,
   selected,
 }) => {
+  const isEditableText =
+    selected?.type === 'i-text' || selected?.type === 'textbox';
   const [activeTab, setActiveTab] = useState<'styles' | 'filters' | 'adjust'>('styles');
   const [activeFilter, setActiveFilter] = useState<string>('none');
   const [filterIntensity, setFilterIntensity] = useState<number>(100);
@@ -76,6 +78,14 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
   // Sync state from canvas
   useEffect(() => {
     if (!canvasManager) return;
+
+    // Image filters rasterize/cache pixels and are not appropriate for
+    // editable vector text. Text keeps only Fabric-native style effects.
+    if (isEditableText) {
+      setActiveTab('styles');
+      return;
+    }
+
     const current = canvasManager.getImageAdjustments();
     setActiveFilter(current.activeFilter || 'none');
     setFilterIntensity(current.intensity ?? 100);
@@ -88,7 +98,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       hue: current.hue || 0,
       warmth: current.warmth || 0,
     });
-  }, [canvasManager, selected]);
+  }, [canvasManager, selected, isEditableText]);
 
   const currentCurve = selected?.curve || 0;
 
@@ -149,50 +159,51 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       <div className="flex items-center justify-between border-b border-gray-100 pb-2">
         <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
           <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-          <span>Effects, Filters & Adjust</span>
+          <span>{isEditableText ? 'Vector Text Effects' : 'Effects, Filters & Adjust'}</span>
         </span>
       </div>
 
       {/* Sub-Tab Navigation (Canva Style) */}
-      <div className="grid grid-cols-3 gap-1 bg-gray-100 p-1 rounded-xl text-xs font-bold text-gray-600">
+      <div className={`grid ${isEditableText ? 'grid-cols-1' : 'grid-cols-3'} gap-1 bg-gray-100 p-1 rounded-xl text-xs font-bold text-gray-600`}>
         <button
           type="button"
           onClick={() => setActiveTab('styles')}
-          className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
-            activeTab === 'styles'
+          className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'styles'
               ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
               : 'hover:text-gray-900'
-          }`}
+            }`}
         >
           <Sparkles className="w-3 h-3" />
           <span>Effects</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('filters')}
-          className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
-            activeTab === 'filters'
-              ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
-              : 'hover:text-gray-900'
-          }`}
-        >
-          <Palette className="w-3 h-3" />
-          <span>Filters</span>
-        </button>
+        {!isEditableText && (
+          <>
+            <button
+              type="button"
+              onClick={() => setActiveTab('filters')}
+              className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'filters'
+                  ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
+                  : 'hover:text-gray-900'
+                }`}
+            >
+              <Palette className="w-3 h-3" />
+              <span>Filters</span>
+            </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('adjust')}
-          className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${
-            activeTab === 'adjust'
-              ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
-              : 'hover:text-gray-900'
-          }`}
-        >
-          <SlidersHorizontal className="w-3 h-3" />
-          <span>Adjust</span>
-        </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('adjust')}
+              className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'adjust'
+                  ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
+                  : 'hover:text-gray-900'
+                }`}
+            >
+              <SlidersHorizontal className="w-3 h-3" />
+              <span>Adjust</span>
+            </button>
+          </>
+        )}
       </div>
 
       {/* TAB 1: Style Effects & Curved Text */}
@@ -285,11 +296,10 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                   key={p.label}
                   type="button"
                   onClick={() => handleCurveChange(p.val)}
-                  className={`py-1 text-[10px] font-bold rounded-lg border transition ${
-                    currentCurve === p.val
+                  className={`py-1 text-[10px] font-bold rounded-lg border transition ${currentCurve === p.val
                       ? 'bg-blue-600 border-blue-600 text-white shadow-2xs'
                       : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
-                  }`}
+                    }`}
                 >
                   {p.label}
                 </button>
@@ -300,7 +310,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       )}
 
       {/* TAB 2: Canva Photo & Graphic Filters */}
-      {activeTab === 'filters' && (
+      {!isEditableText && activeTab === 'filters' && (
         <div className="space-y-4 animate-in fade-in duration-150">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">
@@ -373,7 +383,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       )}
 
       {/* TAB 3: Fine-Tune Adjustments */}
-      {activeTab === 'adjust' && (
+      {!isEditableText && activeTab === 'adjust' && (
         <div className="space-y-3.5 animate-in fade-in duration-150">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">

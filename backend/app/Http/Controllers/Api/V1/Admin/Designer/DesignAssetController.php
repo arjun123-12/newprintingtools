@@ -40,6 +40,23 @@ class DesignAssetController extends Controller
         'avif',
     ];
 
+    private const ALLOWED_MASK_EXTENSIONS = [
+        'svg',
+        'png',
+        'webp',
+    ];
+
+    private const ALLOWED_FRAME_MASK_TYPES = [
+        'rectangle',
+        'rounded_rectangle',
+        'circle',
+        'ellipse',
+        'polygon',
+        'svg_path',
+        'svg_mask',
+        'alpha_mask',
+    ];
+
     /**
      * These formats can be stored, but browsers and Fabric.js cannot render
      * them directly. Supply a PNG, JPG, WebP or AVIF thumbnail for preview.
@@ -65,8 +82,13 @@ class DesignAssetController extends Controller
             );
         }
 
-        if ($request->filled('asset_type')) {
-            $query->where('asset_type', (string) $request->input('asset_type'));
+        if ($request->filled('asset_type') && $request->input('asset_type') !== 'all') {
+            $types = array_filter(explode(',', (string) $request->input('asset_type')));
+            if (count($types) > 1) {
+                $query->whereIn('asset_type', $types);
+            } else {
+                $query->where('asset_type', reset($types));
+            }
         }
 
         if ($request->filled('category_id')) {
@@ -94,7 +116,7 @@ class DesignAssetController extends Controller
             'category_id' => ['nullable', 'uuid', 'exists:design_asset_categories,id'],
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['required', 'string', 'max:255', 'unique:design_assets,slug'],
-            'asset_type' => ['required', 'string', 'in:text,frame,photo,element,background'],
+            'asset_type' => ['required', 'string', 'in:text,frame,photo,element,background,shape'],
             'fabric_json' => ['nullable', 'array'],
             'metadata' => ['nullable', 'array'],
             'provider' => ['nullable', 'string', 'max:255'],
@@ -105,12 +127,15 @@ class DesignAssetController extends Controller
             'sort_order' => ['sometimes', 'integer'],
             'file' => $this->assetFileRules(),
             'thumbnail' => $this->thumbnailFileRules(),
+            'mask_file' => $this->maskFileRules(),
+            'mask_type' => ['nullable', 'string', Rule::in(self::ALLOWED_FRAME_MASK_TYPES)],
+            'remove_mask' => ['sometimes', 'boolean'],
         ]);
 
         $validated['provider'] = $validated['provider'] ?? 'admin';
 
         $assetData = collect($validated)
-            ->except(['file', 'thumbnail'])
+            ->except(['file', 'thumbnail', 'mask_file', 'mask_type', 'remove_mask'])
             ->toArray();
 
         if ($request->hasFile('file')) {
@@ -130,6 +155,27 @@ class DesignAssetController extends Controller
             // If user did not provide an explicit thumbnail, resolve or generate a web-renderable thumbnail preview.
             if (!$request->hasFile('thumbnail')) {
                 $autoThumb = $this->resolveThumbnailForAsset($storedFile, $validated['name'] ?? null);
+                if ($autoThumb) {
+                    $assetData['thumbnail_path'] = $autoThumb['path'];
+                    $assetData['thumbnail_url'] = $autoThumb['url'];
+                }
+            }
+        }
+
+        if ($request->hasFile('mask_file')) {
+            $storedMask = $this->storeUploadedFile(
+                $request->file('mask_file'),
+                'designer/frames/masks'
+            );
+
+            $assetData = $this->applyStoredMask(
+                $assetData,
+                $storedMask,
+                $validated['mask_type'] ?? null
+            );
+
+            if (!$request->hasFile('thumbnail') && empty($assetData['thumbnail_path'])) {
+                $autoThumb = $this->resolveThumbnailForAsset($storedMask, $validated['name'] ?? null);
                 if ($autoThumb) {
                     $assetData['thumbnail_path'] = $autoThumb['path'];
                     $assetData['thumbnail_url'] = $autoThumb['url'];
@@ -181,7 +227,7 @@ class DesignAssetController extends Controller
                 'max:255',
                 Rule::unique('design_assets', 'slug')->ignore($asset->id),
             ],
-            'asset_type' => ['sometimes', 'required', 'string', 'in:text,frame,photo,element,background'],
+            'asset_type' => ['sometimes', 'required', 'string', 'in:text,frame,photo,element,background,shape'],
             'fabric_json' => ['nullable', 'array'],
             'metadata' => ['nullable', 'array'],
             'provider' => ['nullable', 'string', 'max:255'],
@@ -192,15 +238,34 @@ class DesignAssetController extends Controller
             'sort_order' => ['sometimes', 'integer'],
             'file' => $this->assetFileRules(),
             'thumbnail' => $this->thumbnailFileRules(),
+            'mask_file' => $this->maskFileRules(),
+            'mask_type' => ['nullable', 'string', Rule::in(self::ALLOWED_FRAME_MASK_TYPES)],
+            'remove_mask' => ['sometimes', 'boolean'],
         ]);
 
         $assetData = collect($validated)
-            ->except(['file', 'thumbnail'])
+            ->except(['file', 'thumbnail', 'mask_file', 'mask_type', 'remove_mask'])
             ->toArray();
+
+        // Preserve nested fields that were not changed by the edit form.
+        if (array_key_exists('metadata', $assetData)) {
+            $assetData['metadata'] = array_replace_recursive(
+                $this->arrayValue($asset->metadata),
+                $this->arrayValue($assetData['metadata'])
+            );
+        }
+
+        if (array_key_exists('fabric_json', $assetData)) {
+            $assetData['fabric_json'] = array_replace_recursive(
+                $this->arrayValue($asset->fabric_json),
+                $this->arrayValue($assetData['fabric_json'])
+            );
+        }
 
         $oldPaths = array_values(array_filter([
             $asset->file_path,
             $asset->thumbnail_path,
+            $this->extractMaskPath($asset->metadata, $asset->fabric_json),
         ]));
 
         if ($request->hasFile('file')) {
@@ -215,7 +280,7 @@ class DesignAssetController extends Controller
             $assetData = $this->addSourceMetadata(
                 $assetData,
                 $storedFile['extension'],
-                is_array($asset->metadata) ? $asset->metadata : []
+                $this->arrayValue($asset->metadata)
             );
 
             if (!$request->hasFile('thumbnail')) {
@@ -229,6 +294,27 @@ class DesignAssetController extends Controller
                     $assetData['thumbnail_url'] = null;
                 }
             }
+        }
+
+        if ($request->hasFile('mask_file')) {
+            $storedMask = $this->storeUploadedFile(
+                $request->file('mask_file'),
+                'designer/frames/masks'
+            );
+
+            $assetData = $this->applyStoredMask(
+                $assetData,
+                $storedMask,
+                $validated['mask_type'] ?? null,
+                $this->arrayValue($asset->metadata),
+                $this->arrayValue($asset->fabric_json)
+            );
+        } elseif (($validated['remove_mask'] ?? false) === true) {
+            $assetData = $this->clearStoredMask(
+                $assetData,
+                $this->arrayValue($asset->metadata),
+                $this->arrayValue($asset->fabric_json)
+            );
         }
 
         if ($request->hasFile('thumbnail')) {
@@ -259,6 +345,7 @@ class DesignAssetController extends Controller
         $paths = array_unique(array_values(array_filter([
             $asset->file_path,
             $asset->thumbnail_path,
+            $this->extractMaskPath($asset->metadata, $asset->fabric_json),
         ])));
 
         $asset->delete();
@@ -290,15 +377,19 @@ class DesignAssetController extends Controller
             }
         }
 
-        if ($request->has('is_active')) {
+        foreach (['is_active', 'remove_mask'] as $field) {
+            if (!$request->has($field)) {
+                continue;
+            }
+
             $boolean = filter_var(
-                $request->input('is_active'),
+                $request->input($field),
                 FILTER_VALIDATE_BOOLEAN,
                 FILTER_NULL_ON_FAILURE
             );
 
             if ($boolean !== null) {
-                $request->merge(['is_active' => $boolean]);
+                $request->merge([$field => $boolean]);
             }
         }
 
@@ -335,6 +426,177 @@ class DesignAssetController extends Controller
         ];
     }
 
+    private function maskFileRules(): array
+    {
+        return [
+            'nullable',
+            'file',
+            'max:15360', // 15 MB
+            $this->extensionRule(
+                self::ALLOWED_MASK_EXTENSIONS,
+                'The frame mask must be SVG, transparent PNG or WebP.'
+            ),
+        ];
+    }
+
+    /**
+     * Write the stored mask into both metadata and fabric_json so old and new
+     * frontend frame renderers can resolve the same mask.
+     *
+     * @param array{path: string, url: string, extension: string, original_name: string} $storedMask
+     */
+    private function applyStoredMask(
+        array $assetData,
+        array $storedMask,
+        ?string $maskType = null,
+        array $existingMetadata = [],
+        array $existingFabric = []
+    ): array {
+        $metadata = array_replace_recursive(
+            $existingMetadata,
+            $this->arrayValue($assetData['metadata'] ?? [])
+        );
+        $frame = $this->arrayValue($metadata['frame'] ?? []);
+
+        $resolvedMaskType = $maskType
+            ?? ($frame['maskType'] ?? $frame['mask_type'] ?? null)
+            ?? ($storedMask['extension'] === 'svg' ? 'svg_mask' : 'alpha_mask');
+
+        $frame['maskType'] = $resolvedMaskType;
+        $frame['mask_type'] = $resolvedMaskType;
+        $frame['maskUrl'] = $storedMask['url'];
+        $frame['mask_url'] = $storedMask['url'];
+        $frame['maskPath'] = $storedMask['path'];
+        $frame['mask_path'] = $storedMask['path'];
+        $frame['maskFileName'] = $storedMask['original_name'];
+        $frame['mask_file_name'] = $storedMask['original_name'];
+        $frame['hasCustomMask'] = true;
+
+        $metadata['maskUrl'] = $storedMask['url'];
+        $metadata['mask_url'] = $storedMask['url'];
+        $metadata['maskPath'] = $storedMask['path'];
+        $metadata['mask_path'] = $storedMask['path'];
+        $metadata['frame'] = $frame;
+        $assetData['metadata'] = $metadata;
+
+        $fabric = array_replace_recursive(
+            $existingFabric,
+            $this->arrayValue($assetData['fabric_json'] ?? [])
+        );
+        $fabric['maskType'] = $resolvedMaskType;
+        $fabric['mask_type'] = $resolvedMaskType;
+        $fabric['maskUrl'] = $storedMask['url'];
+        $fabric['mask_url'] = $storedMask['url'];
+        $fabric['maskPath'] = $storedMask['path'];
+        $fabric['mask_path'] = $storedMask['path'];
+        $assetData['fabric_json'] = $fabric;
+
+        return $assetData;
+    }
+
+    private function clearStoredMask(
+        array $assetData,
+        array $existingMetadata = [],
+        array $existingFabric = []
+    ): array {
+        $metadata = array_replace_recursive(
+            $existingMetadata,
+            $this->arrayValue($assetData['metadata'] ?? [])
+        );
+        $frame = $this->arrayValue($metadata['frame'] ?? []);
+
+        foreach ([
+            'maskUrl',
+            'mask_url',
+            'maskPath',
+            'mask_path',
+            'maskFileName',
+            'mask_file_name',
+        ] as $key) {
+            $metadata[$key] = null;
+            $frame[$key] = null;
+        }
+
+        $frame['hasCustomMask'] = false;
+        $metadata['frame'] = $frame;
+        $assetData['metadata'] = $metadata;
+
+        $fabric = array_replace_recursive(
+            $existingFabric,
+            $this->arrayValue($assetData['fabric_json'] ?? [])
+        );
+
+        foreach (['maskUrl', 'mask_url', 'maskPath', 'mask_path'] as $key) {
+            $fabric[$key] = null;
+        }
+
+        $assetData['fabric_json'] = $fabric;
+
+        return $assetData;
+    }
+
+    private function extractMaskPath(mixed $metadata, mixed $fabricJson = null): ?string
+    {
+        $meta = $this->arrayValue($metadata);
+        $frame = $this->arrayValue($meta['frame'] ?? []);
+        $fabric = $this->arrayValue($fabricJson);
+
+        $path = $frame['maskPath']
+            ?? $frame['mask_path']
+            ?? $meta['maskPath']
+            ?? $meta['mask_path']
+            ?? $fabric['maskPath']
+            ?? $fabric['mask_path']
+            ?? null;
+
+        if (is_string($path) && $path !== '') {
+            return ltrim($path, '/');
+        }
+
+        $url = $frame['maskUrl']
+            ?? $frame['mask_url']
+            ?? $meta['maskUrl']
+            ?? $meta['mask_url']
+            ?? $fabric['maskUrl']
+            ?? $fabric['mask_url']
+            ?? null;
+
+        if (!is_string($url) || $url === '') {
+            return null;
+        }
+
+        $urlPath = parse_url($url, PHP_URL_PATH);
+        if (!is_string($urlPath)) {
+            return null;
+        }
+
+        $storageMarker = '/storage/';
+        $position = strpos($urlPath, $storageMarker);
+
+        return $position === false
+            ? null
+            : ltrim(substr($urlPath, $position + strlen($storageMarker)), '/');
+    }
+
+    private function arrayValue(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        if ($value instanceof \JsonSerializable) {
+            $serialized = $value->jsonSerialize();
+            return is_array($serialized) ? $serialized : [];
+        }
+
+        return [];
+    }
+
     private function extensionRule(array $allowed, string $message): Closure
     {
         return static function (
@@ -355,7 +617,7 @@ class DesignAssetController extends Controller
     }
 
     /**
-     * @return array{path: string, url: string, extension: string}
+     * @return array{path: string, url: string, extension: string, original_name: string}
      */
     private function storeUploadedFile(
         UploadedFile $file,
@@ -380,6 +642,7 @@ class DesignAssetController extends Controller
             'path' => $path,
             'url' => Storage::disk('public')->url($path),
             'extension' => $extension,
+            'original_name' => $file->getClientOriginalName(),
         ];
     }
 
@@ -421,6 +684,7 @@ class DesignAssetController extends Controller
         $currentPaths = array_values(array_filter([
             $asset->file_path,
             $asset->thumbnail_path,
+            $this->extractMaskPath($asset->metadata, $asset->fabric_json),
         ]));
 
         foreach (array_unique($oldPaths) as $oldPath) {
@@ -534,4 +798,3 @@ SVG;
         ];
     }
 }
-

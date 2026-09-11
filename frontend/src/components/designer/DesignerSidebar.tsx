@@ -14,11 +14,13 @@ import {
   ImagePlus,
   ChevronLeft,
   Smile,
+  Shapes,
 } from 'lucide-react';
 import { ActiveSidebarTab, SelectedObjectState, DesignerTemplate } from '@/types/designer';
 import { CanvasManager } from './canvas/CanvasManager';
 import { TemplatesPanel } from './panels/TemplatesPanel';
 import { ElementsPanel } from './panels/ElementsPanel';
+import { ShapesPanel } from './panels/ShapesPanel';
 import { FramesPanel } from './panels/FramesPanel';
 import { StockPhotosPanel } from './panels/StockPhotosPanel';
 import { PixabayPanel } from './panels/PixabayPanel';
@@ -54,6 +56,7 @@ interface TabItem {
 const SIDEBAR_TABS: TabItem[] = [
   { id: 'templates', label: 'Templates', icon: LayoutTemplate },
   { id: 'elements', label: 'Elements', icon: Sparkles },
+  { id: 'shapes', label: 'Shapes', icon: Shapes },
   { id: 'text', label: 'Text', icon: Type },
   { id: 'uploads', label: 'Uploads', icon: UploadCloud },
   { id: 'photos', label: 'Photos', icon: ImageIcon },
@@ -101,6 +104,7 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
     if (activeTab === 'photos') return 'Stock Photos';
     if (activeTab === 'icons') return 'Icons Library';
     if (activeTab === 'draw') return 'Illustrator Draw';
+    if (activeTab === 'shapes') return 'Shapes & Photo Fill';
     if (activeTab === 'border') return 'Stroke';
     return activeTab;
   };
@@ -191,6 +195,9 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
             )}
             {activeTab === 'elements' && (
               <ElementsPanel canvasManager={canvasManager} onSelectTab={onSelectTab} />
+            )}
+            {activeTab === 'shapes' && (
+              <ShapesPanel canvasManager={canvasManager} selected={selected} />
             )}
             {activeTab === 'frames' && <FramesPanel canvasManager={canvasManager} />}
             {activeTab === 'icons' && <IconsPanel canvasManager={canvasManager} />}

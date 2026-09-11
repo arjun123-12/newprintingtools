@@ -33,6 +33,7 @@ import {
   Wand2,
   Group as GroupIcon,
   Ungroup,
+  Maximize2,
 } from 'lucide-react';
 import { SelectedObjectState, BrushSettings, BrushType, ActiveSidebarTab } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -287,6 +288,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       selected.type === 'polygon' ||
       selected.type === 'line' ||
       selected.type === 'shape');
+
+  const isGroupedSelection =
+    selected &&
+    (selected.isMultiple ||
+      selected.type === 'group' ||
+      selected.type === 'activeSelection' ||
+      selected.type === 'activeselection');
 
   const isBold =
     selected &&
@@ -855,6 +863,19 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 <span>Replace Photo</span>
               </button>
 
+              {/* Photo Fit Toggle (Cover vs Contain) */}
+              {!selected.isCanvaPlaceholder && (
+                <button
+                  type="button"
+                  onClick={() => canvasManager?.toggleActiveFrameFit()}
+                  title={`Photo Fit: currently ${selected.photoFit || 'cover'}. Click to toggle.`}
+                  className="h-8 px-2.5 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100/80 text-indigo-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+                >
+                  <Maximize2 className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="capitalize">{selected.photoFit === 'contain' ? 'Fit: Contain' : 'Fit: Cover'}</span>
+                </button>
+              )}
+
               {/* Detach Image (Extract photo out of frame) */}
               {!selected.isCanvaPlaceholder && (
                 <button
@@ -1033,6 +1054,21 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </svg>
           </button>
 
+          {/* Fit Image into Shape Button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab('elements');
+              }
+            }}
+            title="Fit an image into this shape (Click to browse images, or drag any image over this shape)"
+            className="h-8 px-2.5 rounded-xl border border-purple-200 bg-purple-50/80 hover:bg-purple-100/80 text-purple-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+          >
+            <ImageIcon className="w-3.5 h-3.5 text-purple-600" />
+            <span>Fit Image</span>
+          </button>
+
           {/* Canva Corner Rounding Icon Button (for Rect / Shapes) */}
           {(selected.type === 'rect' || selected.type === 'shape') && (
             <div className="relative">
@@ -1059,6 +1095,115 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               )}
             </div>
           )}
+        </>
+      )}
+
+      {/* ================================================================ */}
+      {/* 3B. GROUP / MULTI-SELECTION VISUAL CONTROLS                      */}
+      {/* ================================================================ */}
+      {!isDrawing && isGroupedSelection && selected && (
+        <>
+          {/* Apply fill to every compatible child in the group */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
+              }
+            }}
+            title="Group colour (applies to compatible elements)"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
+              ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
+              : 'bg-white border-gray-200 hover:bg-gray-50'
+              }`}
+          >
+            <div
+              className="w-5 h-5 rounded-md border border-gray-300 shadow-2xs"
+              style={{ backgroundColor: selected.fill || '#2563eb' }}
+            />
+          </button>
+
+          {/* Group border: colour, width and dash style */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => togglePopover('border')}
+              title="Group border and stroke"
+              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'border' || (selected.strokeWidth || 0) > 0
+                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
+                <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
+                <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
+              </svg>
+            </button>
+
+            {activePopover === 'border' && (
+              <BorderStylePopover
+                strokeWidth={selected.strokeWidth || 0}
+                stroke={selected.stroke || '#000000'}
+                strokeDashArray={selected.strokeDashArray}
+                showCornerRadius={false}
+                onStrokeWidthChange={(width) => handleUpdate('strokeWidth', width)}
+                onStrokeDashArrayChange={(dash) => handleUpdate('strokeDashArray', dash as any)}
+                onStrokeColorChange={(color) => handleUpdate('stroke', color)}
+                onClose={() => setActivePopover(null)}
+              />
+            )}
+          </div>
+
+          {/* Round compatible rectangles and images inside the group */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => togglePopover('cornerRounding')}
+              title="Round compatible elements in group"
+              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
+                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 20V12a8 8 0 0 1 8-8h8" />
+              </svg>
+            </button>
+
+            {activePopover === 'cornerRounding' && (
+              <CornerRoundingPopover
+                rx={selected.rx || 0}
+                maxRadius={cornerMaxRadius}
+                onChange={(rx) => handleUpdate('rx', rx)}
+                onClose={() => setActivePopover(null)}
+              />
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => handleUpdate('flipX', !selected.flipX)}
+            title="Flip group horizontally"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${selected.flipX
+              ? 'bg-purple-50 border-purple-300 text-purple-600'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+          >
+            <FlipHorizontal className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleUpdate('flipY', !selected.flipY)}
+            title="Flip group vertically"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${selected.flipY
+              ? 'bg-purple-50 border-purple-300 text-purple-600'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+          >
+            <FlipVertical className="w-3.5 h-3.5" />
+          </button>
         </>
       )}
 

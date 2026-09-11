@@ -185,9 +185,12 @@ export interface SelectedObjectState {
   upscaleFactor?: 1 | 2 | 4;
   upscaledSrc?: string;
   imageId?: string;
-  // Frame specific properties
+  // Frame & Shape specific properties
   isFrame?: boolean;
   frameShape?: string;
+  isShape?: boolean;
+  shapeType?: string;
+  photoFit?: 'cover' | 'contain';
   isCanvaPlaceholder?: boolean;
   // Brush / Path specific properties
   isBrushPath?: boolean;

@@ -2,19 +2,10 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
-import {
-  ArrowRight,
-  Check,
-  LayoutTemplate,
-  Search,
-  ExternalLink,
-  Loader2
-} from 'lucide-react';
+import { Check, LayoutTemplate, Search } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { DesignerTemplate } from '@/types/designer';
 import { formatImageUrl } from '@/utils/imageUrl';
-import { createArtworkFromTemplate } from '../utils/artworkConverter';
-import { designerService } from '../services/designerService';
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -124,123 +115,60 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
   useEffect(() => {
     let isMounted = true;
 
-    const loadAllData = async () => {
+    const loadTemplates = async () => {
       try {
         setLoading(true);
         setError('');
+        setSelectedCategory('All');
+        setActiveTemplateId(null);
 
-        // 1. Fetch Categories
-        const catPromise = fetch(`${API_URL}/categories`, {
-          headers: { Accept: 'application/json' },
-        })
-          .then((res) => (res.ok ? res.json() : null))
-          .catch(() => null);
-
-        // 2. Fetch Products
-        const prodPromise = fetch(`${API_URL}/admin/products`, {
-          headers: { Accept: 'application/json' },
-        })
-          .then((res) => (res.ok ? res.json() : null))
-          .catch(() => null);
-
-        // 3. Fetch Product Templates (active templates for this product)
+        // This public designer endpoint contains the active templates created
+        // by the admin. Products and design assets intentionally are not loaded.
         const templateEndpoint =
           productId && productId !== 'default' && productId !== 'all'
             ? `${API_URL}/designer/templates/${productId}`
             : `${API_URL}/designer/templates/all`;
 
-        const templPromise = fetch(templateEndpoint, {
+        const response = await fetch(templateEndpoint, {
           headers: { Accept: 'application/json' },
-        })
-          .then((res) => (res.ok ? res.json() : null))
-          .catch(() => null);
+        });
 
-        const [catResult, prodResult, templResult] = await Promise.all([
-          catPromise,
-          prodPromise,
-          templPromise,
-        ]);
+        if (!response.ok) {
+          throw new Error(`Template request failed (${response.status}).`);
+        }
+
+        const result = await response.json();
 
         if (!isMounted) return;
 
-        // Categories from DB
-        const categoryNames: string[] = Array.isArray(catResult?.data)
-          ? catResult.data.map((c: any) => c.name?.trim()).filter(Boolean)
-          : [];
-        setDbCategories(categoryNames);
+        const rawTemplates: ApiTemplate[] = Array.isArray(result?.data)
+          ? result.data
+          : Array.isArray(result)
+            ? result
+            : [];
+        const adminTemplates = rawTemplates
+          .map(normalizeTemplate)
+          .filter((template) => Boolean(template.id));
 
-        // Convert DB Products to items
-        const rawProducts = Array.isArray(prodResult?.data) ? prodResult.data : [];
-        const productItems: PanelTemplate[] = rawProducts.map((prod: any) => {
-          const imgUrl = formatImageUrl(
-            prod.featured_image_url ||
-            prod.image_url ||
-            (Array.isArray(prod.images) && prod.images[0]?.url)
-          );
-
-          const categoryName =
-            prod.category_name ||
-            prod.category?.name ||
-            'Uncategorized';
-
-          return {
-            id: `prod_${prod.id}`,
-            title: prod.name,
-            category: categoryName,
-            description:
-              prod.short_description ||
-              prod.description ||
-              `Price: $${Number(prod.base_price || 0).toFixed(2)}`,
-            thumbnailUrl: imgUrl,
-            thumbnailBg: DEFAULT_THUMBNAIL_BACKGROUND,
-            widthMm: 90,
-            heightMm: 50,
-            objects: imgUrl
-              ? [
-                  {
-                    type: 'image',
-                    src: imgUrl,
-                    left: 0.05,
-                    top: 0.05,
-                    width: 0.9,
-                    height: 0.9,
-                    name: prod.name,
-                  },
-                ]
-              : [
-                  {
-                    type: 'textbox',
-                    text: prod.name,
-                    fontSize: 0.06,
-                    fontWeight: 'bold',
-                    fontFamily: 'Montserrat, sans-serif',
-                    fill: '#0f172a',
-                    left: 0.1,
-                    top: 0.3,
-                    width: 0.8,
-                    name: 'Product Name',
-                  },
-                ],
-          };
-        });
-
-        // Designer templates from DB
-        const rawTemplates = Array.isArray(templResult?.data)
-          ? templResult.data
-          : [];
-        const dbTemplateItems: PanelTemplate[] = rawTemplates.map(normalizeTemplate);
-
-        // If scoped to a product, show only that product's templates to guarantee product isolation
-        const isProductScoped = productId && productId !== 'default' && productId !== 'all';
-        const allItems = isProductScoped ? dbTemplateItems : (dbTemplateItems.length > 0 ? dbTemplateItems : productItems);
-        setTemplates(allItems);
+        setTemplates(adminTemplates);
+        setDbCategories(
+          Array.from(
+            new Set(
+              adminTemplates
+                .map((template) => template.category?.trim())
+                .filter((category): category is string => Boolean(category))
+            )
+          )
+        );
       } catch (err) {
-        console.error('Error loading designer templates & products:', err);
+        console.error('Error loading admin designer templates:', err);
         if (isMounted) {
+          setTemplates([]);
+          setDbCategories([]);
           setError(
             err instanceof Error
               ? err.message
-              : 'Could not load products and templates.'
+              : 'Could not load admin templates.'
           );
         }
       } finally {
@@ -250,7 +178,7 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
       }
     };
 
-    void loadAllData();
+    void loadTemplates();
 
     return () => {
       isMounted = false;
@@ -295,13 +223,14 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
   }, [templates, selectedCategory, searchQuery]);
 
   const handleApplyTemplate = async (
-    template: DesignerTemplate
+    template: PanelTemplate
   ) => {
     if (!canvasManager) return;
 
     try {
       setError('');
       setActiveTemplateId(template.id);
+
       if (onApplyTemplate) {
         await onApplyTemplate(template);
       } else {
@@ -312,33 +241,8 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
       }
     } catch (applyError) {
       console.error('Template apply error:', applyError);
+      setActiveTemplateId(null);
       setError('Could not apply this template to the canvas.');
-    }
-  };
-
-  const [isConverting, setIsConverting] = useState<string | null>(null);
-
-  const handleGoToArtwork = async (e: React.MouseEvent, template: DesignerTemplate) => {
-    e.stopPropagation();
-    if (!canvasManager) return;
-    setIsConverting(template.id);
-    setError('');
-    try {
-      // 1. Convert to ArtworkDraftPayload
-      const payload = await createArtworkFromTemplate(template, canvasManager, {
-        productId,
-      });
-
-      // 2. Create Draft
-      const savedArtwork = await designerService.createDraft(payload);
-
-      // 3. Navigate to new Artwork Editor in new tab
-      window.open(`/design/${productId}?artworkId=${savedArtwork.id}`, '_blank');
-    } catch (err: any) {
-      console.error('Failed to convert template to artwork:', err);
-      setError(err?.message || 'Failed to convert template to artwork');
-    } finally {
-      setIsConverting(null);
     }
   };
 
@@ -411,8 +315,7 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
                 key={template.id}
                 type="button"
                 onClick={() => void handleApplyTemplate(template)}
-                draggable
-                onDragEnd={() => void handleApplyTemplate(template)}
+                title={`Open ${template.title} in artwork`}
                 className={`group relative block w-full cursor-pointer overflow-hidden rounded-2xl border bg-white text-left shadow-2xs transition hover:shadow-md ${isApplied
                   ? 'border-blue-500 ring-2 ring-blue-500/20'
                   : 'border-gray-200 hover:border-blue-400'
@@ -440,12 +343,14 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
                       {template.category}
                     </span>
 
-                    {isApplied && (
-                      <span className="flex items-center gap-1 rounded-full bg-blue-500 px-2 py-0.5 text-[9px] font-bold text-white shadow-xs">
-                        <Check className="h-3 w-3" />
-                        Active
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1">
+                      {isApplied && (
+                        <span className="flex items-center gap-1 rounded-full bg-blue-500 px-2 py-0.5 text-[9px] font-bold text-white shadow-xs">
+                          <Check className="h-3 w-3" />
+                          Active
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="relative z-10">
@@ -455,29 +360,6 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
                     <p className="mt-0.5 truncate text-[10px] text-white/70">
                       {template.description}
                     </p>
-                  </div>
-
-                  <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/60 text-xs font-bold text-white opacity-0 backdrop-blur-2xs transition-opacity group-hover:opacity-100">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); void handleApplyTemplate(template); }}
-                      className="flex items-center gap-1.5 text-white text-xs font-semibold bg-blue-500 hover:bg-blue-600 px-3 py-1.5 rounded-lg"
-                    >
-                      <span>Use This Template</span>
-                      <ArrowRight className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={(e) => handleGoToArtwork(e, template)}
-                      className="flex items-center gap-1.5 text-white text-[10px] font-semibold bg-gray-900/60 hover:bg-gray-900/80 px-2 py-1 rounded-md backdrop-blur-sm"
-                    >
-                      {isConverting === template.id ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <>
-                          <ExternalLink className="w-3 h-3" />
-                          <span>Go to Artwork</span>
-                        </>
-                      )}
-                    </button>
                   </div>
                 </div>
               </button>

@@ -22,6 +22,113 @@ interface FreepikPanelProps {
 
 type FreepikMediaType = 'all' | 'photo' | 'vector' | 'psd' | 'icon';
 
+type HighResolutionFreepikAsset = FreepikAsset & {
+  original_url?: string;
+  download_url?: string;
+  full_url?: string;
+  image_url?: string;
+  url?: string;
+  width?: number;
+  height?: number;
+  original?: {
+    url?: string;
+    width?: number;
+    height?: number;
+  };
+  image?: {
+    url?: string;
+    width?: number;
+    height?: number;
+    source?: { url?: string };
+  };
+  files?: Array<{
+    url?: string;
+    download_url?: string;
+    width?: number;
+    height?: number;
+  }>;
+};
+
+type UsedFreepikAsset = {
+  url?: string;
+  original_url?: string;
+  download_url?: string;
+  file_url?: string;
+  width?: number;
+  height?: number;
+};
+
+const isUsableImageUrl = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
+
+/**
+ * Return the largest/original source supplied by the API.
+ * Thumbnail and preview URLs are deliberately only the final fallbacks.
+ */
+const getOriginalAssetUrl = (asset: FreepikAsset): string => {
+  const item = asset as HighResolutionFreepikAsset;
+  const largestFile = [...(item.files || [])]
+    .filter((file) => isUsableImageUrl(file.download_url || file.url))
+    .sort(
+      (a, b) =>
+        (Number(b.width) || 0) * (Number(b.height) || 0) -
+        (Number(a.width) || 0) * (Number(a.height) || 0)
+    )[0];
+
+  const candidates = [
+    item.original_url,
+    item.download_url,
+    item.full_url,
+    item.original?.url,
+    largestFile?.download_url,
+    largestFile?.url,
+    item.image?.source?.url,
+    item.image?.url,
+    item.image_url,
+    item.url,
+    asset.preview_url,
+    asset.thumbnail_url,
+  ];
+
+  return candidates.find(isUsableImageUrl) || '';
+};
+
+const getAssetDimensions = (
+  asset: FreepikAsset
+): { width?: number; height?: number } => {
+  const item = asset as HighResolutionFreepikAsset;
+  const largestFile = [...(item.files || [])].sort(
+    (a, b) =>
+      (Number(b.width) || 0) * (Number(b.height) || 0) -
+      (Number(a.width) || 0) * (Number(a.height) || 0)
+  )[0];
+
+  const width =
+    Number(item.original?.width) ||
+    Number(largestFile?.width) ||
+    Number(item.image?.width) ||
+    Number(item.width) ||
+    undefined;
+  const height =
+    Number(item.original?.height) ||
+    Number(largestFile?.height) ||
+    Number(item.image?.height) ||
+    Number(item.height) ||
+    undefined;
+
+  return { width, height };
+};
+
+const getStoredAssetUrl = (data: unknown): string => {
+  if (!data || typeof data !== 'object') return '';
+  const item = data as UsedFreepikAsset;
+  return (
+    [item.original_url, item.download_url, item.file_url, item.url].find(
+      isUsableImageUrl
+    ) || ''
+  );
+};
+
 const QUICK_SEARCH_CHIPS = [
   'background',
   'business',
@@ -88,7 +195,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
           setHasNext(Boolean(response.data.pagination?.has_next));
           setTotalItems(
             response.data.pagination?.total_items ||
-              (append ? images.length + fetchedItems.length : fetchedItems.length)
+            (append ? images.length + fetchedItems.length : fetchedItems.length)
           );
         } else {
           if (!append) setImages([]);
@@ -121,28 +228,45 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
   // Add image onto canvas
   const handleAddToCanvas = async (asset: FreepikAsset) => {
     if (!canvasManager) return;
+    setError(null);
     setIsInserting(asset.id);
     try {
-      let targetUrl = asset.preview_url;
+      const originalUrl = getOriginalAssetUrl(asset);
+      if (!originalUrl) {
+        throw new Error('No usable image URL was returned for this asset.');
+      }
 
-      // Attempt to download/store permanently via backend
+      let targetUrl = originalUrl;
+
+      // Ask the backend to download and permanently store the original source.
       try {
-        const used = await freepikService.useAsset(asset.id, asset.preview_url);
-        if (used.success && used.data?.url) {
-          targetUrl = used.data.url;
+        const used = await freepikService.useAsset(asset.id, originalUrl);
+        const storedUrl = getStoredAssetUrl(used.data);
+        if (used.success && storedUrl) {
+          targetUrl = storedUrl;
         }
       } catch (useErr) {
-        console.warn('Using direct preview URL for canvas insertion:', useErr);
+        console.warn('Using direct original URL for canvas insertion:', useErr);
       }
+
+      const dimensions = getAssetDimensions(asset);
 
       await canvasManager.addImageFromUrl(targetUrl, {
         name: asset.title || `Freepik-${asset.id}`,
+        originalSrc: originalUrl,
+        naturalWidth: dimensions.width,
+        naturalHeight: dimensions.height,
       });
 
       setInsertSuccess(asset.id);
       setTimeout(() => setInsertSuccess(null), 1500);
     } catch (err) {
       console.error('Failed to add Freepik image to canvas:', err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to add the original image to the artwork.'
+      );
     } finally {
       setIsInserting(null);
     }
@@ -151,17 +275,24 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
   // Set image as full canvas background
   const handleSetAsBackground = async (asset: FreepikAsset) => {
     if (!canvasManager) return;
+    setError(null);
     setIsInserting(asset.id);
     try {
-      let targetUrl = asset.preview_url;
+      const originalUrl = getOriginalAssetUrl(asset);
+      if (!originalUrl) {
+        throw new Error('No usable image URL was returned for this asset.');
+      }
+
+      let targetUrl = originalUrl;
 
       try {
-        const used = await freepikService.useAsset(asset.id, asset.preview_url);
-        if (used.success && used.data?.url) {
-          targetUrl = used.data.url;
+        const used = await freepikService.useAsset(asset.id, originalUrl);
+        const storedUrl = getStoredAssetUrl(used.data);
+        if (used.success && storedUrl) {
+          targetUrl = storedUrl;
         }
       } catch (useErr) {
-        console.warn('Using direct preview URL for background:', useErr);
+        console.warn('Using direct original URL for background:', useErr);
       }
 
       await canvasManager.setBackgroundImage(targetUrl, {
@@ -178,6 +309,11 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
       setTimeout(() => setInsertSuccess(null), 1500);
     } catch (err) {
       console.error('Failed to set Freepik background:', err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to use the original image as the artwork background.'
+      );
     } finally {
       setIsInserting(null);
     }
@@ -185,7 +321,11 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
 
   // Drag start for dragging directly onto the canvas
   const handleDragStart = (e: React.DragEvent, asset: FreepikAsset) => {
-    const targetUrl = asset.preview_url;
+    const targetUrl = getOriginalAssetUrl(asset);
+    if (!targetUrl) {
+      e.preventDefault();
+      return;
+    }
     e.dataTransfer.setData('application/x-freepik-id', asset.id);
     e.dataTransfer.setData('application/x-freepik-url', targetUrl);
     e.dataTransfer.setData('text/plain', targetUrl);
@@ -197,7 +337,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
     dragGhost.style.top = '-9999px';
     dragGhost.style.width = '80px';
     dragGhost.style.height = '80px';
-    dragGhost.style.backgroundImage = `url(${asset.thumbnail_url || targetUrl})`;
+    dragGhost.style.backgroundImage = `url(${targetUrl})`;
     dragGhost.style.backgroundSize = 'cover';
     dragGhost.style.borderRadius = '8px';
     dragGhost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.2)';
@@ -262,11 +402,10 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
               key={tab.id}
               type="button"
               onClick={() => setMediaType(tab.id as FreepikMediaType)}
-              className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${
-                mediaType === tab.id
+              className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${mediaType === tab.id
                   ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/[0.03]'
                   : 'text-slate-500 hover:bg-white/60 hover:text-slate-800'
-              }`}
+                }`}
             >
               {tab.label}
             </button>
@@ -330,6 +469,8 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
               {images.map((asset) => {
                 const isCurrentInserting = isInserting === asset.id;
                 const isCurrentSuccess = insertSuccess === asset.id;
+                const originalUrl = getOriginalAssetUrl(asset);
+                const dimensions = getAssetDimensions(asset);
 
                 return (
                   <div
@@ -340,11 +481,12 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
                     className="group relative rounded-2xl border border-slate-200/80 bg-slate-100 overflow-hidden cursor-pointer shadow-sm hover:shadow-[0_12px_28px_rgba(37,99,235,0.18)] hover:border-blue-400 hover:-translate-y-0.5 transition-all duration-200 aspect-[4/3] flex items-center justify-center select-none"
                     title={`Click to add to canvas or drag onto artwork (${asset.title})`}
                   >
-                    {/* Thumbnail Image */}
+                    {/* Full-resolution source; no thumbnail/preview downscaling. */}
                     <img
-                      src={asset.thumbnail_url || asset.preview_url}
+                      src={originalUrl}
                       alt={asset.title || 'Freepik image'}
                       loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 pointer-events-none"
                     />
 
@@ -355,6 +497,11 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
                         <span className="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-black/50 text-white backdrop-blur-xs">
                           {asset.type || 'img'}
                         </span>
+                        {dimensions.width && dimensions.height && (
+                          <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-emerald-600/90 text-white backdrop-blur-xs">
+                            {dimensions.width}×{dimensions.height}
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={(e) => {

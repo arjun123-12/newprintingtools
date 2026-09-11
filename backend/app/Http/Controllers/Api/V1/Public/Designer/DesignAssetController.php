@@ -18,8 +18,13 @@ class DesignAssetController extends Controller
             $query->where('name', 'like', '%' . $request->search . '%');
         }
         
-        if ($request->has('asset_type')) {
-            $query->where('asset_type', $request->asset_type);
+        if ($request->filled('asset_type') && $request->asset_type !== 'all') {
+            $types = array_filter(explode(',', (string) $request->asset_type));
+            if (count($types) > 1) {
+                $query->whereIn('asset_type', $types);
+            } elseif (count($types) === 1) {
+                $query->where('asset_type', reset($types));
+            }
         }
 
         if ($request->has('category_id')) {
