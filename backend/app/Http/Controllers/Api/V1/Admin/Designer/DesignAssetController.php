@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -364,30 +365,49 @@ class DesignAssetController extends Controller
 
     public function bulkDestroy(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'ids' => ['required', 'array', 'min:1'],
-            'ids.*' => ['required', 'string'],
+        // Accept both payload conventions used by the admin UI/services.
+        $request->merge([
+            'ids' => $request->input(
+                'ids',
+                $request->input('asset_ids', [])
+            ),
         ]);
 
-        $assets = DesignAsset::whereIn('id', $validated['ids'])->get();
-        $count = 0;
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => [
+                'required',
+                'uuid',
+                'distinct',
+                Rule::exists('design_assets', 'id'),
+            ],
+        ]);
+
+        $ids = array_values(array_unique($validated['ids']));
+        $assets = DesignAsset::query()->whereIn('id', $ids)->get();
+        $paths = [];
 
         foreach ($assets as $asset) {
-            $paths = array_unique(array_values(array_filter([
+            $paths = array_merge($paths, array_filter([
                 $asset->file_path,
                 $asset->thumbnail_path,
                 $this->extractMaskPath($asset->metadata, $asset->fabric_json),
-            ])));
+            ]));
+        }
 
-            $asset->delete();
-            $count++;
+        DB::transaction(function () use ($assets): void {
+            foreach ($assets as $asset) {
+                $asset->delete();
+            }
+        });
 
-            foreach ($paths as $path) {
-                if (Storage::disk('public')->exists($path)) {
-                    Storage::disk('public')->delete($path);
-                }
+        foreach (array_unique($paths) as $path) {
+            if (Storage::disk('public')->exists($path)) {
+                Storage::disk('public')->delete($path);
             }
         }
+
+        $count = $assets->count();
 
         return response()->json([
             'success' => true,

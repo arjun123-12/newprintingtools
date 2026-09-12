@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Admin\DesignTemplates\DesignTemplateController;
+use App\Http\Controllers\Api\V1\Admin\Designer\DesignAssetCategoryController;
+use App\Http\Controllers\Api\V1\Admin\Designer\DesignAssetController;
 use App\Http\Controllers\Api\V1\Artwork\ArtworkController;
 use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\Customers\CustomerController;
@@ -347,10 +349,27 @@ Route::middleware(['auth:sanctum'])
         Route::delete('/templates/{template}', [DesignTemplateController::class, 'destroy']);
         
         // Designer Assets (Admin Management)
-        Route::post('/designer/asset-categories/bulk-delete', [App\Http\Controllers\Api\V1\Admin\Designer\DesignAssetCategoryController::class, 'bulkDestroy']);
-        Route::post('/designer/assets/bulk-delete', [App\Http\Controllers\Api\V1\Admin\Designer\DesignAssetController::class, 'bulkDestroy']);
-        Route::apiResource('/designer/asset-categories', App\Http\Controllers\Api\V1\Admin\Designer\DesignAssetCategoryController::class);
-        Route::apiResource('/designer/assets', App\Http\Controllers\Api\V1\Admin\Designer\DesignAssetController::class);
+        // Keep the literal bulk-delete routes above the apiResource routes so
+        // Laravel never interprets "bulk-delete" as an {asset} identifier.
+        Route::post('/designer/asset-categories/bulk-delete', [
+            DesignAssetCategoryController::class,
+            'bulkDestroy',
+        ])->name('designer.asset-categories.bulk-destroy');
+
+        Route::post('/designer/assets/bulk-delete', [
+            DesignAssetController::class,
+            'bulkDestroy',
+        ])->name('designer.assets.bulk-destroy');
+
+        Route::apiResource(
+            '/designer/asset-categories',
+            DesignAssetCategoryController::class
+        );
+
+        Route::apiResource(
+            '/designer/assets',
+            DesignAssetController::class
+        );
 
         Route::get('/metrics', [
             App\Http\Controllers\Api\V1\Admin\AdminDashboardController::class,

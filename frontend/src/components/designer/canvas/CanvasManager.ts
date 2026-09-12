@@ -5707,9 +5707,17 @@ export class CanvasManager {
   }
 
   private async loadCustomShapeObject(url: string): Promise<FabricObject> {
-    const safeUrl = await urlToSafeDataUrl(url);
+    // Custom shapes are SVG vector documents. Fetch the original Laravel
+    // storage URL as text instead of converting it through the image/Data URL
+    // pipeline, which can produce a response Fabric cannot parse in production.
+    const directUrl = formatImageUrl(url);
 
-    const response = await fetch(safeUrl);
+    const response = await fetch(directUrl, {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store',
+    });
 
     if (!response.ok) {
       throw new Error(
@@ -5717,10 +5725,13 @@ export class CanvasManager {
       );
     }
 
+    const contentType = response.headers.get('content-type') || '';
     const svgText = await response.text();
 
     if (!/<svg[\s>]/i.test(svgText)) {
-      throw new Error('The custom shape URL did not return valid SVG content.');
+      throw new Error(
+        `Shape response is not SVG. Content-Type: ${contentType || 'unknown'}`
+      );
     }
 
     const result = await loadSVGFromString(svgText);
@@ -5728,11 +5739,20 @@ export class CanvasManager {
       (object): object is FabricObject => Boolean(object)
     );
 
-    if (!objects.length) {
-      throw new Error('The custom shape SVG contains no drawable paths.');
+    if (objects.length === 0) {
+      throw new Error('The custom shape SVG contains no drawable objects.');
     }
 
-    return util.groupSVGElements(objects, result?.options || {});
+    const shape = util.groupSVGElements(objects, result?.options || {});
+
+    shape.set({
+      visible: true,
+      opacity: 1,
+      selectable: true,
+      evented: true,
+    });
+
+    return shape;
   }
 
   /**
