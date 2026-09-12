@@ -4,25 +4,55 @@ import React from 'react';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/admin/shared';
 import { ProductListItem } from './ProductTable';
-import { Edit2, Eye, Image as ImageIcon } from 'lucide-react';
+import { Edit2, Eye, Trash2, Image as ImageIcon } from 'lucide-react';
 import { formatImageUrl } from '@/utils/imageUrl';
 
 export interface ProductCardProps {
   product: ProductListItem;
   onToggleActive?: (product: ProductListItem) => void;
+  isSelected?: boolean;
+  onToggleSelect?: (productId: string) => void;
+  onDeleteProduct?: (productId: string) => void;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
   product,
   onToggleActive,
+  isSelected = false,
+  onToggleSelect,
+  onDeleteProduct,
 }) => {
   const categoryName = product.category_name || product.category?.name || 'Uncategorized';
   const imgUrl = product.featured_image_url;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-xs hover:shadow-sm hover:border-gray-300 transition-all overflow-hidden flex flex-col group">
+    <div
+      className={`bg-white rounded-xl border shadow-xs transition-all overflow-hidden flex flex-col group relative ${
+        isSelected
+          ? 'border-blue-500 ring-2 ring-blue-500/30 bg-blue-50/10'
+          : 'border-gray-200 hover:shadow-sm hover:border-gray-300'
+      }`}
+    >
       {/* Thumbnail */}
-      <div className="aspect-[4/3] bg-gray-100 relative overflow-hidden flex items-center justify-center border-b border-gray-100">
+      <div
+        className="aspect-[4/3] bg-gray-100 relative overflow-hidden flex items-center justify-center border-b border-gray-100 cursor-pointer"
+        onClick={() => onToggleSelect?.(product.id)}
+      >
+        {/* Selection Checkbox */}
+        {onToggleSelect && (
+          <div
+            className="absolute top-2 left-2 z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => onToggleSelect(product.id)}
+              className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 bg-white shadow-xs cursor-pointer"
+            />
+          </div>
+        )}
+
         {imgUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -34,7 +64,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <ImageIcon className="w-8 h-8 text-gray-300" />
         )}
 
-        <div className="absolute top-2 left-2">
+        <div className={`absolute top-2 ${onToggleSelect ? 'left-8' : 'left-2'}`}>
           <StatusBadge status={product.status || (product.is_active ? 'published' : 'draft')} />
         </div>
 
@@ -56,6 +86,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           >
             <Edit2 className="w-3.5 h-3.5" />
           </Link>
+          {onDeleteProduct && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteProduct(product.id);
+              }}
+              className="p-1.5 bg-white/90 backdrop-blur-xs text-rose-600 hover:bg-rose-50 rounded-lg shadow-sm"
+              title="Delete Product"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 

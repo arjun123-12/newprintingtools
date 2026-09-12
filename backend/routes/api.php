@@ -288,6 +288,10 @@ Route::middleware(['auth:sanctum'])
             App\Http\Controllers\Api\V1\Categories\CategoryController::class,
             'destroy',
         ]);
+        Route::post('/categories/bulk-delete', [
+            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+            'bulkDestroy',
+        ]);
 
         // Products
         Route::get('/products', [
@@ -298,6 +302,11 @@ Route::middleware(['auth:sanctum'])
         Route::post('/products', [
             App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
             'store',
+        ]);
+
+        Route::post('/products/bulk-delete', [
+            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+            'bulkDestroy',
         ]);
 
         Route::get('/products/{id}', [
@@ -316,6 +325,7 @@ Route::middleware(['auth:sanctum'])
         ]);
 
         // Design templates (admin creates and manages templates here)
+        Route::post('/design-templates/bulk-delete', [DesignTemplateController::class, 'bulkDestroy']);
         Route::get('/design-templates', [DesignTemplateController::class, 'index']);
         Route::post('/design-templates', [DesignTemplateController::class, 'store']);
         Route::get('/design-templates/{template}', [DesignTemplateController::class, 'show']);
@@ -326,6 +336,7 @@ Route::middleware(['auth:sanctum'])
         Route::delete('/design-templates/{template}', [DesignTemplateController::class, 'destroy']);
 
         // Admin template APIs
+        Route::post('/templates/bulk-delete', [DesignTemplateController::class, 'bulkDestroy']);
         Route::get('/templates', [DesignTemplateController::class, 'index']);
         Route::post('/templates', [DesignTemplateController::class, 'store']);
         Route::get('/templates/{template}', [DesignTemplateController::class, 'show']);
@@ -336,6 +347,8 @@ Route::middleware(['auth:sanctum'])
         Route::delete('/templates/{template}', [DesignTemplateController::class, 'destroy']);
         
         // Designer Assets (Admin Management)
+        Route::post('/designer/asset-categories/bulk-delete', [App\Http\Controllers\Api\V1\Admin\Designer\DesignAssetCategoryController::class, 'bulkDestroy']);
+        Route::post('/designer/assets/bulk-delete', [App\Http\Controllers\Api\V1\Admin\Designer\DesignAssetController::class, 'bulkDestroy']);
         Route::apiResource('/designer/asset-categories', App\Http\Controllers\Api\V1\Admin\Designer\DesignAssetCategoryController::class);
         Route::apiResource('/designer/assets', App\Http\Controllers\Api\V1\Admin\Designer\DesignAssetController::class);
 

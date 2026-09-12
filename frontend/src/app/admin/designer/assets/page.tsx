@@ -3,8 +3,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import { AssetType, DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
-import { Package, Plus, Search, Trash2, Edit, RefreshCw, FolderPlus, FolderUp, CheckCircle, XCircle, FileText, ImageIcon } from 'lucide-react';
-import { EmptyState, LoadingState, ErrorState } from '@/components/admin/shared';
+import { Package, Plus, Search, Trash2, Edit, RefreshCw, FolderPlus, FolderUp, CheckCircle, XCircle, FileText, ImageIcon, CheckSquare, Square } from 'lucide-react';
+import { EmptyState, LoadingState, ErrorState, ConfirmDialog } from '@/components/admin/shared';
 import { DesignAssetForm } from '@/components/admin/designer/DesignAssetForm';
 import { AssetCategoryForm } from '@/components/admin/designer/AssetCategoryForm';
 import { BulkAssetUploadModal } from '@/components/admin/designer/BulkAssetUploadModal';
@@ -111,10 +111,28 @@ export default function AdminAssetsPage() {
 
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
 
+  // Multi-select & Bulk Delete State
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => Promise<void>;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: async () => {},
+  });
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
+      setSelectedAssetIds(new Set());
+      setSelectedCategoryIds(new Set());
       
       const cats = await designAssetService.getAdminCategories();
       setCategories(cats);
@@ -154,26 +172,125 @@ export default function AdminAssetsPage() {
     setIsCategoryModalOpen(true);
   };
 
-  const handleDeleteCategory = async (id: string) => {
-    if (confirm('Are you sure you want to delete this category?')) {
-      try {
-        await designAssetService.deleteCategory(id);
-        loadData();
-      } catch (err: any) {
-        alert('Failed to delete category: ' + (err.message || 'Unknown error'));
-      }
+  // Selection toggles
+  const toggleAssetSelection = (id: string) => {
+    setSelectedAssetIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllAssets = () => {
+    if (assets.length === 0) return;
+    const allSelected = assets.every((a) => selectedAssetIds.has(a.id));
+    if (allSelected) {
+      setSelectedAssetIds(new Set());
+    } else {
+      setSelectedAssetIds(new Set(assets.map((a) => a.id)));
     }
   };
 
-  const handleDeleteAsset = async (id: string) => {
-    if (confirm('Are you sure you want to delete this asset?')) {
-      try {
-        await designAssetService.deleteAsset(id);
-        loadData();
-      } catch (err: any) {
-        alert('Failed to delete asset: ' + (err.message || 'Unknown error'));
-      }
+  const toggleCategorySelection = (id: string) => {
+    setSelectedCategoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllCategories = (filtered: DesignAssetCategory[]) => {
+    if (filtered.length === 0) return;
+    const allSelected = filtered.every((c) => selectedCategoryIds.has(c.id));
+    if (allSelected) {
+      setSelectedCategoryIds(new Set());
+    } else {
+      setSelectedCategoryIds(new Set(filtered.map((c) => c.id)));
     }
+  };
+
+  const handleDeleteCategory = (id: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Category',
+      message: 'Are you sure you want to delete this category? This action cannot be undone.',
+      onConfirm: async () => {
+        try {
+          await designAssetService.deleteCategory(id);
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          loadData();
+        } catch (err: any) {
+          alert('Failed to delete category: ' + (err.message || 'Unknown error'));
+        }
+      },
+    });
+  };
+
+  const handleDeleteAsset = (id: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Asset',
+      message: 'Are you sure you want to delete this asset? This action cannot be undone.',
+      onConfirm: async () => {
+        try {
+          await designAssetService.deleteAsset(id);
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          loadData();
+        } catch (err: any) {
+          alert('Failed to delete asset: ' + (err.message || 'Unknown error'));
+        }
+      },
+    });
+  };
+
+  const handleBulkDeleteAssets = () => {
+    const ids = Array.from(selectedAssetIds);
+    if (ids.length === 0) return;
+
+    setConfirmDialog({
+      isOpen: true,
+      title: `Delete ${ids.length} Selected Asset${ids.length > 1 ? 's' : ''}`,
+      message: `Are you sure you want to permanently delete the ${ids.length} selected asset${ids.length > 1 ? 's' : ''}? Their associated files will also be removed. This action cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          setIsBulkDeleting(true);
+          await designAssetService.bulkDeleteAssets(ids);
+          setSelectedAssetIds(new Set());
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          loadData();
+        } catch (err: any) {
+          alert('Failed to delete assets: ' + (err.message || 'Unknown error'));
+        } finally {
+          setIsBulkDeleting(false);
+        }
+      },
+    });
+  };
+
+  const handleBulkDeleteCategories = () => {
+    const ids = Array.from(selectedCategoryIds);
+    if (ids.length === 0) return;
+
+    setConfirmDialog({
+      isOpen: true,
+      title: `Delete ${ids.length} Selected Categor${ids.length > 1 ? 'ies' : 'y'}`,
+      message: `Are you sure you want to permanently delete the ${ids.length} selected categor${ids.length > 1 ? 'ies' : 'y'}? This action cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          setIsBulkDeleting(true);
+          await designAssetService.bulkDeleteCategories(ids);
+          setSelectedCategoryIds(new Set());
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          loadData();
+        } catch (err: any) {
+          alert('Failed to delete categories: ' + (err.message || 'Unknown error'));
+        } finally {
+          setIsBulkDeleting(false);
+        }
+      },
+    });
   };
 
   const handleToggleAssetActive = async (asset: DesignAsset) => {
@@ -269,16 +386,79 @@ export default function AdminAssetsPage() {
           ))}
         </div>
 
-        {/* Search Bar */}
-        <div className="relative w-64 shrink-0">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search assets..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+        {/* Action Controls & Search */}
+        <div className="flex items-center gap-3">
+          {activeTab === 'category' ? (
+            filteredCategories.length > 0 && (
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 px-2.5 py-1.5 rounded-xl border border-gray-200 transition">
+                  <input
+                    type="checkbox"
+                    checked={
+                      filteredCategories.length > 0 &&
+                      filteredCategories.every((c) => selectedCategoryIds.has(c.id))
+                    }
+                    onChange={() => toggleSelectAllCategories(filteredCategories)}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                  />
+                  <span>Select All</span>
+                </label>
+
+                {selectedCategoryIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleBulkDeleteCategories}
+                    disabled={isBulkDeleting}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Selected ({selectedCategoryIds.size})</span>
+                  </button>
+                )}
+              </div>
+            )
+          ) : (
+            assets.length > 0 && (
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 px-2.5 py-1.5 rounded-xl border border-gray-200 transition">
+                  <input
+                    type="checkbox"
+                    checked={
+                      assets.length > 0 &&
+                      assets.every((a) => selectedAssetIds.has(a.id))
+                    }
+                    onChange={toggleSelectAllAssets}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                  />
+                  <span>Select All</span>
+                </label>
+
+                {selectedAssetIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleBulkDeleteAssets}
+                    disabled={isBulkDeleting}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Selected ({selectedAssetIds.size})</span>
+                  </button>
+                )}
+              </div>
+            )
+          )}
+
+          {/* Search Bar */}
+          <div className="relative w-60 shrink-0">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search assets..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
         </div>
       </div>
 
@@ -296,6 +476,17 @@ export default function AdminAssetsPage() {
             <table className="w-full text-left text-xs text-gray-600">
               <thead className="bg-gray-50 border-b border-gray-200 text-gray-500 font-semibold uppercase tracking-wider">
                 <tr>
+                  <th className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={
+                        filteredCategories.length > 0 &&
+                        filteredCategories.every((c) => selectedCategoryIds.has(c.id))
+                      }
+                      onChange={() => toggleSelectAllCategories(filteredCategories)}
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                    />
+                  </th>
                   <th className="px-4 py-3">Category Name</th>
                   <th className="px-4 py-3">Asset Type</th>
                   <th className="px-4 py-3">Slug</th>
@@ -305,7 +496,20 @@ export default function AdminAssetsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredCategories.map((cat) => (
-                  <tr key={cat.id} className="hover:bg-gray-50/50 transition">
+                  <tr
+                    key={cat.id}
+                    className={`hover:bg-gray-50/50 transition ${
+                      selectedCategoryIds.has(cat.id) ? 'bg-blue-50/30' : ''
+                    }`}
+                  >
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedCategoryIds.has(cat.id)}
+                        onChange={() => toggleCategorySelection(cat.id)}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                      />
+                    </td>
                     <td className="px-4 py-3 font-bold text-gray-900">{cat.name}</td>
                     <td className="px-4 py-3 capitalize">
                       <span className="px-2 py-0.5 rounded-md bg-gray-100 text-gray-700 font-semibold text-[10px]">
@@ -357,58 +561,85 @@ export default function AdminAssetsPage() {
             />
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {assets.map((asset) => (
-                <div
-                  key={asset.id}
-                  className="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-2xs hover:border-blue-500 transition group flex flex-col justify-between"
-                >
-                  {/* Thumbnail / Visual Preview */}
-                  <div className="aspect-square bg-gray-50 flex items-center justify-center p-3 relative border-b border-gray-100 overflow-hidden">
-                    <AssetCardMedia asset={asset} />
-
-                    {/* Status Badge */}
-                    <button
-                      onClick={() => handleToggleAssetActive(asset)}
-                      className={`absolute top-2 right-2 px-1.5 py-0.5 rounded-md text-[10px] font-bold shadow-2xs ${
-                        asset.is_active ? 'bg-emerald-500 text-white' : 'bg-gray-300 text-gray-700'
-                      }`}
+              {assets.map((asset) => {
+                const isSelected = selectedAssetIds.has(asset.id);
+                return (
+                  <div
+                    key={asset.id}
+                    className={`bg-white border rounded-2xl overflow-hidden shadow-2xs transition group flex flex-col justify-between relative ${
+                      isSelected
+                        ? 'border-blue-500 ring-2 ring-blue-500/30 bg-blue-50/10'
+                        : 'border-gray-200 hover:border-blue-400'
+                    }`}
+                  >
+                    {/* Select Checkbox */}
+                    <div
+                      className="absolute top-2 left-2 z-10"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      {asset.is_active ? 'Active' : 'Hidden'}
-                    </button>
-                  </div>
-
-                  {/* Info & Actions */}
-                  <div className="p-3 bg-white flex flex-col gap-1.5">
-                    <p className="text-xs font-bold text-gray-800 truncate" title={asset.name}>
-                      {asset.name}
-                    </p>
-                    <div className="flex items-center justify-between text-[10px] text-gray-400 font-medium">
-                      <span className="capitalize">{asset.asset_type}</span>
-                      <span>{asset.category?.name || 'Uncategorized'}</span>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleAssetSelection(asset.id)}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 bg-white shadow-xs cursor-pointer"
+                        title="Select asset"
+                      />
                     </div>
 
-                    <div className="pt-2 border-t border-gray-100 flex items-center justify-end gap-1">
+                    {/* Thumbnail / Visual Preview */}
+                    <div
+                      className="aspect-square bg-gray-50 flex items-center justify-center p-3 relative border-b border-gray-100 overflow-hidden cursor-pointer"
+                      onClick={() => toggleAssetSelection(asset.id)}
+                    >
+                      <AssetCardMedia asset={asset} />
+
+                      {/* Status Badge */}
                       <button
-                        onClick={() => {
-                          setEditingAsset(asset);
-                          setIsAssetModalOpen(true);
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleAssetActive(asset);
                         }}
-                        className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                        title="Edit asset"
+                        className={`absolute top-2 right-2 px-1.5 py-0.5 rounded-md text-[10px] font-bold shadow-2xs ${
+                          asset.is_active ? 'bg-emerald-500 text-white' : 'bg-gray-300 text-gray-700'
+                        }`}
                       >
-                        <Edit className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteAsset(asset.id)}
-                        className="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                        title="Delete asset"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        {asset.is_active ? 'Active' : 'Hidden'}
                       </button>
                     </div>
+
+                    {/* Info & Actions */}
+                    <div className="p-3 bg-white flex flex-col gap-1.5">
+                      <p className="text-xs font-bold text-gray-800 truncate" title={asset.name}>
+                        {asset.name}
+                      </p>
+                      <div className="flex items-center justify-between text-[10px] text-gray-400 font-medium">
+                        <span className="capitalize">{asset.asset_type}</span>
+                        <span>{asset.category?.name || 'Uncategorized'}</span>
+                      </div>
+
+                      <div className="pt-2 border-t border-gray-100 flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => {
+                            setEditingAsset(asset);
+                            setIsAssetModalOpen(true);
+                          }}
+                          className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                          title="Edit asset"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteAsset(asset.id)}
+                          className="p-1.5 text-gray-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                          title="Delete asset"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -438,6 +669,18 @@ export default function AdminAssetsPage() {
         activeType={currentAssetType}
         categories={categories}
         onSaved={loadData}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmLabel="Delete"
+        variant="danger"
+        isLoading={isBulkDeleting}
       />
     </div>
   );

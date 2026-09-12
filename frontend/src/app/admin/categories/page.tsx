@@ -89,10 +89,16 @@ export default function AdminCategoriesPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
 
+  // Multi-select & Bulk Delete State
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false);
+  const [confirmBulkDialog, setConfirmBulkDialog] = useState<boolean>(false);
+
   const loadCategories = useCallback(async () => {
     try {
       setLoading(true);
       setMessage(null);
+      setSelectedCategoryIds(new Set());
 
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
 
@@ -296,6 +302,60 @@ export default function AdminCategoriesPage() {
     }
   };
 
+  const toggleCategorySelection = (id: string) => {
+    setSelectedCategoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllCategories = () => {
+    if (filteredCategories.length === 0) return;
+    const allSelected = filteredCategories.every((c) => selectedCategoryIds.has(c.id));
+    if (allSelected) {
+      setSelectedCategoryIds(new Set());
+    } else {
+      setSelectedCategoryIds(new Set(filteredCategories.map((c) => c.id)));
+    }
+  };
+
+  const handleBulkDeleteCategories = async () => {
+    const ids = Array.from(selectedCategoryIds);
+    if (ids.length === 0) return;
+
+    try {
+      setIsBulkDeleting(true);
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+
+      const response = await fetch(`${API_URL}/admin/categories/bulk-delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ ids }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.message || 'Failed to delete categories');
+      }
+
+      setMessage({ type: 'success', text: `${ids.length} categories deleted successfully.` });
+      setSelectedCategoryIds(new Set());
+      setConfirmBulkDialog(false);
+      await loadCategories();
+    } catch (err: any) {
+      console.error('Bulk delete categories failed:', err);
+      setMessage({ type: 'error', text: err.message || 'Failed to delete categories' });
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   return (
     <div className="p-6 md:p-8 bg-slate-50 min-h-screen font-sans space-y-6 select-none">
       {/* Header */}
@@ -460,9 +520,9 @@ export default function AdminCategoriesPage() {
         </div>
       )}
 
-      {/* Search Bar */}
-      <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-xs">
-        <div className="relative flex items-center">
+      {/* Search Bar & Multi-Select Bar */}
+      <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="relative flex items-center w-full sm:w-96">
           <Search className="w-4 h-4 text-gray-400 absolute left-3 pointer-events-none" />
           <input
             type="text"
@@ -481,6 +541,35 @@ export default function AdminCategoriesPage() {
             </button>
           )}
         </div>
+
+        {filteredCategories.length > 0 && (
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 cursor-pointer select-none bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-xl border border-gray-200 transition shadow-2xs">
+              <input
+                type="checkbox"
+                checked={
+                  filteredCategories.length > 0 &&
+                  filteredCategories.every((c) => selectedCategoryIds.has(c.id))
+                }
+                onChange={toggleSelectAllCategories}
+                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+              />
+              <span>Select All</span>
+            </label>
+
+            {selectedCategoryIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setConfirmBulkDialog(true)}
+                disabled={isBulkDeleting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Selected ({selectedCategoryIds.size})</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Categories Table */}
@@ -514,6 +603,17 @@ export default function AdminCategoriesPage() {
             <table className="w-full text-left text-xs divide-y divide-gray-200">
               <thead className="bg-gray-50/80 text-gray-600 uppercase text-[10px] font-bold tracking-wider">
                 <tr>
+                  <th className="py-3.5 px-4 w-10">
+                    <input
+                      type="checkbox"
+                      checked={
+                        filteredCategories.length > 0 &&
+                        filteredCategories.every((c) => selectedCategoryIds.has(c.id))
+                      }
+                      onChange={toggleSelectAllCategories}
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                    />
+                  </th>
                   <th className="py-3.5 px-4">Category</th>
                   <th className="py-3.5 px-4">Slug</th>
                   <th className="py-3.5 px-4">Parent</th>
@@ -525,8 +625,22 @@ export default function AdminCategoriesPage() {
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
                 {filteredCategories.map((category) => {
+                  const isSelected = selectedCategoryIds.has(category.id);
                   return (
-                    <tr key={category.id} className="hover:bg-gray-50/60 transition-colors group">
+                    <tr
+                      key={category.id}
+                      className={`hover:bg-gray-50/60 transition-colors group ${
+                        isSelected ? 'bg-blue-50/40' : ''
+                      }`}
+                    >
+                      <td className="py-3 px-4 w-10">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleCategorySelection(category.id)}
+                          className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                        />
+                      </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden shrink-0 flex items-center justify-center">
@@ -615,7 +729,7 @@ export default function AdminCategoriesPage() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Single Confirmation Modal */}
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
@@ -629,6 +743,18 @@ export default function AdminCategoriesPage() {
         message={`Are you sure you want to delete category "${deleteTarget?.name}"? Products under this category will become uncategorized.`}
         confirmLabel="Delete Category"
         variant="danger"
+      />
+
+      {/* Delete Multiple Confirmation Modal */}
+      <ConfirmDialog
+        isOpen={confirmBulkDialog}
+        onClose={() => setConfirmBulkDialog(false)}
+        onConfirm={handleBulkDeleteCategories}
+        title={`Delete ${selectedCategoryIds.size} Selected Categories`}
+        message={`Are you sure you want to permanently delete the ${selectedCategoryIds.size} selected categories? Products under these categories will become uncategorized. This action cannot be undone.`}
+        confirmLabel="Delete Selected"
+        variant="danger"
+        isLoading={isBulkDeleting}
       />
     </div>
   );

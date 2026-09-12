@@ -16,6 +16,7 @@ import {
   EmptyState,
   LoadingState,
   ErrorState,
+  ConfirmDialog,
 } from '@/components/admin/shared';
 import { CategoryOption } from '@/components/admin/products/productForm/types';
 import {
@@ -25,6 +26,7 @@ import {
   Layers,
   LayoutGrid,
   List,
+  Trash2,
 } from 'lucide-react';
 
 const API_URL =
@@ -46,6 +48,21 @@ export default function AdminProductsPage() {
     status: '',
   });
 
+  // Multi-select & Bulk Delete State
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => Promise<void>;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: async () => {},
+  });
+
   const loadData = async (isRefresh = false) => {
     try {
       if (isRefresh) {
@@ -54,6 +71,7 @@ export default function AdminProductsPage() {
         setLoading(true);
       }
       setError(null);
+      setSelectedProductIds(new Set());
 
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
       const authHeaders = {
@@ -137,29 +155,102 @@ export default function AdminProductsPage() {
     }
   };
 
-  const handleDeleteProduct = async (productId: string) => {
-    // Optimistic delete
-    const previous = [...products];
-    setProducts((prev) => prev.filter((p) => p.id !== productId));
+  const toggleProductSelection = (id: string) => {
+    setSelectedProductIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
-    try {
-      const token =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('token') || localStorage.getItem('auth_token')
-          : null;
-
-      await fetch(`${API_URL}/admin/products/${productId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: {
-          Accept: 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-    } catch (err) {
-      console.error('Error deleting product:', err);
-      setProducts(previous);
+  const toggleSelectAllProducts = () => {
+    if (filteredProducts.length === 0) return;
+    const allSelected = filteredProducts.every((p) => selectedProductIds.has(p.id));
+    if (allSelected) {
+      setSelectedProductIds(new Set());
+    } else {
+      setSelectedProductIds(new Set(filteredProducts.map((p) => p.id)));
     }
+  };
+
+  const handleDeleteProduct = (productId: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Product',
+      message: 'Are you sure you want to permanently delete this product? This action cannot be undone.',
+      onConfirm: async () => {
+        try {
+          const token =
+            typeof window !== 'undefined'
+              ? localStorage.getItem('token') || localStorage.getItem('auth_token')
+              : null;
+
+          const response = await fetch(`${API_URL}/admin/products/${productId}`, {
+            method: 'DELETE',
+            credentials: 'include',
+            headers: {
+              Accept: 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+          });
+
+          if (!response.ok) {
+            const data = await response.json().catch(() => null);
+            throw new Error(data?.message || 'Failed to delete product');
+          }
+
+          setProducts((prev) => prev.filter((p) => p.id !== productId));
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        } catch (err: any) {
+          alert('Failed to delete product: ' + (err.message || 'Unknown error'));
+        }
+      },
+    });
+  };
+
+  const handleBulkDeleteProducts = () => {
+    const ids = Array.from(selectedProductIds);
+    if (ids.length === 0) return;
+
+    setConfirmDialog({
+      isOpen: true,
+      title: `Delete ${ids.length} Selected Product${ids.length > 1 ? 's' : ''}`,
+      message: `Are you sure you want to permanently delete the ${ids.length} selected product${ids.length > 1 ? 's' : ''}? This action cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          setIsBulkDeleting(true);
+          const token =
+            typeof window !== 'undefined'
+              ? localStorage.getItem('token') || localStorage.getItem('auth_token')
+              : null;
+
+          const response = await fetch(`${API_URL}/admin/products/bulk-delete`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ ids }),
+          });
+
+          if (!response.ok) {
+            const data = await response.json().catch(() => null);
+            throw new Error(data?.message || 'Failed to delete products');
+          }
+
+          setSelectedProductIds(new Set());
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          await loadData(true);
+        } catch (err: any) {
+          alert('Failed to delete products: ' + (err.message || 'Unknown error'));
+        } finally {
+          setIsBulkDeleting(false);
+        }
+      },
+    });
   };
 
   // Filtered Products
@@ -217,6 +308,36 @@ export default function AdminProductsPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Multi-selection & Bulk Delete in Header */}
+          {filteredProducts.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 cursor-pointer select-none bg-white hover:bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200 transition shadow-2xs">
+                <input
+                  type="checkbox"
+                  checked={
+                    filteredProducts.length > 0 &&
+                    filteredProducts.every((p) => selectedProductIds.has(p.id))
+                  }
+                  onChange={toggleSelectAllProducts}
+                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                />
+                <span>Select All</span>
+              </label>
+
+              {selectedProductIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={handleBulkDeleteProducts}
+                  disabled={isBulkDeleting}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Selected ({selectedProductIds.size})</span>
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center bg-white border border-gray-200 rounded-lg p-0.5 shadow-2xs">
             <button
               type="button"
@@ -326,6 +447,9 @@ export default function AdminProductsPage() {
       ) : viewMode === 'table' ? (
         <ProductTable
           products={filteredProducts}
+          selectedIds={selectedProductIds}
+          onToggleSelect={toggleProductSelection}
+          onToggleSelectAll={toggleSelectAllProducts}
           onToggleActive={handleToggleActive}
           onDeleteProduct={handleDeleteProduct}
         />
@@ -335,11 +459,26 @@ export default function AdminProductsPage() {
             <ProductCard
               key={product.id}
               product={product}
+              isSelected={selectedProductIds.has(product.id)}
+              onToggleSelect={toggleProductSelection}
               onToggleActive={handleToggleActive}
+              onDeleteProduct={handleDeleteProduct}
             />
           ))}
         </div>
       )}
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmLabel="Delete"
+        variant="danger"
+        isLoading={isBulkDeleting}
+      />
     </div>
   );
 }

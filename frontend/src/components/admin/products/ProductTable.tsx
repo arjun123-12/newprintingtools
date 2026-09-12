@@ -25,6 +25,9 @@ export interface ProductListItem {
 
 export interface ProductTableProps {
   products: ProductListItem[];
+  selectedIds?: Set<string>;
+  onToggleSelect?: (productId: string) => void;
+  onToggleSelectAll?: () => void;
   onToggleActive?: (product: ProductListItem) => void;
   onDeleteProduct?: (productId: string) => void;
   isLoading?: boolean;
@@ -32,6 +35,9 @@ export interface ProductTableProps {
 
 export const ProductTable: React.FC<ProductTableProps> = ({
   products,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
   onToggleActive,
   onDeleteProduct,
   isLoading = false,
@@ -44,12 +50,27 @@ export const ProductTable: React.FC<ProductTableProps> = ({
       .replace(/\b\w/g, (l) => l.toUpperCase());
   };
 
+  const allSelected =
+    products.length > 0 &&
+    selectedIds !== undefined &&
+    products.every((p) => selectedIds.has(p.id));
+
   return (
     <div className="w-full bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs divide-y divide-gray-200">
           <thead className="bg-gray-50/80 text-gray-600 uppercase text-[10px] font-bold tracking-wider">
             <tr>
+              {onToggleSelect && (
+                <th className="py-3.5 px-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={onToggleSelectAll}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                  />
+                </th>
+              )}
               <th className="py-3.5 px-4">Product</th>
               <th className="py-3.5 px-4">SKU</th>
               <th className="py-3.5 px-4">Category</th>
@@ -62,6 +83,7 @@ export const ProductTable: React.FC<ProductTableProps> = ({
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
             {products.map((product) => {
+              const isSelected = selectedIds?.has(product.id) ?? false;
               const categoryName =
                 product.category_name || product.category?.name || 'Uncategorized';
               const imgUrl = product.featured_image_url;
@@ -69,8 +91,20 @@ export const ProductTable: React.FC<ProductTableProps> = ({
               return (
                 <tr
                   key={product.id}
-                  className="hover:bg-gray-50/60 transition-colors group"
+                  className={`hover:bg-gray-50/60 transition-colors group ${
+                    isSelected ? 'bg-blue-50/40' : ''
+                  }`}
                 >
+                  {onToggleSelect && (
+                    <td className="py-3 px-4 w-10">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => onToggleSelect(product.id)}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                      />
+                    </td>
+                  )}
                   {/* Product Info */}
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-3">

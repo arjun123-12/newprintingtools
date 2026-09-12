@@ -362,6 +362,40 @@ class DesignAssetController extends Controller
         ]);
     }
 
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['required', 'string'],
+        ]);
+
+        $assets = DesignAsset::whereIn('id', $validated['ids'])->get();
+        $count = 0;
+
+        foreach ($assets as $asset) {
+            $paths = array_unique(array_values(array_filter([
+                $asset->file_path,
+                $asset->thumbnail_path,
+                $this->extractMaskPath($asset->metadata, $asset->fabric_json),
+            ])));
+
+            $asset->delete();
+            $count++;
+
+            foreach ($paths as $path) {
+                if (Storage::disk('public')->exists($path)) {
+                    Storage::disk('public')->delete($path);
+                }
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$count} asset(s) deleted successfully.",
+            'deleted_count' => $count,
+        ]);
+    }
+
     /**
      * Convert string values sent through multipart/form-data.
      */

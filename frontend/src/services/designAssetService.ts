@@ -172,6 +172,13 @@ class DesignAssetService {
     await api.delete(`/admin/designer/asset-categories/${id}`);
   }
 
+  /** Admin: bulk delete categories. */
+  async bulkDeleteCategories(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const response = await api.post('/admin/designer/asset-categories/bulk-delete', { ids });
+    return response.data?.deleted_count ?? ids.length;
+  }
+
   /**
    * Admin: create an asset using multipart/form-data.
    *
@@ -219,6 +226,13 @@ class DesignAssetService {
   /** Admin: delete an asset. */
   async deleteAsset(id: string): Promise<void> {
     await api.delete(`/admin/designer/assets/${id}`);
+  }
+
+  /** Admin: bulk delete assets. */
+  async bulkDeleteAssets(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const response = await api.post('/admin/designer/assets/bulk-delete', { ids });
+    return response.data?.deleted_count ?? ids.length;
   }
 
   /**

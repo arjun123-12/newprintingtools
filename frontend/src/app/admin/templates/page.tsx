@@ -16,6 +16,7 @@ import {
   EmptyState,
   LoadingState,
   ErrorState,
+  ConfirmDialog,
 } from '@/components/admin/shared';
 import { TemplateListItem, ProductOption } from '@/components/admin/templates/templateForm/types';
 import {
@@ -24,6 +25,7 @@ import {
   FileEdit,
   LayoutGrid,
   List,
+  Trash2,
 } from 'lucide-react';
 
 const API_URL = (
@@ -90,6 +92,21 @@ export default function AdminTemplatesPage() {
     status: '',
   });
 
+  // Multi-select & Bulk Delete State
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => Promise<void>;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: async () => {},
+  });
+
   const getToken = useCallback(() => {
     if (typeof window === 'undefined') return null;
     return localStorage.getItem('auth_token');
@@ -108,6 +125,7 @@ export default function AdminTemplatesPage() {
         setLoading(true);
       }
       setError(null);
+      setSelectedTemplateIds(new Set());
 
       const token = getToken();
 
@@ -216,39 +234,112 @@ export default function AdminTemplatesPage() {
     }
   };
 
-  const handleDeleteTemplate = async (templateId: string) => {
-    const previous = [...templates];
-    setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+  const toggleTemplateSelection = (id: string) => {
+    setSelectedTemplateIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
-    try {
-      const token = getToken();
-
-      if (!token) {
-        handleUnauthorized();
-        throw new Error('Please log in again.');
-      }
-
-      const response = await fetch(`${API_URL}/admin/design-templates/${templateId}`, {
-        method: 'DELETE',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.status === 401) {
-        handleUnauthorized();
-        throw new Error('Your login session has expired.');
-      }
-
-      if (!response.ok) {
-        const result = await response.json().catch(() => null);
-        throw new Error(result?.message ?? 'Could not delete template.');
-      }
-    } catch (err) {
-      console.error('Error deleting template:', err);
-      setTemplates(previous);
+  const toggleSelectAllTemplates = () => {
+    if (filteredTemplates.length === 0) return;
+    const allSelected = filteredTemplates.every((t) => selectedTemplateIds.has(t.id));
+    if (allSelected) {
+      setSelectedTemplateIds(new Set());
+    } else {
+      setSelectedTemplateIds(new Set(filteredTemplates.map((t) => t.id)));
     }
+  };
+
+  const handleDeleteTemplate = (templateId: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Template',
+      message: 'Are you sure you want to permanently delete this template? This action cannot be undone.',
+      onConfirm: async () => {
+        try {
+          const token = getToken();
+          if (!token) {
+            handleUnauthorized();
+            throw new Error('Please log in again.');
+          }
+
+          const response = await fetch(`${API_URL}/admin/design-templates/${templateId}`, {
+            method: 'DELETE',
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          if (response.status === 401) {
+            handleUnauthorized();
+            throw new Error('Your login session has expired.');
+          }
+
+          if (!response.ok) {
+            const result = await response.json().catch(() => null);
+            throw new Error(result?.message ?? 'Could not delete template.');
+          }
+
+          setTemplates((prev) => prev.filter((t) => t.id !== templateId));
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        } catch (err: any) {
+          alert('Failed to delete template: ' + (err.message || 'Unknown error'));
+        }
+      },
+    });
+  };
+
+  const handleBulkDeleteTemplates = () => {
+    const ids = Array.from(selectedTemplateIds);
+    if (ids.length === 0) return;
+
+    setConfirmDialog({
+      isOpen: true,
+      title: `Delete ${ids.length} Selected Template${ids.length > 1 ? 's' : ''}`,
+      message: `Are you sure you want to permanently delete the ${ids.length} selected template${ids.length > 1 ? 's' : ''}? This action cannot be undone.`,
+      onConfirm: async () => {
+        try {
+          setIsBulkDeleting(true);
+          const token = getToken();
+          if (!token) {
+            handleUnauthorized();
+            throw new Error('Please log in again.');
+          }
+
+          const response = await fetch(`${API_URL}/admin/design-templates/bulk-delete`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ ids }),
+          });
+
+          if (response.status === 401) {
+            handleUnauthorized();
+            throw new Error('Your login session has expired.');
+          }
+
+          if (!response.ok) {
+            const result = await response.json().catch(() => null);
+            throw new Error(result?.message ?? 'Could not delete templates.');
+          }
+
+          setSelectedTemplateIds(new Set());
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          await loadData(true);
+        } catch (err: any) {
+          alert('Failed to delete templates: ' + (err.message || 'Unknown error'));
+        } finally {
+          setIsBulkDeleting(false);
+        }
+      },
+    });
   };
 
   const filteredTemplates = useMemo(() => {
@@ -298,6 +389,36 @@ export default function AdminTemplatesPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Multi-selection & Bulk Delete in Header */}
+          {filteredTemplates.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 cursor-pointer select-none bg-white hover:bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200 transition shadow-2xs">
+                <input
+                  type="checkbox"
+                  checked={
+                    filteredTemplates.length > 0 &&
+                    filteredTemplates.every((t) => selectedTemplateIds.has(t.id))
+                  }
+                  onChange={toggleSelectAllTemplates}
+                  className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                />
+                <span>Select All</span>
+              </label>
+
+              {selectedTemplateIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={handleBulkDeleteTemplates}
+                  disabled={isBulkDeleting}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Selected ({selectedTemplateIds.size})</span>
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center bg-white border border-gray-200 rounded-lg p-0.5 shadow-2xs">
             <button
               type="button"
@@ -405,6 +526,9 @@ export default function AdminTemplatesPage() {
       ) : viewMode === 'table' ? (
         <TemplateTable
           templates={filteredTemplates}
+          selectedIds={selectedTemplateIds}
+          onToggleSelect={toggleTemplateSelection}
+          onToggleSelectAll={toggleSelectAllTemplates}
           onToggleActive={handleToggleActive}
           onDeleteTemplate={handleDeleteTemplate}
         />
@@ -414,11 +538,26 @@ export default function AdminTemplatesPage() {
             <TemplateCard
               key={template.id}
               template={template}
+              isSelected={selectedTemplateIds.has(template.id)}
+              onToggleSelect={toggleTemplateSelection}
               onToggleActive={handleToggleActive}
+              onDeleteTemplate={handleDeleteTemplate}
             />
           ))}
         </div>
       )}
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        confirmLabel="Delete"
+        variant="danger"
+        isLoading={isBulkDeleting}
+      />
     </div>
   );
 }

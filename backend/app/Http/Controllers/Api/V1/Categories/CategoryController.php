@@ -169,4 +169,23 @@ class CategoryController extends Controller
             'message' => 'Category deleted successfully',
         ]);
     }
+
+    /**
+     * Delete multiple categories in bulk.
+     */
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['required', 'string'],
+        ]);
+
+        $count = Category::whereIn('id', $validated['ids'])->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$count} category(ies) deleted successfully.",
+            'deleted_count' => $count,
+        ]);
+    }
 }

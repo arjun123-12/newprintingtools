@@ -9,6 +9,9 @@ import { formatImageUrl } from '@/utils/imageUrl';
 
 export interface TemplateTableProps {
   templates: TemplateListItem[];
+  selectedIds?: Set<string>;
+  onToggleSelect?: (templateId: string) => void;
+  onToggleSelectAll?: () => void;
   onToggleActive?: (template: TemplateListItem) => void;
   onDeleteTemplate?: (templateId: string) => void;
   isLoading?: boolean;
@@ -16,11 +19,19 @@ export interface TemplateTableProps {
 
 export const TemplateTable: React.FC<TemplateTableProps> = ({
   templates,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
   onToggleActive,
   onDeleteTemplate,
   isLoading = false,
 }) => {
   const [deleteTarget, setDeleteTarget] = React.useState<TemplateListItem | null>(null);
+
+  const allSelected =
+    templates.length > 0 &&
+    selectedIds !== undefined &&
+    templates.every((t) => selectedIds.has(t.id));
 
   return (
     <div className="w-full bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
@@ -28,6 +39,16 @@ export const TemplateTable: React.FC<TemplateTableProps> = ({
         <table className="w-full text-left text-xs divide-y divide-gray-200">
           <thead className="bg-gray-50/80 text-gray-600 uppercase text-[10px] font-bold tracking-wider">
             <tr>
+              {onToggleSelect && (
+                <th className="py-3.5 px-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={onToggleSelectAll}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                  />
+                </th>
+              )}
               <th className="py-3.5 px-4">Template</th>
               <th className="py-3.5 px-4">Product</th>
               <th className="py-3.5 px-4">Category</th>
@@ -38,6 +59,7 @@ export const TemplateTable: React.FC<TemplateTableProps> = ({
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
             {templates.map((template) => {
+              const isSelected = selectedIds?.has(template.id) ?? false;
               const productName = template.product?.name || 'Unassigned Product';
               const imgUrl = template.thumbnail_url;
               const designerUrl = template.product_id
@@ -45,7 +67,22 @@ export const TemplateTable: React.FC<TemplateTableProps> = ({
                 : null;
 
               return (
-                <tr key={template.id} className="hover:bg-gray-50/60 transition-colors group">
+                <tr
+                  key={template.id}
+                  className={`hover:bg-gray-50/60 transition-colors group ${
+                    isSelected ? 'bg-blue-50/40' : ''
+                  }`}
+                >
+                  {onToggleSelect && (
+                    <td className="py-3 px-4 w-10">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => onToggleSelect(template.id)}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                      />
+                    </td>
+                  )}
                   {/* Template Info */}
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-3">

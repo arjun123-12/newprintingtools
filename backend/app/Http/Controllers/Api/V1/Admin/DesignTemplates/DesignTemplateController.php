@@ -372,6 +372,25 @@ class DesignTemplateController extends Controller
     }
 
     /**
+     * Delete multiple design templates in bulk.
+     */
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['required', 'string'],
+        ]);
+
+        $count = DesignTemplate::whereIn('id', $validated['ids'])->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$count} template(s) deleted successfully.",
+            'deleted_count' => $count,
+        ]);
+    }
+
+    /**
      * Convert a Base64 thumbnail into a storage file.
      */
     private function handleThumbnail(
