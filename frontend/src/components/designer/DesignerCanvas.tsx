@@ -64,6 +64,7 @@ function makeAbsoluteStorageUrl(url: string): string {
 export function DesignerCanvas({
   zoom,
   productId,
+  setZoom,
   dimensions,
   canvasManager,
   selected = null,
@@ -75,7 +76,18 @@ export function DesignerCanvas({
   onUpdateDocumentSettings,
 }: DesignerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const paperRef = useRef<HTMLDivElement | null>(null);
+  const previousZoomRef = useRef(zoom);
+  const scrollUpdateFrameRef = useRef<number | null>(null);
+  const isSpacePressedRef = useRef(false);
+  const isViewportPanningRef = useRef(false);
+  const panStartRef = useRef({
+    pointerX: 0,
+    pointerY: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+  });
 
   /*
    * Fabric manages only the children inside canvasHostRef.
@@ -93,6 +105,8 @@ export function DesignerCanvas({
   const [isEraserActive, setIsEraserActive] = useState(false);
   const [eraserSize, setEraserSize] = useState(20);
   const [dropError, setDropError] = useState<string | null>(null);
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const [isViewportPanning, setIsViewportPanning] = useState(false);
 
   const [mousePos, setMousePos] = useState({
     x: 0,
@@ -181,6 +195,11 @@ export function DesignerCanvas({
         cancelAnimationFrame(resizeFrame);
       }
 
+      if (scrollUpdateFrameRef.current !== null) {
+        cancelAnimationFrame(scrollUpdateFrameRef.current);
+        scrollUpdateFrameRef.current = null;
+      }
+
       if (typeof cleanup === 'function') {
         cleanup();
       }
@@ -233,12 +252,34 @@ export function DesignerCanvas({
   useEffect(() => {
     if (!canvasManager || typeof zoom !== 'number') return;
 
+    const viewport = scrollViewportRef.current;
+    const previousZoom = Math.max(previousZoomRef.current || zoom, 0.01);
+    const zoomRatio = zoom / previousZoom;
+    const previousCenterX = viewport
+      ? viewport.scrollLeft + viewport.clientWidth / 2
+      : 0;
+    const previousCenterY = viewport
+      ? viewport.scrollTop + viewport.clientHeight / 2
+      : 0;
+
     canvasManager.setZoom(zoom);
+    previousZoomRef.current = zoom;
 
     const frame = requestAnimationFrame(() => {
       const canvas = canvasManager.getCanvas();
 
       if (!canvas) return;
+
+      if (viewport && Number.isFinite(zoomRatio) && zoomRatio > 0) {
+        viewport.scrollLeft = Math.max(
+          0,
+          previousCenterX * zoomRatio - viewport.clientWidth / 2
+        );
+        viewport.scrollTop = Math.max(
+          0,
+          previousCenterY * zoomRatio - viewport.clientHeight / 2
+        );
+      }
 
       canvas.calcOffset();
       canvas.requestRenderAll();
@@ -280,6 +321,18 @@ export function DesignerCanvas({
         return;
       }
 
+      /* Hold Space to temporarily pan the zoomed artwork, Canva-style. */
+      if (event.code === 'Space') {
+        event.preventDefault();
+
+        if (!isSpacePressedRef.current) {
+          isSpacePressedRef.current = true;
+          setIsSpacePressed(true);
+        }
+
+        return;
+      }
+
       const canvas = canvasManager.getCanvas();
 
       if (!canvas) return;
@@ -305,6 +358,49 @@ export function DesignerCanvas({
       const isCtrlOrCmd = isMac
         ? event.metaKey
         : event.ctrlKey;
+
+      /* Canva-style zoom keyboard shortcuts. */
+      if (
+        isCtrlOrCmd &&
+        (event.key === '+' || event.key === '=')
+      ) {
+        event.preventDefault();
+
+        if (setZoom) {
+          setZoom(Math.min(Number((zoom + 0.1).toFixed(2)), 8));
+        } else {
+          canvasManager.zoomIn();
+        }
+
+        return;
+      }
+
+      if (
+        isCtrlOrCmd &&
+        (event.key === '-' || event.key === '_')
+      ) {
+        event.preventDefault();
+
+        if (setZoom) {
+          setZoom(Math.max(Number((zoom - 0.1).toFixed(2)), 0.1));
+        } else {
+          canvasManager.zoomOut();
+        }
+
+        return;
+      }
+
+      if (isCtrlOrCmd && event.key === '0') {
+        event.preventDefault();
+
+        if (setZoom) {
+          setZoom(1);
+        } else {
+          canvasManager.resetZoom();
+        }
+
+        return;
+      }
 
       /*
        * Group: Ctrl/Cmd + G
@@ -419,7 +515,22 @@ export function DesignerCanvas({
       }, 300);
     };
 
+    const stopTemporaryPan = () => {
+      isSpacePressedRef.current = false;
+      isViewportPanningRef.current = false;
+      setIsSpacePressed(false);
+      setIsViewportPanning(false);
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.code !== 'Space') return;
+      event.preventDefault();
+      stopTemporaryPan();
+    };
+
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', stopTemporaryPan);
 
     return () => {
       if (keyDebounceTimer) {
@@ -427,8 +538,10 @@ export function DesignerCanvas({
       }
 
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', stopTemporaryPan);
     };
-  }, [canvasManager]);
+  }, [canvasManager, setZoom, zoom]);
 
   /*
    * Save a Freepik image in Laravel storage.
@@ -734,7 +847,7 @@ export function DesignerCanvas({
           visible: false,
         }));
       }}
-      className="relative flex h-full w-full min-h-0 min-w-0 flex-1 select-none items-center justify-center overflow-hidden bg-[#eef1f6] bg-[radial-gradient(#cbd5e1_1.2px,transparent_1.2px)] bg-[length:20px_20px] p-4"
+      className="relative h-full w-full min-h-0 min-w-0 flex-1 select-none overflow-hidden bg-[#eef1f6] bg-[radial-gradient(#cbd5e1_1.2px,transparent_1.2px)] bg-[length:20px_20px]"
     >
       {dropError && (
         <div className="absolute right-4 top-4 z-[80] max-w-sm rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 shadow-lg">
@@ -768,58 +881,143 @@ export function DesignerCanvas({
         />
       )}
 
-      <div className="relative shrink-0">
-        {showRulers && dimensions && (
-          <Ruler
-            zoom={zoom}
-            dimensions={dimensions}
-            canvasManager={canvasManager ?? null}
-            paperRef={paperRef}
-            containerRef={containerRef}
-            selected={selected}
-            onUpdateDocumentSettings={
-              onUpdateDocumentSettings
-            }
-          />
-        )}
+      <div
+        ref={scrollViewportRef}
+        className={`absolute inset-0 overflow-auto overscroll-contain ${isViewportPanning
+            ? 'cursor-grabbing'
+            : isSpacePressed
+              ? 'cursor-grab'
+              : ''
+          }`}
+        onScroll={() => {
+          if (scrollUpdateFrameRef.current !== null) return;
 
-        <div
-          ref={paperRef}
-          style={{
-            marginTop: showRulers ? '24px' : '0px',
-            marginLeft: showRulers ? '24px' : '0px',
-          }}
-          className="relative shrink-0 rounded-sm bg-white shadow-2xl ring-1 ring-black/15"
-        >
-          {/* Fabric owns only this container */}
-          <div
-            ref={canvasHostRef}
-            className="relative z-0"
-          />
+          scrollUpdateFrameRef.current = requestAnimationFrame(() => {
+            scrollUpdateFrameRef.current = null;
+            canvasManagerRef.current?.getCanvas()?.calcOffset();
+          });
+        }}
+        onWheel={(event) => {
+          /* Shift + wheel scrolls horizontally, like Canva. */
+          if (
+            event.shiftKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            Math.abs(event.deltaX) < Math.abs(event.deltaY)
+          ) {
+            event.preventDefault();
+            event.currentTarget.scrollLeft += event.deltaY;
+          }
+        }}
+        onPointerDownCapture={(event) => {
+          const shouldPan =
+            (isSpacePressedRef.current && event.button === 0) ||
+            event.button === 1;
 
-          {/* React overlays remain outside the Fabric container */}
-          {selected && (
-            <ElementActionBar
-              selected={selected}
-              canvasManager={canvasManager ?? null}
-              zoom={zoom}
-            />
-          )}
+          if (!shouldPan) return;
 
-          <div className="pointer-events-none">
-            <RotationBadge
-              canvasManager={canvasManager ?? null}
-              selected={selected}
-              zoom={zoom}
-            />
-          </div>
+          event.preventDefault();
+          event.stopPropagation();
 
-          <div className="pointer-events-none">
-            <ResizeBadge
-              canvasManager={canvasManager ?? null}
-              selected={selected}
-              zoom={zoom}
-            />
+          isViewportPanningRef.current = true;
+          setIsViewportPanning(true);
+          panStartRef.current = {
+            pointerX: event.clientX,
+            pointerY: event.clientY,
+            scrollLeft: event.currentTarget.scrollLeft,
+            scrollTop: event.currentTarget.scrollTop,
+          };
+
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMoveCapture={(event) => {
+          if (!isViewportPanningRef.current) return;
+
+          event.preventDefault();
+          event.stopPropagation();
+
+          const start = panStartRef.current;
+          event.currentTarget.scrollLeft =
+            start.scrollLeft - (event.clientX - start.pointerX);
+          event.currentTarget.scrollTop =
+            start.scrollTop - (event.clientY - start.pointerY);
+        }}
+        onPointerUpCapture={(event) => {
+          if (!isViewportPanningRef.current) return;
+
+          event.preventDefault();
+          event.stopPropagation();
+          isViewportPanningRef.current = false;
+          setIsViewportPanning(false);
+
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+        }}
+        onPointerCancelCapture={(event) => {
+          isViewportPanningRef.current = false;
+          setIsViewportPanning(false);
+
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+        }}
+      >
+        <div className="flex min-h-full w-max min-w-full items-center justify-center p-4">
+          <div className="relative shrink-0">
+            {showRulers && dimensions && (
+              <Ruler
+                zoom={zoom}
+                dimensions={dimensions}
+                canvasManager={canvasManager ?? null}
+                paperRef={paperRef}
+                containerRef={containerRef}
+                selected={selected}
+                onUpdateDocumentSettings={
+                  onUpdateDocumentSettings
+                }
+              />
+            )}
+
+            <div
+              ref={paperRef}
+              style={{
+                marginTop: showRulers ? '24px' : '0px',
+                marginLeft: showRulers ? '24px' : '0px',
+              }}
+              className="relative shrink-0 rounded-sm bg-white shadow-2xl ring-1 ring-black/15"
+            >
+              {/* Fabric owns only this container */}
+              <div
+                ref={canvasHostRef}
+                className="relative z-0"
+              />
+
+              {/* React overlays remain outside the Fabric container */}
+              {selected && (
+                <ElementActionBar
+                  selected={selected}
+                  canvasManager={canvasManager ?? null}
+                  zoom={zoom}
+                />
+              )}
+
+              <div className="pointer-events-none">
+                <RotationBadge
+                  canvasManager={canvasManager ?? null}
+                  selected={selected}
+                  zoom={zoom}
+                />
+              </div>
+
+              <div className="pointer-events-none">
+                <ResizeBadge
+                  canvasManager={canvasManager ?? null}
+                  selected={selected}
+                  zoom={zoom}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>

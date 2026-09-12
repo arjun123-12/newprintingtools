@@ -20,6 +20,7 @@ import {
   Gradient,
   filters,
   loadSVGFromURL,
+  loadSVGFromString,
   util,
 } from 'fabric';
 import {
@@ -220,6 +221,8 @@ export class CanvasManager {
   private guides: CanvasGuides;
   private snapping: CanvasSnapping;
   private zoom: number = 1.0;
+  private pendingZoom: number | null = null;
+  private zoomAnimationFrame: number | null = null;
   private isPanMode: boolean = false;
   private isDrawing: boolean = false;
   private isErasing: boolean = false;
@@ -811,36 +814,55 @@ export class CanvasManager {
   public setZoom(newZoom: number): void {
     if (!this.canvas) return;
     const clampedZoom = Math.min(Math.max(Number(newZoom.toFixed(2)), 0.1), 8.0);
+
+    if (
+      clampedZoom === this.zoom &&
+      this.pendingZoom === null &&
+      this.zoomAnimationFrame === null
+    ) {
+      return;
+    }
+
     this.zoom = clampedZoom;
 
-    const baseWidth = this.dimensions.widthPx || 1063;
-    const baseHeight = this.dimensions.heightPx || 591;
+    /*
+     * Wheel and trackpad gestures can emit dozens of events per frame.
+     * Keep only the newest requested zoom and render once per animation frame.
+     */
+    this.pendingZoom = clampedZoom;
 
-    const targetWidth = Math.round(baseWidth * this.zoom);
-    const targetHeight = Math.round(baseHeight * this.zoom);
+    if (this.zoomAnimationFrame !== null) return;
 
-    this.canvas.setDimensions({
-      width: targetWidth,
-      height: targetHeight,
-    });
+    const applyZoom = () => {
+      this.zoomAnimationFrame = null;
 
-    this.canvas.setZoom(this.zoom);
-    this.canvas.calcOffset();
-    this.canvas.forEachObject((obj) => {
-      obj.setCoords();
-    });
-    this.canvas.requestRenderAll();
-    this.notifyZoom();
+      if (!this.canvas || this.pendingZoom === null) return;
 
-    if (typeof requestAnimationFrame !== 'undefined') {
-      requestAnimationFrame(() => {
-        if (!this.canvas) return;
-        this.canvas.calcOffset();
-        this.canvas.forEachObject((obj) => {
-          obj.setCoords();
-        });
+      const zoomToApply = this.pendingZoom;
+      this.pendingZoom = null;
+
+      const baseWidth = this.dimensions.widthPx || 1063;
+      const baseHeight = this.dimensions.heightPx || 591;
+
+      const targetWidth = Math.round(baseWidth * zoomToApply);
+      const targetHeight = Math.round(baseHeight * zoomToApply);
+
+      this.canvas.setDimensions({
+        width: targetWidth,
+        height: targetHeight,
       });
-    }
+
+      this.canvas.setZoom(zoomToApply);
+      this.canvas.calcOffset();
+      this.canvas.requestRenderAll();
+      this.notifyZoom();
+
+      if (this.pendingZoom !== null && this.zoomAnimationFrame === null) {
+        this.zoomAnimationFrame = requestAnimationFrame(applyZoom);
+      }
+    };
+
+    this.zoomAnimationFrame = requestAnimationFrame(applyZoom);
   }
 
   public zoomIn(): void {
@@ -873,6 +895,29 @@ export class CanvasManager {
     const fitZoom = Math.min(scaleX, scaleY);
 
     this.setZoom(Number(Math.max(fitZoom, 0.05).toFixed(3)));
+  }
+
+  /**
+   * Fabric objects can cross serialization, cloning and optimized bundle
+   * boundaries where instanceof is not reliable. Always retain a type-name
+   * fallback so reselected text continues to expose typography properties.
+   */
+  private isTextObject(
+    obj: FabricObject | null | undefined
+  ): obj is Textbox | IText {
+    if (!obj) return false;
+
+    const normalizedType = String(obj.type || '')
+      .toLowerCase()
+      .replace(/[-_\s]/g, '');
+
+    return (
+      obj instanceof Textbox ||
+      obj instanceof IText ||
+      normalizedType === 'textbox' ||
+      normalizedType === 'itext' ||
+      normalizedType === 'text'
+    );
   }
 
   /** Returns true for editor-only objects that must never capture clicks. */
@@ -2129,7 +2174,7 @@ export class CanvasManager {
     // Imported Fabric JSON may contain the default bitmap cache setting.
     // Force every editable text object to render from glyph/vector data.
     this.canvas.getObjects().forEach((object) => {
-      if (object instanceof Textbox || object instanceof IText) {
+      if (this.isTextObject(object)) {
         object.set({
           objectCaching: false,
           noScaleCache: false,
@@ -3629,7 +3674,7 @@ export class CanvasManager {
         this.ensureObjectId(obj);
         const isPath = obj instanceof Path || Boolean(obj.get('isBrushPath' as any));
         const type = isPath ? 'brush' : obj.type || 'object';
-        const isText = obj instanceof Textbox || obj instanceof IText;
+        const isText = this.isTextObject(obj);
         const textPreview = isText ? (obj as Textbox).text?.substring(0, 24) : undefined;
 
         return {
@@ -3851,7 +3896,7 @@ export class CanvasManager {
       }
 
       const isImage = obj instanceof FabricImage || obj.type === 'image';
-      const isText = obj instanceof Textbox || obj instanceof IText;
+      const isText = this.isTextObject(obj);
 
       if (prop === 'fill') {
         if (!isImage) obj.set('fill', value as string);
@@ -3982,7 +4027,7 @@ export class CanvasManager {
     const active = this.canvas.getActiveObject();
     if (!active) return;
 
-    const isText = active instanceof Textbox || active instanceof IText;
+    const isText = this.isTextObject(active);
     const isImage = active instanceof FabricImage || active.type === 'image';
 
     const isGroupedSelection = active instanceof Group || active instanceof ActiveSelection;
@@ -4013,7 +4058,7 @@ export class CanvasManager {
     else if (prop === 'top') active.set('top', value as number);
     else if (prop === 'width') {
       const w = Math.max(Number(value), 1);
-      if (active instanceof Textbox) {
+      if (this.isTextObject(active) && active.type === 'textbox') {
         active.set('width', w);
       } else if (active.type === 'rect' || active.type === 'image') {
         active.set('width', w);
@@ -4472,7 +4517,7 @@ export class CanvasManager {
   public toggleBulletList(): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
-    if (!active || !(active instanceof Textbox || active instanceof IText)) return;
+    if (!active || !this.isTextObject(active)) return;
 
     const currentText = active.text || '';
     const lines = currentText.split('\n');
@@ -5180,7 +5225,7 @@ export class CanvasManager {
       ? (active as Group | ActiveSelection).getObjects().length
       : 1;
 
-    const isText = active instanceof Textbox || active instanceof IText;
+    const isText = this.isTextObject(active);
     const textObj = isText ? (active as Textbox | IText) : null;
 
     const isImage = active instanceof FabricImage || active.type === 'image';
@@ -5484,6 +5529,27 @@ export class CanvasManager {
       this.notifyLayers();
     });
 
+    /* Keep the typography toolbar synchronized while entering, editing and
+     * leaving a Fabric text object. */
+    this.canvas.on('text:editing:entered' as any, () => {
+      this.notifySelection();
+    });
+    this.canvas.on('text:selection:changed' as any, () => {
+      this.notifySelection();
+    });
+    this.canvas.on('text:changed' as any, (opt: any) => {
+      opt?.target?.set?.('dirty', true);
+      opt?.target?.setCoords?.();
+      this.canvas?.requestRenderAll();
+      this.notifySelection();
+      this.notifyChange();
+    });
+    this.canvas.on('text:editing:exited' as any, () => {
+      this.notifySelection();
+      this.notifyChange();
+      this.notifyLayers();
+    });
+
     this.canvas.on('object:added', (opt: any) => {
       if (opt.target) {
         if (this.isPanMode) {
@@ -5642,7 +5708,22 @@ export class CanvasManager {
 
   private async loadCustomShapeObject(url: string): Promise<FabricObject> {
     const safeUrl = await urlToSafeDataUrl(url);
-    const result = await loadSVGFromURL(safeUrl);
+
+    const response = await fetch(safeUrl);
+
+    if (!response.ok) {
+      throw new Error(
+        `Unable to load custom shape SVG (${response.status} ${response.statusText}).`
+      );
+    }
+
+    const svgText = await response.text();
+
+    if (!/<svg[\s>]/i.test(svgText)) {
+      throw new Error('The custom shape URL did not return valid SVG content.');
+    }
+
+    const result = await loadSVGFromString(svgText);
     const objects = (result?.objects || []).filter(
       (object): object is FabricObject => Boolean(object)
     );
@@ -5894,6 +5975,12 @@ export class CanvasManager {
   }
 
   public dispose(): void {
+    if (this.zoomAnimationFrame !== null) {
+      cancelAnimationFrame(this.zoomAnimationFrame);
+      this.zoomAnimationFrame = null;
+      this.pendingZoom = null;
+    }
+
     if (this.canvas) {
       if (this.canvas.upperCanvasEl && this.preventNativeDragHandler) {
         try {
