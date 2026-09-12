@@ -93,14 +93,14 @@ export interface ImageMetadata {
 }
 
 export interface FrameAssetMetadata extends ImageMetadata {
-  assetId?: string | null;
-  provider?: string | null;
-  overlayUrl?: string | null;
-  maskUrl?: string | null;
-  maskType?: string | null;
-  shape?: string | null;
-  width?: number | null;
-  height?: number | null;
+  assetId?: string;
+  provider?: string;
+  overlayUrl?: string;
+  maskUrl?: string;
+  maskType?: string;
+  shape?: string;
+  width?: number;
+  height?: number;
 }
 
 export interface ShapeAssetMetadata extends ImageMetadata {

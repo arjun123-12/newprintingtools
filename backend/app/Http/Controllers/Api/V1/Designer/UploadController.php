@@ -36,7 +36,13 @@ class UploadController extends Controller
         } elseif ($request->filled('image_url') || $request->filled('url')) {
             $url = (string) ($request->input('image_url') ?: $request->input('url'));
             $parsed = parse_url($url, PHP_URL_PATH);
-            $relativePath = preg_replace('#^/storage/#', '', $parsed ?? $url);
+            // Accept both the correct public URL and legacy URLs previously
+            // returned as /api/v1/storage/....
+            $relativePath = preg_replace(
+                '#^/(?:api/v1/)?storage/#',
+                '',
+                $parsed ?? $url
+            );
             if (Storage::disk('public')->exists($relativePath)) {
                 $filePath = Storage::disk('public')->path($relativePath);
                 $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
@@ -244,7 +250,7 @@ class UploadController extends Controller
                 $path = 'designer/canvas-images/' . $pngFilename;
                 Storage::disk('public')->put($path, $pngBlob);
 
-                $url = url('/api/v1/storage/' . $path);
+                $url = url('/storage/' . ltrim($path, '/'));
 
                 $upload = CustomerUpload::create([
                     'user_id' => $request->user()?->id,
@@ -302,7 +308,9 @@ class UploadController extends Controller
         string $processingType,
         string $successMessage
     ): JsonResponse {
-        $disk = (string) config('filesystems.default', 'public');
+        // Canvas images must always be publicly readable through /storage.
+        // Do not depend on FILESYSTEM_DISK, which may be "local" in production.
+        $disk = 'public';
         $mimeType = $file->getMimeType()
             ?: $file->getClientMimeType()
             ?: 'application/octet-stream';
@@ -379,7 +387,7 @@ class UploadController extends Controller
 
             DB::commit();
 
-            $url = url('/api/v1/storage/' . ltrim($path, '/'));
+            $url = url('/storage/' . ltrim($path, '/'));
 
             return response()->json([
                 'success' => true,

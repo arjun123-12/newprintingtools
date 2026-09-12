@@ -563,8 +563,8 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
                 setSelectedCategory(cat);
               }}
               className={`px-2.5 py-1 text-[11px] font-semibold rounded-full whitespace-nowrap transition-all ${selectedCategory === cat
-                  ? 'bg-purple-600 text-white shadow-sm shadow-purple-200'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                ? 'bg-purple-600 text-white shadow-sm shadow-purple-200'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
             >
               {cat}
@@ -692,8 +692,8 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
                       unoptimized
                       sizes="(max-width: 768px) 50vw, 200px"
                       className={`p-2 transition-transform duration-200 group-hover:scale-105 ${asset.is_vector || asset.asset_type === 'icon' || asset.asset_type === 'element'
-                          ? 'object-contain'
-                          : 'object-cover rounded-lg'
+                        ? 'object-contain'
+                        : 'object-cover rounded-lg'
                         }`}
                       draggable={false}
                     />
@@ -710,10 +710,10 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
                         {asset.is_vector || asset.format === 'svg'
                           ? 'SVG'
                           : asset.asset_type === 'photo'
-                          ? 'PHOTO'
-                          : asset.asset_type && asset.asset_type !== 'element'
-                          ? asset.asset_type.toUpperCase()
-                          : 'ADMIN'}
+                            ? 'PHOTO'
+                            : asset.asset_type && asset.asset_type !== 'element'
+                              ? asset.asset_type.toUpperCase()
+                              : 'ADMIN'}
                       </div>
                     )}
                   </div>
