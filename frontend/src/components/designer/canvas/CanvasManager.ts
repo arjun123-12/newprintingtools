@@ -5735,15 +5735,86 @@ export class CanvasManager {
     }
 
     const result = await loadSVGFromString(svgText);
-    const objects = (result?.objects || []).filter(
+    let objects = (result?.objects || []).filter(
       (object): object is FabricObject => Boolean(object)
     );
 
+    let groupOptions = result?.options || {};
+
+    /*
+     * Some optimized production bundles can return null entries from Fabric's
+     * generic SVG loader even for a valid, simple <path>. Custom photo shapes
+     * are path-driven, so recover those paths directly instead of rejecting a
+     * valid uploaded mask.
+     */
     if (objects.length === 0) {
-      throw new Error('The custom shape SVG contains no drawable objects.');
+      const svgDocument = new DOMParser().parseFromString(
+        svgText,
+        'image/svg+xml'
+      );
+
+      if (svgDocument.querySelector('parsererror')) {
+        throw new Error('The custom shape file contains invalid SVG XML.');
+      }
+
+      const svgElement = svgDocument.documentElement;
+      const fallbackPaths = Array.from(
+        svgDocument.querySelectorAll('path[d]')
+      ).map((pathElement) => {
+        const pathData = pathElement.getAttribute('d')?.trim() || '';
+        const opacityAttribute = pathElement.getAttribute('opacity');
+        const strokeWidthAttribute = pathElement.getAttribute('stroke-width');
+        const parsedOpacity = opacityAttribute === null
+          ? Number.NaN
+          : Number(opacityAttribute);
+        const parsedStrokeWidth = strokeWidthAttribute === null
+          ? Number.NaN
+          : Number(strokeWidthAttribute);
+        const fill = pathElement.getAttribute('fill');
+        const stroke = pathElement.getAttribute('stroke');
+
+        return new Path(pathData, {
+          fill: !fill || fill === 'none' ? '#000000' : fill,
+          fillRule:
+            pathElement.getAttribute('fill-rule') === 'evenodd'
+              ? 'evenodd'
+              : 'nonzero',
+          stroke: !stroke || stroke === 'none' ? undefined : stroke,
+          strokeWidth: Number.isFinite(parsedStrokeWidth)
+            ? parsedStrokeWidth
+            : 0,
+          opacity: Number.isFinite(parsedOpacity) ? parsedOpacity : 1,
+        } as any);
+      });
+
+      objects = fallbackPaths;
+
+      const viewBox = (svgElement.getAttribute('viewBox') || '')
+        .trim()
+        .split(/[\s,]+/)
+        .map(Number);
+
+      if (
+        viewBox.length === 4 &&
+        viewBox.every(Number.isFinite) &&
+        viewBox[2] > 0 &&
+        viewBox[3] > 0
+      ) {
+        groupOptions = {
+          ...groupOptions,
+          width: viewBox[2],
+          height: viewBox[3],
+        };
+      }
     }
 
-    const shape = util.groupSVGElements(objects, result?.options || {});
+    if (objects.length === 0) {
+      throw new Error(
+        'The custom shape SVG contains no supported drawable paths.'
+      );
+    }
+
+    const shape = util.groupSVGElements(objects, groupOptions);
 
     shape.set({
       visible: true,
