@@ -5707,9 +5707,14 @@ export class CanvasManager {
   }
 
   private async loadCustomShapeObject(url: string): Promise<FabricObject> {
-    const safeUrl = await urlToSafeDataUrl(url);
+    const directUrl = formatImageUrl(url);
 
-    const response = await fetch(safeUrl);
+    const response = await fetch(directUrl, {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store',
+    });
 
     if (!response.ok) {
       throw new Error(
@@ -5717,22 +5722,38 @@ export class CanvasManager {
       );
     }
 
+    const contentType = response.headers.get('content-type') || '';
     const svgText = await response.text();
 
     if (!/<svg[\s>]/i.test(svgText)) {
-      throw new Error('The custom shape URL did not return valid SVG content.');
+      throw new Error(
+        `Shape response is not SVG. Content-Type: ${contentType}`
+      );
     }
 
     const result = await loadSVGFromString(svgText);
-    const objects = (result?.objects || []).filter(
-      (object): object is FabricObject => Boolean(object)
+
+    const objects = (result.objects || []).filter(
+      (object): object is FabricObject => object !== null
     );
 
-    if (!objects.length) {
-      throw new Error('The custom shape SVG contains no drawable paths.');
+    if (objects.length === 0) {
+      throw new Error('The custom shape SVG contains no drawable objects.');
     }
 
-    return util.groupSVGElements(objects, result?.options || {});
+    const shape =
+      objects.length === 1
+        ? objects[0]
+        : util.groupSVGElements(objects, result.options || {});
+
+    shape.set({
+      visible: true,
+      opacity: 1,
+      selectable: true,
+      evented: true,
+    });
+
+    return shape;
   }
 
   /**
