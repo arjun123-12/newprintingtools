@@ -55,9 +55,12 @@ export interface RemoveBackgroundResponse {
 
 const FREEPIK_API_KEY =
   process.env.NEXT_PUBLIC_FREEPIK_API_KEY ||
+  process.env.NEXT_PUBLIC_MAGNIFIC_API_KEY ||
   'MS298ef362fc4148869212e3ba881f6bf2';
 const FREEPIK_BASE_URL =
-  process.env.NEXT_PUBLIC_FREEPIK_API_URL || 'https://api.magnific.com/v1';
+  process.env.NEXT_PUBLIC_FREEPIK_API_URL ||
+  process.env.NEXT_PUBLIC_MAGNIFIC_API_URL ||
+  'https://api.magnific.com/v1';
 
 export const freepikService = {
   search: async (
@@ -107,7 +110,7 @@ export const freepikService = {
       const filteredItems: FreepikAsset[] = rawItems
         .filter((item: any) => {
           if (requestedType === 'all') return true;
-          const itemType = item?.image?.type || 'photo';
+          const itemType = item?.image?.type || item?.type || 'photo';
           if (requestedType === 'photo') return itemType === 'photo' || itemType === 'psd';
           if (requestedType === 'vector') return itemType === 'vector';
           if (requestedType === 'icon') return itemType === 'icon';
@@ -115,11 +118,22 @@ export const freepikService = {
         })
         .slice(0, limit)
         .map((item: any) => {
-          const itemType = item?.image?.type || 'photo';
-          const imgUrl = item?.image?.source?.url || '';
+          const itemType = item?.image?.type || item?.type || 'photo';
+          let imgUrl =
+            item?.image?.source?.url ||
+            item?.preview?.url ||
+            item?.thumbnail?.url ||
+            (Array.isArray(item?.thumbnails) ? item.thumbnails[item.thumbnails.length - 1]?.url : '') ||
+            item?.image?.url ||
+            '';
+
+          if (typeof imgUrl === 'string' && imgUrl.startsWith('http://')) {
+            imgUrl = imgUrl.replace('http://', 'https://');
+          }
+
           return {
             id: String(item.id),
-            title: item.title || 'Freepik Asset',
+            title: item.title || item.name || 'Freepik Asset',
             type: itemType,
             preview_url: imgUrl,
             thumbnail_url: imgUrl,
@@ -153,6 +167,44 @@ export const freepikService = {
     }
   },
 
+  /**
+   * Get detailed resource metadata from Magnific / Freepik API.
+   * Endpoint: GET /resources/{resource-id}
+   * Header: x-magnific-api-key: <key>
+   */
+  getResource: async (id: string): Promise<any> => {
+    // 1. Try Laravel backend first
+    try {
+      const response = await apiClient.get(`/freepik/resources/${id}`);
+      if (response.data?.success && response.data?.data) {
+        return response.data.data;
+      }
+    } catch (backendErr) {
+      console.warn('Backend getResource failed, trying direct Magnific API:', backendErr);
+    }
+
+    // 2. Direct Magnific API call
+    try {
+      const res = await fetch(`${FREEPIK_BASE_URL}/resources/${id}`, {
+        headers: {
+          'x-magnific-api-key': FREEPIK_API_KEY,
+          'x-freepik-api-key': FREEPIK_API_KEY,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error(`Magnific get resource error: ${res.status} ${res.statusText}`);
+      }
+
+      const json = await res.json();
+      return json.data || json;
+    } catch (directErr) {
+      console.error('Direct getResource failed:', directErr);
+      throw directErr;
+    }
+  },
+
   searchIcons: async (
     q: string,
     page = 1,
@@ -167,21 +219,82 @@ export const freepikService = {
     id: string,
     fallbackUrl?: string
   ): Promise<FreepikUseResponse> => {
+    // 1. Try backend
     try {
       const response = await apiClient.post(`/freepik/resources/${id}/use`);
       if (response.data?.success && response.data?.data) {
         return response.data;
       }
     } catch (err) {
-      console.warn('Backend useAsset failed, using fallback preview URL:', err);
+      console.warn('Backend useAsset failed, falling back to direct API / resource details:', err);
+    }
+
+    // 2. Try direct download endpoint from Magnific API
+    try {
+      const dlRes = await fetch(`${FREEPIK_BASE_URL}/resources/${id}/download`, {
+        headers: {
+          'x-magnific-api-key': FREEPIK_API_KEY,
+          'x-freepik-api-key': FREEPIK_API_KEY,
+          Accept: 'application/json',
+        },
+      });
+      if (dlRes.ok) {
+        const dlJson = await dlRes.json();
+        const dlUrl = dlJson.data?.url || dlJson.url;
+        if (dlUrl && typeof dlUrl === 'string' && !dlUrl.match(/\.(zip|eps|ai|rar)(\?.*)?$/i)) {
+          return {
+            success: true,
+            data: {
+              id,
+              url: dlUrl,
+              title: 'Freepik Asset',
+              type: 'photo',
+              provider: 'freepik',
+            },
+          };
+        }
+      }
+    } catch (dlErr) {
+      console.warn('Direct download URL fetch failed:', dlErr);
+    }
+
+    // 3. Try direct resource details to resolve preview URL
+    try {
+      const details = await freepikService.getResource(id);
+      let previewUrl =
+        details?.preview?.url ||
+        details?.image?.source?.url ||
+        details?.image?.url ||
+        fallbackUrl;
+
+      if (previewUrl && typeof previewUrl === 'string') {
+        if (previewUrl.startsWith('http://')) {
+          previewUrl = previewUrl.replace('http://', 'https://');
+        }
+        return {
+          success: true,
+          data: {
+            id,
+            url: previewUrl,
+            title: details?.name || details?.title || 'Freepik Asset',
+            type: details?.type || 'photo',
+            provider: 'freepik',
+          },
+        };
+      }
+    } catch (detailErr) {
+      console.warn('Direct getResource in useAsset failed:', detailErr);
     }
 
     if (fallbackUrl) {
+      const secureFallback = fallbackUrl.startsWith('http://')
+        ? fallbackUrl.replace('http://', 'https://')
+        : fallbackUrl;
       return {
         success: true,
         data: {
           id,
-          url: fallbackUrl,
+          url: secureFallback,
           title: 'Freepik Image',
           type: 'photo',
           provider: 'freepik',

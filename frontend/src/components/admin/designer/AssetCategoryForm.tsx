@@ -144,12 +144,18 @@ export function AssetCategoryForm({
             </label>
             <select
               value={formData.asset_type}
-              onChange={(e) => setFormData({ ...formData, asset_type: e.target.value as AssetType })}
+              onChange={(e) =>
+                setFormData((previous: any) => ({
+                  ...previous,
+                  asset_type: e.target.value as AssetType,
+                }))
+              }
               className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
             >
               <option value="text">Text</option>
               <option value="photo">Photos</option>
               <option value="frame">Frames</option>
+              <option value="shape">Shapes</option>
               <option value="element">Elements</option>
               <option value="background">Backgrounds</option>
             </select>

@@ -49,6 +49,11 @@ import { calculateImageQuality, calculateFabricImageEffectiveDpi } from '../util
 import { runPreflightCheck, PreflightReport } from '../utils/preflightCheck';
 import { urlToSafeDataUrl, formatImageUrl, getProxiedImageUrl } from '@/utils/imageUrl';
 import { isSvg, normalizeSvgUrl } from '@/utils/svgNormalizer';
+import {
+  ImportedPsdDocument,
+  ImportedPsdLayer,
+  PsdImportOptions,
+} from '../services/psdImportService';
 
 // Apply Canva-style selection frame and handles globally
 applyCanvaControlsGlobal();
@@ -192,6 +197,14 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   'naturalWidth',
   'naturalHeight',
   'fileSizeBytes',
+  'psdLayerId',
+  'psdLayerName',
+  'psdLayerType',
+  'psdParentId',
+  'psdBlendMode',
+  'psdDocumentId',
+  'psdRasterized',
+  'psdRasterizeReason',
 ];
 
 /** Properties that must be painted on Group children, not only on the Group wrapper. */
@@ -214,6 +227,30 @@ const GROUP_RECURSIVE_PROPERTIES = new Set<keyof SelectedObjectState>([
   'charSpacing',
   'lineHeight',
 ]);
+
+const PSD_TO_CANVAS_BLEND_MODES: Record<string, GlobalCompositeOperation> = {
+  normal: 'source-over',
+  'pass through': 'source-over',
+  multiply: 'multiply',
+  screen: 'screen',
+  overlay: 'overlay',
+  darken: 'darken',
+  lighten: 'lighten',
+  'color dodge': 'color-dodge',
+  'color-dodge': 'color-dodge',
+  'color burn': 'color-burn',
+  'color-burn': 'color-burn',
+  'hard light': 'hard-light',
+  'hard-light': 'hard-light',
+  'soft light': 'soft-light',
+  'soft-light': 'soft-light',
+  difference: 'difference',
+  exclusion: 'exclusion',
+  hue: 'hue',
+  saturation: 'saturation',
+  color: 'color',
+  luminosity: 'luminosity',
+};
 
 export class CanvasManager {
   private canvas: Canvas | null = null;
@@ -280,6 +317,54 @@ export class CanvasManager {
     this.dimensions = dimensions;
     this.guides = new CanvasGuides(dimensions, initialGuidesSettings);
     this.snapping = new CanvasSnapping(dimensions);
+  }
+
+  /**
+   * CanvasGuides paints the black artwork edge and inner safe margin. This
+   * method paints only the red bleed boundary outside the Fabric canvas.
+   * Using an outline instead of a border keeps the canvas hit area stable and
+   * prevents pointer glitches when crossing safe/trim/bleed boundaries.
+   */
+  private syncArtworkBoundaryLines(): void {
+    if (!this.canvas) return;
+
+    const wrapper = (this.canvas as any).wrapperEl as HTMLElement | undefined;
+    if (!wrapper) return;
+
+    const visible = this.guides.getVisible();
+
+    // Clean up guide elements created by older CanvasManager versions. A DOM
+    // element above Fabric's upper canvas can steal hover transitions and make
+    // switching between the safe and trim lines flicker.
+    wrapper
+      .querySelector<HTMLElement>('[data-print-safe-margin="true"]')
+      ?.remove();
+
+    if (!visible) {
+      wrapper.style.border = 'none';
+      wrapper.style.boxShadow = 'none';
+      wrapper.style.outline = 'none';
+      wrapper.style.outlineOffset = '0px';
+      return;
+    }
+
+    const bleedMm = Math.max(0, Number(this.dimensions.bleedMm) || 0);
+    const dpi = Math.max(1, Number(this.dimensions.dpi) || 300);
+    const bleedScreenPx = bleedMm * (dpi / 25.4) * this.zoom;
+
+    // Trim and safe-margin lines are canvas overlays. Never use a CSS border:
+    // borders change the wrapper box and cause hit-testing jumps.
+    wrapper.style.boxSizing = 'content-box';
+    wrapper.style.border = 'none';
+    wrapper.style.boxShadow = 'none';
+
+    // Red dashed bleed line: outside the artwork by the configured bleed.
+    const showBleed = this.guides.getSettings().showBleed !== false;
+    wrapper.style.outline = showBleed && bleedMm > 0
+      ? '1px dashed #ef4444'
+      : 'none';
+    wrapper.style.outlineOffset = `${Math.max(0, bleedScreenPx - 1)}px`;
+    wrapper.style.overflow = 'visible';
   }
 
   /**
@@ -372,6 +457,7 @@ export class CanvasManager {
     this.snapping.attach(canvas);
     this.bindEvents();
     canvas.calcOffset();
+    this.syncArtworkBoundaryLines();
 
     // Initialize history baseline
     this.undoStack = [];
@@ -404,6 +490,7 @@ export class CanvasManager {
       });
 
       this.canvas.setZoom(this.zoom);
+      this.syncArtworkBoundaryLines();
       this.canvas.calcOffset();
       this.canvas.forEachObject((obj) => {
         obj.setCoords();
@@ -489,11 +576,12 @@ export class CanvasManager {
     this.guides.updateDimensions(newDims);
     this.snapping.updateDimensions(newDims);
 
-    // Apply guides / trim configuration if specified
-    const trimActive = config.trim !== undefined ? Boolean(config.trim) : true;
+    // Show only the supported artwork, safe-margin and outside-bleed lines.
     this.guides.updateSettings({
-      showTrim: trimActive,
       ...(config.guides || {}),
+      showTrim: true,
+      showSafeZone: true,
+      showBleed: true,
     });
 
     if (backgroundColor && this.canvas) {
@@ -510,6 +598,7 @@ export class CanvasManager {
       });
 
       this.canvas.setZoom(this.zoom);
+      this.syncArtworkBoundaryLines();
       this.canvas.requestRenderAll();
       this.notifyChange();
     }
@@ -788,12 +877,14 @@ export class CanvasManager {
 
   public toggleGuides(): boolean {
     const isVisible = this.guides.toggleVisible();
+    this.syncArtworkBoundaryLines();
     this.notifyGuides(isVisible);
     return isVisible;
   }
 
   public setGuidesVisible(visible: boolean): void {
     this.guides.setVisible(visible);
+    this.syncArtworkBoundaryLines();
     this.notifyGuides(visible);
   }
 
@@ -803,12 +894,52 @@ export class CanvasManager {
 
   public updateGuidesSettings(settings: Partial<PrintGuidesSettings>): void {
     this.guides.updateSettings(settings);
+    this.syncArtworkBoundaryLines();
   }
 
   // --- Zoom & Viewport Sizing (10% to 800%) ---
 
   public getZoom(): number {
     return this.zoom;
+  }
+
+  /**
+   * Fabric keeps separate bitmap caches for groups and clipPaths. Custom SVG
+   * photo shapes use both, so a viewport-only zoom can otherwise leave their
+   * old cache visible while every normal canvas object zooms correctly.
+   *
+   * Mark only shape/frame trees dirty. This preserves the lightweight zoom
+   * path: objects are not recreated/resized and React state is not involved.
+   */
+  private refreshShapeCachesForZoom(): void {
+    if (!this.canvas) return;
+
+    const markTreeDirty = (node: any): void => {
+      if (!node) return;
+
+      node.dirty = true;
+
+      if (node.clipPath) {
+        markTreeDirty(node.clipPath);
+      }
+
+      if (typeof node.getObjects === 'function') {
+        node.getObjects().forEach((child: FabricObject) => {
+          markTreeDirty(child);
+        });
+      }
+    };
+
+    this.canvas.getObjects().forEach((object) => {
+      if (
+        this.isShapeObject(object) ||
+        Boolean(object.get('isFrame' as any)) ||
+        Boolean(object.get('isPhotoShapeGroup' as any))
+      ) {
+        markTreeDirty(object);
+        object.setCoords();
+      }
+    });
   }
 
   public setZoom(newZoom: number): void {
@@ -853,6 +984,8 @@ export class CanvasManager {
       });
 
       this.canvas.setZoom(zoomToApply);
+      this.refreshShapeCachesForZoom();
+      this.syncArtworkBoundaryLines();
       this.canvas.calcOffset();
       this.canvas.requestRenderAll();
       this.notifyZoom();
@@ -2181,7 +2314,9 @@ export class CanvasManager {
           strokeUniform: true,
           dirty: true,
         });
-        object.set('sourceType' as any, 'vector-text');
+        if (object.get('sourceType' as any) !== 'psd-layer') {
+          object.set('sourceType' as any, 'vector-text');
+        }
       }
     });
 
@@ -3365,6 +3500,246 @@ export class CanvasManager {
     }
   }
 
+  /**
+   * Imports a fully parsed PSD document into the Fabric canvas.
+   *
+   * Preserves layer hierarchy, ordering, visibility, opacity, blend modes,
+   * typography for editable text, and Canva controls for all imported objects.
+   * Scales proportionally to fit the artwork and centers the result.
+   * Executes in a single history transaction and issues single batch notifications.
+   */
+  public async importPsdDocument(
+    document: ImportedPsdDocument,
+    options?: PsdImportOptions
+  ): Promise<void> {
+    if (!this.canvas) return;
+
+    this.enableSelectionMode();
+    this.canvas.discardActiveObject();
+
+    if (options?.clearCanvas) {
+      const existing = [...this.canvas.getObjects()];
+      existing.forEach((obj) => {
+        if (!obj.get('isGuide' as any) && !obj.get('isPrintGuide' as any) && !obj.get('isRulerGuide' as any)) {
+          this.canvas?.remove(obj);
+        }
+      });
+    }
+
+    const canvasW = this.dimensions.widthPx || 1000;
+    const canvasH = this.dimensions.heightPx || 1000;
+    const psdW = Math.max(1, document.width || 1000);
+    const psdH = Math.max(1, document.height || 1000);
+
+    let scale = 1;
+    if (options?.fitToArtwork !== false) {
+      scale = Math.min(canvasW / psdW, canvasH / psdH);
+    }
+
+    const scaledPsdW = psdW * scale;
+    const scaledPsdH = psdH * scale;
+    const offsetX = (canvasW - scaledPsdW) / 2;
+    const offsetY = (canvasH - scaledPsdH) / 2;
+
+    const addedObjects: FabricObject[] = [];
+
+    const convertLayerToObject = async (
+      layer: ImportedPsdLayer,
+      parentId?: string
+    ): Promise<FabricObject | null> => {
+      const layerLeft = offsetX + layer.left * scale;
+      const layerTop = offsetY + layer.top * scale;
+      const layerWidth = Math.max(1, layer.width * scale);
+
+      const rawBlend = String(layer.blendMode || 'normal').toLowerCase();
+      const compositeOp: GlobalCompositeOperation =
+        PSD_TO_CANVAS_BLEND_MODES[rawBlend] || 'source-over';
+
+      // 1. Group Layer
+      if (layer.type === 'group' && Array.isArray(layer.children) && layer.children.length > 0) {
+        const childFabricObjects: FabricObject[] = [];
+        for (const childLayer of layer.children) {
+          const childObj = await convertLayerToObject(childLayer, layer.id);
+          if (childObj) {
+            childFabricObjects.push(childObj);
+          }
+        }
+
+        if (childFabricObjects.length === 0) return null;
+
+        try {
+          const group = new Group(childFabricObjects, {
+            subTargetCheck: true,
+            opacity: layer.opacity,
+            visible: layer.visible,
+          });
+
+          group.set('sourceType' as any, 'psd-layer');
+          group.set('psdLayerId' as any, layer.id);
+          group.set('psdLayerName' as any, layer.name);
+          group.set('psdLayerType' as any, 'group');
+          group.set('psdParentId' as any, parentId || null);
+          group.set('psdBlendMode' as any, layer.blendMode || 'normal');
+          group.set('psdDocumentId' as any, document.name);
+          group.set('globalCompositeOperation', compositeOp);
+
+          this.ensureObjectId(group, layer.name);
+          return group;
+        } catch (groupErr) {
+          console.warn('Could not construct Fabric group, adding children individually:', groupErr);
+          for (const c of childFabricObjects) {
+            this.canvas?.add(c);
+            addedObjects.push(c);
+          }
+          return null;
+        }
+      }
+
+      // 2. Editable Text Layer
+      if (layer.type === 'text' && layer.text) {
+        const textData = layer.text;
+        const fontSize = Math.max(6, Math.round(textData.fontSize * scale));
+        const fontItem = POPULAR_FONTS.find(
+          (f) => f.family === textData.fontFamily || f.name === textData.fontFamily
+        );
+        if (fontItem) {
+          try {
+            await loadFont(fontItem);
+          } catch {
+            // Fallback font
+          }
+        }
+
+        const artworkDpi = Math.max(72, Number(this.dimensions.dpi) || 96);
+        const fontSizePt = (fontSize * 72) / artworkDpi;
+
+        const textbox = new Textbox(textData.text || '', {
+          left: layerLeft,
+          top: layerTop,
+          width: layerWidth,
+          fontSize,
+          fontFamily: textData.fontFamily || 'Inter, sans-serif',
+          fontWeight: textData.fontWeight || 'normal',
+          fontStyle: (textData.fontStyle as any) || 'normal',
+          fill: textData.fill || '#0f172a',
+          textAlign: textData.textAlign || 'left',
+          opacity: layer.opacity,
+          visible: layer.visible,
+          cornerColor: '#ffffff',
+          cornerStrokeColor: '#8b3dff',
+          borderColor: '#8b3dff',
+          cornerStyle: 'circle',
+          cornerSize: 12,
+          transparentCorners: false,
+          padding: 6,
+          objectCaching: false,
+          noScaleCache: false,
+          strokeUniform: true,
+        });
+
+        textbox.set('fontSizePt' as any, fontSizePt);
+        textbox.set('sourceType' as any, 'psd-layer');
+        textbox.set('psdLayerId' as any, layer.id);
+        textbox.set('psdLayerName' as any, layer.name);
+        textbox.set('psdLayerType' as any, 'text');
+        textbox.set('psdParentId' as any, parentId || null);
+        textbox.set('psdBlendMode' as any, layer.blendMode || 'normal');
+        textbox.set('psdDocumentId' as any, document.name);
+        textbox.set('psdRasterized' as any, false);
+        textbox.set('globalCompositeOperation', compositeOp);
+
+        this.ensureObjectId(textbox, layer.name);
+        textbox.setCoords();
+        return textbox;
+      }
+
+      // 3. Raster Image Layer (including rasterized text, Smart Objects, adjustment layers)
+      const imageSrc = layer.imageUrl || (layer.imageBlob ? URL.createObjectURL(layer.imageBlob) : null);
+      if (!imageSrc) return null;
+
+      try {
+        let safeSrc = await urlToSafeDataUrl(imageSrc);
+        let img: FabricImage;
+        try {
+          img = await FabricImage.fromURL(safeSrc, { crossOrigin: 'anonymous' });
+        } catch {
+          img = await new Promise<FabricImage>((resolve, reject) => {
+            const el = new Image();
+            el.crossOrigin = 'anonymous';
+            el.onload = () => resolve(new FabricImage(el));
+            el.onerror = () => reject(new Error(`Failed to load PSD layer image: ${layer.name}`));
+            el.src = safeSrc;
+          });
+        }
+
+        img.set({
+          left: layerLeft,
+          top: layerTop,
+          scaleX: scale,
+          scaleY: scale,
+          opacity: layer.opacity,
+          visible: layer.visible,
+          cornerColor: '#ffffff',
+          cornerStrokeColor: '#8b3dff',
+          borderColor: '#8b3dff',
+          cornerStyle: 'circle',
+          cornerSize: 12,
+          transparentCorners: false,
+          lockUniScaling: false,
+        });
+
+        img.set('sourceType' as any, 'psd-layer');
+        img.set('psdLayerId' as any, layer.id);
+        img.set('psdLayerName' as any, layer.name);
+        img.set('psdLayerType' as any, 'image');
+        img.set('psdParentId' as any, parentId || null);
+        img.set('psdBlendMode' as any, layer.blendMode || 'normal');
+        img.set('psdDocumentId' as any, document.name);
+        img.set('originalSrc' as any, layer.imageUrl || '');
+        img.set('psdRasterized' as any, Boolean(layer.psdRasterized));
+        img.set('psdRasterizeReason' as any, layer.psdRasterizeReason || '');
+        img.set('globalCompositeOperation', compositeOp);
+
+        this.ensureObjectId(img, layer.name);
+        img.setCoords();
+        return img;
+      } catch (imgError) {
+        console.warn(`Could not render PSD layer "${layer.name}":`, imgError);
+        return null;
+      }
+    };
+
+    // Sequential preparation preserving exact PSD bottom-to-top layer order
+    for (const layer of document.layers) {
+      const obj = await convertLayerToObject(layer);
+      if (obj) {
+        this.canvas.add(obj);
+        addedObjects.push(obj);
+      }
+    }
+
+    // Refresh coordinates and interactivity across any zoom level
+    this.refreshCanvasInteractivity();
+
+    // Select the uppermost visible imported object if available
+    const selectableObjs = addedObjects.filter((o) => o.visible && !o.get('isGuide' as any));
+    if (selectableObjs.length > 0) {
+      this.canvas.setActiveObject(selectableObjs[selectableObjs.length - 1]);
+    }
+
+    // Perform single final render
+    this.canvas.requestRenderAll();
+
+    // Save history once for the complete import (enables 1-click Undo)
+    this.saveHistoryState();
+
+    // Single final event notifications
+    this.notifyChange();
+    this.notifySelection();
+    this.notifyLayers();
+    this.notifyPreflight();
+  }
+
   public async replaceActiveImage(newUrl: string, metadata?: ImageMetadata): Promise<void> {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
@@ -4017,6 +4392,88 @@ export class CanvasManager {
     }
 
     root.set('dirty', true);
+  }
+
+  /**
+   * Applies a real Fabric gradient to the selected vector shape. Each SVG leaf
+   * gets coordinates based on its own local bounds, so grouped/multi-path SVGs
+   * render sharply and the gradient survives Fabric JSON and vector export.
+   */
+  public setSelectedGradient(config: {
+    type: 'linear' | 'radial';
+    angle: number;
+    stops: Array<{ offset: number; color: string }>;
+  }): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active || !this.isShapeObject(active)) return;
+
+    const safeStops = config.stops
+      .filter((stop) => typeof stop.color === 'string')
+      .map((stop) => ({
+        offset: Math.max(0, Math.min(1, Number(stop.offset) || 0)),
+        color: stop.color,
+      }))
+      .sort((a, b) => a.offset - b.offset);
+
+    if (safeStops.length < 2) return;
+
+    const applyGradient = (object: FabricObject): void => {
+      if (object instanceof Group || object instanceof ActiveSelection) {
+        object.getObjects().forEach(applyGradient);
+        object.set('dirty', true);
+        return;
+      }
+
+      // Raster photos inside photo-shape groups must remain unchanged.
+      if (object instanceof FabricImage || object.type === 'image') return;
+      if (object.get('frameRole' as any) === 'shape-outline') return;
+
+      const width = Math.max(object.width || 1, 1);
+      const height = Math.max(object.height || 1, 1);
+      const centerX = width / 2;
+      const centerY = height / 2;
+      const angleRadians = ((Number(config.angle) || 0) - 90) * Math.PI / 180;
+      const radius = Math.sqrt(width * width + height * height) / 2;
+
+      const gradient = config.type === 'radial'
+        ? new Gradient({
+          type: 'radial',
+          gradientUnits: 'pixels',
+          coords: {
+            x1: centerX,
+            y1: centerY,
+            r1: 0,
+            x2: centerX,
+            y2: centerY,
+            r2: radius,
+          },
+          colorStops: safeStops,
+        })
+        : new Gradient({
+          type: 'linear',
+          gradientUnits: 'pixels',
+          coords: {
+            x1: centerX - Math.cos(angleRadians) * radius,
+            y1: centerY - Math.sin(angleRadians) * radius,
+            x2: centerX + Math.cos(angleRadians) * radius,
+            y2: centerY + Math.sin(angleRadians) * radius,
+          },
+          colorStops: safeStops,
+        });
+
+      object.set({ fill: gradient, dirty: true });
+      object.setCoords();
+    };
+
+    applyGradient(active);
+    active.set('dirty', true);
+    active.setCoords();
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+    this.notifyLayers();
+    this.saveHistoryState();
   }
 
   public updateSelectedProperty<K extends keyof SelectedObjectState>(
@@ -5281,6 +5738,12 @@ export class CanvasManager {
     const isPath = active instanceof Path || Boolean(active.get('isBrushPath' as any));
     const brushType = (active.get('brushType' as any) as BrushType) || undefined;
     const isBrushPath = isPath || Boolean(active.get('isBrushPath' as any));
+    const sourceType = active.get('sourceType' as any) as string | undefined;
+    // Do not classify decorative/photo frames as colourable shapes merely
+    // because isShapeObject() also recognises frame drop targets.
+    const isShapeObject =
+      sourceType === 'shape' ||
+      (!isFrameObject && this.isShapeObject(active));
     const isCanvaPlaceholder = Boolean(active.get('isCanvaPlaceholder' as any)) ||
       Boolean(imageObj?.get('isCanvaPlaceholder' as any));
 
@@ -5291,11 +5754,13 @@ export class CanvasManager {
         ? 'activeSelection'
         : isText
           ? 'textbox'
-          : isImage || isFrameObject
-            ? 'image'
-            : isPath
-              ? 'path'
-              : (active.type || 'object').toLowerCase(),
+          : isShapeObject
+            ? 'shape'
+            : isImage || isFrameObject
+              ? 'image'
+              : isPath
+                ? 'path'
+                : (active.type || 'object').toLowerCase(),
       isMultiple,
       count,
       left: Math.round(active.left || 0),
@@ -5333,8 +5798,8 @@ export class CanvasManager {
       isVisible: active.visible !== false,
       isFrame,
       frameShape,
-      isShape: this.isShapeObject(active),
-      shapeType: this.isShapeObject(active) ? this.getShapeTypeFromObject(active) : undefined,
+      isShape: isShapeObject,
+      shapeType: isShapeObject ? this.getShapeTypeFromObject(active) : undefined,
       photoFit: isFrame ? ((active.get('photoFit' as any) as 'cover' | 'contain') || 'cover') : undefined,
       isCanvaPlaceholder,
       isBrushPath,

@@ -2,11 +2,11 @@ import { apiClient as api } from './api/client';
 
 export type AssetType =
   | 'text'
-  | 'frame'
   | 'photo'
+  | 'frame'
+  | 'shape'
   | 'element'
-  | 'background'
-  | 'shape';
+  | 'background';
 
 export interface DesignAssetCategory {
   id: string;

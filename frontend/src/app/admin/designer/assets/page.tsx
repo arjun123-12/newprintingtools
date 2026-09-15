@@ -93,10 +93,10 @@ export default function AdminAssetsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebounce(searchQuery, 300);
-  
+
   // Categories State
   const [categories, setCategories] = useState<DesignAssetCategory[]>([]);
-  
+
   // Assets State
   const [assets, setAssets] = useState<DesignAsset[]>([]);
   const [loading, setLoading] = useState(false);
@@ -124,7 +124,7 @@ export default function AdminAssetsPage() {
     isOpen: false,
     title: '',
     message: '',
-    onConfirm: async () => {},
+    onConfirm: async () => { },
   });
 
   const loadData = useCallback(async () => {
@@ -133,9 +133,20 @@ export default function AdminAssetsPage() {
       setError(null);
       setSelectedAssetIds(new Set());
       setSelectedCategoryIds(new Set());
-      
-      const cats = await designAssetService.getAdminCategories();
-      setCategories(cats);
+
+      const cats: any =
+        await designAssetService.getAdminCategories();
+
+      const categoryList: DesignAssetCategory[] =
+        Array.isArray(cats)
+          ? cats
+          : Array.isArray(cats?.data)
+            ? cats.data
+            : Array.isArray(cats?.data?.data)
+              ? cats.data.data
+              : [];
+
+      setCategories(categoryList);
 
       if (activeTab === 'category') {
         setAssets([]);
@@ -147,8 +158,19 @@ export default function AdminAssetsPage() {
         if (debouncedSearch.trim()) {
           queryParams.search = debouncedSearch.trim();
         }
-        const data = await designAssetService.getAdminAssets(queryParams);
-        setAssets(data.data);
+        const data: any =
+          await designAssetService.getAdminAssets(queryParams);
+
+        const assetList: DesignAsset[] =
+          Array.isArray(data)
+            ? data
+            : Array.isArray(data?.data)
+              ? data.data
+              : Array.isArray(data?.data?.data)
+                ? data.data.data
+                : [];
+
+        setAssets(assetList);
       }
     } catch (err: any) {
       console.error(err);
@@ -375,11 +397,10 @@ export default function AdminAssetsPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as TabType)}
-              className={`px-3.5 py-2 text-xs font-bold rounded-xl transition whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-              }`}
+              className={`px-3.5 py-2 text-xs font-bold rounded-xl transition whitespace-nowrap ${activeTab === tab.id
+                ? 'bg-blue-600 text-white shadow-2xs'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                }`}
             >
               {tab.label}
             </button>
@@ -498,9 +519,8 @@ export default function AdminAssetsPage() {
                 {filteredCategories.map((cat) => (
                   <tr
                     key={cat.id}
-                    className={`hover:bg-gray-50/50 transition ${
-                      selectedCategoryIds.has(cat.id) ? 'bg-blue-50/30' : ''
-                    }`}
+                    className={`hover:bg-gray-50/50 transition ${selectedCategoryIds.has(cat.id) ? 'bg-blue-50/30' : ''
+                      }`}
                   >
                     <td className="px-4 py-3">
                       <input
@@ -566,11 +586,10 @@ export default function AdminAssetsPage() {
                 return (
                   <div
                     key={asset.id}
-                    className={`bg-white border rounded-2xl overflow-hidden shadow-2xs transition group flex flex-col justify-between relative ${
-                      isSelected
-                        ? 'border-blue-500 ring-2 ring-blue-500/30 bg-blue-50/10'
-                        : 'border-gray-200 hover:border-blue-400'
-                    }`}
+                    className={`bg-white border rounded-2xl overflow-hidden shadow-2xs transition group flex flex-col justify-between relative ${isSelected
+                      ? 'border-blue-500 ring-2 ring-blue-500/30 bg-blue-50/10'
+                      : 'border-gray-200 hover:border-blue-400'
+                      }`}
                   >
                     {/* Select Checkbox */}
                     <div
@@ -599,9 +618,8 @@ export default function AdminAssetsPage() {
                           e.stopPropagation();
                           handleToggleAssetActive(asset);
                         }}
-                        className={`absolute top-2 right-2 px-1.5 py-0.5 rounded-md text-[10px] font-bold shadow-2xs ${
-                          asset.is_active ? 'bg-emerald-500 text-white' : 'bg-gray-300 text-gray-700'
-                        }`}
+                        className={`absolute top-2 right-2 px-1.5 py-0.5 rounded-md text-[10px] font-bold shadow-2xs ${asset.is_active ? 'bg-emerald-500 text-white' : 'bg-gray-300 text-gray-700'
+                          }`}
                       >
                         {asset.is_active ? 'Active' : 'Hidden'}
                       </button>

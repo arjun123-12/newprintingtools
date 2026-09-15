@@ -105,13 +105,17 @@ export const StockPhotosPanel: React.FC<StockPhotosPanelProps> = ({
       setError('');
       setAddingPhotoId(asset.id);
 
-      await canvasManager.addImageFromUrl(photoUrl, {
-        name: asset.name,
-        originalSrc: photoUrl,
-        naturalWidth: Number(asset.metadata?.width || asset.metadata?.naturalWidth) || undefined,
-        naturalHeight: Number(asset.metadata?.height || asset.metadata?.naturalHeight) || undefined,
-        fileSizeBytes: Number(asset.metadata?.fileSizeBytes) || undefined,
-      });
+      await canvasManager.addImageFromUrl(
+        photoUrl,
+        {
+          name: asset.name,
+          originalSrc: photoUrl,
+          naturalWidth: Number(asset.metadata?.width || asset.metadata?.naturalWidth) || undefined,
+          naturalHeight: Number(asset.metadata?.height || asset.metadata?.naturalHeight) || undefined,
+          fileSizeBytes: Number(asset.metadata?.fileSizeBytes) || undefined,
+        },
+        { skipFrameSlotting: true }
+      );
     } catch (addError) {
       console.error('Failed to add admin photo to canvas:', addError);
       setError('Could not add this photo to the artwork.');

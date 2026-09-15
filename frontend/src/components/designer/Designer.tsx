@@ -231,6 +231,7 @@ export default function Designer({
   const [selected, setSelected] = useState<SelectedObjectState | null>(null);
   const [isPropertiesOpen, setIsPropertiesOpen] = useState<boolean>(true);
   const [showGuides, setShowGuides] = useState<boolean>(true);
+  const [showRulers, setShowRulers] = useState<boolean>(true);
   const [preflightReport, setPreflightReport] = useState<PreflightReport | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [isCustomSizeOpen, setIsCustomSizeOpen] = useState<boolean>(false);
@@ -387,6 +388,35 @@ export default function Designer({
     if (!canvasManagerRef.current) return;
     const next = canvasManagerRef.current.toggleGuides();
     setShowGuides(next);
+  }, []);
+
+  // Canva shortcut: Shift + R toggles the artwork rulers without changing
+  // print guides, safe area, bleed, or trim visibility.
+  const handleToggleRulers = useCallback(() => {
+    setShowRulers((previous) => {
+      const next = !previous;
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(
+          'print_designer_show_rulers',
+          next ? '1' : '0'
+        );
+      }
+
+      return next;
+    });
+  }, []);
+
+  // Restore the user's ruler preference when the designer opens again.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const stored = window.localStorage.getItem(
+      'print_designer_show_rulers'
+    );
+
+    if (stored === '0') setShowRulers(false);
+    if (stored === '1') setShowRulers(true);
   }, []);
 
   /**
@@ -1992,6 +2022,14 @@ export default function Designer({
       } else if ((e.ctrlKey || e.metaKey) && (e.key === ';' || e.key === ':')) {
         e.preventDefault();
         handleToggleGuides();
+      } else if (
+        e.shiftKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        e.key.toLowerCase() === 'r'
+      ) {
+        e.preventDefault();
+        handleToggleRulers();
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
         if (e.shiftKey) {
@@ -2013,7 +2051,7 @@ export default function Designer({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleFitCanvas, handleSaveDraft, handleSelectMode, handlePanMode, handleToggleGuides, handleTogglePanMode, isPanMode, isPreviewOpen, isCustomSizeOpen]);
+  }, [handleFitCanvas, handleSaveDraft, handleSelectMode, handlePanMode, handleToggleGuides, handleToggleRulers, handleTogglePanMode, isPanMode, isPreviewOpen, isCustomSizeOpen]);
 
   useEffect(() => {
     const hasAlert =
@@ -2210,7 +2248,7 @@ export default function Designer({
             canvasManager={canvasManager}
             onCanvasReady={handleCanvasReady}
             onContainerResize={handleContainerResize}
-            showRulers={true}
+            showRulers={showRulers}
             selected={selected}
             onSelectSidebarTab={setActiveSidebarTab}
             activeSidebarTab={activeSidebarTab}

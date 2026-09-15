@@ -1,29 +1,14 @@
 'use client';
 
-import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
-import {
-  Shapes,
-  Sparkles,
-  Upload,
-  Search,
-  Check,
-  Plus,
-  Camera,
-  Image as ImageIcon,
-  CheckCircle2,
-  X,
-  RefreshCw,
-  Loader2,
-  Layers,
-} from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, Loader2, RefreshCw, Search, Shapes, X } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
-import { SelectedObjectState, FrameShapeType } from '@/types/designer';
+import { SelectedObjectState } from '@/types/designer';
 import {
-  FRAME_PRESETS,
-  FRAME_SVG_PATHS,
-  CANVA_FRAME_PLACEHOLDER_SVG,
-} from '../data/framesData';
-import { DesignAsset, designAssetService } from '@/services/designAssetService';
+  DesignAsset,
+  DesignAssetCategory,
+  designAssetService,
+} from '@/services/designAssetService';
 import { formatImageUrl } from '@/utils/imageUrl';
 
 interface ShapesPanelProps {
@@ -31,747 +16,19 @@ interface ShapesPanelProps {
   selected?: SelectedObjectState | null;
 }
 
-const CATEGORIES = [
-  { id: 'all', label: 'All Shapes' },
-  { id: 'admin', label: 'Admin Shapes' },
-  { id: 'basic', label: 'Basic' },
-  { id: 'geometric', label: 'Geometric' },
-  { id: 'decorative', label: 'Decorative' },
-  { id: 'device', label: 'Mockups' },
-] as const;
+interface ShapeSection {
+  id: string;
+  name: string;
+  sortOrder: number;
+  assets: DesignAsset[];
+}
 
-export const ShapesPanel: React.FC<ShapesPanelProps> = ({
-  canvasManager,
-  selected,
-}) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [stagedPhotoUrl, setStagedPhotoUrl] = useState<string | null>(null);
-  const [stagedPhotoName, setStagedPhotoName] = useState<string | null>(null);
-  const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
-  const [specificShapeUpload, setSpecificShapeUpload] = useState<
-    | { kind: 'preset'; shape: FrameShapeType; name: string }
-    | { kind: 'admin'; asset: DesignAsset }
-    | null
-  >(null);
+const RECENT_SHAPES_KEY = 'print_designer_recent_shape_ids';
+const ROW_PREVIEW_LIMIT = 6;
+const PAGE_SIZE = 100;
 
-  // Admin Shapes State
-  const [adminShapes, setAdminShapes] = useState<DesignAsset[]>([]);
-  const [isLoadingAdmin, setIsLoadingAdmin] = useState(false);
-  const [adminLoadError, setAdminLoadError] = useState<string | null>(null);
-  const [applyingAdminId, setApplyingAdminId] = useState<string | null>(null);
-
-  const globalFileInputRef = useRef<HTMLInputElement>(null);
-  const specificShapeInputRef = useRef<HTMLInputElement>(null);
-
-  // ─── Fetch Admin Shapes from Backend ───────────────────────────────────────
-  const loadAdminShapes = useCallback(async () => {
-    try {
-      setIsLoadingAdmin(true);
-      setAdminLoadError(null);
-      const res = await designAssetService.getPublicAssets({
-        asset_type: 'shape',
-        per_page: 60,
-        search: searchQuery.trim() || undefined,
-      });
-      setAdminShapes(
-        (res.data || []).filter(
-          (asset) => asset.asset_type === 'shape' && asset.is_active !== false
-        )
-      );
-    } catch (err: any) {
-      console.error('Failed to load admin shapes:', err);
-      setAdminLoadError(
-        err?.response?.data?.message || err?.message || 'Failed to load admin shapes.'
-      );
-    } finally {
-      setIsLoadingAdmin(false);
-    }
-  }, [searchQuery]);
-
-  useEffect(() => {
-    loadAdminShapes();
-  }, [loadAdminShapes]);
-
-  // Check if an image is currently active/selected on the canvas
-  const isCanvasImageSelected = useMemo(() => {
-    if (!selected) return false;
-    if (selected.isMultiple) return false;
-    return (
-      selected.type === 'image' ||
-      selected.type === 'fabricImage' ||
-      Boolean(selected.src) ||
-      Boolean(selected.originalSrc)
-    );
-  }, [selected]);
-
-  const selectedImageSource = useMemo(() => {
-    if (!isCanvasImageSelected || !selected) return null;
-    return selected.src || selected.originalSrc || null;
-  }, [isCanvasImageSelected, selected]);
-
-  // Filter presets based on category and search query
-  const filteredPresets = useMemo(() => {
-    if (selectedCategory === 'admin') return [];
-    return FRAME_PRESETS.filter((preset) => {
-      if (selectedCategory !== 'all' && preset.category !== selectedCategory) {
-        return false;
-      }
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        return (
-          preset.name.toLowerCase().includes(q) ||
-          preset.shape.toLowerCase().includes(q) ||
-          preset.description?.toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [selectedCategory, searchQuery]);
-
-  // Filter admin shapes
-  const filteredAdminShapes = useMemo(() => {
-    if (selectedCategory !== 'all' && selectedCategory !== 'admin') return [];
-    if (!searchQuery.trim()) return adminShapes;
-    const q = searchQuery.toLowerCase();
-    return adminShapes.filter((asset) => {
-      const metadata = toPlainObject(asset.metadata);
-      const shape = toPlainObject(metadata.shape);
-      const shapeType = String(shape.shapeType || metadata.shapeType || 'custom-svg');
-      return (
-        asset.name.toLowerCase().includes(q) ||
-        asset.slug.toLowerCase().includes(q) ||
-        shapeType.toLowerCase().includes(q)
-      );
-    });
-  }, [adminShapes, selectedCategory, searchQuery]);
-
-  // Show temporary toast feedback
-  const triggerToast = (msg: string) => {
-    setFeedbackToast(msg);
-    setTimeout(() => {
-      setFeedbackToast(null);
-    }, 2800);
-  };
-
-  // ─── Apply Preset Shape (Fit Selected Photo OR Add Shape with Staged Photo OR Add Empty Frame) ───
-  const handleApplyShape = async (shape: FrameShapeType, presetName: string) => {
-    if (!canvasManager) return;
-
-    try {
-      const activeObj = canvasManager.getCanvas()?.getActiveObject();
-
-      // Case 1: An image is currently selected on the canvas -> FIT IT DIRECTLY!
-      if (activeObj && canvasManager.isImageObject(activeObj)) {
-        const originalSrc =
-          activeObj.get('originalSrc' as any) ||
-          (activeObj as any).getSrc?.() ||
-          selectedImageSource;
-
-        if (originalSrc) {
-          activeObj.set('frameShape' as any, shape);
-          activeObj.set('shapeType' as any, shape);
-          activeObj.set('isFrame' as any, true);
-          activeObj.set('isShape' as any, true);
-          await canvasManager.slotImageIntoFrame(activeObj, originalSrc);
-          triggerToast(`Fitted photo into ${presetName}!`);
-          return;
-        }
-      }
-
-      // Case 2: A custom photo was staged in this panel
-      if (stagedPhotoUrl) {
-        canvasManager.addFrame(shape, stagedPhotoUrl);
-        triggerToast(`Created ${presetName} filled with your photo!`);
-        return;
-      }
-
-      // Case 3: No photo selected -> Add shape frame ready to receive images
-      canvasManager.addFrame(shape);
-      triggerToast(`Added ${presetName} to canvas!`);
-    } catch (err) {
-      console.error('Failed to apply shape:', err);
-    }
-  };
-
-  // ─── Apply Admin Uploaded Shape ─────────────────────────────────────────────
-  const handleApplyAdminShape = async (asset: DesignAsset) => {
-    if (!canvasManager || applyingAdminId) return;
-
-    try {
-      const fileUrl =
-        asset.file_url ||
-        (asset as any).asset_url ||
-        null;
-
-      if (!fileUrl) {
-        triggerToast(`${asset.name} has no SVG file.`);
-        return;
-      }
-
-      setApplyingAdminId(asset.id);
-
-      const metadata = toPlainObject(asset.metadata);
-      const fabricJson = toPlainObject(asset.fabric_json);
-      const shapeMetadata = {
-        ...fabricJson,
-        ...metadata,
-        ...toPlainObject(metadata.shape),
-      };
-      const photoFit = shapeMetadata.photoFit === 'contain' ? 'contain' : 'cover';
-      const safeShapeUrl = formatImageUrl(fileUrl);
-
-      const activeObj = canvasManager.getCanvas()?.getActiveObject();
-
-      // addCustomPhotoShape uses the real uploaded SVG as the clipPath. If a
-      // canvas photo is selected it is converted immediately; otherwise a
-      // draggable photo-shape placeholder is created.
-      const addedShape = await canvasManager.addCustomPhotoShape(safeShapeUrl, {
-        assetId: asset.id,
-        provider: asset.provider || 'admin',
-        name: asset.name,
-        originalSrc: safeShapeUrl,
-        photoFit,
-        fill: typeof shapeMetadata.fill === 'string' ? shapeMetadata.fill : '#8b3dff',
-        recolourable: shapeMetadata.recolourable !== false,
-        allowPhotoDrop: shapeMetadata.allowPhotoDrop !== false,
-      });
-
-      if (!addedShape) {
-        triggerToast(`Could not use ${asset.name}. Check that the SVG has a closed path.`);
-        return;
-      }
-
-      if (activeObj && canvasManager.isImageObject(activeObj)) {
-        triggerToast(`Fitted photo into ${asset.name}!`);
-      } else if (stagedPhotoUrl) {
-        await canvasManager.fitImageIntoShape(addedShape, stagedPhotoUrl, {
-          originalSrc: stagedPhotoUrl,
-          name: stagedPhotoName || `${asset.name} Photo`,
-          photoFit,
-        });
-        triggerToast(`Created ${asset.name} filled with your photo!`);
-      } else {
-        triggerToast(`Added ${asset.name}! Drag it over a photo to fill.`);
-      }
-    } catch (err) {
-      console.error('Failed to apply admin shape:', err);
-      triggerToast(`Failed to add ${asset.name}.`);
-    } finally {
-      setApplyingAdminId(null);
-    }
-  };
-
-  // ─── Upload Custom Photo to Fill Any Shape ───
-  const handleGlobalPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setStagedPhotoUrl(dataUrl);
-      setStagedPhotoName(file.name);
-      triggerToast(`Photo loaded! Click any shape below to fill it.`);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
-
-  // ─── Upload Photo Directly into a Specific Shape ───
-  const handleSpecificShapeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !specificShapeUpload || !canvasManager) return;
-
-    const target = specificShapeUpload;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result as string;
-
-      try {
-        if (target.kind === 'preset') {
-          canvasManager.addFrame(target.shape, dataUrl);
-          triggerToast(`Created ${target.name} filled with ${file.name}!`);
-        } else {
-          const shapeUrl =
-            target.asset.file_url || (target.asset as any).asset_url || null;
-          if (!shapeUrl) {
-            triggerToast(`${target.asset.name} has no SVG file.`);
-            return;
-          }
-
-          const metadata = toPlainObject(target.asset.metadata);
-          const shapeMetadata = {
-            ...toPlainObject(target.asset.fabric_json),
-            ...metadata,
-            ...toPlainObject(metadata.shape),
-          };
-          const photoFit = shapeMetadata.photoFit === 'contain' ? 'contain' : 'cover';
-          const addedShape = await canvasManager.addCustomPhotoShape(
-            formatImageUrl(shapeUrl),
-            {
-              assetId: target.asset.id,
-              provider: target.asset.provider || 'admin',
-              name: target.asset.name,
-              photoFit,
-              allowPhotoDrop: true,
-            }
-          );
-
-          if (addedShape) {
-            await canvasManager.fitImageIntoShape(addedShape, dataUrl, {
-              originalSrc: dataUrl,
-              name: file.name,
-              photoFit,
-            });
-            triggerToast(`Created ${target.asset.name} filled with ${file.name}!`);
-          }
-        }
-      } finally {
-        setSpecificShapeUpload(null);
-      }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
-
-  return (
-    <div className="flex flex-col h-full bg-white select-none">
-      {/* Hidden File Inputs */}
-      <input
-        ref={globalFileInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleGlobalPhotoUpload}
-      />
-      <input
-        ref={specificShapeInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleSpecificShapeUpload}
-      />
-
-      {/* ──────── Header Section ──────── */}
-      <div className="p-4 border-b border-gray-100 space-y-3 flex-none bg-white">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600">
-              <Shapes className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                Shapes & Photo Fill
-              </h3>
-              <p className="text-[10px] text-gray-400">
-                Fit any photo into any shape
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => loadAdminShapes()}
-              disabled={isLoadingAdmin}
-              title="Refresh admin shapes"
-              className="p-1 text-gray-400 hover:text-purple-600 rounded-md hover:bg-purple-50 transition"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAdmin ? 'animate-spin text-purple-600' : ''}`} />
-            </button>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
-              {filteredPresets.length + filteredAdminShapes.length} shapes
-            </span>
-          </div>
-        </div>
-
-        {/* ──────── Live Active Photo Banner ──────── */}
-        {isCanvasImageSelected ? (
-          <div className="p-2.5 rounded-xl bg-purple-50/90 border border-purple-200 flex items-center justify-between gap-2.5 animate-in fade-in duration-200">
-            <div className="flex items-center gap-2 min-w-0">
-              {selectedImageSource ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={selectedImageSource}
-                  alt="Selected Canvas Photo"
-                  className="w-10 h-10 rounded-lg object-cover border border-purple-300 shadow-2xs shrink-0"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-lg bg-purple-200 flex items-center justify-center text-purple-700 shrink-0">
-                  <ImageIcon className="w-5 h-5" />
-                </div>
-              )}
-              <div className="min-w-0">
-                <div className="flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-purple-600 shrink-0" />
-                  <span className="text-[11px] font-bold text-purple-900 truncate">
-                    Photo Selected on Canvas!
-                  </span>
-                </div>
-                <p className="text-[10px] text-purple-700 leading-tight truncate">
-                  Click any shape below to fit this photo into it.
-                </p>
-              </div>
-            </div>
-            <span className="text-[9px] font-bold px-2 py-1 rounded-lg bg-purple-600 text-white shadow-2xs shrink-0 animate-pulse">
-              Ready to Fit
-            </span>
-          </div>
-        ) : stagedPhotoUrl ? (
-          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-2 animate-in fade-in duration-200">
-            <div className="flex items-center gap-2 min-w-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={stagedPhotoUrl}
-                alt="Staged Custom Photo"
-                className="w-9 h-9 rounded-lg object-cover border border-emerald-300 shadow-2xs shrink-0"
-              />
-              <div className="min-w-0">
-                <div className="flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                  <span className="text-[11px] font-bold text-emerald-900 truncate">
-                    Custom Photo Loaded
-                  </span>
-                </div>
-                <p className="text-[10px] text-emerald-700 truncate">
-                  {stagedPhotoName || 'Photo ready'} — click any shape below!
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setStagedPhotoUrl(null);
-                setStagedPhotoName(null);
-              }}
-              className="p-1 text-emerald-600 hover:text-emerald-800 rounded-md hover:bg-emerald-100"
-              title="Clear photo"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ) : (
-          /* Upload Photo to Fill Button */
-          <button
-            type="button"
-            onClick={() => globalFileInputRef.current?.click()}
-            className="w-full py-2 px-3 rounded-xl border border-dashed border-purple-300 bg-purple-50/50 hover:bg-purple-50 text-purple-700 font-semibold text-xs flex items-center justify-center gap-2 transition hover:border-purple-400 group"
-          >
-            <Upload className="w-3.5 h-3.5 text-purple-600 group-hover:scale-110 transition-transform" />
-            <span>Upload Photo to Fill Any Shape</span>
-          </button>
-        )}
-
-        {/* ──────── Search Bar ──────── */}
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search shapes (circle, star, heart, badge...)"
-            className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-400 focus:bg-white transition"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-
-        {/* ──────── Category Chips ──────── */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => setSelectedCategory(cat.id)}
-              className={`px-2.5 py-1 text-[11px] font-semibold rounded-full whitespace-nowrap transition-all ${selectedCategory === cat.id
-                  ? 'bg-purple-600 text-white shadow-2xs shadow-purple-200'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200/80'
-                }`}
-            >
-              {cat.label}
-              {cat.id === 'admin' && adminShapes.length > 0 && (
-                <span className="ml-1 px-1.5 py-0.2 rounded-full text-[9px] bg-purple-200 text-purple-900 font-bold">
-                  {adminShapes.length}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ──────── Toast Feedback ──────── */}
-      {feedbackToast && (
-        <div className="mx-4 mt-2 px-3 py-2 rounded-xl bg-purple-600 text-white text-xs font-semibold shadow-lg flex items-center justify-between animate-in fade-in slide-in-from-top-1 duration-200">
-          <div className="flex items-center gap-1.5">
-            <Check className="w-3.5 h-3.5 text-white" />
-            <span>{feedbackToast}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFeedbackToast(null)}
-            className="text-white/80 hover:text-white"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        </div>
-      )}
-
-      {/* ──────── Shapes Grid Content ──────── */}
-      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 pb-20 space-y-5">
-        {/* 1. ADMIN UPLOADED SHAPES SECTION */}
-        {adminLoadError && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-[11px] text-red-600">
-            {adminLoadError}
-          </div>
-        )}
-
-        {isLoadingAdmin && adminShapes.length === 0 && (
-          <div className="flex items-center justify-center gap-2 py-6 text-xs text-gray-400">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading admin shapes...
-          </div>
-        )}
-
-        {filteredAdminShapes.length > 0 && (
-          <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-purple-600" />
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-purple-950">
-                  Admin Library Shapes
-                </h4>
-              </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-100 text-purple-700">
-                {filteredAdminShapes.length} Custom
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              {filteredAdminShapes.map((asset) => {
-                const thumbUrl =
-                  asset.thumbnail_url ||
-                  (asset as any).asset_thumbnail_url ||
-                  asset.file_url ||
-                  (asset as any).asset_url;
-                const isApplying = applyingAdminId === asset.id;
-
-                return (
-                  <div
-                    key={asset.id}
-                    onClick={() => handleApplyAdminShape(asset)}
-                    className={`group relative flex flex-col rounded-2xl border-2 border-purple-200 bg-white hover:border-purple-500 overflow-hidden transition-all duration-200 hover:shadow-md hover:shadow-purple-100/60 ${applyingAdminId ? 'cursor-wait opacity-70' : 'cursor-pointer'
-                      }`}
-                  >
-                    {/* Silhouette preview */}
-                    <div className="relative w-full aspect-square bg-purple-50/40 flex items-center justify-center p-3">
-                      {thumbUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={formatImageUrl(thumbUrl)}
-                          alt={asset.name}
-                          className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform"
-                        />
-                      ) : (
-                        <Shapes className="w-8 h-8 text-purple-400" />
-                      )}
-
-                      {isApplying && (
-                        <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/75">
-                          <Loader2 className="h-5 w-5 animate-spin text-purple-600" />
-                        </div>
-                      )}
-
-                      {/* Admin Badge */}
-                      <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-purple-700 text-white text-[9px] font-extrabold uppercase tracking-wider shadow-xs">
-                        Admin
-                      </div>
-
-                      {/* Corner Upload Button */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSpecificShapeUpload({ kind: 'admin', asset });
-                          specificShapeInputRef.current?.click();
-                        }}
-                        title={`Upload photo to fill ${asset.name}`}
-                        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-lg bg-white/90 hover:bg-white text-gray-600 hover:text-purple-600 flex items-center justify-center shadow-xs border border-gray-200 opacity-0 group-hover:opacity-100 transition-all hover:scale-110"
-                      >
-                        <Camera className="w-3 h-3" />
-                      </button>
-                    </div>
-
-                    {/* Card Footer */}
-                    <div className="px-2.5 py-2 border-t border-purple-100 flex items-center justify-between bg-white">
-                      <span className="text-xs font-semibold text-gray-900 truncate">
-                        {asset.name}
-                      </span>
-                      <div className="w-5 h-5 rounded-md bg-purple-50 text-purple-600 flex items-center justify-center group-hover:bg-purple-600 group-hover:text-white transition-colors">
-                        <Plus className="w-3 h-3" />
-                      </div>
-                    </div>
-
-                    {/* Hover Action Overlay */}
-                    <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 p-2 backdrop-blur-[1px]">
-                      <span className="text-white text-[11px] font-bold tracking-wide drop-shadow-xs text-center">
-                        {isCanvasImageSelected
-                          ? `Fit Photo into ${asset.name}`
-                          : stagedPhotoUrl
-                            ? `Add with Photo`
-                            : `Add ${asset.name}`}
-                      </span>
-                      <span className="text-[9px] text-white/95 bg-purple-600 px-2.5 py-1 rounded-lg font-semibold shadow-xs flex items-center gap-1">
-                        <Sparkles className="w-3 h-3" />
-                        Click to Fill
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* 2. STANDARD PRESETS SECTION */}
-        {filteredPresets.length > 0 && (
-          <div className="space-y-2.5">
-            {filteredAdminShapes.length > 0 && (
-              <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100">
-                <Shapes className="w-3.5 h-3.5 text-gray-500" />
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-gray-600">
-                  Standard Shapes & Presets
-                </h4>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              {filteredPresets.map((preset) => {
-                const svgPath = FRAME_SVG_PATHS[preset.shape];
-                const clipId = `shape_clip_${preset.shape}`;
-
-                return (
-                  <div
-                    key={preset.id}
-                    onClick={() => handleApplyShape(preset.shape, preset.name)}
-                    className="group relative flex flex-col rounded-2xl border border-gray-100 bg-white hover:border-purple-400 overflow-hidden cursor-pointer transition-all duration-200 hover:shadow-md hover:shadow-purple-100/50"
-                  >
-                    {/* Visual Shape Silhouette Preview with Canva Landscape Photo Fill */}
-                    <div className="relative w-full aspect-square bg-gray-50 flex items-center justify-center p-3">
-                      <svg
-                        viewBox="0 0 100 100"
-                        className="w-full h-full drop-shadow-xs transition-transform duration-200 group-hover:scale-105"
-                      >
-                        <defs>
-                          <clipPath id={clipId}>
-                            <path d={svgPath} />
-                          </clipPath>
-                        </defs>
-
-                        {/* Shape Silhouette Background */}
-                        <path
-                          d={svgPath}
-                          fill="#e9ecef"
-                          stroke="#ced4da"
-                          strokeWidth="1.5"
-                        />
-
-                        {/* Realistic Photo Fill Mask (Canva landscape sky & hills) */}
-                        <g clipPath={`url(#${clipId})`}>
-                          <image
-                            href={
-                              stagedPhotoUrl ||
-                              selectedImageSource ||
-                              CANVA_FRAME_PLACEHOLDER_SVG
-                            }
-                            x="0"
-                            y="0"
-                            width="100"
-                            height="100"
-                            preserveAspectRatio="xMidYMid slice"
-                          />
-                        </g>
-                      </svg>
-
-                      {/* Corner Upload Button to pick photo specifically for this shape */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSpecificShapeUpload({
-                            kind: 'preset',
-                            shape: preset.shape,
-                            name: preset.name,
-                          });
-                          specificShapeInputRef.current?.click();
-                        }}
-                        title={`Upload photo to fill ${preset.name}`}
-                        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-lg bg-white/90 hover:bg-white text-gray-600 hover:text-purple-600 flex items-center justify-center shadow-xs border border-gray-200 opacity-0 group-hover:opacity-100 transition-all hover:scale-110"
-                      >
-                        <Camera className="w-3 h-3" />
-                      </button>
-
-                      {/* Active Indicator if Photo is Ready */}
-                      {(isCanvasImageSelected || stagedPhotoUrl) && (
-                        <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-purple-600/90 text-white text-[9px] font-bold uppercase tracking-wider shadow-xs backdrop-blur-xs">
-                          Fit
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Card Footer / Title */}
-                    <div className="px-2.5 py-2 border-t border-gray-100 flex items-center justify-between bg-white">
-                      <span className="text-xs font-semibold text-gray-800 truncate">
-                        {preset.name}
-                      </span>
-                      <div className="w-5 h-5 rounded-md bg-purple-50 text-purple-600 flex items-center justify-center group-hover:bg-purple-600 group-hover:text-white transition-colors">
-                        <Plus className="w-3 h-3" />
-                      </div>
-                    </div>
-
-                    {/* Hover Action Overlay */}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 p-2 backdrop-blur-[1px]">
-                      <span className="text-white text-[11px] font-bold tracking-wide drop-shadow-xs text-center">
-                        {isCanvasImageSelected
-                          ? `Fit Photo into ${preset.name}`
-                          : stagedPhotoUrl
-                            ? `Add with Photo`
-                            : `Add ${preset.name}`}
-                      </span>
-                      <span className="text-[9px] text-white/90 bg-purple-600 px-2.5 py-1 rounded-lg font-semibold shadow-xs flex items-center gap-1">
-                        <Sparkles className="w-3 h-3" />
-                        Click to Apply
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {filteredPresets.length === 0 && filteredAdminShapes.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
-            <Shapes className="w-10 h-10 text-gray-300" />
-            <p className="text-sm font-semibold text-gray-600">No shapes found</p>
-            <p className="text-xs text-gray-400">Try a different search term or category</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-/** Laravel JSON columns can arrive as an object or as an encoded string. */
 function toPlainObject(value: unknown): Record<string, any> {
   if (!value) return {};
-
   if (typeof value === 'string') {
     try {
       const parsed = JSON.parse(value);
@@ -782,8 +39,401 @@ function toPlainObject(value: unknown): Record<string, any> {
       return {};
     }
   }
-
   return typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, any>)
     : {};
 }
+
+function getAssetUrl(asset: DesignAsset): string | null {
+  const raw = asset.file_url || (asset as any).asset_url;
+  return raw ? formatImageUrl(raw) : null;
+}
+
+function getThumbnailUrl(asset: DesignAsset): string | null {
+  const raw =
+    asset.thumbnail_url ||
+    (asset as any).asset_thumbnail_url ||
+    asset.file_url ||
+    (asset as any).asset_url;
+  return raw ? formatImageUrl(raw) : null;
+}
+
+/**
+ * Keep a newly inserted photo-frame/shape above existing artwork.
+ *
+ * addCustomPhotoShape implementations commonly return either the new Fabric
+ * object or a boolean. When it returns a boolean, the inserted object is the
+ * canvas' active object, so use that as the fallback.
+ */
+function bringAddedShapeToFront(
+  canvasManager: CanvasManager,
+  addedResult: unknown
+): void {
+  const manager = canvasManager as any;
+  const canvas = manager.getCanvas?.() || manager.canvas;
+  if (!canvas) return;
+
+  const returnedObject =
+    addedResult && typeof addedResult === 'object' ? addedResult : null;
+  const target = returnedObject || canvas.getActiveObject?.();
+  if (!target) return;
+
+  const promote = () => {
+    // Fabric 6/7 keeps z-order methods on Canvas. The object method is kept as
+    // a fallback for projects still using an older Fabric-compatible build.
+    if (typeof canvas.bringObjectToFront === 'function') {
+      canvas.bringObjectToFront(target);
+    } else if (typeof target.bringToFront === 'function') {
+      target.bringToFront();
+    }
+
+    target.setCoords?.();
+    canvas.requestRenderAll?.();
+  };
+
+  promote();
+
+  // Some frame builders finish grouping/clipping on the next animation frame.
+  // Promote once more after that work so the frame cannot fall under a shape.
+  if (typeof window !== 'undefined') {
+    window.requestAnimationFrame(promote);
+  }
+}
+
+function sortAssets(items: DesignAsset[]): DesignAsset[] {
+  return [...items].sort((a, b) => {
+    const order = Number(a.sort_order || 0) - Number(b.sort_order || 0);
+    return order || a.name.localeCompare(b.name);
+  });
+}
+
+async function fetchAllPublicShapes(): Promise<DesignAsset[]> {
+  const first = await designAssetService.getPublicAssets({
+    asset_type: 'shape',
+    page: 1,
+    per_page: PAGE_SIZE,
+    sort: 'sort_order',
+  });
+  const pages = [first];
+  const lastPage = Math.max(1, Number(first.last_page) || 1);
+
+  if (lastPage > 1) {
+    pages.push(
+      ...(await Promise.all(
+        Array.from({ length: lastPage - 1 }, (_, index) =>
+          designAssetService.getPublicAssets({
+            asset_type: 'shape',
+            page: index + 2,
+            per_page: PAGE_SIZE,
+            sort: 'sort_order',
+          })
+        )
+      ))
+    );
+  }
+
+  const unique = new Map<string, DesignAsset>();
+  pages.flatMap((page) => page.data || []).forEach((asset) => {
+    if (
+      asset.asset_type === 'shape' &&
+      asset.is_active !== false &&
+      getAssetUrl(asset)
+    ) {
+      unique.set(asset.id, asset);
+    }
+  });
+  return sortAssets([...unique.values()]);
+}
+
+export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
+  const [assets, setAssets] = useState<DesignAsset[]>([]);
+  const [categories, setCategories] = useState<DesignAssetCategory[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedSectionId, setExpandedSectionId] = useState<string | null>(null);
+  const [recentIds, setRecentIds] = useState<string[]>([]);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(RECENT_SHAPES_KEY) || '[]');
+      if (Array.isArray(parsed)) {
+        setRecentIds(parsed.filter((id): id is string => typeof id === 'string'));
+      }
+    } catch {
+      setRecentIds([]);
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+  }, []);
+
+  const showNotice = useCallback((message: string) => {
+    setNotice(message);
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 2200);
+  }, []);
+
+  const loadLibrary = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [categoryRows, shapeRows] = await Promise.all([
+        designAssetService.getPublicCategories('shape'),
+        fetchAllPublicShapes(),
+      ]);
+      setCategories(
+        (categoryRows || [])
+          .filter((item) => item.asset_type === 'shape' && item.is_active !== false)
+          .sort((a, b) =>
+            Number(a.sort_order || 0) - Number(b.sort_order || 0) ||
+            a.name.localeCompare(b.name)
+          )
+      );
+      setAssets(shapeRows);
+    } catch (err: any) {
+      console.error('Failed to load DB shape library:', err);
+      setError(
+        err?.response?.data?.message ||
+        err?.message ||
+        'Could not load shapes from the database.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLibrary();
+  }, [loadLibrary]);
+
+  const categoryById = useMemo(
+    () => new Map(categories.map((category) => [category.id, category])),
+    [categories]
+  );
+  const query = searchQuery.trim().toLowerCase();
+  const filteredAssets = useMemo(() => {
+    if (!query) return assets;
+    return assets.filter((asset) => {
+      const categoryName =
+        categoryById.get(String(asset.category_id || ''))?.name ||
+        asset.category?.name ||
+        '';
+      return [asset.name, asset.slug, categoryName].some((value) =>
+        String(value || '').toLowerCase().includes(query)
+      );
+    });
+  }, [assets, categoryById, query]);
+
+  const sections = useMemo<ShapeSection[]>(() => {
+    const result = categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      sortOrder: Number(category.sort_order || 0),
+      assets: filteredAssets.filter(
+        (asset) =>
+          String(asset.category_id || asset.category?.id || '') === category.id
+      ),
+    }));
+    const knownIds = new Set(categories.map((category) => category.id));
+    const other = filteredAssets.filter((asset) => {
+      const id = String(asset.category_id || asset.category?.id || '');
+      return !id || !knownIds.has(id);
+    });
+    if (other.length) {
+      result.push({
+        id: '__uncategorized__',
+        name: 'Other shapes',
+        sortOrder: Number.MAX_SAFE_INTEGER,
+        assets: other,
+      });
+    }
+    return result
+      .filter((section) => section.assets.length)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+  }, [categories, filteredAssets]);
+
+  const recentAssets = useMemo(() => {
+    if (query) return [];
+    const byId = new Map(assets.map((asset) => [asset.id, asset]));
+    return recentIds
+      .map((id) => byId.get(id))
+      .filter((asset): asset is DesignAsset => Boolean(asset));
+  }, [assets, query, recentIds]);
+
+  const activeSection = useMemo(
+    () => sections.find((section) => section.id === expandedSectionId) || null,
+    [expandedSectionId, sections]
+  );
+
+  useEffect(() => {
+    if (expandedSectionId && !activeSection) setExpandedSectionId(null);
+  }, [activeSection, expandedSectionId]);
+
+  const rememberShape = useCallback((id: string) => {
+    setRecentIds((previous) => {
+      const next = [id, ...previous.filter((item) => item !== id)].slice(0, 12);
+      try {
+        localStorage.setItem(RECENT_SHAPES_KEY, JSON.stringify(next));
+      } catch {
+        // Recent history is optional.
+      }
+      return next;
+    });
+  }, []);
+
+  const applyShape = useCallback(async (asset: DesignAsset) => {
+    if (!canvasManager || applyingId) return;
+    const url = getAssetUrl(asset);
+    if (!url) return showNotice(`${asset.name} has no shape file.`);
+
+    try {
+      setApplyingId(asset.id);
+      const metadata = toPlainObject(asset.metadata);
+      const settings = {
+        ...toPlainObject(asset.fabric_json),
+        ...metadata,
+        ...toPlainObject(metadata.shape),
+      };
+      const added = await canvasManager.addCustomPhotoShape(url, {
+        assetId: asset.id,
+        provider: asset.provider || 'admin',
+        name: asset.name,
+        originalSrc: url,
+        photoFit: settings.photoFit === 'contain' ? 'contain' : 'cover',
+        fill: typeof settings.fill === 'string' ? settings.fill : '#111111',
+        recolourable: settings.recolourable !== false,
+        allowPhotoDrop: settings.allowPhotoDrop !== false,
+      });
+      if (!added) {
+        showNotice(`${asset.name} needs a valid closed SVG path.`);
+        return;
+      }
+
+      bringAddedShapeToFront(canvasManager, added);
+      rememberShape(asset.id);
+      showNotice(`${asset.name} added to artwork.`);
+    } catch (err) {
+      console.error('Failed to add DB shape:', err);
+      showNotice(`Failed to add ${asset.name}.`);
+    } finally {
+      setApplyingId(null);
+    }
+  }, [applyingId, canvasManager, rememberShape, showNotice]);
+
+  const shapeButton = (asset: DesignAsset, compact = true) => {
+    const thumbnail = getThumbnailUrl(asset);
+    const applying = applyingId === asset.id;
+    return (
+      <button
+        key={asset.id}
+        type="button"
+        disabled={Boolean(applyingId)}
+        onClick={() => void applyShape(asset)}
+        title={asset.name}
+        className={`${compact ? 'w-[62px] shrink-0' : 'w-full'} group text-left disabled:cursor-wait disabled:opacity-60`}
+      >
+        <span className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-transparent bg-gray-50 p-1.5 transition group-hover:border-purple-300 group-hover:bg-purple-50 group-focus-visible:ring-2 group-focus-visible:ring-purple-500">
+          {thumbnail ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={thumbnail} alt="" loading="lazy" draggable={false} className="h-full w-full object-contain" />
+          ) : (
+            <Shapes className="h-7 w-7 text-gray-800" />
+          )}
+          {applying && (
+            <span className="absolute inset-0 flex items-center justify-center bg-white/75">
+              <Loader2 className="h-4 w-4 animate-spin text-purple-600" />
+            </span>
+          )}
+        </span>
+        <span className="mt-1 block truncate px-0.5 text-[10px] font-medium text-gray-600">
+          {asset.name}
+        </span>
+      </button>
+    );
+  };
+
+  if (activeSection) {
+    return (
+      <div className="flex h-full flex-col bg-white text-gray-900">
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-gray-100 px-3">
+          <button type="button" onClick={() => setExpandedSectionId(null)} title="Back" className="rounded-lg p-1.5 text-gray-600 hover:bg-gray-100">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <h3 className="truncate text-sm font-bold">{activeSection.name}</h3>
+          <span className="ml-auto text-[10px] text-gray-400">{activeSection.assets.length}</span>
+        </div>
+        <div className="grid flex-1 grid-cols-4 content-start gap-x-2 gap-y-4 overflow-y-auto p-3 custom-scrollbar">
+          {activeSection.assets.map((asset) => shapeButton(asset, false))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden bg-white text-gray-900">
+      <div className="shrink-0 border-b border-gray-100 p-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search shapes" className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50 pl-9 pr-9 text-xs outline-none focus:border-purple-400 focus:bg-white focus:ring-2 focus:ring-purple-100" />
+          {searchQuery && (
+            <button type="button" onClick={() => setSearchQuery('')} title="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-400 hover:bg-gray-200">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {notice && <div className="mx-3 mt-2 rounded-lg bg-gray-900 px-3 py-2 text-[11px] font-medium text-white shadow-lg">{notice}</div>}
+
+      <div className="flex-1 overflow-y-auto pb-5 custom-scrollbar">
+        {loading && <div className="flex items-center justify-center gap-2 py-14 text-xs text-gray-500"><Loader2 className="h-4 w-4 animate-spin text-purple-600" />Loading shapes…</div>}
+
+        {!loading && error && (
+          <div className="m-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            <p>{error}</p>
+            <button type="button" onClick={() => void loadLibrary()} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 font-semibold hover:bg-red-100"><RefreshCw className="h-3.5 w-3.5" />Try again</button>
+          </div>
+        )}
+
+        {!loading && !error && query && (
+          <section className="py-3">
+            <div className="mb-2 flex items-center justify-between px-3"><h4 className="text-[11px] font-bold text-gray-700">Search results</h4><span className="text-[10px] text-gray-400">{filteredAssets.length}</span></div>
+            <div className="grid grid-cols-4 gap-x-2 gap-y-4 px-3">{filteredAssets.map((asset) => shapeButton(asset, false))}</div>
+          </section>
+        )}
+
+        {!loading && !error && !query && recentAssets.length > 0 && (
+          <section className="border-b border-gray-100 py-3">
+            <div className="mb-2 px-3"><h4 className="text-[11px] font-bold text-gray-700">Recently used</h4></div>
+            <div className="flex gap-2 overflow-x-auto px-3 pb-1 scrollbar-hide">{recentAssets.slice(0, ROW_PREVIEW_LIMIT).map((asset) => shapeButton(asset))}</div>
+          </section>
+        )}
+
+        {!loading && !error && !query && sections.map((section) => (
+          <section key={section.id} className="border-b border-gray-100 py-3 last:border-b-0">
+            <div className="mb-2 flex items-center justify-between px-3">
+              <h4 className="truncate pr-2 text-[11px] font-bold text-gray-700">{section.name}</h4>
+              {section.assets.length > ROW_PREVIEW_LIMIT && <button type="button" onClick={() => setExpandedSectionId(section.id)} className="shrink-0 text-[10px] font-semibold text-gray-600 hover:text-purple-700">See all</button>}
+            </div>
+            <div className="flex gap-2 overflow-x-auto px-3 pb-1 scrollbar-hide">{section.assets.slice(0, ROW_PREVIEW_LIMIT).map((asset) => shapeButton(asset))}</div>
+          </section>
+        ))}
+
+        {!loading && !error && filteredAssets.length === 0 && (
+          <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+            <Shapes className="mb-3 h-9 w-9 text-gray-300" />
+            <p className="text-sm font-semibold text-gray-700">No shapes found</p>
+            <p className="mt-1 text-xs leading-5 text-gray-400">{query ? 'Try a different search term.' : 'Add active shape assets and categories in the admin panel.'}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default ShapesPanel;

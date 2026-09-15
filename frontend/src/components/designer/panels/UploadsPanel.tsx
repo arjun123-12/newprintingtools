@@ -14,6 +14,7 @@ import { UploadedAsset } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { assetService } from '../services/assetService';
 import { formatFileSize } from '../utils/imageQuality';
+import { PsdImportButton } from '../import/PsdImportButton';
 
 interface UploadsPanelProps {
   canvasManager: CanvasManager | null;
@@ -41,10 +42,11 @@ const ARTWORK_EXTENSIONS = new Set([
   'pdf',
   'tif',
   'tiff',
+  'psd',
 ]);
 
 const FILE_INPUT_ACCEPT =
-  'image/png,image/jpeg,image/jpg,image/svg+xml,image/webp,application/pdf,.pdf,image/tiff,.tif,.tiff';
+  'image/png,image/jpeg,image/jpg,image/svg+xml,image/webp,application/pdf,.pdf,image/tiff,.tif,.tiff,image/vnd.adobe.photoshop,application/x-photoshop,.psd';
 
 function getFileExtension(file: File): string {
   return file.name.split('.').pop()?.toLowerCase() ?? '';
@@ -96,8 +98,8 @@ async function uploadOriginalArtworkFile(file: File): Promise<string> {
 
     throw new Error(
       validationMessage ||
-        result?.message ||
-        `Could not store the original file (${response.status}).`
+      result?.message ||
+      `Could not store the original file (${response.status}).`
     );
   }
 
@@ -226,6 +228,94 @@ async function convertTiffToPng(file: File): Promise<File> {
   return convertTiffWithUtif(file);
 }
 
+/** Convert a PSD to a flattened browser-compatible PNG preview. */
+async function convertPsdToPng(file: File): Promise<File> {
+  const baseName = file.name.replace(/\.[^.]+$/, '') || 'psd-preview';
+  const makePngFile = (blob: Blob) =>
+    new File([blob], `${baseName}.png`, {
+      type: 'image/png',
+      lastModified: Date.now(),
+    });
+
+  // Prefer server conversion when ImageMagick supports PSD.
+  try {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const token =
+      typeof window !== 'undefined'
+        ? localStorage.getItem('auth_token')
+        : null;
+
+    const response = await fetch(`${API_URL}/designer/uploads/convert-image`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Accept: 'image/png, application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+
+    if (response.ok) {
+      const blob = await response.blob();
+      if (blob.type.startsWith('image/png')) {
+        return makePngFile(blob);
+      }
+    }
+  } catch (error) {
+    console.warn('Server PSD conversion failed; using browser parser:', error);
+  }
+
+  // Browser fallback prevents Laravel's image validation from blocking PSDs.
+  try {
+    const imported: any = await import('ag-psd');
+    const readPsd = imported.readPsd || imported.default?.readPsd;
+    if (typeof readPsd !== 'function') {
+      throw new Error('PSD parser export was not found.');
+    }
+
+    const psd = readPsd(await file.arrayBuffer(), {
+      skipThumbnail: true,
+      skipLinkedFilesData: true,
+      totalMemoryLimit: 512 * 1024 * 1024,
+    });
+
+    let canvas = psd.canvas as HTMLCanvasElement | undefined;
+    if (!canvas && psd.imageData?.data) {
+      canvas = document.createElement('canvas');
+      canvas.width = psd.imageData.width;
+      canvas.height = psd.imageData.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not create PSD preview canvas.');
+      ctx.putImageData(
+        new ImageData(
+          new Uint8ClampedArray(psd.imageData.data),
+          psd.imageData.width,
+          psd.imageData.height
+        ),
+        0,
+        0
+      );
+    }
+
+    if (!canvas || typeof canvas.toBlob !== 'function') {
+      throw new Error('The PSD does not contain a readable composite preview.');
+    }
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas!.toBlob(resolve, 'image/png')
+    );
+    if (!blob) throw new Error('Could not generate the PSD preview image.');
+    return makePngFile(blob);
+  } catch (error: any) {
+    throw new Error(
+      error?.message ||
+      'PSD preview conversion failed. Re-save the PSD with Maximize Compatibility enabled.'
+    );
+  }
+}
+
 async function convertTiffWithUtif(file: File): Promise<File> {
   if (typeof window === 'undefined') {
     throw new Error('TIFF preview is only available in browser.');
@@ -317,13 +407,16 @@ export const UploadsPanel: React.FC<UploadsPanelProps> = ({
           // 1. File type validation
           if (!isSupportedFile(file)) {
             throw new Error(
-              `"${file.name}" is not a supported file format. Supported formats: JPG, PNG, SVG, WebP, PDF, TIF, TIFF.`
+              `"${file.name}" is not a supported file format. Supported formats: JPG, PNG, SVG, WebP, PDF, TIF, TIFF, PSD.`
             );
           }
 
           // 2. File size validation
-          if (file.size > MAX_FILE_SIZE_BYTES) {
-            throw new Error(`"${file.name}" exceeds the 25 MB upload limit.`);
+          const maxSize = ext === 'psd' ? 50 * 1024 * 1024 : MAX_FILE_SIZE_BYTES;
+          if (file.size > maxSize) {
+            throw new Error(
+              `"${file.name}" exceeds the ${ext === 'psd' ? 50 : 25} MB upload limit.`
+            );
           }
 
           let previewFile: File;
@@ -339,6 +432,18 @@ export const UploadsPanel: React.FC<UploadsPanelProps> = ({
             originalFileUrl = await uploadOriginalArtworkFile(file);
             // Generate 300 DPI transparent preview for editor canvas
             previewFile = await convertTiffToPng(file);
+          } else if (ext === 'psd') {
+            // Create the usable preview first. Saving the original PSD is optional
+            // because some Laravel image validators intentionally reject PSD files.
+            previewFile = await convertPsdToPng(file);
+            try {
+              originalFileUrl = await uploadOriginalArtworkFile(file);
+            } catch (error) {
+              console.warn(
+                'Original PSD storage is not enabled on the backend; continuing with PNG preview:',
+                error
+              );
+            }
           } else if (ext === 'svg') {
             // Normalize SVG to ensure full dimensions, viewBox offset fixes, and no clipping
             try {
@@ -367,13 +472,17 @@ export const UploadsPanel: React.FC<UploadsPanelProps> = ({
           if (!firstAddedToCanvas && canvasManager) {
             firstAddedToCanvas = true;
 
-            await canvasManager.addImageFromUrl(asset.url, {
-              name: file.name,
-              originalSrc: originalFileUrl || asset.url,
-              naturalWidth: asset.naturalWidth,
-              naturalHeight: asset.naturalHeight,
-              fileSizeBytes: file.size,
-            });
+            await canvasManager.addImageFromUrl(
+              asset.url,
+              {
+                name: file.name,
+                originalSrc: originalFileUrl || asset.url,
+                naturalWidth: asset.naturalWidth,
+                naturalHeight: asset.naturalHeight,
+                fileSizeBytes: file.size,
+              },
+              { skipFrameSlotting: true }
+            );
           }
         } catch (error) {
           errors.push(
@@ -429,13 +538,17 @@ export const UploadsPanel: React.FC<UploadsPanelProps> = ({
           ? `${API_URL}/designer/uploads/convert-image?url=${encodeURIComponent(originalUrl || asset.url)}`
           : asset.url;
 
-      await canvasManager.addImageFromUrl(canvasSrc, {
-        name: asset.name,
-        originalSrc: originalUrl,
-        naturalWidth: asset.naturalWidth,
-        naturalHeight: asset.naturalHeight,
-        fileSizeBytes: asset.fileSizeBytes,
-      });
+      await canvasManager.addImageFromUrl(
+        canvasSrc,
+        {
+          name: asset.name,
+          originalSrc: originalUrl,
+          naturalWidth: asset.naturalWidth,
+          naturalHeight: asset.naturalHeight,
+          fileSizeBytes: asset.fileSizeBytes,
+        },
+        { skipFrameSlotting: true }
+      );
     } catch (error) {
       setUploadError(
         error instanceof Error
@@ -466,7 +579,7 @@ export const UploadsPanel: React.FC<UploadsPanelProps> = ({
         </div>
 
         <span className="text-[10px] text-gray-400">
-          JPG, PNG, SVG, WebP, PDF, TIFF
+          JPG, PNG, SVG, PDF, TIFF, PSD
         </span>
       </div>
 
@@ -479,17 +592,16 @@ export const UploadsPanel: React.FC<UploadsPanelProps> = ({
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-5 text-center transition ${
-          isDragging
-            ? 'border-blue-500 bg-blue-50/60'
-            : 'border-blue-500/70 bg-blue-50/20 hover:border-blue-500 hover:bg-blue-50/40'
-        }`}
+        className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-5 text-center transition ${isDragging
+          ? 'border-blue-500 bg-blue-50/60'
+          : 'border-blue-500/70 bg-blue-50/20 hover:border-blue-500 hover:bg-blue-50/40'
+          }`}
       >
         <input
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".jpg,.jpeg,.png,.webp,.svg,.gif,.pdf,.tif,.tiff"
+          accept={FILE_INPUT_ACCEPT}
           onChange={(event) => void handleFiles(event.target.files)}
           className="hidden"
         />
@@ -522,6 +634,16 @@ export const UploadsPanel: React.FC<UploadsPanelProps> = ({
         >
           Select Files
         </button>
+      </div>
+
+      {/* Reusable PSD Import Control */}
+      <div className="pt-0.5">
+        <PsdImportButton
+          canvasManager={canvasManager}
+          variant="dropzone-button"
+          buttonLabel="Import Layered Photoshop (PSD)"
+          maxSizeMb={50}
+        />
       </div>
 
       {/* Validation / Error Banner */}
@@ -587,7 +709,7 @@ export const UploadsPanel: React.FC<UploadsPanelProps> = ({
                         if (
                           asset.originalFileUrl &&
                           e.currentTarget.src !==
-                            `${API_URL}/designer/uploads/convert-image?url=${encodeURIComponent(asset.originalFileUrl)}`
+                          `${API_URL}/designer/uploads/convert-image?url=${encodeURIComponent(asset.originalFileUrl)}`
                         ) {
                           e.currentTarget.src = `${API_URL}/designer/uploads/convert-image?url=${encodeURIComponent(asset.originalFileUrl)}`;
                         }

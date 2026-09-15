@@ -22,6 +22,19 @@ interface ColorPickerProps {
   showAlpha?: boolean;
   embedded?: boolean;
   className?: string;
+  allowGradient?: boolean;
+  onGradientChange?: (gradient: ColorGradientValue) => void;
+}
+
+export interface ColorGradientStop {
+  offset: number;
+  color: string;
+}
+
+export interface ColorGradientValue {
+  type: 'linear' | 'radial';
+  angle: number;
+  stops: ColorGradientStop[];
 }
 
 // Brand Kit Palette (from reference Canva design)
@@ -342,6 +355,289 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
   );
 };
 
+interface GradientEditorProps {
+  value: string;
+  onChange: (gradient: ColorGradientValue) => void;
+  onPickEyedropper: () => void;
+}
+
+interface GradientPreset {
+  name: string;
+  colors: string[];
+  angle?: number;
+  type?: 'linear' | 'radial';
+}
+
+// A broad Canva-style gradient library. These are original curated presets,
+// grouped visually from vivid and pastel through metallic and dark themes.
+const GRADIENT_PRESETS: GradientPreset[] = [
+  { name: 'Canva Purple Aqua', colors: ['#7d2ae8', '#00c4cc'] },
+  { name: 'Sunset', colors: ['#ff5757', '#ffde59'] },
+  { name: 'Electric Violet', colors: ['#0047ff', '#cb6ce6'] },
+  { name: 'Fresh Mint', colors: ['#00d287', '#00c4cc'] },
+  { name: 'Berry', colors: ['#f43f5e', '#8b5cf6'] },
+  { name: 'Midnight', colors: ['#111827', '#64748b'] },
+  { name: 'Ocean', colors: ['#0052d4', '#4364f7', '#6fb1fc'] },
+  { name: 'Aurora', colors: ['#00f5a0', '#00d9f5', '#7d2ae8'] },
+  { name: 'Instagram', colors: ['#833ab4', '#fd1d1d', '#fcb045'] },
+  { name: 'Peach', colors: ['#ffecd2', '#fcb69f'] },
+  { name: 'Cotton Candy', colors: ['#fbc2eb', '#a6c1ee'] },
+  { name: 'Lavender', colors: ['#e0c3fc', '#8ec5fc'] },
+  { name: 'Rose Gold', colors: ['#f4c4c4', '#dba39a', '#b76e79'] },
+  { name: 'Golden Hour', colors: ['#fff3b0', '#e09f3e', '#9e2a2b'] },
+  { name: 'Tropical', colors: ['#f9d423', '#ff4e50'] },
+  { name: 'Mango', colors: ['#ffe259', '#ffa751'] },
+  { name: 'Fire', colors: ['#ff512f', '#dd2476'] },
+  { name: 'Candy', colors: ['#ff6a88', '#ff99ac', '#fbc2eb'] },
+  { name: 'Sky', colors: ['#56ccf2', '#2f80ed'] },
+  { name: 'Ice', colors: ['#e0ffff', '#80deea', '#00acc1'] },
+  { name: 'Deep Sea', colors: ['#2c3e50', '#4ca1af'] },
+  { name: 'Emerald', colors: ['#11998e', '#38ef7d'] },
+  { name: 'Forest', colors: ['#134e5e', '#71b280'] },
+  { name: 'Lime', colors: ['#a8ff78', '#78ffd6'] },
+  { name: 'Royal', colors: ['#141e30', '#243b55', '#7d2ae8'] },
+  { name: 'Neon', colors: ['#fc00ff', '#00dbde'] },
+  { name: 'Galaxy', colors: ['#0f0c29', '#302b63', '#24243e'] },
+  { name: 'Chrome', colors: ['#f5f7fa', '#c3cfe2', '#6b7280'] },
+  { name: 'Gold', colors: ['#fff7ad', '#ffa800', '#7a4b00'] },
+  { name: 'Silver', colors: ['#ffffff', '#bdc3c7', '#2c3e50'] },
+  { name: 'Black Glow', colors: ['#000000', '#434343'] },
+  { name: 'Radial Glow', colors: ['#ffffff', '#8ec5fc', '#7d2ae8'], type: 'radial' },
+  { name: 'Radial Sunset', colors: ['#ffde59', '#ff5757', '#8b3dff'], type: 'radial' },
+  { name: 'Radial Aqua', colors: ['#e0ffff', '#00c4cc', '#0047ff'], type: 'radial' },
+];
+
+const GradientEditor: React.FC<GradientEditorProps> = ({
+  value,
+  onChange,
+  onPickEyedropper,
+}) => {
+  const [type, setType] = useState<'linear' | 'radial'>('linear');
+  const [angle, setAngle] = useState(90);
+  const [stops, setStops] = useState<ColorGradientStop[]>([
+    { offset: 0, color: value || '#7d2ae8' },
+    { offset: 1, color: '#00c4cc' },
+  ]);
+  const [activeStop, setActiveStop] = useState(0);
+
+  const emit = useCallback((nextType: 'linear' | 'radial', nextAngle: number, nextStops: ColorGradientStop[]) => {
+    onChange({ type: nextType, angle: nextAngle, stops: nextStops });
+  }, [onChange]);
+
+  const updateType = (nextType: 'linear' | 'radial') => {
+    setType(nextType);
+    emit(nextType, angle, stops);
+  };
+
+  const updateAngle = (nextAngle: number) => {
+    setAngle(nextAngle);
+    emit(type, nextAngle, stops);
+  };
+
+  const updateStopColor = (color: string) => {
+    const nextStops = stops.map((stop, index) =>
+      index === activeStop ? { ...stop, color } : stop
+    );
+    setStops(nextStops);
+    emit(type, angle, nextStops);
+  };
+
+  const applyPreset = (preset: GradientPreset) => {
+    const denominator = Math.max(preset.colors.length - 1, 1);
+    const nextStops = preset.colors.map((color, index) => ({
+      offset: index / denominator,
+      color,
+    }));
+    const nextType = preset.type || 'linear';
+    const nextAngle = preset.angle ?? angle;
+    setType(nextType);
+    setAngle(nextAngle);
+    setStops(nextStops);
+    setActiveStop(0);
+    emit(nextType, nextAngle, nextStops);
+  };
+
+  const updateStopPosition = (positionPercent: number) => {
+    const offset = Math.max(0, Math.min(100, positionPercent)) / 100;
+    const nextStops = stops
+      .map((stop, index) => index === activeStop ? { ...stop, offset } : stop)
+      .sort((a, b) => a.offset - b.offset);
+    const activeColor = stops[activeStop]?.color;
+    const nextActiveIndex = Math.max(0, nextStops.findIndex((stop) => stop.color === activeColor && stop.offset === offset));
+    setStops(nextStops);
+    setActiveStop(nextActiveIndex);
+    emit(type, angle, nextStops);
+  };
+
+  const addStop = () => {
+    if (stops.length >= 8) return;
+    const ordered = [...stops].sort((a, b) => a.offset - b.offset);
+    let insertAfter = 0;
+    let largestGap = -1;
+    for (let index = 0; index < ordered.length - 1; index += 1) {
+      const gap = ordered[index + 1].offset - ordered[index].offset;
+      if (gap > largestGap) {
+        largestGap = gap;
+        insertAfter = index;
+      }
+    }
+    const left = ordered[insertAfter];
+    const right = ordered[insertAfter + 1] || left;
+    const nextStop = {
+      offset: (left.offset + right.offset) / 2,
+      color: left.color,
+    };
+    const nextStops = [...ordered, nextStop].sort((a, b) => a.offset - b.offset);
+    const nextIndex = nextStops.indexOf(nextStop);
+    setStops(nextStops);
+    setActiveStop(nextIndex);
+    emit(type, angle, nextStops);
+  };
+
+  const removeStop = () => {
+    if (stops.length <= 2) return;
+    const nextStops = stops.filter((_, index) => index !== activeStop);
+    const nextActive = Math.min(activeStop, nextStops.length - 1);
+    setStops(nextStops);
+    setActiveStop(nextActive);
+    emit(type, angle, nextStops);
+  };
+
+  const reverseStops = () => {
+    const nextStops = stops
+      .map((stop) => ({ ...stop, offset: 1 - stop.offset }))
+      .reverse();
+    setStops(nextStops);
+    setActiveStop(Math.max(0, nextStops.length - 1 - activeStop));
+    emit(type, angle, nextStops);
+  };
+
+  const cssGradient = type === 'radial'
+    ? `radial-gradient(circle, ${stops.map((stop) => `${stop.color} ${stop.offset * 100}%`).join(', ')})`
+    : `linear-gradient(${angle}deg, ${stops.map((stop) => `${stop.color} ${stop.offset * 100}%`).join(', ')})`;
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-3 shadow-sm">
+      <div className="h-20 rounded-xl border border-black/10 shadow-inner" style={{ background: cssGradient }} />
+
+      <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
+        {(['linear', 'radial'] as const).map((gradientType) => (
+          <button
+            key={gradientType}
+            type="button"
+            onClick={() => updateType(gradientType)}
+            className={`rounded-lg py-1.5 text-[11px] font-bold capitalize transition ${type === gradientType ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+          >
+            {gradientType}
+          </button>
+        ))}
+      </div>
+
+      {type === 'linear' && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-[11px] font-semibold text-gray-600">
+            <span>Angle</span><span>{angle}°</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="360"
+            step="1"
+            value={angle}
+            onChange={(event) => updateAngle(Number(event.target.value))}
+            className="w-full accent-purple-600"
+          />
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-bold text-gray-700">Custom colour stops</span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={addStop}
+              disabled={stops.length >= 8}
+              className="flex h-7 items-center gap-1 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            >
+              <Plus className="h-3 w-3" /> Add
+            </button>
+            <button
+              type="button"
+              onClick={removeStop}
+              disabled={stops.length <= 2}
+              className="h-7 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+            >
+              Remove
+            </button>
+            <button type="button" onClick={reverseStops} className="h-7 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-600 hover:bg-gray-50">
+              Reverse
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+          {stops.map((stop, index) => (
+            <button
+              key={`${stop.offset}_${index}`}
+              type="button"
+              onClick={() => setActiveStop(index)}
+              title={`Colour stop ${index + 1}: ${Math.round(stop.offset * 100)}%`}
+              className={`h-9 min-w-9 flex-1 rounded-xl border transition ${activeStop === index ? 'border-purple-600 ring-2 ring-purple-200' : 'border-gray-200'}`}
+              style={{ backgroundColor: stop.color }}
+            />
+          ))}
+        </div>
+
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[10px] font-semibold text-gray-500">
+            <span>Selected stop position</span>
+            <span>{Math.round((stops[activeStop]?.offset || 0) * 100)}%</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value={Math.round((stops[activeStop]?.offset || 0) * 100)}
+            onChange={(event) => updateStopPosition(Number(event.target.value))}
+            className="w-full accent-purple-600"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2 border-t border-gray-100 pt-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-bold text-gray-700">Gradient library</span>
+          <span className="text-[9px] font-semibold text-gray-400">{GRADIENT_PRESETS.length} presets</span>
+        </div>
+        <div className="grid grid-cols-5 gap-1.5">
+          {GRADIENT_PRESETS.map((preset) => (
+            <button
+              key={preset.name}
+              type="button"
+              onClick={() => applyPreset(preset)}
+              className="h-9 rounded-lg border border-gray-200 shadow-sm transition hover:scale-105"
+              style={{
+                background: preset.type === 'radial'
+                  ? `radial-gradient(circle, ${preset.colors.join(', ')})`
+                  : `linear-gradient(${preset.angle ?? 135}deg, ${preset.colors.join(', ')})`,
+              }}
+              title={preset.name}
+            />
+          ))}
+        </div>
+      </div>
+
+      <CanvaColorChart
+        color={stops[activeStop]?.color || '#7d2ae8'}
+        onChange={updateStopColor}
+        onPickEyedropper={onPickEyedropper}
+      />
+    </div>
+  );
+};
+
 // --- Main ColorPicker Component ---
 
 export const ColorPicker: React.FC<ColorPickerProps> = ({
@@ -352,9 +648,14 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
   onClose,
   embedded = false,
   className,
+  allowGradient = false,
+  onGradientChange,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [showCustomPicker, setShowCustomPicker] = useState(false);
+  // Canva-style behaviour: opening the colour panel immediately exposes the
+  // spectrum; the user does not need to click the rainbow plus button first.
+  const [showCustomPicker, setShowCustomPicker] = useState(true);
+  const [mode, setMode] = useState<'solid' | 'gradient'>('solid');
   const [showAllSolid, setShowAllSolid] = useState(false);
   const [designColors, setDesignColors] = useState<string[]>([]);
   const [hexInput, setHexInput] = useState(value);
@@ -393,8 +694,21 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
   };
 
   const handleSelectColor = (hex: string) => {
+    setMode('solid');
     onChange(hex);
     setHexInput(hex);
+  };
+
+  const openGradientMode = () => {
+    setMode('gradient');
+    onGradientChange?.({
+      type: 'linear',
+      angle: 90,
+      stops: [
+        { offset: 0, color: value || '#7d2ae8' },
+        { offset: 1, color: '#00c4cc' },
+      ],
+    });
   };
 
   // Search filtering
@@ -437,6 +751,26 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
+        {/* Canva-style Solid / Gradient switcher */}
+        {allowGradient && onGradientChange && (
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
+            <button
+              type="button"
+              onClick={() => setMode('solid')}
+              className={`rounded-lg py-2 text-xs font-bold transition ${mode === 'solid' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              Solid
+            </button>
+            <button
+              type="button"
+              onClick={openGradientMode}
+              className={`rounded-lg py-2 text-xs font-bold transition ${mode === 'gradient' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              Gradient
+            </button>
+          </div>
+        )}
+
         {/* 2. SEARCH INPUT */}
         <div className="relative">
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -481,7 +815,15 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
         )}
 
         {/* 3. CANVA DIRECT COLOR SPECTRUM CHART (Direct Interactive Color Chart) */}
-        {showCustomPicker && (
+        {mode === 'gradient' && onGradientChange && (
+          <GradientEditor
+            value={value}
+            onChange={onGradientChange}
+            onPickEyedropper={handlePickEyedropper}
+          />
+        )}
+
+        {mode === 'solid' && showCustomPicker && (
           <CanvaColorChart
             color={value}
             onChange={onChange}
@@ -501,11 +843,13 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
             {/* Add Custom Color Circle Button with Canva Rainbow conic-gradient */}
             <button
               type="button"
-              onClick={() => setShowCustomPicker((prev) => !prev)}
+              onClick={() => {
+                setMode('solid');
+                setShowCustomPicker((prev) => !prev);
+              }}
               title="Add a new custom color"
-              className={`relative w-8 h-8 rounded-full p-[2px] shrink-0 transition hover:scale-110 shadow-xs ${
-                showCustomPicker ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
-              }`}
+              className={`relative w-8 h-8 rounded-full p-[2px] shrink-0 transition hover:scale-110 shadow-xs ${showCustomPicker ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
+                }`}
               style={{
                 background:
                   'conic-gradient(from 0deg, #ff0000, #ff8800, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
@@ -538,16 +882,14 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                   type="button"
                   onClick={() => handleSelectColor(colorHex)}
                   title={colorHex}
-                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
-                    isWhite ? 'border border-gray-200' : ''
-                  } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
+                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${isWhite ? 'border border-gray-200' : ''
+                    } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
                   style={{ backgroundColor: colorHex }}
                 >
                   {isSelected && (
                     <Check
-                      className={`w-3.5 h-3.5 ${
-                        isWhite || colorHex.toLowerCase() === '#ffde59' ? 'text-gray-900' : 'text-white'
-                      }`}
+                      className={`w-3.5 h-3.5 ${isWhite || colorHex.toLowerCase() === '#ffde59' ? 'text-gray-900' : 'text-white'
+                        }`}
                       strokeWidth={3}
                     />
                   )}
@@ -579,16 +921,14 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                   type="button"
                   onClick={() => handleSelectColor(item.hex)}
                   title={`${item.name} (${item.hex})`}
-                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
-                    isWhite ? 'border border-gray-200' : ''
-                  } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
+                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${isWhite ? 'border border-gray-200' : ''
+                    } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
                   style={{ backgroundColor: item.hex }}
                 >
                   {isSelected && (
                     <Check
-                      className={`w-3.5 h-3.5 ${
-                        isWhite ? 'text-gray-900' : 'text-white'
-                      }`}
+                      className={`w-3.5 h-3.5 ${isWhite ? 'text-gray-900' : 'text-white'
+                        }`}
                       strokeWidth={3}
                     />
                   )}
@@ -618,9 +958,8 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                   type="button"
                   onClick={() => handleSelectColor(item.hex)}
                   title={`${item.name} (${item.hex})`}
-                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
-                    isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
-                  }`}
+                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
+                    }`}
                   style={{ backgroundColor: item.hex }}
                 >
                   {isSelected && (
@@ -659,16 +998,14 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                   type="button"
                   onClick={() => handleSelectColor(item.hex)}
                   title={`${item.name} (${item.hex})`}
-                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
-                    isWhite ? 'border border-gray-300' : ''
-                  } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
+                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${isWhite ? 'border border-gray-300' : ''
+                    } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
                   style={{ backgroundColor: item.hex }}
                 >
                   {isSelected && (
                     <Check
-                      className={`w-3.5 h-3.5 ${
-                        isWhite || item.hex === '#e0e0e0' ? 'text-gray-900' : 'text-white'
-                      }`}
+                      className={`w-3.5 h-3.5 ${isWhite || item.hex === '#e0e0e0' ? 'text-gray-900' : 'text-white'
+                        }`}
                       strokeWidth={3}
                     />
                   )}
@@ -687,9 +1024,8 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                   type="button"
                   onClick={() => handleSelectColor(item.hex)}
                   title={`${item.name} (${item.hex})`}
-                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
-                    isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
-                  }`}
+                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
+                    }`}
                   style={{ backgroundColor: item.hex }}
                 >
                   {isSelected && (
@@ -712,9 +1048,8 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                     type="button"
                     onClick={() => handleSelectColor(item.hex)}
                     title={`${item.name} (${item.hex})`}
-                    className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
-                      isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
-                    }`}
+                    className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
+                      }`}
                     style={{ backgroundColor: item.hex }}
                   >
                     {isSelected && (
@@ -733,3 +1068,5 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     </div>
   );
 };
+
+export default ColorPicker;

@@ -120,11 +120,15 @@ export const PexelsPanel: React.FC<PexelsPanelProps> = ({ canvasManager }) => {
       const targetUrl =
         photo.src.large2x || photo.src.large || photo.src.original;
 
-      await canvasManager.addImageFromUrl(targetUrl, {
-        name: photo.alt || `Pexels-${photo.id}`,
-        naturalWidth: photo.width,
-        naturalHeight: photo.height,
-      });
+      await canvasManager.addImageFromUrl(
+        targetUrl,
+        {
+          name: photo.alt || `Pexels-${photo.id}`,
+          naturalWidth: photo.width,
+          naturalHeight: photo.height,
+        },
+        { skipFrameSlotting: true }
+      );
 
       setInsertSuccess(photo.id);
       setTimeout(() => setInsertSuccess(null), 1500);

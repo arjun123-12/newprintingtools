@@ -75,7 +75,9 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
   const stroke = selected.stroke || '#000000';
   const rx = selected.rx || 0;
   const strokeDashArray = selected.strokeDashArray;
-  const paintFirst = selected.paintFirst || 'fill';
+  const storedStrokePosition = (selected as SelectedObjectState & {
+    strokePosition?: StrokePosition;
+  }).strokePosition;
 
   // Derive stroke style
   let currentStyle: StrokeStyle = 'none';
@@ -89,10 +91,9 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
     }
   }
 
-  // Derive stroke position from paintFirst
-  // paintFirst: 'stroke' => stroke is under fill => acts as "outside"
-  // paintFirst: 'fill' => fill is under stroke => acts as "inside" (stroke overlaps fill)
-  const currentPosition: StrokePosition = paintFirst === 'stroke' ? 'outside' : 'inside';
+  // strokePosition is a custom Fabric property managed by CanvasManager.
+  // Falling back to inside keeps older saved artwork backward compatible.
+  const currentPosition: StrokePosition = storedStrokePosition || 'inside';
 
   const handleUpdate = (prop: keyof SelectedObjectState, val: any) => {
     if (!canvasManager) return;
@@ -106,8 +107,12 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
     }
   };
 
+  const handleWidthChange = (width: number) => {
+    handleUpdate('strokeWidth', Math.max(0, Math.min(100, width)));
+  };
+
   const handleStepWidth = (delta: number) => {
-    handleUpdate('strokeWidth', Math.max(0, strokeWidth + delta));
+    handleWidthChange(strokeWidth + delta);
   };
 
   const handleStepRadius = (delta: number) => {
@@ -119,27 +124,29 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
   const handleStyleChange = (style: StrokeStyle) => {
     switch (style) {
       case 'none':
-        handleUpdate('strokeWidth', 0);
+        handleWidthChange(0);
         handleUpdate('strokeDashArray', null);
         break;
       case 'solid':
-        if (strokeWidth === 0) handleUpdate('strokeWidth', 2);
+        if (strokeWidth === 0) handleWidthChange(2);
         handleUpdate('strokeDashArray', null);
         break;
       case 'dashed':
-        if (strokeWidth === 0) handleUpdate('strokeWidth', 2);
+        if (strokeWidth === 0) handleWidthChange(2);
         handleUpdate('strokeDashArray', [8, 6]);
         break;
       case 'dotted':
-        if (strokeWidth === 0) handleUpdate('strokeWidth', 2);
+        if (strokeWidth === 0) handleWidthChange(2);
         handleUpdate('strokeDashArray', [2, 4]);
         break;
     }
   };
 
   const handlePositionChange = (pos: StrokePosition) => {
-    handleUpdate('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
-    handleUpdate('strokeUniform', true);
+    // strokePosition is a saved custom Fabric property. It is intentionally
+    // cast here because older SelectedObjectState definitions do not include
+    // this project-specific field yet.
+    handleUpdate('strokePosition' as keyof SelectedObjectState, pos);
   };
 
   const canRoundCorners = selected.type === 'rect' || selected.type === 'shape' || selected.type === 'image' || selected.type === 'fabricImage' || Boolean(selected.src);
@@ -249,7 +256,7 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
                   min="0"
                   max="100"
                   value={strokeWidth}
-                  onChange={(e) => handleUpdate('strokeWidth', Math.max(0, Number(e.target.value)))}
+                  onChange={(e) => handleWidthChange(Number(e.target.value))}
                   className="w-7 bg-transparent text-xs font-mono font-bold text-gray-800 focus:outline-none text-right"
                 />
                 <span className="text-[10px] text-gray-500 font-bold">px</span>
@@ -271,7 +278,7 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
             min="0"
             max="100"
             value={strokeWidth}
-            onChange={(e) => handleUpdate('strokeWidth', Number(e.target.value))}
+            onChange={(e) => handleWidthChange(Number(e.target.value))}
             className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#7c3aed]"
           />
 
@@ -440,3 +447,5 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
     </div>
   );
 };
+
+export default BorderPanel;

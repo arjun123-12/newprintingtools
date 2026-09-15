@@ -441,9 +441,11 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
             ...metadata,
           } as any);
         } else {
-          await canvasManager.addImageFromUrl(formatImageUrl(renderUrl), {
-            ...metadata,
-          } as any);
+          await canvasManager.addImageFromUrl(
+            formatImageUrl(renderUrl),
+            { ...metadata } as any,
+            { skipFrameSlotting: true }
+          );
         }
 
         preserveActiveObjectSource(
@@ -490,7 +492,11 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
         if (!isRasterUrl && asset.is_vector && (asset.format === 'svg' || stableUrl.toLowerCase().includes('.svg'))) {
           await canvasManager.addSvgFromUrl(stableUrl, metadata);
         } else {
-          await canvasManager.addImageFromUrl(stableUrl, metadata);
+          await canvasManager.addImageFromUrl(
+            stableUrl,
+            metadata,
+            { skipFrameSlotting: true }
+          );
         }
 
         preserveActiveObjectSource(

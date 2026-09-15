@@ -126,7 +126,10 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
 
   if (!isOpen) return null;
 
-  const filteredCategories = categories.filter((c) => c.asset_type === assetType);
+  const filteredCategories = categories.filter(
+    (category) =>
+      category.asset_type === assetType && category.is_active
+  );
   const allowedExts = SUPPORTED_EXTENSIONS[assetType] || [];
 
   const handleFilesSelected = (fileList: FileList | null) => {
@@ -243,6 +246,13 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
   const handleStartBulkUpload = async () => {
     if (queue.length === 0 || isUploading) return;
 
+    if (!selectedCategoryId) {
+      alert(
+        `Please select a ${ASSET_TYPE_LABELS[assetType]} category before uploading.`
+      );
+      return;
+    }
+
     setIsUploading(true);
     let completedCount = 0;
 
@@ -260,17 +270,15 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
 
       try {
         const payload: any = {
+          category_id: selectedCategoryId,
           name: item.name,
           slug: item.slug,
           asset_type: assetType,
+          provider: 'admin',
           is_active: true,
           sort_order: i,
           file: item.mainFile,
         };
-
-        if (selectedCategoryId) {
-          payload.category_id = selectedCategoryId;
-        }
 
         if (item.thumbnailFile) {
           payload.thumbnail = item.thumbnailFile;
@@ -393,15 +401,16 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
             {/* Target Category */}
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-1">
-                Target Category
+                Target Category <span className="text-red-500">*</span>
               </label>
               <select
+                required
                 disabled={isUploading}
                 value={selectedCategoryId}
                 onChange={(e) => setSelectedCategoryId(e.target.value)}
                 className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
               >
-                <option value="">-- No Category (Unassigned) --</option>
+                <option value="">-- Select Category --</option>
                 {filteredCategories.map((cat) => (
                   <option key={cat.id} value={cat.id}>
                     {cat.name}
@@ -655,7 +664,7 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
             {queue.length > 0 && !isDone && (
               <button
                 type="button"
-                disabled={isUploading}
+                disabled={isUploading || !selectedCategoryId}
                 onClick={handleStartBulkUpload}
                 className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition flex items-center gap-1.5 disabled:opacity-50"
               >

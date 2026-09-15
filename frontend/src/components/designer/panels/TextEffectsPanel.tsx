@@ -17,9 +17,7 @@ import {
   Flame,
   Snowflake,
   Contrast,
-  Camera,
   Film,
-  Compass,
 } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { SelectedObjectState } from '@/types/designer';
@@ -38,6 +36,50 @@ const STYLE_EFFECTS = [
   { id: 'hollow', label: 'Hollow', desc: 'Transparent fill', icon: CircleDashed },
   { id: 'neon', label: 'Neon', desc: 'Glowing neon', icon: Zap },
 ] as const;
+
+type TextEffectId = typeof STYLE_EFFECTS[number]['id'];
+
+interface ShadowSettings {
+  direction: number;
+  offset: number;
+  blur: number;
+  transparency: number;
+  color: string;
+}
+
+const DEFAULT_SHADOW_SETTINGS: ShadowSettings = {
+  direction: -45,
+  offset: 20,
+  blur: 10,
+  transparency: 30,
+  color: '#000000',
+};
+
+const ShadowSlider: React.FC<{
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  suffix?: string;
+  onChange: (value: number) => void;
+}> = ({ label, value, min, max, suffix = '', onChange }) => (
+  <div className="space-y-1.5">
+    <div className="flex items-center justify-between">
+      <span className="text-xs font-medium text-gray-800">{label}</span>
+      <span className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-bold text-gray-700">
+        {value}{suffix}
+      </span>
+    </div>
+    <input
+      type="range"
+      min={min}
+      max={max}
+      value={value}
+      onChange={(event) => onChange(Number(event.target.value))}
+      className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-gray-200 accent-purple-600"
+    />
+  </div>
+);
 
 const CANVA_FILTERS = [
   { id: 'none', label: 'None', color: 'from-gray-100 to-gray-200', text: 'Natural' },
@@ -59,11 +101,21 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
   canvasManager,
   selected,
 }) => {
-  const isEditableText =
-    selected?.type === 'i-text' || selected?.type === 'textbox';
+  const normalizedSelectedType = String(selected?.type || '')
+    .toLowerCase()
+    .replace(/[-_\s]/g, '');
+  const isEditableText = ['itext', 'textbox', 'text'].includes(
+    normalizedSelectedType
+  );
   const [activeTab, setActiveTab] = useState<'styles' | 'filters' | 'adjust'>('styles');
   const [activeFilter, setActiveFilter] = useState<string>('none');
   const [filterIntensity, setFilterIntensity] = useState<number>(100);
+  const [curveEnabled, setCurveEnabled] = useState(false);
+  const [curveAmount, setCurveAmount] = useState(0);
+  const [activeEffect, setActiveEffect] = useState<TextEffectId>('none');
+  const [shadowSettings, setShadowSettings] = useState<ShadowSettings>(
+    DEFAULT_SHADOW_SETTINGS
+  );
 
   const [adjustments, setAdjustments] = useState({
     brightness: 0,
@@ -83,6 +135,17 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     // editable vector text. Text keeps only Fabric-native style effects.
     if (isEditableText) {
       setActiveTab('styles');
+      const savedCurve = Number((selected as any)?.curve) || 0;
+      const savedShape = (selected as any)?.textShape;
+      setCurveAmount(savedCurve);
+      setCurveEnabled(savedShape === 'curve' || savedCurve !== 0);
+
+      const effectState = (canvasManager as any).getTextEffectState?.();
+      setActiveEffect(effectState?.effect || (selected as any)?.textEffect || 'none');
+      setShadowSettings({
+        ...DEFAULT_SHADOW_SETTINGS,
+        ...(effectState?.settings || (selected as any)?.textEffectSettings || {}),
+      });
       return;
     }
 
@@ -100,20 +163,64 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     });
   }, [canvasManager, selected, isEditableText]);
 
-  const currentCurve = selected?.curve || 0;
+  const currentCurve = curveAmount;
 
-  const handleApplyStyle = (effectId: typeof STYLE_EFFECTS[number]['id']) => {
+  const handleApplyStyle = (effectId: TextEffectId) => {
     if (!canvasManager) return;
-    canvasManager.applyEffect(effectId);
+    setActiveEffect(effectId);
+    const manager = canvasManager as any;
+    if (typeof manager.applyTextEffect === 'function') {
+      manager.applyTextEffect(effectId, shadowSettings);
+    } else {
+      manager.applyEffect(effectId);
+    }
+  };
+
+  const handleShadowSettingChange = <K extends keyof ShadowSettings>(
+    key: K,
+    value: ShadowSettings[K]
+  ) => {
+    const next = { ...shadowSettings, [key]: value };
+    setShadowSettings(next);
+    if (!canvasManager) return;
+    (canvasManager as any).applyTextEffect?.('shadow', next);
   };
 
   const handleCurveChange = (val: number) => {
     if (!canvasManager) return;
-    canvasManager.updateSelectedProperty('curve', val);
+    const nextCurve = Math.max(-100, Math.min(100, val));
+    setCurveAmount(nextCurve);
+    setCurveEnabled(true);
+
+    const manager = canvasManager as any;
+    if (typeof manager.applyTextCurve === 'function') {
+      manager.applyTextCurve(nextCurve);
+    } else {
+      manager.updateSelectedProperty('curve', nextCurve);
+    }
   };
 
   const handleStepCurve = (delta: number) => {
     handleCurveChange(Math.max(-100, Math.min(100, currentCurve + delta)));
+  };
+
+  const handleEnableCurve = () => {
+    const nextCurve = currentCurve === 0 ? 50 : currentCurve;
+    setCurveEnabled(true);
+    handleCurveChange(nextCurve);
+  };
+
+  const handleRemoveCurve = () => {
+    if (!canvasManager) return;
+    setCurveEnabled(false);
+    setCurveAmount(0);
+
+    const manager = canvasManager as any;
+    if (typeof manager.removeTextCurve === 'function') {
+      manager.removeTextCurve();
+    } else {
+      manager.updateSelectedProperty('curve', 0);
+    }
   };
 
   const handleApplyFilter = (filterId: string) => {
@@ -169,8 +276,8 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
           type="button"
           onClick={() => setActiveTab('styles')}
           className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'styles'
-              ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
-              : 'hover:text-gray-900'
+            ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
+            : 'hover:text-gray-900'
             }`}
         >
           <Sparkles className="w-3 h-3" />
@@ -183,8 +290,8 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
               type="button"
               onClick={() => setActiveTab('filters')}
               className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'filters'
-                  ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
-                  : 'hover:text-gray-900'
+                ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
+                : 'hover:text-gray-900'
                 }`}
             >
               <Palette className="w-3 h-3" />
@@ -195,8 +302,8 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
               type="button"
               onClick={() => setActiveTab('adjust')}
               className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'adjust'
-                  ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
-                  : 'hover:text-gray-900'
+                ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
+                : 'hover:text-gray-900'
                 }`}
             >
               <SlidersHorizontal className="w-3 h-3" />
@@ -217,12 +324,16 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
             <div className="grid grid-cols-2 gap-1.5">
               {STYLE_EFFECTS.map((eff) => {
                 const Icon = eff.icon;
+                const isActive = activeEffect === eff.id;
                 return (
                   <button
                     key={eff.id}
                     type="button"
                     onClick={() => handleApplyStyle(eff.id)}
-                    className="p-1.5 rounded-xl border border-gray-200 bg-white hover:bg-purple-50 hover:border-purple-300 flex items-center gap-2 transition text-left group shadow-2xs"
+                    className={`p-1.5 rounded-xl border flex items-center gap-2 transition text-left group shadow-2xs ${isActive
+                      ? 'border-purple-600 bg-purple-50 ring-1 ring-purple-600'
+                      : 'border-gray-200 bg-white hover:bg-purple-50 hover:border-purple-300'
+                      }`}
                   >
                     <Icon className="w-3.5 h-3.5 text-gray-400 group-hover:text-purple-600 shrink-0" />
                     <div className="min-w-0">
@@ -236,76 +347,181 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
             </div>
           </div>
 
-          {/* Canva-Style Curve / Shape Section */}
-          <div className="space-y-2 border-t border-gray-100 pt-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
-                <Spline className="w-3.5 h-3.5 text-blue-600" />
-                <span>Curved Text</span>
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => handleStepCurve(-10)}
-                  title="Decrease curve"
-                  className="p-1 rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600 transition"
-                >
-                  <Minus className="w-3 h-3" />
-                </button>
-                <div className="flex items-center gap-0.5 bg-gray-100 px-2 py-0.5 rounded-lg border border-gray-200/60 shadow-2xs">
+          {isEditableText && activeEffect === 'shadow' && (
+            <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-900">Shadow settings</span>
+                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
                   <input
-                    type="number"
-                    min="-100"
-                    max="100"
-                    value={currentCurve}
-                    onChange={(e) => handleCurveChange(Number(e.target.value))}
-                    className="w-8 bg-transparent text-xs font-mono font-bold text-gray-800 focus:outline-none text-right"
+                    type="color"
+                    value={shadowSettings.color}
+                    onChange={(event) =>
+                      handleShadowSettingChange('color', event.target.value)
+                    }
+                    className="h-6 w-7 cursor-pointer border-0 bg-transparent p-0"
+                    aria-label="Shadow color"
                   />
-                  <span className="text-[10px] text-gray-500 font-bold">°</span>
+                  <span className="text-[10px] font-semibold uppercase text-gray-500">
+                    {shadowSettings.color}
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleStepCurve(10)}
-                  title="Increase curve"
-                  className="p-1 rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600 transition"
-                >
-                  <Plus className="w-3 h-3" />
-                </button>
               </div>
+
+              <ShadowSlider
+                label="Direction"
+                value={shadowSettings.direction}
+                min={-180}
+                max={180}
+                suffix="°"
+                onChange={(value) => handleShadowSettingChange('direction', value)}
+              />
+              <ShadowSlider
+                label="Offset"
+                value={shadowSettings.offset}
+                min={0}
+                max={100}
+                onChange={(value) => handleShadowSettingChange('offset', value)}
+              />
+              <ShadowSlider
+                label="Blur"
+                value={shadowSettings.blur}
+                min={0}
+                max={100}
+                onChange={(value) => handleShadowSettingChange('blur', value)}
+              />
+              <ShadowSlider
+                label="Transparency"
+                value={shadowSettings.transparency}
+                min={0}
+                max={100}
+                suffix="%"
+                onChange={(value) => handleShadowSettingChange('transparency', value)}
+              />
+
+              <button
+                type="button"
+                onClick={() => handleApplyStyle('none')}
+                className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700"
+              >
+                Remove shadow
+              </button>
             </div>
+          )}
 
-            {/* Continuous Curve Slider */}
-            <input
-              type="range"
-              min="-100"
-              max="100"
-              value={currentCurve}
-              onChange={(e) => handleCurveChange(Number(e.target.value))}
-              className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-            />
+          {/* Canva-style text Shape: only None and customizable Curve */}
+          {isEditableText && (
+            <div className="space-y-3 border-t border-gray-100 pt-3">
+              <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                <Spline className="h-3.5 w-3.5 text-purple-600" />
+                Shape
+              </span>
 
-            {/* Quick Curve Preset Buttons */}
-            <div className="grid grid-cols-4 gap-1 pt-0.5">
-              {[
-                { label: 'None (0°)', val: 0 },
-                { label: '-50°', val: -50 },
-                { label: '+50°', val: 50 },
-                { label: '+100°', val: 100 },
-              ].map((p) => (
+              <div className="grid grid-cols-2 gap-2">
                 <button
-                  key={p.label}
                   type="button"
-                  onClick={() => handleCurveChange(p.val)}
-                  className={`py-1 text-[10px] font-bold rounded-lg border transition ${currentCurve === p.val
-                      ? 'bg-blue-600 border-blue-600 text-white shadow-2xs'
-                      : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                  onClick={handleRemoveCurve}
+                  className={`flex min-h-[76px] flex-col items-center justify-center gap-1.5 rounded-xl border transition ${!curveEnabled
+                    ? 'border-purple-600 bg-purple-50 text-purple-700 ring-1 ring-purple-600'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300'
                     }`}
                 >
-                  {p.label}
+                  <span className="text-xl font-bold">Ag</span>
+                  <span className="text-[11px] font-semibold">None</span>
                 </button>
-              ))}
+
+                <button
+                  type="button"
+                  onClick={handleEnableCurve}
+                  className={`flex min-h-[76px] flex-col items-center justify-center gap-1.5 rounded-xl border transition ${curveEnabled
+                    ? 'border-purple-600 bg-purple-50 text-purple-700 ring-1 ring-purple-600'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300'
+                    }`}
+                >
+                  <Spline className="h-6 w-6" />
+                  <span className="text-[11px] font-semibold">Curve</span>
+                </button>
+              </div>
+
+              {curveEnabled && (
+                <div className="space-y-2 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-800">Curve</span>
+                    <div className="flex items-center overflow-hidden rounded-xl border border-gray-200 bg-white">
+                      <button
+                        type="button"
+                        onClick={() => handleStepCurve(-5)}
+                        className="p-2 text-gray-600 hover:bg-gray-50"
+                        aria-label="Decrease curve"
+                      >
+                        <Minus className="h-3.5 w-3.5" />
+                      </button>
+                      <input
+                        type="number"
+                        min="-100"
+                        max="100"
+                        value={currentCurve}
+                        onChange={(event) => handleCurveChange(Number(event.target.value))}
+                        className="w-14 border-x border-gray-100 py-2 text-center text-xs font-bold outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleStepCurve(5)}
+                        className="p-2 text-gray-600 hover:bg-gray-50"
+                        aria-label="Increase curve"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-1">
+                    {[
+                      { label: '¼ Arc', value: 25 },
+                      { label: 'Semi', value: 50 },
+                      { label: '¾ Arc', value: 75 },
+                      { label: 'Circle', value: 100 },
+                    ].map((preset) => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => handleCurveChange(preset.value)}
+                        className={`rounded-lg border px-1 py-1.5 text-[9px] font-bold transition ${currentCurve === preset.value
+                          ? 'border-purple-600 bg-purple-600 text-white'
+                          : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-100'
+                          }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    step="1"
+                    value={currentCurve}
+                    onChange={(event) => handleCurveChange(Number(event.target.value))}
+                    className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-purple-200 accent-purple-600"
+                  />
+
+                  <div className="flex justify-between text-[10px] font-medium text-gray-500">
+                    <span>Curve down</span>
+                    <span>Straight</span>
+                    <span>Curve up</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleRemoveCurve}
+                    className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700"
+                  >
+                    Remove curve
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </div>
       )}
 

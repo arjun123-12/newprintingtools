@@ -264,30 +264,34 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       selected.type === 'text' ||
       selected.text !== undefined);
 
-  const isImage =
-    selected &&
-    (selected.type === 'image' ||
-      selected.type === 'fabricImage' ||
-      selected.src !== undefined);
-
   const isPath =
     selected &&
     (selected.type === 'path' ||
       selected.type === 'brush' ||
       Boolean(selected.isBrushPath));
 
+  // Shape identity must take priority over Fabric's underlying object type.
+  // Custom SVG/photo shapes can be represented by a Group or FabricImage and
+  // may also expose src/isFrame, but they still need shape colour controls.
   const isShape =
     selected &&
     !isText &&
-    !isImage &&
     !isPath &&
     !selected.isMultiple &&
-    (selected.type === 'rect' ||
+    (Boolean(selected.isShape) ||
+      selected.type === 'rect' ||
       selected.type === 'circle' ||
       selected.type === 'triangle' ||
       selected.type === 'polygon' ||
       selected.type === 'line' ||
       selected.type === 'shape');
+
+  const isImage =
+    selected &&
+    !isShape &&
+    (selected.type === 'image' ||
+      selected.type === 'fabricImage' ||
+      selected.src !== undefined);
 
   const isGroupedSelection =
     selected &&

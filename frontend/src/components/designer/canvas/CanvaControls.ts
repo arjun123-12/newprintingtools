@@ -13,30 +13,25 @@ import {
   Group,
 } from 'fabric';
 
-/**
- * Canva's signature brand purple color for active selection borders and handles.
- */
 export const CANVA_PURPLE = '#8b3dff';
 
 /**
- * Renders a clean Canva-style circular corner handle.
- * Large crisp white circle with subtle drop shadow and Canva purple border.
+ * Canva-style circular corner handle.
  */
 export function renderCanvaCornerHandle(
   ctx: CanvasRenderingContext2D,
   left: number,
   top: number,
-  styleOverride: any,
-  fabricObject: FabricObject
+  _styleOverride: any,
+  _fabricObject: FabricObject
 ): void {
   const size = 13;
   const radius = size / 2;
 
   ctx.save();
   ctx.beginPath();
-  ctx.arc(left, top, radius, 0, Math.PI * 2, false);
+  ctx.arc(left, top, radius, 0, Math.PI * 2);
 
-  // Soft subtle shadow
   ctx.shadowColor = 'rgba(0, 0, 0, 0.22)';
   ctx.shadowBlur = 4;
   ctx.shadowOffsetX = 0;
@@ -45,7 +40,6 @@ export function renderCanvaCornerHandle(
   ctx.fillStyle = '#ffffff';
   ctx.fill();
 
-  // Crisp border stroke in Canva purple
   ctx.shadowColor = 'transparent';
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = CANVA_PURPLE;
@@ -55,31 +49,48 @@ export function renderCanvaCornerHandle(
 }
 
 /**
- * Renders a clean Canva-style side midpoint handle (pill / capsule).
+ * Canva-style side handle.
+ *
+ * isVertical=true:
+ * Left/right handle used for width resizing.
+ *
+ * isVertical=false:
+ * Top/bottom handle used for height resizing.
  */
 export function renderCanvaSideHandle(isVertical: boolean) {
   return function (
     ctx: CanvasRenderingContext2D,
     left: number,
     top: number,
-    styleOverride: any,
+    _styleOverride: any,
     fabricObject: FabricObject
   ): void {
-    const w = isVertical ? 6 : 16;
-    const h = isVertical ? 16 : 6;
-    const r = 3;
+    const width = isVertical ? 6 : 16;
+    const height = isVertical ? 16 : 6;
+    const radius = 3;
+    const angle = fabricObject.angle || 0;
 
     ctx.save();
-    // Rotate along with the object's angle
-    const angle = fabricObject.angle || 0;
     ctx.translate(left, top);
     ctx.rotate((angle * Math.PI) / 180);
 
     ctx.beginPath();
+
     if (typeof (ctx as any).roundRect === 'function') {
-      (ctx as any).roundRect(-w / 2, -h / 2, w, h, r);
+      (ctx as any).roundRect(
+        -width / 2,
+        -height / 2,
+        width,
+        height,
+        radius
+      );
     } else {
-      ctx.rect(-w / 2, -h / 2, w, h);
+      ctx.rect(
+        -width / 2,
+        -height / 2,
+        width,
+        height
+      );
     }
 
     ctx.shadowColor = 'rgba(0, 0, 0, 0.22)';
@@ -100,39 +111,40 @@ export function renderCanvaSideHandle(isVertical: boolean) {
 }
 
 /**
- * Renders Canva's signature circular rotation button with connecting stem
- * (White circular button with shadow, subtle border, and black double-arrow cycle icon).
+ * Canva-style rotation handle.
  */
 export function renderCanvaRotationHandle(
   ctx: CanvasRenderingContext2D,
   left: number,
   top: number,
-  styleOverride: any,
+  _styleOverride: any,
   fabricObject: FabricObject
 ): void {
   const size = 26;
   const radius = size / 2;
   const angle = fabricObject.angle || 0;
-  const rad = (angle * Math.PI) / 180;
+  const radians = (angle * Math.PI) / 180;
+  const stemLength = 21;
 
   ctx.save();
 
-  // 1. Draw connecting stem line from object bottom edge to rotation button
-  const stemLength = 21;
+  // Connecting line
   ctx.save();
   ctx.translate(left, top);
-  ctx.rotate(rad);
+  ctx.rotate(radians);
+
   ctx.beginPath();
   ctx.moveTo(0, -radius);
   ctx.lineTo(0, -radius - stemLength);
   ctx.strokeStyle = CANVA_PURPLE;
   ctx.lineWidth = 1.5;
   ctx.stroke();
+
   ctx.restore();
 
-  // 2. Draw floating white circular button with soft shadow
+  // Circular button
   ctx.beginPath();
-  ctx.arc(left, top, radius, 0, Math.PI * 2, false);
+  ctx.arc(left, top, radius, 0, Math.PI * 2);
 
   ctx.shadowColor = 'rgba(0, 0, 0, 0.20)';
   ctx.shadowBlur = 6;
@@ -147,12 +159,12 @@ export function renderCanvaRotationHandle(
   ctx.strokeStyle = '#cbd5e1';
   ctx.stroke();
 
-  // 3. Draw black double cycle rotation arrows inside
+  // Rotation icon
   ctx.save();
   ctx.translate(left, top);
-  ctx.rotate(rad);
+  ctx.rotate(radians);
 
-  ctx.strokeStyle = '#1e293b'; // Charcoal Black
+  ctx.strokeStyle = '#1e293b';
   ctx.fillStyle = '#1e293b';
   ctx.lineWidth = 1.3;
   ctx.lineCap = 'round';
@@ -160,12 +172,17 @@ export function renderCanvaRotationHandle(
 
   const arcRadius = 5.4;
 
-  // Arc 1 (Right / Top side)
   ctx.beginPath();
-  ctx.arc(0, 0, arcRadius, -0.22 * Math.PI, 0.72 * Math.PI, false);
+  ctx.arc(
+    0,
+    0,
+    arcRadius,
+    -0.22 * Math.PI,
+    0.72 * Math.PI,
+    false
+  );
   ctx.stroke();
 
-  // Arrowhead 1 (pointing counter-clockwise)
   ctx.beginPath();
   ctx.moveTo(3.2, -4.8);
   ctx.lineTo(5.8, -2.2);
@@ -173,12 +190,17 @@ export function renderCanvaRotationHandle(
   ctx.closePath();
   ctx.fill();
 
-  // Arc 2 (Left / Bottom side)
   ctx.beginPath();
-  ctx.arc(0, 0, arcRadius, 0.78 * Math.PI, 1.72 * Math.PI, false);
+  ctx.arc(
+    0,
+    0,
+    arcRadius,
+    0.78 * Math.PI,
+    1.72 * Math.PI,
+    false
+  );
   ctx.stroke();
 
-  // Arrowhead 2 (pointing clockwise)
   ctx.beginPath();
   ctx.moveTo(-3.2, 4.8);
   ctx.lineTo(-5.8, 2.2);
@@ -191,295 +213,368 @@ export function renderCanvaRotationHandle(
 }
 
 /**
- * Creates the standard Canva-style controls for Shapes, Images & Rectangles.
+ * Corner controls shared by objects.
  */
-export function createCanvaControls(): Record<string, Control> {
-  const controls: Record<string, Control> = {
+function createCornerControls(): Record<string, Control> {
+  return {
     tl: new Control({
       x: -0.5,
       y: -0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
+      cursorStyleHandler:
+        controlsUtils.scaleCursorStyleHandler,
       actionHandler: controlsUtils.scalingEqually,
-      render: renderCanvaCornerHandle,
-    }),
-    tr: new Control({
-      x: 0.5,
-      y: -0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
-      actionHandler: controlsUtils.scalingEqually,
-      render: renderCanvaCornerHandle,
-    }),
-    bl: new Control({
-      x: -0.5,
-      y: 0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
-      actionHandler: controlsUtils.scalingEqually,
-      render: renderCanvaCornerHandle,
-    }),
-    br: new Control({
-      x: 0.5,
-      y: 0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
-      actionHandler: controlsUtils.scalingEqually,
+      actionName: 'scale',
       render: renderCanvaCornerHandle,
     }),
 
+    tr: new Control({
+      x: 0.5,
+      y: -0.5,
+      cursorStyleHandler:
+        controlsUtils.scaleCursorStyleHandler,
+      actionHandler: controlsUtils.scalingEqually,
+      actionName: 'scale',
+      render: renderCanvaCornerHandle,
+    }),
+
+    bl: new Control({
+      x: -0.5,
+      y: 0.5,
+      cursorStyleHandler:
+        controlsUtils.scaleCursorStyleHandler,
+      actionHandler: controlsUtils.scalingEqually,
+      actionName: 'scale',
+      render: renderCanvaCornerHandle,
+    }),
+
+    br: new Control({
+      x: 0.5,
+      y: 0.5,
+      cursorStyleHandler:
+        controlsUtils.scaleCursorStyleHandler,
+      actionHandler: controlsUtils.scalingEqually,
+      actionName: 'scale',
+      render: renderCanvaCornerHandle,
+    }),
+  };
+}
+
+/**
+ * Independent width and height controls.
+ */
+function createSideScaleControls(): Record<string, Control> {
+  return {
+    // Width-only resize
     ml: new Control({
       x: -0.5,
       y: 0,
-      cursorStyleHandler: controlsUtils.scaleSkewCursorStyleHandler,
+      sizeX: 18,
+      sizeY: 26,
+      touchSizeX: 28,
+      touchSizeY: 36,
+      cursorStyleHandler:
+        controlsUtils.scaleSkewCursorStyleHandler,
       actionHandler: controlsUtils.scalingX,
+      actionName: 'scaleX',
       render: renderCanvaSideHandle(true),
     }),
+
     mr: new Control({
       x: 0.5,
       y: 0,
-      cursorStyleHandler: controlsUtils.scaleSkewCursorStyleHandler,
+      sizeX: 18,
+      sizeY: 26,
+      touchSizeX: 28,
+      touchSizeY: 36,
+      cursorStyleHandler:
+        controlsUtils.scaleSkewCursorStyleHandler,
       actionHandler: controlsUtils.scalingX,
+      actionName: 'scaleX',
       render: renderCanvaSideHandle(true),
     }),
+
+    // Height-only resize
     mt: new Control({
       x: 0,
       y: -0.5,
-      cursorStyleHandler: controlsUtils.scaleSkewCursorStyleHandler,
+      sizeX: 26,
+      sizeY: 18,
+      touchSizeX: 36,
+      touchSizeY: 28,
+      cursorStyleHandler:
+        controlsUtils.scaleSkewCursorStyleHandler,
       actionHandler: controlsUtils.scalingY,
+      actionName: 'scaleY',
       render: renderCanvaSideHandle(false),
     }),
+
     mb: new Control({
       x: 0,
       y: 0.5,
-      cursorStyleHandler: controlsUtils.scaleSkewCursorStyleHandler,
+      sizeX: 26,
+      sizeY: 18,
+      touchSizeX: 36,
+      touchSizeY: 28,
+      cursorStyleHandler:
+        controlsUtils.scaleSkewCursorStyleHandler,
       actionHandler: controlsUtils.scalingY,
+      actionName: 'scaleY',
       render: renderCanvaSideHandle(false),
     }),
-
-    mbr: new Control({
-      x: 0,
-      y: 0.5,
-      offsetY: 34,
-      cursorStyleHandler: controlsUtils.rotationStyleHandler,
-      actionHandler: controlsUtils.rotationWithSnapping,
-      actionName: 'rotate',
-      withConnection: false,
-      render: renderCanvaRotationHandle,
-    }),
   };
+}
 
-  return controls;
+function createRotationControl(): Control {
+  return new Control({
+    x: 0,
+    y: 0.5,
+    offsetY: 34,
+    cursorStyleHandler:
+      controlsUtils.rotationStyleHandler,
+    actionHandler:
+      controlsUtils.rotationWithSnapping,
+    actionName: 'rotate',
+    withConnection: false,
+    render: renderCanvaRotationHandle,
+  });
 }
 
 /**
- * Creates specialized Canva-style controls for Textbox elements.
- * Side handles (`ml`, `mr`) use `changeWidth` so stretching/compressing
- * reflows text into 1 line or breaks into multiple lines without distorting font size!
+ * Controls for shapes, SVG elements, groups and selections.
  */
-export function createTextboxCanvaControls(): Record<string, Control> {
-  const controls: Record<string, Control> = {
-    // Corner Resize Handles (White Circles with Purple Border) - scales font size
-    tl: new Control({
-      x: -0.5,
-      y: -0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
-      actionHandler: controlsUtils.scalingEqually,
-      render: renderCanvaCornerHandle,
-    }),
-    tr: new Control({
-      x: 0.5,
-      y: -0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
-      actionHandler: controlsUtils.scalingEqually,
-      render: renderCanvaCornerHandle,
-    }),
-    bl: new Control({
-      x: -0.5,
-      y: 0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
-      actionHandler: controlsUtils.scalingEqually,
-      render: renderCanvaCornerHandle,
-    }),
-    br: new Control({
-      x: 0.5,
-      y: 0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
-      actionHandler: controlsUtils.scalingEqually,
-      render: renderCanvaCornerHandle,
-    }),
+export function createCanvaControls(): Record<
+  string,
+  Control
+> {
+  return {
+    ...createCornerControls(),
+    ...createSideScaleControls(),
+    mbr: createRotationControl(),
+  };
+}
 
-    // Side Handles (White Pill/Capsules) - ONLY Left & Right side handles for Textbox using changeWidth!
+/**
+ * Canva-style Textbox controls.
+ *
+ * Left/right handles change wrapping width without
+ * stretching the text.
+ */
+export function createTextboxCanvaControls(): Record<
+  string,
+  Control
+> {
+  return {
+    ...createCornerControls(),
+
     ml: new Control({
       x: -0.5,
       y: 0,
-      cursorStyleHandler: controlsUtils.scaleSkewCursorStyleHandler,
+      sizeX: 18,
+      sizeY: 26,
+      touchSizeX: 28,
+      touchSizeY: 36,
+      cursorStyleHandler:
+        controlsUtils.scaleSkewCursorStyleHandler,
       actionHandler: controlsUtils.changeWidth,
+      actionName: 'resizing',
       render: renderCanvaSideHandle(true),
     }),
+
     mr: new Control({
       x: 0.5,
       y: 0,
-      cursorStyleHandler: controlsUtils.scaleSkewCursorStyleHandler,
+      sizeX: 18,
+      sizeY: 26,
+      touchSizeX: 28,
+      touchSizeY: 36,
+      cursorStyleHandler:
+        controlsUtils.scaleSkewCursorStyleHandler,
       actionHandler: controlsUtils.changeWidth,
+      actionName: 'resizing',
       render: renderCanvaSideHandle(true),
     }),
 
-    // Canva Rotation Handle
-    mbr: new Control({
-      x: 0,
-      y: 0.5,
-      offsetY: 34,
-      cursorStyleHandler: controlsUtils.rotationStyleHandler,
-      actionHandler: controlsUtils.rotationWithSnapping,
-      actionName: 'rotate',
-      withConnection: false,
-      render: renderCanvaRotationHandle,
-    }),
+    mbr: createRotationControl(),
   };
-
-  return controls;
 }
 
 /**
- * Creates Canva-style controls for Raster Images & Frames.
- * Contains only corner handles (proportional uniform scaling) and rotation handle.
- * Edge handles (ml, mr, mt, mb) are omitted to completely prevent raster image stretching / distortion.
+ * Controls for normal images, photo frames and image masks.
+ *
+ * Corner handles preserve proportions.
+ * Side handles independently change width or height.
  */
-export function createImageCanvaControls(): Record<string, Control> {
-  const controls: Record<string, Control> = {
-    tl: new Control({
-      x: -0.5,
-      y: -0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
-      actionHandler: controlsUtils.scalingEqually,
-      render: renderCanvaCornerHandle,
-    }),
-    tr: new Control({
-      x: 0.5,
-      y: -0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
-      actionHandler: controlsUtils.scalingEqually,
-      render: renderCanvaCornerHandle,
-    }),
-    bl: new Control({
-      x: -0.5,
-      y: 0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
-      actionHandler: controlsUtils.scalingEqually,
-      render: renderCanvaCornerHandle,
-    }),
-    br: new Control({
-      x: 0.5,
-      y: 0.5,
-      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
-      actionHandler: controlsUtils.scalingEqually,
-      render: renderCanvaCornerHandle,
-    }),
-    mbr: new Control({
-      x: 0,
-      y: 0.5,
-      offsetY: 34,
-      cursorStyleHandler: controlsUtils.rotationStyleHandler,
-      actionHandler: controlsUtils.rotationWithSnapping,
-      actionName: 'rotate',
-      withConnection: false,
-      render: renderCanvaRotationHandle,
-    }),
+export function createImageCanvaControls(): Record<
+  string,
+  Control
+> {
+  return {
+    ...createCornerControls(),
+    ...createSideScaleControls(),
+    mbr: createRotationControl(),
   };
-
-  return controls;
 }
 
 /**
- * Explicitly applies Canva styling and controls to a single FabricObject instance.
+ * Apply Canva controls to one Fabric object.
  */
-export function applyCanvaControlsToObject(obj: FabricObject): void {
+export function applyCanvaControlsToObject(
+  obj: FabricObject
+): void {
   if (!obj) return;
-  const rawType = String((obj as any).type || '').toLowerCase();
+
+  const rawType = String((obj as any).type || '')
+    .toLowerCase()
+    .replace(/[-_\s]/g, '');
+
   const isText =
     obj instanceof Textbox ||
     obj instanceof IText ||
     rawType === 'textbox' ||
-    rawType === 'i-text';
+    rawType === 'itext' ||
+    rawType === 'text';
 
-  const isImage =
+  const isImageOrFrame =
     obj instanceof FabricImage ||
     rawType === 'image' ||
     rawType === 'fabricimage' ||
-    Boolean((obj as any).isFrame);
+    Boolean(obj.get?.('isFrame' as any)) ||
+    Boolean((obj as any).isFrame) ||
+    Boolean(obj.get?.('isPhotoShapeGroup' as any)) ||
+    Boolean((obj as any).isPhotoShapeGroup) ||
+    Boolean(obj.get?.('isCustomFrame' as any)) ||
+    Boolean((obj as any).isCustomFrame);
 
   if (isText) {
     obj.controls = createTextboxCanvaControls();
-  } else if (isImage) {
+  } else if (isImageOrFrame) {
     obj.controls = createImageCanvaControls();
-    (obj as any).lockUniScaling = true;
+
+    // Side handles must be allowed to resize one axis.
+    (obj as any).lockUniScaling = false;
+
+    obj.set({
+      lockScalingX: false,
+      lockScalingY: false,
+      lockScalingFlip: true,
+    });
   } else {
     obj.controls = createCanvaControls();
+
+    (obj as any).lockUniScaling = false;
+
+    obj.set({
+      lockScalingX: false,
+      lockScalingY: false,
+      lockScalingFlip: true,
+    });
   }
 
-  obj.borderColor = CANVA_PURPLE;
-  obj.borderScaleFactor = 1.5;
-  obj.borderOpacityWhenMoving = 0.95;
-  obj.transparentCorners = false;
-  obj.cornerColor = '#ffffff';
-  obj.cornerStrokeColor = CANVA_PURPLE;
-  obj.cornerSize = 13;
-  obj.cornerStyle = 'circle';
-  obj.selectionBackgroundColor = 'transparent';
-  obj.padding = 0;
+  obj.set({
+    borderColor: CANVA_PURPLE,
+    borderScaleFactor: 1.5,
+    borderOpacityWhenMoving: 0.95,
+    transparentCorners: false,
+    cornerColor: '#ffffff',
+    cornerStrokeColor: CANVA_PURPLE,
+    cornerSize: 13,
+    cornerStyle: 'circle',
+    selectionBackgroundColor: 'transparent',
+    padding: 0,
+  });
 }
 
 /**
- * Apply Canva style frame and handles globally to FabricObject, ActiveSelection and all element prototypes.
+ * Apply Canva controls globally.
  */
 export function applyCanvaControlsGlobal(): void {
-  // 1. Override static createControls factory methods in Fabric 7 so newly constructed objects get Canva controls
-  (FabricObject as any).createControls = () => ({ controls: createCanvaControls() });
-  (Textbox as any).createControls = () => ({ controls: createTextboxCanvaControls() });
-  (IText as any).createControls = () => ({ controls: createTextboxCanvaControls() });
-  (FabricImage as any).createControls = () => ({ controls: createImageCanvaControls() });
-  (ActiveSelection as any).createControls = () => ({ controls: createCanvaControls() });
-  (Rect as any).createControls = () => ({ controls: createCanvaControls() });
-  (Circle as any).createControls = () => ({ controls: createCanvaControls() });
-  (Polygon as any).createControls = () => ({ controls: createCanvaControls() });
-  (Path as any).createControls = () => ({ controls: createCanvaControls() });
-  (Group as any).createControls = () => ({ controls: createCanvaControls() });
+  (FabricObject as any).createControls = () => ({
+    controls: createCanvaControls(),
+  });
 
-  const applyDefaults = (proto: any, getCustomControls?: () => Record<string, Control>) => {
-    proto.controls = getCustomControls ? getCustomControls() : createCanvaControls();
-    proto.borderColor = CANVA_PURPLE;
-    proto.borderScaleFactor = 1.5;
-    proto.borderOpacityWhenMoving = 0.95;
-    proto.transparentCorners = false;
-    proto.cornerColor = '#ffffff';
-    proto.cornerStrokeColor = CANVA_PURPLE;
-    proto.cornerSize = 13;
-    proto.cornerStyle = 'circle';
-    proto.selectionBackgroundColor = 'transparent';
-    proto.padding = 0;
+  (Textbox as any).createControls = () => ({
+    controls: createTextboxCanvaControls(),
+  });
+
+  (IText as any).createControls = () => ({
+    controls: createTextboxCanvaControls(),
+  });
+
+  (FabricImage as any).createControls = () => ({
+    controls: createImageCanvaControls(),
+  });
+
+  (ActiveSelection as any).createControls = () => ({
+    controls: createCanvaControls(),
+  });
+
+  (Rect as any).createControls = () => ({
+    controls: createCanvaControls(),
+  });
+
+  (Circle as any).createControls = () => ({
+    controls: createCanvaControls(),
+  });
+
+  (Polygon as any).createControls = () => ({
+    controls: createCanvaControls(),
+  });
+
+  (Path as any).createControls = () => ({
+    controls: createCanvaControls(),
+  });
+
+  (Group as any).createControls = () => ({
+    controls: createCanvaControls(),
+  });
+
+  const applyDefaults = (
+    prototype: any,
+    controlsFactory: () => Record<string, Control> =
+      createCanvaControls
+  ) => {
+    prototype.controls = controlsFactory();
+    prototype.borderColor = CANVA_PURPLE;
+    prototype.borderScaleFactor = 1.5;
+    prototype.borderOpacityWhenMoving = 0.95;
+    prototype.transparentCorners = false;
+    prototype.cornerColor = '#ffffff';
+    prototype.cornerStrokeColor = CANVA_PURPLE;
+    prototype.cornerSize = 13;
+    prototype.cornerStyle = 'circle';
+    prototype.selectionBackgroundColor = 'transparent';
+    prototype.padding = 0;
+    prototype.lockScalingFlip = true;
+    prototype.lockUniScaling = false;
   };
 
-  const applyTextboxDefaults = (proto: any) => {
-    proto.controls = createTextboxCanvaControls();
-    proto.borderColor = CANVA_PURPLE;
-    proto.borderScaleFactor = 1.5;
-    proto.borderOpacityWhenMoving = 0.95;
-    proto.transparentCorners = false;
-    proto.cornerColor = '#ffffff';
-    proto.cornerStrokeColor = CANVA_PURPLE;
-    proto.cornerSize = 13;
-    proto.cornerStyle = 'circle';
-    proto.selectionBackgroundColor = 'transparent';
-    proto.padding = 0;
-    proto.splitByGrapheme = true;
-    proto.dynamicMinWidth = function () {
+  const applyTextboxDefaults = (prototype: any) => {
+    applyDefaults(
+      prototype,
+      createTextboxCanvaControls
+    );
+
+    prototype.splitByGrapheme = true;
+
+    prototype.dynamicMinWidth = function () {
       return 10;
     };
   };
 
   applyDefaults(FabricObject.prototype);
   applyDefaults(ActiveSelection.prototype);
+
   applyTextboxDefaults(Textbox.prototype);
   applyTextboxDefaults(IText.prototype);
-  applyDefaults(FabricImage.prototype, createImageCanvaControls);
-  (FabricImage.prototype as any).lockUniScaling = true;
+
+  applyDefaults(
+    FabricImage.prototype,
+    createImageCanvaControls
+  );
+
+  // Important: side handles need independent scaling.
+  (FabricImage.prototype as any).lockUniScaling = false;
+
   applyDefaults(Rect.prototype);
   applyDefaults(Circle.prototype);
   applyDefaults(Polygon.prototype);

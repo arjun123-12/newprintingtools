@@ -120,11 +120,15 @@ export const PixabayPanel: React.FC<PixabayPanelProps> = ({ canvasManager }) => 
     try {
       // Use largeImageURL (1280px) for crisp canvas rendering, with webformatURL fallback
       const targetUrl = img.largeImageURL || img.webformatURL;
-      await canvasManager.addImageFromUrl(targetUrl, {
-        name: img.tags?.split(',')[0]?.trim() || `Library-${img.id}`,
-        naturalWidth: img.imageWidth || img.webformatWidth,
-        naturalHeight: img.imageHeight || img.webformatHeight,
-      });
+      await canvasManager.addImageFromUrl(
+        targetUrl,
+        {
+          name: img.tags?.split(',')[0]?.trim() || `Library-${img.id}`,
+          naturalWidth: img.imageWidth || img.webformatWidth,
+          naturalHeight: img.imageHeight || img.webformatHeight,
+        },
+        { skipFrameSlotting: true }
+      );
       setInsertSuccess(img.id);
       setTimeout(() => setInsertSuccess(null), 1500);
     } catch (err) {

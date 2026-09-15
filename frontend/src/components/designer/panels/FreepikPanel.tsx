@@ -59,7 +59,9 @@ type UsedFreepikAsset = {
 };
 
 const isUsableImageUrl = (value: unknown): value is string =>
-  typeof value === 'string' && value.trim().length > 0;
+  typeof value === 'string' &&
+  value.trim().length > 0 &&
+  !/\.html?(\?.*)?$/i.test(value.trim());
 
 /**
  * Return the largest/original source supplied by the API.
@@ -85,12 +87,12 @@ const getOriginalAssetUrl = (asset: FreepikAsset): string => {
     item.image?.source?.url,
     item.image?.url,
     item.image_url,
-    item.url,
     asset.preview_url,
     asset.thumbnail_url,
   ];
 
-  return candidates.find(isUsableImageUrl) || '';
+  const chosen = candidates.find(isUsableImageUrl) || '';
+  return chosen.startsWith('http://') ? chosen.replace('http://', 'https://') : chosen;
 };
 
 const getAssetDimensions = (
@@ -251,12 +253,16 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
 
       const dimensions = getAssetDimensions(asset);
 
-      await canvasManager.addImageFromUrl(targetUrl, {
-        name: asset.title || `Freepik-${asset.id}`,
-        originalSrc: originalUrl,
-        naturalWidth: dimensions.width,
-        naturalHeight: dimensions.height,
-      });
+      await canvasManager.addImageFromUrl(
+        targetUrl,
+        {
+          name: asset.title || `Freepik-${asset.id}`,
+          originalSrc: originalUrl,
+          naturalWidth: dimensions.width,
+          naturalHeight: dimensions.height,
+        },
+        { skipFrameSlotting: true }
+      );
 
       setInsertSuccess(asset.id);
       setTimeout(() => setInsertSuccess(null), 1500);

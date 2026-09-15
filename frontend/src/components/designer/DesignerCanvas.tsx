@@ -262,14 +262,9 @@ export function DesignerCanvas({
       ? viewport.scrollTop + viewport.clientHeight / 2
       : 0;
 
-    canvasManager.setZoom(zoom);
     previousZoomRef.current = zoom;
 
     const frame = requestAnimationFrame(() => {
-      const canvas = canvasManager.getCanvas();
-
-      if (!canvas) return;
-
       if (viewport && Number.isFinite(zoomRatio) && zoomRatio > 0) {
         viewport.scrollLeft = Math.max(
           0,
@@ -281,8 +276,10 @@ export function DesignerCanvas({
         );
       }
 
-      canvas.calcOffset();
-      canvas.requestRenderAll();
+      // CanvasManager already rendered before notifying React about the zoom.
+      // Only update pointer offsets after scroll-centering; a second render here
+      // made every zoom step paint twice.
+      canvasManager.getCanvas()?.calcOffset();
     });
 
     return () => {
@@ -847,7 +844,7 @@ export function DesignerCanvas({
           visible: false,
         }));
       }}
-      className="relative h-full w-full min-h-0 min-w-0 flex-1 select-none overflow-hidden bg-[#eef1f6] bg-[radial-gradient(#cbd5e1_1.2px,transparent_1.2px)] bg-[length:20px_20px]"
+      className="relative h-full w-full min-h-0 min-w-0 flex-1 select-none overflow-hidden bg-[#f0f2f5]"
     >
       {dropError && (
         <div className="absolute right-4 top-4 z-[80] max-w-sm rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 shadow-lg">
@@ -884,10 +881,10 @@ export function DesignerCanvas({
       <div
         ref={scrollViewportRef}
         className={`absolute inset-0 overflow-auto overscroll-contain ${isViewportPanning
-            ? 'cursor-grabbing'
-            : isSpacePressed
-              ? 'cursor-grab'
-              : ''
+          ? 'cursor-grabbing'
+          : isSpacePressed
+            ? 'cursor-grab'
+            : ''
           }`}
         onScroll={() => {
           if (scrollUpdateFrameRef.current !== null) return;
@@ -965,26 +962,8 @@ export function DesignerCanvas({
       >
         <div className="flex min-h-full w-max min-w-full items-center justify-center p-4">
           <div className="relative shrink-0">
-            {showRulers && dimensions && (
-              <Ruler
-                zoom={zoom}
-                dimensions={dimensions}
-                canvasManager={canvasManager ?? null}
-                paperRef={paperRef}
-                containerRef={containerRef}
-                selected={selected}
-                onUpdateDocumentSettings={
-                  onUpdateDocumentSettings
-                }
-              />
-            )}
-
             <div
               ref={paperRef}
-              style={{
-                marginTop: showRulers ? '24px' : '0px',
-                marginLeft: showRulers ? '24px' : '0px',
-              }}
               className="relative shrink-0 rounded-sm bg-white shadow-2xl ring-1 ring-black/15"
             >
               {/* Fabric owns only this container */}
@@ -1021,6 +1000,21 @@ export function DesignerCanvas({
           </div>
         </div>
       </div>
+
+      {/* Canva-style rulers stay fixed to the workspace edges. Their zero
+          point follows the artwork while the user zooms, pans or scrolls. */}
+      {showRulers && dimensions && (
+        <Ruler
+          zoom={zoom}
+          dimensions={dimensions}
+          canvasManager={canvasManager ?? null}
+          paperRef={paperRef}
+          containerRef={containerRef}
+          viewportRef={scrollViewportRef}
+          selected={selected}
+          onUpdateDocumentSettings={onUpdateDocumentSettings}
+        />
+      )}
     </div>
   );
 }

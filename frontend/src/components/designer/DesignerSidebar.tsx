@@ -2,21 +2,26 @@
 
 import React from 'react';
 import {
-  LayoutTemplate,
-  Sparkles,
-  Crop,
-  Type,
-  Image as ImageIcon,
-  UploadCloud,
-  Layers,
-  Paintbrush,
-  Wallpaper,
-  ImagePlus,
+  Camera,
   ChevronLeft,
-  Smile,
+  Crop,
+  Image as ImageIcon,
+  ImagePlus,
+  Layers,
+  LayoutTemplate,
+  Paintbrush,
   Shapes,
+  Smile,
+  Sparkles,
+  Type,
+  UploadCloud,
+  Wallpaper,
 } from 'lucide-react';
-import { ActiveSidebarTab, SelectedObjectState, DesignerTemplate } from '@/types/designer';
+import {
+  ActiveSidebarTab,
+  DesignerTemplate,
+  SelectedObjectState,
+} from '@/types/designer';
 import { CanvasManager } from './canvas/CanvasManager';
 import { TemplatesPanel } from './panels/TemplatesPanel';
 import { ElementsPanel } from './panels/ElementsPanel';
@@ -29,14 +34,12 @@ import { PexelsPanel } from './panels/PexelsPanel';
 import { UploadsPanel } from './panels/UploadsPanel';
 import { IconsPanel } from './panels/IconsPanel';
 import { TextPanel } from './panels/TextPanel';
-import { BrushPanel } from './panels/BrushPanel';
 import { LayersPanel } from './panels/LayersPanel';
 import { BackgroundPanel } from './panels/BackgroundPanel';
 import { BorderPanel } from './panels/BorderPanel';
 import { PositionPanel } from './panels/PositionPanel';
-import { ColorPanel } from './panels/ColorPanel';
+import ColorPanel from './panels/ColorPanel';
 import { TextEffectsPanel } from './panels/TextEffectsPanel';
-import { Camera } from 'lucide-react';
 
 interface DesignerSidebarProps {
   activeTab: ActiveSidebarTab;
@@ -90,11 +93,12 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   const handleTabClick = (tabId: ActiveSidebarTab) => {
     if (activeTab === tabId) {
       stopDrawingIfActive();
-      onSelectTab(null); // toggle collapse
-    } else {
-      stopDrawingIfActive();
-      onSelectTab(tabId);
+      onSelectTab(null);
+      return;
     }
+
+    stopDrawingIfActive();
+    onSelectTab(tabId);
   };
 
   const getPanelTitle = () => {
@@ -106,55 +110,42 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
     if (activeTab === 'draw') return 'Illustrator Draw';
     if (activeTab === 'shapes') return 'Shapes & Photo Fill';
     if (activeTab === 'border') return 'Stroke';
-    return activeTab;
+    if (activeTab === 'color') return 'Colour & Gradient';
+    if (activeTab === 'effects') return 'Effects';
+    if (activeTab === 'position') return 'Position';
+    return activeTab ?? '';
   };
 
   return (
     <div className="flex h-full min-h-0 flex-shrink-0 z-30 select-none bg-white">
-      {/* Icon Navigation Dock */}
       <aside className="w-18 bg-white border-r border-gray-200 flex flex-col items-center py-2.5 gap-1.5 z-20 shadow-xs h-full overflow-y-auto overflow-x-hidden custom-scrollbar">
         {SIDEBAR_TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
+
           return (
             <button
               key={tab.id}
               type="button"
               onClick={() => handleTabClick(tab.id)}
               className={`
-    w-16 h-14 rounded-xl py-1.5 flex flex-col items-center justify-center gap-1
-    border transition-all duration-200 ease-in-out shrink-0
-    ${isActive
-                  ? `
-          bg-[#f0ebff]
-          border-[#8b5cf6]
-          text-[#7c3aed]
-          shadow-sm
-        `
-                  : `
-          bg-white
-          border-transparent
-          text-[#5f6368]
-          hover:bg-[#f7f7f8]
-          hover:border-[#d9d9df]
-          hover:text-[#7c3aed]
-          hover:shadow-sm
-        `
+                group w-16 h-14 rounded-xl py-1.5 flex flex-col items-center justify-center gap-1
+                border transition-all duration-200 ease-in-out shrink-0
+                ${isActive
+                  ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-sm'
+                  : 'bg-white border-transparent text-[#5f6368] hover:bg-[#f7f7f8] hover:border-[#d9d9df] hover:text-[#7c3aed] hover:shadow-sm'
                 }
-  `}
+              `}
             >
               <Icon
-                className={`
-      w-5 h-5 transition-colors duration-200
-      ${isActive ? 'text-[#7c3aed]' : 'text-[#5f6368] group-hover:text-[#7c3aed]'}
-    `}
+                className={`w-5 h-5 transition-colors duration-200 ${isActive
+                  ? 'text-[#7c3aed]'
+                  : 'text-[#5f6368] group-hover:text-[#7c3aed]'
+                  }`}
               />
-
               <span
-                className={`
-      text-[10px] tracking-tight transition-colors duration-200
-      ${isActive ? 'font-semibold' : 'font-medium'}
-    `}
+                className={`text-[10px] tracking-tight transition-colors duration-200 ${isActive ? 'font-semibold' : 'font-medium'
+                  }`}
               >
                 {tab.label}
               </span>
@@ -163,10 +154,8 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
         })}
       </aside>
 
-      {/* Expandable Drawer Panel */}
       {activeTab && activeTab !== 'draw' && (
         <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full overflow-hidden shadow-xl relative animate-in slide-in-from-left duration-200">
-          {/* Drawer Header */}
           <div className="h-12 border-b border-gray-200 px-4 flex items-center justify-between bg-gray-50/50">
             <span className="font-bold text-sm text-gray-800 capitalize">
               {getPanelTitle()}
@@ -184,7 +173,6 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
             </button>
           </div>
 
-          {/* Drawer Content */}
           <div className="flex-1 overflow-y-auto custom-scrollbar bg-white">
             {activeTab === 'templates' && (
               <TemplatesPanel
@@ -194,20 +182,41 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
               />
             )}
             {activeTab === 'elements' && (
-              <ElementsPanel canvasManager={canvasManager} onSelectTab={onSelectTab} />
+              <ElementsPanel
+                canvasManager={canvasManager}
+                onSelectTab={onSelectTab}
+              />
             )}
             {activeTab === 'shapes' && (
               <ShapesPanel canvasManager={canvasManager} selected={selected} />
             )}
-            {activeTab === 'frames' && <FramesPanel canvasManager={canvasManager} />}
-            {activeTab === 'icons' && <IconsPanel canvasManager={canvasManager} />}
-            {activeTab === 'photos' && <StockPhotosPanel canvasManager={canvasManager} />}
-            {activeTab === 'pexels' && <PexelsPanel canvasManager={canvasManager} />}
-            {activeTab === 'pixabay' && <PixabayPanel canvasManager={canvasManager} />}
-            {activeTab === 'freepik' && <FreepikPanel canvasManager={canvasManager} />}
-            {activeTab === 'text' && <TextPanel canvasManager={canvasManager} selected={selected} />}
-            {activeTab === 'uploads' && <UploadsPanel canvasManager={canvasManager} />}
-            {activeTab === 'background' && <BackgroundPanel canvasManager={canvasManager} />}
+            {activeTab === 'frames' && (
+              <FramesPanel canvasManager={canvasManager} />
+            )}
+            {activeTab === 'icons' && (
+              <IconsPanel canvasManager={canvasManager} />
+            )}
+            {activeTab === 'photos' && (
+              <StockPhotosPanel canvasManager={canvasManager} />
+            )}
+            {activeTab === 'pexels' && (
+              <PexelsPanel canvasManager={canvasManager} />
+            )}
+            {activeTab === 'pixabay' && (
+              <PixabayPanel canvasManager={canvasManager} />
+            )}
+            {activeTab === 'freepik' && (
+              <FreepikPanel canvasManager={canvasManager} />
+            )}
+            {activeTab === 'text' && (
+              <TextPanel canvasManager={canvasManager} selected={selected} />
+            )}
+            {activeTab === 'uploads' && (
+              <UploadsPanel canvasManager={canvasManager} />
+            )}
+            {activeTab === 'background' && (
+              <BackgroundPanel canvasManager={canvasManager} />
+            )}
             {activeTab === 'layers' && (
               <LayersPanel canvasManager={canvasManager} selected={selected} />
             )}
@@ -232,11 +241,11 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
                 onClose={() => onSelectTab(null)}
               />
             )}
-            {activeTab === 'effects' && (
+            {activeTab === 'effects' && selected && (
               <div className="p-4">
                 <TextEffectsPanel
                   canvasManager={canvasManager}
-                  selected={selected!}
+                  selected={selected}
                 />
               </div>
             )}
@@ -246,3 +255,5 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
     </div>
   );
 };
+
+export default DesignerSidebar;

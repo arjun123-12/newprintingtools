@@ -32,10 +32,22 @@ const canvasPixelsToPoints = (
   canvasManager: CanvasManager | null
 ): number => (pixels * 72) / getArtworkDpi(canvasManager);
 
+function extractResponseArray<T>(response: any): T[] {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.data?.data)) return response.data.data;
+  return [];
+}
+
 export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected }) => {
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
   const [showStrokePicker, setShowStrokePicker] = useState(false);
-  const isTextSelected = selected?.type === 'i-text' || selected?.type === 'textbox';
+  const normalizedSelectedType = String(selected?.type || '')
+    .toLowerCase()
+    .replace(/[-_\s]/g, '');
+  const isTextSelected = ['itext', 'textbox', 'text'].includes(
+    normalizedSelectedType
+  );
 
   const [presets, setPresets] = useState<DesignAsset[]>([]);
   const [categories, setCategories] = useState<DesignAssetCategory[]>([]);
@@ -57,10 +69,19 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
           designAssetService.getPublicAssets({ asset_type: 'text', per_page: 50 }),
           designAssetService.getPublicCategories('text')
         ]);
-        setPresets(assetsRes.data);
-        setCategories(catsRes);
+        const nextPresets = extractResponseArray<DesignAsset>(assetsRes);
+        const nextCategories = extractResponseArray<DesignAssetCategory>(catsRes)
+          .filter(
+            (category) =>
+              category.asset_type === 'text' && category.is_active
+          );
+
+        setPresets(nextPresets);
+        setCategories(nextCategories);
       } catch (err) {
         console.error('Failed to load text presets', err);
+        setPresets([]);
+        setCategories([]);
       } finally {
         setLoading(false);
       }
@@ -127,9 +148,13 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
   };
 
   const filteredPresets =
-    selectedCategory === 'All'
+    selectedCategoryId === 'all'
       ? presets
-      : presets.filter((p) => p.category?.name === selectedCategory);
+      : presets.filter(
+        (preset) =>
+          preset.category_id === selectedCategoryId ||
+          preset.category?.id === selectedCategoryId
+      );
 
   const currentStrokeWidth = selected?.strokeWidth || 0;
   const currentStrokeColor = selected?.stroke || '#000000';
@@ -236,8 +261,8 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
                   type="button"
                   onClick={() => handleFontSizePtChange(size)}
                   className={`flex-1 rounded-md border py-1 text-[9px] font-bold transition ${Math.round(currentFontSizePt) === size
-                      ? 'border-purple-600 bg-purple-600 text-white'
-                      : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-100'
+                    ? 'border-purple-600 bg-purple-600 text-white'
+                    : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-100'
                     }`}
                 >
                   {size}
@@ -317,16 +342,16 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
 
         <div className="flex items-center gap-1 overflow-x-auto pb-1 custom-scrollbar">
           <button
-            onClick={() => setSelectedCategory('All')}
-            className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition whitespace-nowrap ${selectedCategory === 'All' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            onClick={() => setSelectedCategoryId('all')}
+            className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition whitespace-nowrap ${selectedCategoryId === 'all' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
             All
           </button>
           {categories.map((cat) => (
             <button
               key={cat.id}
-              onClick={() => setSelectedCategory(cat.name)}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition whitespace-nowrap ${selectedCategory === cat.name ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              onClick={() => setSelectedCategoryId(cat.id)}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition whitespace-nowrap ${selectedCategoryId === cat.id ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
             >
               {cat.name}
             </button>

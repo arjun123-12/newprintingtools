@@ -255,7 +255,8 @@ export type FrameShapeType =
   | 'polaroid'
   | 'stamp'
   | 'torn-paper'
-  | 'filmstrip';
+  | 'filmstrip'
+  | 'custom-svg';
 
 export interface FramePreset {
   id: string;

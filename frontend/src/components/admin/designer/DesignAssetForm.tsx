@@ -654,7 +654,8 @@ export function DesignAssetForm({
 
   const filteredCategories = categories.filter(
     (c) =>
-      c.asset_type === formData.asset_type
+      c.asset_type === formData.asset_type &&
+      (c.is_active || c.id === formData.category_id)
   );
 
   const fileExt = file
@@ -766,6 +767,13 @@ export function DesignAssetForm({
     e.preventDefault();
 
     setError(null);
+
+    if (!formData.category_id) {
+      setError(
+        `Please select a category for this ${formData.asset_type} before saving.`
+      );
+      return;
+    }
 
     const usesUploadedMask =
       formData.asset_type === 'frame' &&
@@ -1136,19 +1144,16 @@ export function DesignAssetForm({
       const payload: any = {
         ...formData,
 
+        category_id: String(
+          formData.category_id
+        ).trim(),
+
         fabric_json:
           finalFabricJson,
 
         metadata:
           finalMetadata,
       };
-
-      if (
-        !payload.category_id ||
-        payload.category_id === ''
-      ) {
-        delete payload.category_id;
-      }
 
       // -----------------------------------------------------
       // Main file
@@ -1384,10 +1389,14 @@ export function DesignAssetForm({
             {/* Category */}
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Category
+                Category{' '}
+                <span className="text-red-500">
+                  *
+                </span>
               </label>
 
               <select
+                required
                 value={
                   formData.category_id
                 }
@@ -1400,8 +1409,8 @@ export function DesignAssetForm({
                 }
                 className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
               >
-                <option value="">
-                  -- No Category --
+                <option value="" disabled>
+                  -- Select Category --
                 </option>
 
                 {filteredCategories.map(
