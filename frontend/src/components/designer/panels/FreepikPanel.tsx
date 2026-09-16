@@ -9,13 +9,8 @@ import {
   Wallpaper,
   X,
   Sparkles,
-  Layers,
 } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
-import {
-  parsePsdFile,
-  uploadPsdLayerAssets,
-} from '../services/psdImportService';
 import {
   freepikService,
   FreepikAsset,
@@ -25,7 +20,7 @@ interface FreepikPanelProps {
   canvasManager: CanvasManager | null;
 }
 
-type FreepikMediaType = 'all' | 'photo' | 'vector' | 'psd' | 'icon';
+type FreepikMediaType = 'all' | 'photo' | 'vector' | 'icon';
 
 type HighResolutionFreepikAsset = FreepikAsset & {
   original_url?: string;
@@ -51,13 +46,7 @@ type HighResolutionFreepikAsset = FreepikAsset & {
     download_url?: string;
     width?: number;
     height?: number;
-    type?: string;
-    format?: string;
-    mime_type?: string;
   }>;
-  format?: string;
-  file_type?: string;
-  mime_type?: string;
 };
 
 type UsedFreepikAsset = {
@@ -142,40 +131,6 @@ const getStoredAssetUrl = (data: unknown): string => {
   );
 };
 
-const isPsdString = (value: unknown): boolean =>
-  typeof value === 'string' &&
-  (/\.psd(?:$|[?#])/i.test(value.trim()) || value.toLowerCase().includes('photoshop'));
-
-const isPsdAsset = (asset: FreepikAsset): boolean => {
-  const item = asset as HighResolutionFreepikAsset;
-  const declaredTypes = [
-    asset.type,
-    item.format,
-    item.file_type,
-    item.mime_type,
-  ]
-    .filter((value): value is string => typeof value === 'string')
-    .map((value) => value.toLowerCase());
-
-  return (
-    declaredTypes.some(
-      (value) => value === 'psd' || value.includes('photoshop')
-    ) ||
-    [
-      item.original_url,
-      item.download_url,
-      item.full_url,
-      ...(item.files || []).flatMap((file) => [
-        file.url,
-        file.download_url,
-        file.type,
-        file.format,
-        file.mime_type,
-      ]),
-    ].some(isPsdString)
-  );
-};
-
 const QUICK_SEARCH_CHIPS = [
   'background',
   'business',
@@ -204,9 +159,6 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
   const [error, setError] = useState<string | null>(null);
 
   const [isInserting, setIsInserting] = useState<string | null>(null);
-  const [insertingMode, setInsertingMode] = useState<
-    'image' | 'background' | 'psd' | null
-  >(null);
   const [insertSuccess, setInsertSuccess] = useState<string | null>(null);
 
   // Debounce search input
@@ -280,7 +232,6 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
     if (!canvasManager) return;
     setError(null);
     setIsInserting(asset.id);
-    setInsertingMode('image');
     try {
       const originalUrl = getOriginalAssetUrl(asset);
       if (!originalUrl) {
@@ -333,93 +284,6 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
       );
     } finally {
       setIsInserting(null);
-      setInsertingMode(null);
-    }
-  };
-
-  // Download and import an actual Freepik PSD as separate Fabric objects.
-  const handleImportPsd = async (asset: FreepikAsset) => {
-    if (!canvasManager) return;
-
-    setError(null);
-    setIsInserting(asset.id);
-    setInsertingMode('psd');
-
-    try {
-      // Search results contain a JPG/WebP preview because browsers cannot
-      // render PSD files. Laravel resolves and stores the real PSD by ID.
-      const used = await freepikService.useAsset(asset.id, 'psd');
-      const storedUrl = getStoredAssetUrl(used.data);
-      if (!used.success || !storedUrl) {
-        throw new Error(
-          'The backend did not return a stored original PSD URL. Update the Freepik use endpoint to preserve the original PSD file.'
-        );
-      }
-
-      const response = await fetch(storedUrl, {
-        method: 'GET',
-        credentials: 'include',
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Could not download the stored Freepik PSD (${response.status}).`
-        );
-      }
-
-      const blob = await response.blob();
-      const maxPsdSize = 50 * 1024 * 1024;
-      if (blob.size > maxPsdSize) {
-        throw new Error(
-          'This Freepik PSD is larger than the 50 MB browser layered-import limit. Use server-side PSD processing for this file.'
-        );
-      }
-
-      const signatureBytes = new Uint8Array(
-        await blob.slice(0, 4).arrayBuffer()
-      );
-      const signature = String.fromCharCode(...signatureBytes);
-      if (signature === 'PK\u0003\u0004') {
-        throw new Error(
-          'Freepik returned a ZIP package. The Laravel Freepik endpoint must extract the PSD before returning its stored URL.'
-        );
-      }
-      if (signature !== '8BPS') {
-        throw new Error(
-          'Freepik returned a preview image instead of the original PSD. Preview images cannot provide editable layers.'
-        );
-      }
-
-      const safeName =
-        `${asset.title || `Freepik-${asset.id}`}`
-          .replace(/[^a-zA-Z0-9_-]+/g, '_')
-          .slice(0, 120) || `Freepik-${asset.id}`;
-      const psdFile = new File([blob], `${safeName}.psd`, {
-        type: 'image/vnd.adobe.photoshop',
-        lastModified: Date.now(),
-      });
-
-      const parsedDocument = await parsePsdFile(psdFile, psdFile.name, {
-        maxSizeBytes: maxPsdSize,
-      });
-      const uploadedDocument = await uploadPsdLayerAssets(parsedDocument);
-
-      await canvasManager.importPsdDocument(uploadedDocument, {
-        fitToArtwork: true,
-        clearCanvas: false,
-      });
-
-      setInsertSuccess(asset.id);
-      window.setTimeout(() => setInsertSuccess(null), 1800);
-    } catch (err) {
-      console.error('Failed to import Freepik PSD layers:', err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to import the Freepik PSD as editable layers.'
-      );
-    } finally {
-      setIsInserting(null);
-      setInsertingMode(null);
     }
   };
 
@@ -428,7 +292,6 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
     if (!canvasManager) return;
     setError(null);
     setIsInserting(asset.id);
-    setInsertingMode('background');
     try {
       const originalUrl = getOriginalAssetUrl(asset);
       if (!originalUrl) {
@@ -468,7 +331,6 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
       );
     } finally {
       setIsInserting(null);
-      setInsertingMode(null);
     }
   };
 
@@ -503,15 +365,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
     }, 0);
   };
 
-  // The provider can occasionally return mixed resource types for a filtered
-  // search. Never present a JPG/vector resource as an editable PSD merely
-  // because the PSD tab is selected.
-  const displayedAssets =
-    mediaType === 'psd'
-      ? images.filter(isPsdAsset)
-      : mediaType === 'photo'
-        ? images.filter((asset) => !isPsdAsset(asset))
-        : images;
+  const displayedAssets = images;
 
   return (
     <div className="flex flex-col h-full bg-white select-none">
@@ -537,7 +391,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search millions of photos, vectors, PSD..."
+            placeholder="Search millions of photos, vectors, icons..."
             className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-slate-200 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs"
           />
           {query && (
@@ -558,7 +412,6 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
             { id: 'all', label: 'All' },
             { id: 'photo', label: 'Photos' },
             { id: 'vector', label: 'Vectors' },
-            { id: 'psd', label: 'PSD' },
             { id: 'icon', label: 'Icons' },
           ].map((tab) => (
             <button
@@ -603,11 +456,9 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
 
         <div className="flex items-center justify-end pt-0.5">
           <span className="text-[10px] font-medium text-slate-400">
-            {mediaType === 'psd'
-              ? `${displayedAssets.length.toLocaleString()} PSD results`
-              : totalItems > 0
-                ? `${totalItems.toLocaleString()} results`
-                : 'Popular assets'}
+            {totalItems > 0
+              ? `${totalItems.toLocaleString()} results`
+              : 'Popular assets'}
           </span>
         </div>
       </div>
@@ -646,32 +497,17 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
               {displayedAssets.map((asset) => {
                 const isCurrentInserting = isInserting === asset.id;
                 const isCurrentSuccess = insertSuccess === asset.id;
-                const assetIsPsd = isPsdAsset(asset);
                 const originalUrl = getOriginalAssetUrl(asset);
                 const dimensions = getAssetDimensions(asset);
 
                 return (
                   <div
                     key={asset.id}
-                    draggable={!assetIsPsd}
-                    onDragStart={(e) => {
-                      if (assetIsPsd) {
-                        e.preventDefault();
-                        return;
-                      }
-                      handleDragStart(e, asset);
-                    }}
-                    onClick={() =>
-                      assetIsPsd
-                        ? handleImportPsd(asset)
-                        : handleAddToCanvas(asset)
-                    }
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, asset)}
+                    onClick={() => handleAddToCanvas(asset)}
                     className="group relative rounded-2xl border border-slate-200/80 bg-slate-100 overflow-hidden cursor-pointer shadow-sm hover:shadow-[0_12px_28px_rgba(37,99,235,0.18)] hover:border-blue-400 hover:-translate-y-0.5 transition-all duration-200 aspect-[4/3] flex items-center justify-center select-none"
-                    title={
-                      assetIsPsd
-                        ? `Import editable PSD layers (${asset.title})`
-                        : `Click to add to canvas or drag onto artwork (${asset.title})`
-                    }
+                    title={`Click to add to canvas or drag onto artwork (${asset.title})`}
                   >
                     {/* Dynamic remote Freepik image URL; keep native img for third-party CDN */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -688,26 +524,24 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
                       {/* Top Row: Type Tag & Set Background */}
                       <div className="flex items-center justify-between gap-1">
                         <span className="text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-black/50 text-white backdrop-blur-xs">
-                          {assetIsPsd ? 'PSD • LAYERS' : asset.type || 'img'}
+                          {asset.type || 'img'}
                         </span>
                         {dimensions.width && dimensions.height && (
                           <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded bg-emerald-600/90 text-white backdrop-blur-xs">
                             {dimensions.width}×{dimensions.height}
                           </span>
                         )}
-                        {!assetIsPsd && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSetAsBackground(asset);
-                            }}
-                            className="p-1.5 rounded-lg bg-black/45 hover:bg-blue-600 text-white transition-colors backdrop-blur-md shadow-sm"
-                            title="Set as full background"
-                          >
-                            <Wallpaper className="w-3 h-3" />
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSetAsBackground(asset);
+                          }}
+                          className="p-1.5 rounded-lg bg-black/45 hover:bg-blue-600 text-white transition-colors backdrop-blur-md shadow-sm"
+                          title="Set as full background"
+                        >
+                          <Wallpaper className="w-3 h-3" />
+                        </button>
                       </div>
 
                       {/* Bottom Info & Add button */}
@@ -722,11 +556,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
                           {isCurrentInserting ? (
                             <>
                               <Loader2 className="w-3 h-3 animate-spin" />
-                              <span>
-                                {insertingMode === 'psd'
-                                  ? 'Importing layers…'
-                                  : 'Adding…'}
-                              </span>
+                              <span>Adding…</span>
                             </>
                           ) : isCurrentSuccess ? (
                             <>
@@ -735,16 +565,8 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({ canvasManager }) => 
                             </>
                           ) : (
                             <>
-                              {assetIsPsd ? (
-                                <Layers className="w-3 h-3" />
-                              ) : (
-                                <Plus className="w-3 h-3" />
-                              )}
-                              <span>
-                                {assetIsPsd
-                                  ? 'Import PSD Layers'
-                                  : 'Add to Canvas'}
-                              </span>
+                              <Plus className="w-3 h-3" />
+                              <span>Add to Canvas</span>
                             </>
                           )}
                         </div>

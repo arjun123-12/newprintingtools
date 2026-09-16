@@ -233,7 +233,8 @@ class FreepikDownloadService
         $storedImage = $this->storeRemoteImage(
             $temporaryUrl,
             'designer/removed-backgrounds',
-            'png'
+            'png',
+            'public'
         );
 
         return [
@@ -251,7 +252,8 @@ class FreepikDownloadService
     private function storeRemoteImage(
         string $remoteUrl,
         string $directory,
-        ?string $forcedExtension = null
+        ?string $forcedExtension = null,
+        ?string $diskName = null
     ): array {
         $this->ensurePublicHttpUrl($remoteUrl);
 
@@ -331,11 +333,38 @@ class FreepikDownloadService
             . '.'
             . $extension;
 
-        $disk = (string) config('filesystems.default', 'public');
+        // Background-removal results must use the public disk because
+        // DesignerController::serveRemovedBackground() reads from that disk.
+        // Other Freepik downloads keep using the application's configured
+        // default disk unless a disk is explicitly supplied by the caller.
+        $disk = $diskName !== null && trim($diskName) !== ''
+            ? trim($diskName)
+            : (string) config('filesystems.default', 'public');
 
         if (!Storage::disk($disk)->put($path, $body)) {
             throw new RuntimeException(
                 'The downloaded image could not be stored.',
+                500
+            );
+        }
+
+        // Do not return a URL unless the file genuinely exists. This prevents
+        // the frontend from receiving a plausible /storage URL for a file that
+        // was never persisted or was written to a different disk.
+        if (!Storage::disk($disk)->exists($path)) {
+            throw new RuntimeException(
+                'The downloaded image was not found after it was stored.',
+                500
+            );
+        }
+
+        $storedSize = Storage::disk($disk)->size($path);
+
+        if (!is_int($storedSize) || $storedSize <= 0) {
+            Storage::disk($disk)->delete($path);
+
+            throw new RuntimeException(
+                'The stored image is empty.',
                 500
             );
         }

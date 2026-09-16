@@ -313,41 +313,27 @@ export const freepikService = {
   removeBackground: async (
     imageUrl: string
   ): Promise<RemoveBackgroundResponse> => {
-    // 1. Direct Magnific API call using specified options
-    try {
-      const options = {
-        method: 'POST',
-        headers: {
-          'x-magnific-api-key': FREEPIK_API_KEY,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          image_url: imageUrl,
-        }).toString(),
-      };
+    const normalizedImageUrl = imageUrl.trim();
 
-      const res = await fetch(`${FREEPIK_BASE_URL}/ai/beta/remove-background`, options);
-      if (res.ok) {
-        const data = await res.json();
-        const url = data.high_resolution || data.url || data.preview;
-        return {
-          success: true,
-          data: {
-            url,
-            high_resolution: data.high_resolution || url,
-            preview: data.preview || url,
-            original: data.original || imageUrl,
-          },
-        };
-      }
-    } catch (directErr) {
-      console.warn('Direct Magnific removeBackground failed, falling back to backend:', directErr);
+    if (!normalizedImageUrl) {
+      throw new Error('An image URL is required to remove the background.');
     }
 
-    // 2. Fallback to Laravel backend
-    const response = await apiClient.post('/freepik/remove-background', {
-      image_url: imageUrl,
-    });
+    // Always call the Laravel backend. Calling Magnific directly from the
+    // browser exposes the API key and is blocked by the provider's CORS rules.
+    const response = await apiClient.post<RemoveBackgroundResponse>(
+      '/freepik/remove-background',
+      { image_url: normalizedImageUrl },
+      { timeout: 120_000 }
+    );
+
+    if (!response.data?.success) {
+      throw new Error(
+        (response.data as any)?.message ||
+        'The background-removal service could not process this image.'
+      );
+    }
+
     return response.data;
   },
 };

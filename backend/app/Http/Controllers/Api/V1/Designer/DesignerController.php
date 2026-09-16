@@ -85,6 +85,68 @@ class DesignerController extends Controller
         ]);
     }
 
+    /**
+     * Serve a generated background-removal image through Laravel.
+     *
+     * Direct /storage URLs can bypass Laravel's CORS middleware when they are
+     * served as static files. Fabric.js loads canvas images with anonymous
+     * CORS, so these files must be returned through an API route.
+     */
+    public function serveRemovedBackground(string $filename)
+    {
+        $decodedFilename = rawurldecode($filename);
+
+        // Only a single file name is accepted. This blocks directory
+        // traversal, encoded slashes, backslashes and null-byte injection.
+        if (
+            $decodedFilename === '' ||
+            $decodedFilename !== basename($decodedFilename) ||
+            str_contains($decodedFilename, '..') ||
+            str_contains($decodedFilename, '/') ||
+            str_contains($decodedFilename, '\\') ||
+            str_contains($decodedFilename, "\0")
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid background image filename.',
+            ], 400);
+        }
+
+        $extension = strtolower(pathinfo($decodedFilename, PATHINFO_EXTENSION));
+        $allowedExtensions = ['png', 'jpg', 'jpeg', 'webp'];
+
+        if (!in_array($extension, $allowedExtensions, true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unsupported background image format.',
+            ], 415);
+        }
+
+        $relativePath = 'designer/removed-backgrounds/' . $decodedFilename;
+        $disk = Storage::disk('public');
+
+        if (!$disk->exists($relativePath)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Removed background image not found.',
+            ], 404);
+        }
+
+        $mimeType = match ($extension) {
+            'png' => 'image/png',
+            'jpg', 'jpeg' => 'image/jpeg',
+            'webp' => 'image/webp',
+            default => 'application/octet-stream',
+        };
+
+        return $disk->response($relativePath, null, [
+            'Content-Type' => $mimeType,
+            'Cache-Control' => 'public, max-age=86400, immutable',
+            'Cross-Origin-Resource-Policy' => 'cross-origin',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
     public function serveStorage(string $path)
     {
         $rawPath = urldecode($path);
