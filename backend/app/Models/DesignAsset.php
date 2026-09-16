@@ -38,39 +38,53 @@ class DesignAsset extends Model
         'sort_order' => 'integer',
     ];
 
-    protected $appends = ['path', 'asset_url', 'asset_thumbnail_url'];
+    protected $appends = [
+        'path',
+        'asset_url',
+        'asset_thumbnail_url',
+    ];
+    protected $attributes = [
+    'provider' => 'admin',
+    'is_active' => true,
+    'sort_order' => 0,
+];
 
-    public function getPathAttribute()
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(
+            DesignAssetCategory::class,
+            'category_id'
+        );
+    }
+
+    public function getPathAttribute(): ?string
     {
         return $this->file_path;
     }
 
-    public function category(): BelongsTo
+    public function getAssetUrlAttribute(): ?string
     {
-        return $this->belongsTo(DesignAssetCategory::class, 'category_id');
-    }
-
-    public function getAssetUrlAttribute()
-    {
-        if ($this->file_url) {
+        if (!empty($this->file_url)) {
             return $this->file_url;
         }
 
-        if ($this->file_path) {
+        if (!empty($this->file_path)) {
             return Storage::disk('public')->url($this->file_path);
         }
 
         return null;
     }
 
-    public function getAssetThumbnailUrlAttribute()
+    public function getAssetThumbnailUrlAttribute(): ?string
     {
-        if ($this->thumbnail_url) {
+        if (!empty($this->thumbnail_url)) {
             return $this->thumbnail_url;
         }
 
-        if ($this->thumbnail_path) {
-            return Storage::disk('public')->url($this->thumbnail_path);
+        if (!empty($this->thumbnail_path)) {
+            return Storage::disk('public')->url(
+                $this->thumbnail_path
+            );
         }
 
         return null;

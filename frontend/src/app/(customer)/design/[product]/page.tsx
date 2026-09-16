@@ -1,17 +1,28 @@
 'use client';
 
-import React, { Suspense } from 'react';
+import { Suspense, use } from 'react';
 import DesignEditorClient from './DesignEditorClient';
+
+interface DesignEditorPageProps {
+  params: Promise<{
+    product: string;
+  }>;
+}
 
 export default function DesignEditorPage({
   params,
-}: {
-  params: { product: string };
-}) {
+}: DesignEditorPageProps) {
+  const { product } = use(params);
+
   return (
-    <Suspense fallback={<div className="h-screen w-full flex items-center justify-center bg-gray-50">Loading Designer...</div>}>
-      <DesignEditorClient product={params?.product} />
+    <Suspense
+      fallback={
+        <div className="flex h-screen w-full items-center justify-center bg-gray-50">
+          Loading Designer...
+        </div>
+      }
+    >
+      <DesignEditorClient product={product} />
     </Suspense>
   );
 }
-

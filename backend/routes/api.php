@@ -59,6 +59,12 @@ Route::prefix('designer/uploads')
         ]);
     });
 
+// PSD layer asset uploads (authenticated with auth:sanctum)
+Route::post('designer/psd-assets', [
+    UploadController::class,
+    'storePsdAsset',
+])->middleware(['auth:sanctum', 'throttle:120,1']);
+
 // Image Quality Analysis and Local Real-ESRGAN Upscaling
 Route::prefix('images')->group(function () {
     Route::post('/analyze-quality', [ImageQualityController::class, 'analyzeQuality']);

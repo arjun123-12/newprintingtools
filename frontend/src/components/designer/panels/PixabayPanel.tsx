@@ -13,7 +13,10 @@ import {
   Wallpaper,
   ChevronDown,
 } from 'lucide-react';
-import { CanvasManager } from '../canvas/CanvasManager';
+import {
+  CanvasManager,
+  getProxiedImageUrl,
+} from '../canvas/CanvasManager';
 import {
   pixabayService,
   PixabayImage,
@@ -116,23 +119,76 @@ export const PixabayPanel: React.FC<PixabayPanelProps> = ({ canvasManager }) => 
   // Add image onto canvas
   const handleAddToCanvas = async (img: PixabayImage) => {
     if (!canvasManager) return;
+    setError(null);
     setIsInserting(img.id);
     try {
-      // Use largeImageURL (1280px) for crisp canvas rendering, with webformatURL fallback
-      const targetUrl = img.largeImageURL || img.webformatURL;
-      await canvasManager.addImageFromUrl(
-        targetUrl,
-        {
-          name: img.tags?.split(',')[0]?.trim() || `Library-${img.id}`,
-          naturalWidth: img.imageWidth || img.webformatWidth,
-          naturalHeight: img.imageHeight || img.webformatHeight,
-        },
-        { skipFrameSlotting: true }
+      const extendedImage = img as PixabayImage & {
+        imageURL?: string;
+        fullHDURL?: string;
+      };
+
+      // Some Pixabay original URLs can reject browser/CORS access. Try the
+      // large public URL first, followed by every available fallback.
+      const candidateUrls = [
+        img.largeImageURL,
+        extendedImage.fullHDURL,
+        extendedImage.imageURL,
+        img.webformatURL,
+      ].filter(
+        (url, index, urls): url is string =>
+          typeof url === 'string' &&
+          url.length > 0 &&
+          urls.indexOf(url) === index
       );
+
+      let addedImage: Awaited<
+        ReturnType<CanvasManager['addImageFromUrl']>
+      > = null;
+
+      for (const targetUrl of candidateUrls) {
+        const isWebFormatFallback = targetUrl === img.webformatURL;
+
+        addedImage = await canvasManager.addImageFromUrl(
+          targetUrl,
+          {
+            name: img.tags?.split(',')[0]?.trim() || `Library-${img.id}`,
+            naturalWidth: isWebFormatFallback
+              ? img.webformatWidth
+              : (img.imageWidth || img.webformatWidth),
+            naturalHeight: isWebFormatFallback
+              ? img.webformatHeight
+              : (img.imageHeight || img.webformatHeight),
+            originalSrc: targetUrl,
+            provider: 'pixabay',
+            providerAssetId: img.id,
+          },
+          {
+            skipFrameSlotting: true,
+            // 10 mm per side = artwork width/height reduced by 20 mm total.
+            // The image remains proportional and is never stretched.
+            fitToArtworkInsetMm: 10,
+            preserveOriginalSize: false,
+          }
+        );
+
+        if (addedImage) break;
+      }
+
+      if (!addedImage) {
+        throw new Error(
+          'The Pixabay image could not be loaded. All available image URLs failed.'
+        );
+      }
+
       setInsertSuccess(img.id);
       setTimeout(() => setInsertSuccess(null), 1500);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to add library image to canvas:', err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to add the Pixabay image to the artwork.'
+      );
     } finally {
       setIsInserting(null);
     }
@@ -291,6 +347,16 @@ export const PixabayPanel: React.FC<PixabayPanelProps> = ({ canvasManager }) => 
               {images.map((img) => {
                 const isCurrentInserting = isInserting === img.id;
                 const isCurrentSuccess = insertSuccess === img.id;
+                const rawThumbnailUrl =
+                  img.webformatURL ||
+                  img.previewURL ||
+                  img.largeImageURL ||
+                  '';
+                const thumbnailUrl = rawThumbnailUrl
+                  ? getProxiedImageUrl(
+                    rawThumbnailUrl.replace(/^http:\/\//i, 'https://')
+                  )
+                  : '';
 
                 return (
                   <div
@@ -302,12 +368,19 @@ export const PixabayPanel: React.FC<PixabayPanelProps> = ({ canvasManager }) => 
                     title={`Click to add to canvas or drag onto artwork (${img.tags})`}
                   >
                     {/* Thumbnail Image */}
-                    <img
-                      src={img.webformatURL || img.previewURL}
-                      alt={img.tags || 'Creative library image'}
-                      loading="lazy"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 pointer-events-none"
-                    />
+                    {thumbnailUrl ? (
+                      <img
+                        src={thumbnailUrl}
+                        alt={img.tags || 'Creative library image'}
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 pointer-events-none"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center px-3 text-center text-[10px] text-slate-400">
+                        Preview unavailable
+                      </div>
+                    )}
 
                     {/* Subtle Gradient Shadow */}
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/15 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-2">

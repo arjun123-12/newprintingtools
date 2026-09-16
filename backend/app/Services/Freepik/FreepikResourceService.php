@@ -63,12 +63,21 @@ class FreepikResourceService
                     }
                 }
 
+                $imgUrl = $item['image']['source']['url']
+                    ?? $item['preview']['url']
+                    ?? $item['image']['url']
+                    ?? '';
+
+                if (is_string($imgUrl) && str_starts_with($imgUrl, 'http://')) {
+                    $imgUrl = 'https://' . substr($imgUrl, 7);
+                }
+
                 $items[] = [
                     'id' => (string) $item['id'],
-                    'title' => $item['title'] ?? 'Untitled',
+                    'title' => $item['title'] ?? $item['name'] ?? 'Untitled',
                     'type' => $itemType,
-                    'preview_url' => $item['image']['source']['url'] ?? '',
-                    'thumbnail_url' => $item['image']['source']['url'] ?? '',
+                    'preview_url' => $imgUrl,
+                    'thumbnail_url' => $imgUrl,
                     'source_url' => $item['url'] ?? '',
                     'author' => [
                         'name' => $item['author']['name'] ?? 'Unknown',

@@ -83,6 +83,7 @@ const ShadowSlider: React.FC<{
 
 const CANVA_FILTERS = [
   { id: 'none', label: 'None', color: 'from-gray-100 to-gray-200', text: 'Natural' },
+  { id: 'custom', label: 'Custom', color: 'from-purple-500 via-pink-500 to-amber-400', text: 'Custom Tune' },
   { id: 'solar', label: 'Solar', color: 'from-amber-300 to-yellow-500', text: 'Warm Golden' },
   { id: 'warm', label: 'Warm', color: 'from-orange-200 to-amber-400', text: 'Cozy Amber' },
   { id: 'cool', label: 'Cool', color: 'from-sky-200 to-blue-400', text: 'Arctic Fresh' },
@@ -110,6 +111,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
   const [activeTab, setActiveTab] = useState<'styles' | 'filters' | 'adjust'>('styles');
   const [activeFilter, setActiveFilter] = useState<string>('none');
   const [filterIntensity, setFilterIntensity] = useState<number>(100);
+  const [showFilterCustomControls, setShowFilterCustomControls] = useState(false);
   const [curveEnabled, setCurveEnabled] = useState(false);
   const [curveAmount, setCurveAmount] = useState(0);
   const [activeEffect, setActiveEffect] = useState<TextEffectId>('none');
@@ -131,22 +133,21 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
   useEffect(() => {
     if (!canvasManager) return;
 
-    // Image filters rasterize/cache pixels and are not appropriate for
-    // editable vector text. Text keeps only Fabric-native style effects.
     if (isEditableText) {
-      setActiveTab('styles');
       const savedCurve = Number((selected as any)?.curve) || 0;
       const savedShape = (selected as any)?.textShape;
       setCurveAmount(savedCurve);
       setCurveEnabled(savedShape === 'curve' || savedCurve !== 0);
+    }
 
-      const effectState = (canvasManager as any).getTextEffectState?.();
-      setActiveEffect(effectState?.effect || (selected as any)?.textEffect || 'none');
+    const effectState = (canvasManager as any).getObjectEffectState?.() ||
+      (canvasManager as any).getTextEffectState?.();
+    setActiveEffect(effectState?.effect || (selected as any)?.textEffect || 'none');
+    if (effectState?.settings) {
       setShadowSettings({
         ...DEFAULT_SHADOW_SETTINGS,
-        ...(effectState?.settings || (selected as any)?.textEffectSettings || {}),
+        ...effectState.settings,
       });
-      return;
     }
 
     const current = canvasManager.getImageAdjustments();
@@ -169,9 +170,13 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     if (!canvasManager) return;
     setActiveEffect(effectId);
     const manager = canvasManager as any;
-    if (typeof manager.applyTextEffect === 'function') {
-      manager.applyTextEffect(effectId, shadowSettings);
-    } else {
+    if (effectId === 'shadow') {
+      if (typeof manager.applyShadow === 'function') {
+        manager.applyShadow(shadowSettings);
+      } else if (typeof manager.applyEffect === 'function') {
+        manager.applyEffect('shadow', shadowSettings);
+      }
+    } else if (typeof manager.applyEffect === 'function') {
       manager.applyEffect(effectId);
     }
   };
@@ -183,7 +188,12 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     const next = { ...shadowSettings, [key]: value };
     setShadowSettings(next);
     if (!canvasManager) return;
-    (canvasManager as any).applyTextEffect?.('shadow', next);
+    const manager = canvasManager as any;
+    if (typeof manager.applyShadow === 'function') {
+      manager.applyShadow(next);
+    } else if (typeof manager.applyEffect === 'function') {
+      manager.applyEffect('shadow', next);
+    }
   };
 
   const handleCurveChange = (val: number) => {
@@ -226,7 +236,13 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
   const handleApplyFilter = (filterId: string) => {
     setActiveFilter(filterId);
     if (!canvasManager) return;
-    canvasManager.applyImageFilter(filterId, filterIntensity / 100);
+    if (filterId === 'custom') {
+      setShowFilterCustomControls(true);
+      canvasManager.applyImageFilter('custom', filterIntensity / 100);
+      canvasManager.applyImageAdjustment(adjustments);
+    } else {
+      canvasManager.applyImageFilter(filterId, filterIntensity / 100);
+    }
   };
 
   const handleIntensityChange = (val: number) => {
@@ -255,6 +271,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     setAdjustments(reset);
     setActiveFilter('none');
     setFilterIntensity(100);
+    setShowFilterCustomControls(false);
     if (!canvasManager) return;
     canvasManager.applyImageFilter('none');
     canvasManager.applyImageAdjustment(reset);
@@ -271,7 +288,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       </div>
 
       {/* Sub-Tab Navigation (Canva Style) */}
-      <div className={`grid ${isEditableText ? 'grid-cols-1' : 'grid-cols-3'} gap-1 bg-gray-100 p-1 rounded-xl text-xs font-bold text-gray-600`}>
+      <div className="grid grid-cols-3 gap-1 bg-gray-100 p-1 rounded-xl text-xs font-bold text-gray-600">
         <button
           type="button"
           onClick={() => setActiveTab('styles')}
@@ -284,33 +301,29 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
           <span>Effects</span>
         </button>
 
-        {!isEditableText && (
-          <>
-            <button
-              type="button"
-              onClick={() => setActiveTab('filters')}
-              className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'filters'
-                ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
-                : 'hover:text-gray-900'
-                }`}
-            >
-              <Palette className="w-3 h-3" />
-              <span>Filters</span>
-            </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('filters')}
+          className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'filters'
+            ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
+            : 'hover:text-gray-900'
+            }`}
+        >
+          <Palette className="w-3 h-3" />
+          <span>Filters</span>
+        </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('adjust')}
-              className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'adjust'
-                ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
-                : 'hover:text-gray-900'
-                }`}
-            >
-              <SlidersHorizontal className="w-3 h-3" />
-              <span>Adjust</span>
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          onClick={() => setActiveTab('adjust')}
+          className={`py-1.5 rounded-lg transition-all flex items-center justify-center gap-1 ${activeTab === 'adjust'
+            ? 'bg-white text-purple-700 shadow-2xs font-extrabold'
+            : 'hover:text-gray-900'
+            }`}
+        >
+          <SlidersHorizontal className="w-3 h-3" />
+          <span>Adjust</span>
+        </button>
       </div>
 
       {/* TAB 1: Style Effects & Curved Text */}
@@ -347,7 +360,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
             </div>
           </div>
 
-          {isEditableText && activeEffect === 'shadow' && (
+          {activeEffect === 'shadow' && (
             <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-gray-900">Shadow settings</span>
@@ -365,6 +378,40 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                     {shadowSettings.color}
                   </span>
                 </div>
+              </div>
+
+              {/* Quick Shadow Presets */}
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  { label: 'Drop', direction: -45, offset: 20, blur: 10, transparency: 30 },
+                  { label: 'Float', direction: 90, offset: 18, blur: 28, transparency: 25 },
+                  { label: 'Crisp', direction: 45, offset: 8, blur: 0, transparency: 70 },
+                  { label: 'Glow', direction: 0, offset: 0, blur: 24, transparency: 60 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      const next = {
+                        ...shadowSettings,
+                        direction: preset.direction,
+                        offset: preset.offset,
+                        blur: preset.blur,
+                        transparency: preset.transparency,
+                      };
+                      setShadowSettings(next);
+                      const manager = canvasManager as any;
+                      if (typeof manager?.applyShadow === 'function') {
+                        manager.applyShadow(next);
+                      } else if (typeof manager?.applyEffect === 'function') {
+                        manager.applyEffect('shadow', next);
+                      }
+                    }}
+                    className="rounded-lg border border-purple-200 bg-white px-1 py-1 text-[10px] font-semibold text-purple-700 hover:bg-purple-100 transition text-center"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
               </div>
 
               <ShadowSlider
@@ -401,7 +448,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
               <button
                 type="button"
                 onClick={() => handleApplyStyle('none')}
-                className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700"
+                className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
               >
                 Remove shadow
               </button>
@@ -526,7 +573,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       )}
 
       {/* TAB 2: Canva Photo & Graphic Filters */}
-      {!isEditableText && activeTab === 'filters' && (
+      {activeTab === 'filters' && (
         <div className="space-y-4 animate-in fade-in duration-150">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">
@@ -580,7 +627,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
 
           {/* Filter Intensity Slider (when a filter is active) */}
           {activeFilter !== 'none' && (
-            <div className="space-y-1.5 p-3 bg-purple-50/60 rounded-xl border border-purple-100">
+            <div className="space-y-2 p-3 bg-purple-50/60 rounded-xl border border-purple-100">
               <div className="flex items-center justify-between text-xs font-bold text-purple-900">
                 <span>Filter Intensity</span>
                 <span className="font-mono">{filterIntensity}%</span>
@@ -593,13 +640,153 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                 onChange={(e) => handleIntensityChange(Number(e.target.value))}
                 className="w-full h-1.5 bg-purple-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
               />
+
+              <button
+                type="button"
+                onClick={() => setShowFilterCustomControls(!showFilterCustomControls)}
+                className="w-full mt-1.5 flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-purple-200 bg-white text-purple-700 text-xs font-bold hover:bg-purple-100 transition shadow-2xs"
+              >
+                <SlidersHorizontal className="w-3 h-3" />
+                <span>{showFilterCustomControls || activeFilter === 'custom' ? 'Hide Custom Tuning' : 'Custom Filter Tuning'}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Custom Filter Tuning Controls (when Custom filter selected or toggled) */}
+          {(activeFilter === 'custom' || showFilterCustomControls) && (
+            <div className="space-y-3 p-3 bg-purple-50/40 rounded-xl border border-purple-200 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between border-b border-purple-100 pb-1.5">
+                <span className="text-xs font-bold text-purple-900 flex items-center gap-1">
+                  <Palette className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Custom Filter Tuning</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleResetAdjustments}
+                  className="text-[10px] font-bold text-gray-500 hover:text-purple-700 flex items-center gap-1"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset</span>
+                </button>
+              </div>
+
+              {/* Sliders list */}
+              <div className="space-y-2.5">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px] text-gray-700 font-semibold">
+                    <span className="flex items-center gap-1">
+                      <Sun className="w-3 h-3 text-amber-500" />
+                      <span>Brightness</span>
+                    </span>
+                    <span className="font-mono text-[10px]">{adjustments.brightness}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    value={adjustments.brightness}
+                    onChange={(e) => handleAdjustmentChange('brightness', Number(e.target.value))}
+                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px] text-gray-700 font-semibold">
+                    <span className="flex items-center gap-1">
+                      <Contrast className="w-3 h-3 text-gray-700" />
+                      <span>Contrast</span>
+                    </span>
+                    <span className="font-mono text-[10px]">{adjustments.contrast}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    value={adjustments.contrast}
+                    onChange={(e) => handleAdjustmentChange('contrast', Number(e.target.value))}
+                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px] text-gray-700 font-semibold">
+                    <span className="flex items-center gap-1">
+                      <Palette className="w-3 h-3 text-rose-500" />
+                      <span>Saturation</span>
+                    </span>
+                    <span className="font-mono text-[10px]">{adjustments.saturation}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    value={adjustments.saturation}
+                    onChange={(e) => handleAdjustmentChange('saturation', Number(e.target.value))}
+                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px] text-gray-700 font-semibold">
+                    <span className="flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-purple-500" />
+                      <span>Vibrance</span>
+                    </span>
+                    <span className="font-mono text-[10px]">{adjustments.vibrance}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    value={adjustments.vibrance}
+                    onChange={(e) => handleAdjustmentChange('vibrance', Number(e.target.value))}
+                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px] text-gray-700 font-semibold">
+                    <span className="flex items-center gap-1">
+                      <Flame className="w-3 h-3 text-orange-500" />
+                      <span>Warmth</span>
+                    </span>
+                    <span className="font-mono text-[10px]">{adjustments.warmth}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="-100"
+                    max="100"
+                    value={adjustments.warmth}
+                    onChange={(e) => handleAdjustmentChange('warmth', Number(e.target.value))}
+                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[11px] text-gray-700 font-semibold">
+                    <span className="flex items-center gap-1">
+                      <Snowflake className="w-3 h-3 text-sky-500" />
+                      <span>Blur</span>
+                    </span>
+                    <span className="font-mono text-[10px]">{adjustments.blur}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={adjustments.blur}
+                    onChange={(e) => handleAdjustmentChange('blur', Number(e.target.value))}
+                    className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                  />
+                </div>
+              </div>
             </div>
           )}
         </div>
       )}
 
       {/* TAB 3: Fine-Tune Adjustments */}
-      {!isEditableText && activeTab === 'adjust' && (
+      {activeTab === 'adjust' && (
         <div className="space-y-3.5 animate-in fade-in duration-150">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">
@@ -708,6 +895,25 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                 max="100"
                 value={adjustments.warmth}
                 onChange={(e) => handleAdjustmentChange('warmth', Number(e.target.value))}
+                className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+              />
+            </div>
+
+            {/* Hue / Tint */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs text-gray-700 font-semibold">
+                <span className="flex items-center gap-1.5">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Hue / Tint</span>
+                </span>
+                <span className="font-mono text-[11px]">{adjustments.hue}°</span>
+              </div>
+              <input
+                type="range"
+                min="-180"
+                max="180"
+                value={adjustments.hue}
+                onChange={(e) => handleAdjustmentChange('hue', Number(e.target.value))}
                 className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
               />
             </div>

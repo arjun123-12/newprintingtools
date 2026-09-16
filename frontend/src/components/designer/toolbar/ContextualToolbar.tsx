@@ -142,29 +142,28 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
         throw new Error('Please select an image first.');
       }
 
-      if (
-        activeObject.type !== 'image' &&
-        activeObject.type !== 'FabricImage'
-      ) {
-        throw new Error(
-          'Background removal is only available for images.'
+      // Find target image object (direct image or photo within frame)
+      let targetImageObj = activeObject;
+      if (typeof activeObject.getObjects === 'function') {
+        const photo = activeObject.getObjects().find(
+          (o: any) => o.get?.('frameRole') === 'photo' || o.type === 'image' || o.type === 'FabricImage'
         );
+        if (photo) {
+          targetImageObj = photo;
+        }
       }
 
       const sourceUrl =
+        targetImageObj.originalSrc ||
+        targetImageObj.sourceUrl ||
+        (typeof targetImageObj.getSrc === 'function' ? targetImageObj.getSrc() : undefined) ||
         activeObject.originalSrc ||
         activeObject.sourceUrl ||
-        activeObject.getSrc?.();
+        (typeof activeObject.getSrc === 'function' ? activeObject.getSrc() : undefined);
 
       if (!sourceUrl) {
         throw new Error(
           'The selected image does not have a source URL.'
-        );
-      }
-
-      if (!isMagnificCompatibleImageUrl(sourceUrl)) {
-        throw new Error(
-          'Remove Background requires a publicly accessible image URL. Upload data, blob, or localhost images to public storage first.'
         );
       }
 
@@ -175,15 +174,22 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
         }
       );
 
-      await activeObject.setSrc(result.url, {
-        crossOrigin: 'anonymous',
-      });
+      if (typeof targetImageObj.setSrc === 'function') {
+        await targetImageObj.setSrc(result.url, {
+          crossOrigin: 'anonymous',
+        });
+      }
 
-      activeObject.set({
+      targetImageObj.set({
         originalSrc: result.url,
         sourceUrl: result.url,
+        backgroundRemoved: true,
         dirty: true,
       });
+
+      if (activeObject !== targetImageObj) {
+        activeObject.set({ dirty: true });
+      }
 
       activeObject.setCoords();
 
@@ -291,7 +297,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
     !isShape &&
     (selected.type === 'image' ||
       selected.type === 'fabricImage' ||
-      selected.src !== undefined);
+      selected.type?.toLowerCase() === 'fabricimage' ||
+      selected.src !== undefined ||
+      (Boolean(selected.isFrame) && !selected.isCanvaPlaceholder));
 
   const isGroupedSelection =
     selected &&
@@ -370,7 +378,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       ref={toolbarRef}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-2 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-2xl shadow-xl border border-gray-200/90 text-gray-700 animate-in fade-in slide-in-from-top-2 duration-150 select-none max-w-[95vw] overflow-visible"
+      className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-white px-2.5 py-2 rounded-2xl shadow-xl border border-gray-200/90 text-gray-700 animate-in fade-in slide-in-from-top-2 duration-150 select-none max-w-[95vw] overflow-visible"
     >
       {/* ================================================================ */}
       {/* 0A. CANVAS BACKGROUND CONTROLS (When No Element Is Selected)     */}

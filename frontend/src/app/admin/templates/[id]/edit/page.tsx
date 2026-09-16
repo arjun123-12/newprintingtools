@@ -1,5 +1,10 @@
-import React from 'react';
 import EditTemplateClient from './EditTemplateClient';
+
+interface EditTemplatePageProps {
+  params: Promise<{
+    id: string;
+  }>;
+}
 
 export function generateStaticParams() {
   return [{ id: 'default' }];
@@ -7,6 +12,10 @@ export function generateStaticParams() {
 
 export const dynamicParams = true;
 
-export default function EditTemplatePage({ params }: { params: { id: string } }) {
-  return <EditTemplateClient id={params?.id} />;
+export default async function EditTemplatePage({
+  params,
+}: EditTemplatePageProps) {
+  const { id } = await params;
+
+  return <EditTemplateClient id={id} />;
 }

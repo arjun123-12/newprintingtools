@@ -8,6 +8,9 @@ import {
 } from '@/types/designer';
 import { ZoomControls } from './controls/ZoomControls';
 import { Eye, EyeOff } from 'lucide-react';
+import { PreflightBadge } from './controls/PreflightBadge';
+import { PreflightReport } from './utils/preflightCheck';
+import { CanvasManager } from './canvas/CanvasManager';
 
 interface DesignerBottomBarProps {
   selected: SelectedObjectState | null;
@@ -21,6 +24,8 @@ interface DesignerBottomBarProps {
   onFitCanvas: () => void;
   showGuides?: boolean;
   onToggleGuides?: () => void;
+  preflightReport?: PreflightReport | null;
+  canvasManager?: CanvasManager | null;
 }
 
 export const DesignerBottomBar: React.FC<DesignerBottomBarProps> = ({
@@ -35,6 +40,8 @@ export const DesignerBottomBar: React.FC<DesignerBottomBarProps> = ({
   onFitCanvas,
   showGuides = true,
   onToggleGuides,
+  preflightReport,
+  canvasManager,
 }) => {
   return (
     <footer className="h-11 flex-shrink-0 bg-white border-t border-gray-200 text-gray-600 text-xs px-4 flex items-center justify-between z-30 select-none shadow-2xs">
@@ -73,8 +80,15 @@ export const DesignerBottomBar: React.FC<DesignerBottomBarProps> = ({
         )}
       </div>
 
-      {/* Center / Right: Guides status and Zoom controls */}
-      <div className="flex items-center gap-3">
+      {/* Center / Right: Print Warnings Pop-up, Guides status and Zoom controls */}
+      <div className="flex items-center gap-2 sm:gap-2.5">
+        {preflightReport && (
+          <PreflightBadge
+            report={preflightReport}
+            canvasManager={canvasManager ?? null}
+          />
+        )}
+
         {onToggleGuides && (
           <button
             type="button"

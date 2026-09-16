@@ -96,7 +96,41 @@ export interface ImageMetadata {
   originalSrc?: string;
   name?: string;
   photoFit?: 'cover' | 'contain';
+  provider?: string;
+  providerAssetId?: string | number;
+  /** Internal frame-resize state: keep the photo size while changing the mask. */
+  framePhotoScale?: number;
+  frameCropCenterX?: number;
+  frameCropCenterY?: number;
 }
+
+interface FrameResizeSnapshot {
+  photoScale: number;
+  cropCenterX: number;
+  cropCenterY: number;
+  naturalWidth: number;
+  naturalHeight: number;
+  anchorX?: number;
+  anchorY?: number;
+  anchorOriginX?: 'left' | 'center' | 'right';
+  anchorOriginY?: 'top' | 'center' | 'bottom';
+}
+
+export type ImagePlacementOptions = Partial<FabricObject> & {
+  skipFrameSlotting?: boolean;
+  /**
+   * Place the loaded source at its original 1:1 pixel scale and bypass all
+   * provider/artwork auto-fit rules.
+   */
+  preserveOriginalSize?: boolean;
+  /**
+   * Fit the complete image inside the artwork while leaving at least this
+   * much space on every edge. For example, 20 means 20 mm on the left,
+   * right, top and bottom. Aspect ratio is always preserved.
+   * The value is converted using the artwork DPI and is not affected by zoom.
+   */
+  fitToArtworkInsetMm?: number;
+};
 
 export interface FrameAssetMetadata extends ImageMetadata {
   assetId?: string;
@@ -116,6 +150,8 @@ export interface ShapeAssetMetadata extends ImageMetadata {
   fill?: string;
   recolourable?: boolean;
   allowPhotoDrop?: boolean;
+  left?: number;
+  top?: number;
 }
 
 export function hexWithAlpha(hex: string, alpha: number): string {
@@ -259,7 +295,12 @@ export class CanvasManager {
   private snapping: CanvasSnapping;
   private zoom: number = 1.0;
   private pendingZoom: number | null = null;
+  private pendingZoomPivot: { clientX?: number; clientY?: number } | null = null;
   private zoomAnimationFrame: number | null = null;
+  private viewportElement: HTMLElement | null = null;
+  private shapeCacheRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastZoomNotifyTime: number = 0;
+  private zoomNotifyTrailingTimer: ReturnType<typeof setTimeout> | null = null;
   private isPanMode: boolean = false;
   private isDrawing: boolean = false;
   private isErasing: boolean = false;
@@ -312,6 +353,8 @@ export class CanvasManager {
     strokeDashArray?: any;
   } | null = null;
   private isProcessingShapeFit: boolean = false;
+  private isNormalizingFrameTransform: boolean = false;
+  private frameResizeSnapshots = new WeakMap<FabricObject, FrameResizeSnapshot>();
 
   constructor(dimensions: CanvasDimensions, initialGuidesSettings?: Partial<PrintGuidesSettings>) {
     this.dimensions = dimensions;
@@ -464,7 +507,19 @@ export class CanvasManager {
     this.redoStack = [];
     this.saveHistoryState();
 
+    if (!this.viewportElement && canvasEl) {
+      this.viewportElement = canvasEl.closest('.overflow-auto') as HTMLElement | null;
+    }
+
     return canvas;
+  }
+
+  public setViewportElement(el: HTMLElement | null): void {
+    this.viewportElement = el;
+  }
+
+  public getViewportElement(): HTMLElement | null {
+    return this.viewportElement;
   }
 
   public getCanvas(): Canvas | null {
@@ -942,25 +997,33 @@ export class CanvasManager {
     });
   }
 
-  public setZoom(newZoom: number): void {
+  private scheduleShapeCacheRefresh(): void {
+    if (this.shapeCacheRefreshTimer !== null) {
+      clearTimeout(this.shapeCacheRefreshTimer);
+    }
+    this.shapeCacheRefreshTimer = setTimeout(() => {
+      this.shapeCacheRefreshTimer = null;
+      this.refreshShapeCachesForZoom();
+      this.canvas?.requestRenderAll();
+    }, 150);
+  }
+
+  public setZoom(newZoom: number, pivotPoint?: { clientX?: number; clientY?: number }): void {
     if (!this.canvas) return;
-    const clampedZoom = Math.min(Math.max(Number(newZoom.toFixed(2)), 0.1), 8.0);
+    const clampedZoom = Math.min(Math.max(Number(newZoom.toFixed(3)), 0.05), 8.0);
 
     if (
-      clampedZoom === this.zoom &&
+      Math.abs(clampedZoom - this.zoom) < 0.001 &&
       this.pendingZoom === null &&
       this.zoomAnimationFrame === null
     ) {
       return;
     }
 
-    this.zoom = clampedZoom;
-
-    /*
-     * Wheel and trackpad gestures can emit dozens of events per frame.
-     * Keep only the newest requested zoom and render once per animation frame.
-     */
     this.pendingZoom = clampedZoom;
+    if (pivotPoint && typeof pivotPoint.clientX === 'number' && typeof pivotPoint.clientY === 'number') {
+      this.pendingZoomPivot = pivotPoint;
+    }
 
     if (this.zoomAnimationFrame !== null) return;
 
@@ -970,25 +1033,87 @@ export class CanvasManager {
       if (!this.canvas || this.pendingZoom === null) return;
 
       const zoomToApply = this.pendingZoom;
+      const pivot = this.pendingZoomPivot;
       this.pendingZoom = null;
+      this.pendingZoomPivot = null;
 
+      const oldZoom = this.zoom;
       const baseWidth = this.dimensions.widthPx || 1063;
       const baseHeight = this.dimensions.heightPx || 591;
 
       const targetWidth = Math.round(baseWidth * zoomToApply);
       const targetHeight = Math.round(baseHeight * zoomToApply);
 
-      this.canvas.setDimensions({
-        width: targetWidth,
-        height: targetHeight,
-      });
+      const viewport =
+        this.viewportElement ||
+        (this.canvas.wrapperEl
+          ? (this.canvas.wrapperEl.closest('.overflow-auto') as HTMLElement | null)
+          : null);
+      const wrapperEl = (this.canvas as any).wrapperEl as HTMLElement | undefined;
 
-      this.canvas.setZoom(zoomToApply);
-      this.refreshShapeCachesForZoom();
+      if (viewport && wrapperEl) {
+        const viewportRect = viewport.getBoundingClientRect();
+        const wrapperRect = wrapperEl.getBoundingClientRect();
+
+        const clientX =
+          pivot && typeof pivot.clientX === 'number'
+            ? pivot.clientX
+            : viewportRect.left + viewportRect.width / 2;
+        const clientY =
+          pivot && typeof pivot.clientY === 'number'
+            ? pivot.clientY
+            : viewportRect.top + viewportRect.height / 2;
+
+        const mouseViewportX = clientX - viewportRect.left;
+        const mouseViewportY = clientY - viewportRect.top;
+
+        const safeOldZoom = Math.max(oldZoom, 0.01);
+        const designX = (clientX - wrapperRect.left) / safeOldZoom;
+        const designY = (clientY - wrapperRect.top) / safeOldZoom;
+
+        this.canvas.setDimensions({
+          width: targetWidth,
+          height: targetHeight,
+        });
+
+        this.canvas.setZoom(zoomToApply);
+        this.zoom = zoomToApply;
+
+        const paddingX = 16;
+        const paddingY = 16;
+        const totalContentW = targetWidth + paddingX * 2;
+        const totalContentH = targetHeight + paddingY * 2;
+
+        if (totalContentW > viewport.clientWidth) {
+          const targetScrollLeft = paddingX + designX * zoomToApply - mouseViewportX;
+          viewport.scrollLeft = Math.max(0, targetScrollLeft);
+        } else {
+          viewport.scrollLeft = 0;
+        }
+
+        if (totalContentH > viewport.clientHeight) {
+          const targetScrollTop = paddingY + designY * zoomToApply - mouseViewportY;
+          viewport.scrollTop = Math.max(0, targetScrollTop);
+        } else {
+          viewport.scrollTop = 0;
+        }
+      } else {
+        this.canvas.setDimensions({
+          width: targetWidth,
+          height: targetHeight,
+        });
+
+        this.canvas.setZoom(zoomToApply);
+        this.zoom = zoomToApply;
+      }
+
+      this.scheduleShapeCacheRefresh();
       this.syncArtworkBoundaryLines();
       this.canvas.calcOffset();
+      const activeObj = this.canvas.getActiveObject();
+      activeObj?.setCoords();
       this.canvas.requestRenderAll();
-      this.notifyZoom();
+      this.notifyZoomThrottled();
 
       if (this.pendingZoom !== null && this.zoomAnimationFrame === null) {
         this.zoomAnimationFrame = requestAnimationFrame(applyZoom);
@@ -999,19 +1124,26 @@ export class CanvasManager {
   }
 
   public zoomIn(): void {
-    const nextPreset = ZOOM_PRESETS.find((z) => z > this.zoom + 0.05);
-    const targetZoom = nextPreset !== undefined ? nextPreset : Math.min(this.zoom + 0.25, 8.0);
+    const current = this.pendingZoom !== null ? this.pendingZoom : this.zoom;
+    const nextPreset = ZOOM_PRESETS.find((z) => z > current + 0.05);
+    const targetZoom = nextPreset !== undefined ? nextPreset : Math.min(current + 0.25, 8.0);
     this.setZoom(targetZoom);
   }
 
   public zoomOut(): void {
-    const prevPreset = [...ZOOM_PRESETS].reverse().find((z) => z < this.zoom - 0.05);
-    const targetZoom = prevPreset !== undefined ? prevPreset : Math.max(this.zoom - 0.25, 0.1);
+    const current = this.pendingZoom !== null ? this.pendingZoom : this.zoom;
+    const prevPreset = [...ZOOM_PRESETS].reverse().find((z) => z < current - 0.05);
+    const targetZoom = prevPreset !== undefined ? prevPreset : Math.max(current - 0.25, 0.1);
     this.setZoom(targetZoom);
   }
 
   public resetZoom(): void {
+    if (this.zoomNotifyTrailingTimer !== null) {
+      clearTimeout(this.zoomNotifyTrailingTimer);
+      this.zoomNotifyTrailingTimer = null;
+    }
     this.setZoom(1.0);
+    this.notifyZoom();
   }
 
   public fitToViewport(containerWidth: number, containerHeight: number, padding = 32, rulerOffset = 48): void {
@@ -1144,8 +1276,12 @@ export class CanvasManager {
         lockRotation: false,
         lockScalingX: false,
         lockScalingY: false,
-        lockScalingFlip: true,
-        hoverCursor: 'move',
+        // A dragged frame edge must resize against the opposite fixed edge.
+        centeredScaling: false,
+        hoverCursor:
+          this.isTextObject(fabricObject) && (fabricObject as any).isEditing
+            ? 'text'
+            : 'move',
         moveCursor: 'move',
       });
     }
@@ -2145,6 +2281,8 @@ export class CanvasManager {
           padding: 6,
           selectable: true,
           evented: true,
+          hoverCursor: 'move',
+          moveCursor: 'move',
           objectCaching: false,
           noScaleCache: false,
           strokeUniform: true,
@@ -2384,9 +2522,17 @@ export class CanvasManager {
     const naturalWidth = metadata.naturalWidth || photo.width || frameWidth;
     const naturalHeight = metadata.naturalHeight || photo.height || frameHeight;
     const photoFit = metadata.photoFit === 'contain' ? 'contain' : 'cover';
+    const minimumCoverScale = Math.max(
+      frameWidth / naturalWidth,
+      frameHeight / naturalHeight
+    );
+    const preservedPhotoScale = Math.max(
+      Number(metadata.framePhotoScale) || 0,
+      0
+    );
     const photoScale = photoFit === 'contain'
       ? Math.min(frameWidth / naturalWidth, frameHeight / naturalHeight)
-      : Math.max(frameWidth / naturalWidth, frameHeight / naturalHeight);
+      : Math.max(minimumCoverScale, preservedPhotoScale);
 
     let visibleSourceWidth = naturalWidth;
     let visibleSourceHeight = naturalHeight;
@@ -2396,8 +2542,24 @@ export class CanvasManager {
     if (photoFit === 'cover') {
       visibleSourceWidth = Math.min(naturalWidth, frameWidth / photoScale);
       visibleSourceHeight = Math.min(naturalHeight, frameHeight / photoScale);
-      cropX = Math.max(0, (naturalWidth - visibleSourceWidth) / 2);
-      cropY = Math.max(0, (naturalHeight - visibleSourceHeight) / 2);
+      const cropCenterX =
+        typeof metadata.frameCropCenterX === 'number' &&
+          Number.isFinite(metadata.frameCropCenterX)
+          ? metadata.frameCropCenterX
+          : naturalWidth / 2;
+      const cropCenterY =
+        typeof metadata.frameCropCenterY === 'number' &&
+          Number.isFinite(metadata.frameCropCenterY)
+          ? metadata.frameCropCenterY
+          : naturalHeight / 2;
+      cropX = Math.min(
+        Math.max(0, cropCenterX - visibleSourceWidth / 2),
+        Math.max(0, naturalWidth - visibleSourceWidth)
+      );
+      cropY = Math.min(
+        Math.max(0, cropCenterY - visibleSourceHeight / 2),
+        Math.max(0, naturalHeight - visibleSourceHeight)
+      );
     }
 
     photo.set({
@@ -2413,6 +2575,7 @@ export class CanvasManager {
       scaleY: photoScale,
       selectable: false,
       evented: false,
+      objectCaching: false,
     });
 
     const clipWidth = frameWidth / photoScale;
@@ -2425,6 +2588,7 @@ export class CanvasManager {
       scaleX: clipWidth / Math.max(mask.width || 1, 1),
       scaleY: clipHeight / Math.max(mask.height || 1, 1),
       absolutePositioned: false,
+      objectCaching: false,
     });
     photo.set('clipPath', mask);
     photo.set('frameRole' as any, 'photo');
@@ -2438,18 +2602,21 @@ export class CanvasManager {
       scaleY: frameHeight / Math.max(overlay.height || 1, 1),
       selectable: false,
       evented: false,
+      objectCaching: false,
     });
     overlay.set('frameRole' as any, 'overlay');
 
     const group = new Group([photo, overlay], {
       originX: 'center',
       originY: 'center',
+      centeredScaling: false,
       cornerColor: '#ffffff',
       cornerStrokeColor: '#8b3dff',
       borderColor: '#8b3dff',
       cornerStyle: 'circle',
       cornerSize: 12,
       transparentCorners: false,
+      objectCaching: false,
     });
 
     const frameName = metadata.name || 'Custom Photo Frame';
@@ -2506,45 +2673,110 @@ export class CanvasManager {
         const natW = img.width || 400;
         const natH = img.height || 400;
 
-        // Scale image to match calculated frame dimensions
-        const scaleX = frameW / natW;
-        const scaleY = frameH / natH;
+        // Canva-style "cover": use one scale on both axes, then crop the
+        // overflow. Independent X/Y scales distort the photo.
+        const photoScale = Math.max(frameW / natW, frameH / natH);
+        const visibleSourceWidth = Math.min(natW, frameW / photoScale);
+        const visibleSourceHeight = Math.min(natH, frameH / photoScale);
+        const cropX = Math.max(0, (natW - visibleSourceWidth) / 2);
+        const cropY = Math.max(0, (natH - visibleSourceHeight) / 2);
+
         img.set({
-          scaleX,
-          scaleY,
+          originX: 'center',
+          originY: 'center',
+          width: visibleSourceWidth,
+          height: visibleSourceHeight,
+          cropX,
+          cropY,
+          scaleX: photoScale,
+          scaleY: photoScale,
+          objectCaching: false,
         });
 
-        // Generate normalized clip path for this shape matching image's unscaled natural dimensions
-        const clipPath = createFrameClipPath(shapeType, natW, natH);
+        // The mask changes the visible area; it never changes photo geometry.
+        const clipPath = createFrameClipPath(
+          shapeType,
+          frameW / photoScale,
+          frameH / photoScale
+        );
+        clipPath.set({
+          originX: 'center',
+          originY: 'center',
+          absolutePositioned: false,
+          objectCaching: false,
+        });
 
         img.set({
           clipPath,
-          cornerColor: '#ffffff',
-          cornerStrokeColor: '#8b3dff',
-          borderColor: '#8b3dff',
-          cornerStyle: 'circle',
-          cornerSize: 12,
-          transparentCorners: false,
+          left: 0,
+          top: 0,
+          selectable: false,
+          evented: false,
+          objectCaching: false,
         });
 
         img.set('isFrame' as any, true);
         img.set('frameShape' as any, shapeType);
         img.set('isCanvaPlaceholder' as any, isPlaceholder);
         img.set('originalSrc' as any, defaultImg);
+        img.set('naturalWidth' as any, natW);
+        img.set('naturalHeight' as any, natH);
+        img.set('photoFit' as any, 'cover');
+        img.set('frameRole' as any, 'photo');
+
+        // Built-in frames must use the same Group structure as filled/admin
+        // frames. Otherwise Fabric scales the photo object itself and the live
+        // crop-only resize handler cannot cancel X/Y stretching.
+        const shapeOutline = createFrameClipPath(shapeType, frameW, frameH);
+        shapeOutline.set({
+          originX: 'center',
+          originY: 'center',
+          left: 0,
+          top: 0,
+          selectable: false,
+          evented: false,
+          objectCaching: false,
+        });
+        shapeOutline.set('frameRole' as any, 'shape-outline');
+        this.applyShapeOutlineProperty(shapeOutline, 'stroke', 'transparent');
+        this.applyShapeOutlineProperty(shapeOutline, 'strokeWidth', 0);
 
         const frameName = `${preset.name} Frame`;
-        this.ensureObjectId(img, frameName);
+        const frameGroup = new Group([img, shapeOutline], {
+          originX: 'center',
+          originY: 'center',
+          centeredScaling: false,
+          cornerColor: '#ffffff',
+          cornerStrokeColor: '#8b3dff',
+          borderColor: '#8b3dff',
+          cornerStyle: 'circle',
+          cornerSize: 12,
+          transparentCorners: false,
+          objectCaching: false,
+        });
+        this.ensureObjectId(frameGroup, frameName);
+        frameGroup.set('isFrame' as any, true);
+        frameGroup.set('isShape' as any, true);
+        frameGroup.set('isPhotoShapeGroup' as any, true);
+        frameGroup.set('frameShape' as any, shapeType);
+        frameGroup.set('shapeType' as any, shapeType);
+        frameGroup.set('sourceType' as any, 'shape');
+        frameGroup.set('photoFit' as any, 'cover');
+        frameGroup.set('isCanvaPlaceholder' as any, isPlaceholder);
+        frameGroup.set('originalSrc' as any, defaultImg);
+        frameGroup.set('naturalWidth' as any, natW);
+        frameGroup.set('naturalHeight' as any, natH);
 
-        this.canvas.add(img);
+        this.canvas.add(frameGroup);
 
         if (options?.left !== undefined && options?.top !== undefined) {
-          img.set({ left: options.left, top: options.top });
-          img.setCoords();
+          frameGroup.set({ left: options.left, top: options.top });
+          frameGroup.setCoords();
         } else {
-          this.centerObjectOnCanvas(img);
+          this.centerObjectOnCanvas(frameGroup);
         }
 
-        this.canvas.setActiveObject(img);
+        this.canvas.setActiveObject(frameGroup);
         this.canvas.requestRenderAll();
         this.notifyChange();
         this.notifySelection();
@@ -2591,10 +2823,18 @@ export class CanvasManager {
           metadata?.photoFit ||
           (frameObj.get('photoFit' as any) as 'cover' | 'contain') ||
           'cover';
+        const minimumCoverScale = Math.max(
+          targetScaledW / natW,
+          targetScaledH / natH
+        );
+        const preservedPhotoScale = Math.max(
+          Number(metadata?.framePhotoScale) || 0,
+          0
+        );
         const scaleFit =
           photoFit === 'contain'
             ? Math.min(targetScaledW / natW, targetScaledH / natH)
-            : Math.max(targetScaledW / natW, targetScaledH / natH);
+            : Math.max(minimumCoverScale, preservedPhotoScale);
         let visibleSourceWidth = natW;
         let visibleSourceHeight = natH;
         let cropX = 0;
@@ -2603,8 +2843,24 @@ export class CanvasManager {
         if (photoFit === 'cover') {
           visibleSourceWidth = Math.min(natW, targetScaledW / scaleFit);
           visibleSourceHeight = Math.min(natH, targetScaledH / scaleFit);
-          cropX = Math.max(0, (natW - visibleSourceWidth) / 2);
-          cropY = Math.max(0, (natH - visibleSourceHeight) / 2);
+          const cropCenterX =
+            typeof metadata?.frameCropCenterX === 'number' &&
+              Number.isFinite(metadata.frameCropCenterX)
+              ? metadata.frameCropCenterX
+              : natW / 2;
+          const cropCenterY =
+            typeof metadata?.frameCropCenterY === 'number' &&
+              Number.isFinite(metadata.frameCropCenterY)
+              ? metadata.frameCropCenterY
+              : natH / 2;
+          cropX = Math.min(
+            Math.max(0, cropCenterX - visibleSourceWidth / 2),
+            Math.max(0, natW - visibleSourceWidth)
+          );
+          cropY = Math.min(
+            Math.max(0, cropCenterY - visibleSourceHeight / 2),
+            Math.max(0, natH - visibleSourceHeight)
+          );
         }
 
         const clipW = targetScaledW / scaleFit;
@@ -2619,6 +2875,7 @@ export class CanvasManager {
           scaleX: clipW / Math.max(clipPath.width || 1, 1),
           scaleY: clipH / Math.max(clipPath.height || 1, 1),
           absolutePositioned: false,
+          objectCaching: false,
         });
 
         newImg.set({
@@ -2668,6 +2925,7 @@ export class CanvasManager {
           scaleY: targetScaledH / Math.max(shapeOutline.height || 1, 1),
           selectable: false,
           evented: false,
+          objectCaching: false,
         });
         shapeOutline.set('frameRole' as any, 'shape-outline');
         this.applyShapeOutlineProperty(
@@ -2685,23 +2943,20 @@ export class CanvasManager {
           this.applyShapeOutlineProperty(shapeOutline, 'strokeDashArray', existingDash);
         }
 
-        // Both children use the same rendered bounds. This keeps Fabric's
-        // controls around the real shape instead of around the uncropped photo.
-        if (photoFit === 'contain') {
-          newImg.set({
-            left: 0,
-            top: 0,
-          });
-        } else {
-          newImg.set({
-            scaleX: targetScaledW / Math.max(visibleSourceWidth, 1),
-            scaleY: targetScaledH / Math.max(visibleSourceHeight, 1),
-          });
-        }
+        // Keep one uniform image scale. The clip path—not independent X/Y
+        // image scaling—hides everything outside the frame.
+        newImg.set({
+          left: 0,
+          top: 0,
+          scaleX: scaleFit,
+          scaleY: scaleFit,
+          objectCaching: false,
+        });
 
         const photoShapeGroup = new Group([newImg, shapeOutline], {
           originX: 'center',
           originY: 'center',
+          centeredScaling: false,
           left: centerPoint.x,
           top: centerPoint.y,
           angle,
@@ -2711,6 +2966,9 @@ export class CanvasManager {
           cornerStyle: 'circle',
           cornerSize: 12,
           transparentCorners: false,
+          objectCaching: false,
+          flipX: frameObj.flipX,
+          flipY: frameObj.flipY,
         });
 
         const objectName =
@@ -2760,8 +3018,11 @@ export class CanvasManager {
 
         const objects = this.canvas.getObjects();
         const zIndex = objects.indexOf(frameObj);
-        const frameWidth = Number(frameObj.get('frameWidth' as any)) || frameObj.width || 500;
-        const frameHeight = Number(frameObj.get('frameHeight' as any)) || frameObj.height || 500;
+        // Bake the rendered dimensions into the replacement. Keeping the old
+        // scaleX/scaleY on the Group would stretch every child, including the
+        // photo, and is the main cause of distorted frame images.
+        const frameWidth = Math.max(frameObj.getScaledWidth(), 1);
+        const frameHeight = Math.max(frameObj.getScaledHeight(), 1);
         const photoFit = metadata?.photoFit ||
           (frameObj.get('photoFit' as any) as 'cover' | 'contain') ||
           'cover';
@@ -2790,8 +3051,8 @@ export class CanvasManager {
           left: frameObj.left,
           top: frameObj.top,
           angle: frameObj.angle || 0,
-          scaleX: frameObj.scaleX || 1,
-          scaleY: frameObj.scaleY || 1,
+          scaleX: 1,
+          scaleY: 1,
           flipX: frameObj.flipX,
           flipY: frameObj.flipY,
           opacity: frameObj.opacity,
@@ -2832,9 +3093,17 @@ export class CanvasManager {
 
       const photoFit = metadata?.photoFit || (frameObj.get('photoFit' as any) as 'cover' | 'contain') || 'cover';
 
+      const minimumCoverScale = Math.max(
+        targetScaledW / natW,
+        targetScaledH / natH
+      );
+      const preservedPhotoScale = Math.max(
+        Number(metadata?.framePhotoScale) || 0,
+        0
+      );
       const scaleFit = photoFit === 'contain'
         ? Math.min(targetScaledW / natW, targetScaledH / natH)
-        : Math.max(targetScaledW / natW, targetScaledH / natH);
+        : Math.max(minimumCoverScale, preservedPhotoScale);
       let visibleSourceWidth = natW;
       let visibleSourceHeight = natH;
       let cropX = 0;
@@ -2843,8 +3112,24 @@ export class CanvasManager {
       if (photoFit === 'cover') {
         visibleSourceWidth = Math.min(natW, targetScaledW / scaleFit);
         visibleSourceHeight = Math.min(natH, targetScaledH / scaleFit);
-        cropX = Math.max(0, (natW - visibleSourceWidth) / 2);
-        cropY = Math.max(0, (natH - visibleSourceHeight) / 2);
+        const cropCenterX =
+          typeof metadata?.frameCropCenterX === 'number' &&
+            Number.isFinite(metadata.frameCropCenterX)
+            ? metadata.frameCropCenterX
+            : natW / 2;
+        const cropCenterY =
+          typeof metadata?.frameCropCenterY === 'number' &&
+            Number.isFinite(metadata.frameCropCenterY)
+            ? metadata.frameCropCenterY
+            : natH / 2;
+        cropX = Math.min(
+          Math.max(0, cropCenterX - visibleSourceWidth / 2),
+          Math.max(0, natW - visibleSourceWidth)
+        );
+        cropY = Math.min(
+          Math.max(0, cropCenterY - visibleSourceHeight / 2),
+          Math.max(0, natH - visibleSourceHeight)
+        );
       }
 
       const clipW = targetScaledW / scaleFit;
@@ -2868,10 +3153,17 @@ export class CanvasManager {
         cornerStyle: 'circle',
         cornerSize: 12,
         transparentCorners: false,
+        objectCaching: false,
       });
 
       // Generate matching centered clipPath matching exact frame dimensions
       const clipPath = createFrameClipPath(shapeType, clipW, clipH);
+      clipPath.set({
+        originX: 'center',
+        originY: 'center',
+        absolutePositioned: false,
+        objectCaching: false,
+      });
       newImg.set('clipPath', clipPath);
       newImg.set('isFrame' as any, true);
       newImg.set('frameShape' as any, shapeType);
@@ -2891,6 +3183,7 @@ export class CanvasManager {
         top: 0,
         selectable: false,
         evented: false,
+        objectCaching: false,
       });
       shapeOutline.set('frameRole' as any, 'shape-outline');
       this.applyShapeOutlineProperty(
@@ -2911,6 +3204,7 @@ export class CanvasManager {
       const photoShapeGroup = new Group([newImg, shapeOutline], {
         originX: 'center',
         originY: 'center',
+        centeredScaling: false,
         left: centerPoint.x,
         top: centerPoint.y,
         angle,
@@ -2920,6 +3214,9 @@ export class CanvasManager {
         cornerStyle: 'circle',
         cornerSize: 12,
         transparentCorners: false,
+        objectCaching: false,
+        flipX: frameObj.flipX,
+        flipY: frameObj.flipY,
       });
 
       const shapeName = `${shapeType.charAt(0).toUpperCase() + shapeType.slice(1)} Photo Shape`;
@@ -2931,7 +3228,10 @@ export class CanvasManager {
       photoShapeGroup.set('shapeType' as any, shapeType);
       photoShapeGroup.set('sourceType' as any, 'shape');
       photoShapeGroup.set('photoFit' as any, photoFit);
-      photoShapeGroup.set('isCanvaPlaceholder' as any, false);
+      photoShapeGroup.set(
+        'isCanvaPlaceholder' as any,
+        newImageUrl === CANVA_FRAME_PLACEHOLDER_SVG
+      );
       photoShapeGroup.set('originalSrc' as any, metadata?.originalSrc || newImageUrl);
       photoShapeGroup.set('naturalWidth' as any, natW);
       photoShapeGroup.set('naturalHeight' as any, natH);
@@ -2959,6 +3259,254 @@ export class CanvasManager {
     } catch (err) {
       console.error('Failed to slot image into Canva Frame:', err);
       return null;
+    }
+  }
+
+  private getFramePhotoObject(frameObj: FabricObject): FabricImage | null {
+    if (frameObj instanceof FabricImage) return frameObj;
+
+    if (frameObj instanceof Group) {
+      const photo = frameObj.getObjects().find(
+        (child) =>
+          child instanceof FabricImage &&
+          child.get('frameRole' as any) === 'photo'
+      );
+      return (photo as FabricImage | undefined) || null;
+    }
+
+    return null;
+  }
+
+  /**
+   * Resolve the edge/corner opposite the control being dragged. Keeping this
+   * point fixed gives Canva-style one-sided resizing, even for rotated frames.
+   */
+  private getFrameResizeAnchor(
+    frameObj: FabricObject,
+    corner?: string
+  ): Pick<
+    FrameResizeSnapshot,
+    'anchorX' | 'anchorY' | 'anchorOriginX' | 'anchorOriginY'
+  > | null {
+    const anchors: Record<
+      string,
+      {
+        x: 'left' | 'center' | 'right';
+        y: 'top' | 'center' | 'bottom';
+      }
+    > = {
+      ml: { x: 'right', y: 'center' },
+      mr: { x: 'left', y: 'center' },
+      mt: { x: 'center', y: 'bottom' },
+      mb: { x: 'center', y: 'top' },
+      tl: { x: 'right', y: 'bottom' },
+      tr: { x: 'left', y: 'bottom' },
+      bl: { x: 'right', y: 'top' },
+      br: { x: 'left', y: 'top' },
+    };
+
+    const origin = corner ? anchors[corner] : undefined;
+    if (!origin) return null;
+
+    const point = frameObj.getPositionByOrigin(origin.x, origin.y);
+    return {
+      anchorX: point.x,
+      anchorY: point.y,
+      anchorOriginX: origin.x,
+      anchorOriginY: origin.y,
+    };
+  }
+
+  /** Restore the untouched edge after any custom Fabric control calculation. */
+  private keepFrameResizeAnchor(frameObj: FabricObject): void {
+    const snapshot = this.frameResizeSnapshots.get(frameObj);
+    const anchorX = snapshot?.anchorX;
+    const anchorY = snapshot?.anchorY;
+    if (
+      !snapshot ||
+      typeof anchorX !== 'number' ||
+      !Number.isFinite(anchorX) ||
+      typeof anchorY !== 'number' ||
+      !Number.isFinite(anchorY) ||
+      !snapshot.anchorOriginX ||
+      !snapshot.anchorOriginY
+    ) {
+      return;
+    }
+
+    frameObj.setPositionByOrigin(
+      new Point(anchorX, anchorY),
+      snapshot.anchorOriginX,
+      snapshot.anchorOriginY
+    );
+  }
+
+  /** Capture the photo geometry before Fabric starts scaling the frame Group. */
+  private rememberFrameResizeState(
+    frameObj: FabricObject,
+    corner?: string
+  ): void {
+    if (!frameObj) return;
+
+    const existing = this.frameResizeSnapshots.get(frameObj);
+    if (existing) {
+      // mouse:down can occur before Fabric exposes the active control. Fill
+      // the fixed anchor on the first scaling event when necessary.
+      if (
+        (typeof existing.anchorX !== 'number' ||
+          !Number.isFinite(existing.anchorX)) &&
+        corner
+      ) {
+        const anchor = this.getFrameResizeAnchor(frameObj, corner);
+        if (anchor) Object.assign(existing, anchor);
+      }
+      return;
+    }
+
+    const photo = this.getFramePhotoObject(frameObj);
+    const naturalWidth =
+      Number(frameObj.get('naturalWidth' as any)) || photo?.width || frameObj.width || 1;
+    const naturalHeight =
+      Number(frameObj.get('naturalHeight' as any)) || photo?.height || frameObj.height || 1;
+    const groupScale =
+      photo === frameObj
+        ? 1
+        : Math.min(
+          Math.abs(Number(frameObj.scaleX) || 1),
+          Math.abs(Number(frameObj.scaleY) || 1)
+        );
+    const photoScale = photo
+      ? Math.max(Math.abs(Number(photo.scaleX) || 1) * groupScale, 0.0001)
+      : Math.max(Math.abs(Number(frameObj.scaleX) || 1), 0.0001);
+    const visibleWidth = photo
+      ? Math.min(Number(photo.width) || naturalWidth, naturalWidth)
+      : naturalWidth;
+    const visibleHeight = photo
+      ? Math.min(Number(photo.height) || naturalHeight, naturalHeight)
+      : naturalHeight;
+    const cropX = photo ? Math.max(0, Number(photo.cropX) || 0) : 0;
+    const cropY = photo ? Math.max(0, Number(photo.cropY) || 0) : 0;
+    const anchor = this.getFrameResizeAnchor(frameObj, corner);
+
+    this.frameResizeSnapshots.set(frameObj, {
+      photoScale,
+      cropCenterX: cropX + visibleWidth / 2,
+      cropCenterY: cropY + visibleHeight / 2,
+      naturalWidth,
+      naturalHeight,
+      ...(anchor || {}),
+    });
+  }
+
+  /**
+   * Keep the photo visually undistorted while a Group side handle is moving.
+   * The Group may have different X/Y scales during Fabric's transform, so the
+   * photo receives the inverse scale and its clipPath follows the new viewport.
+   */
+  private previewFrameCropDuringScale(frameObj: FabricObject): void {
+    if (!(frameObj instanceof Group)) return;
+
+    if (!this.frameResizeSnapshots.has(frameObj)) {
+      this.rememberFrameResizeState(frameObj);
+    }
+
+    const snapshot = this.frameResizeSnapshots.get(frameObj);
+    const photo = this.getFramePhotoObject(frameObj);
+    if (!snapshot || !photo) return;
+
+    const groupScaleX = Math.max(Math.abs(Number(frameObj.scaleX) || 1), 0.0001);
+    const groupScaleY = Math.max(Math.abs(Number(frameObj.scaleY) || 1), 0.0001);
+    const desiredWidth = Math.max(frameObj.getScaledWidth(), 1);
+    const desiredHeight = Math.max(frameObj.getScaledHeight(), 1);
+
+    // Cancel the Group's non-uniform scale only for the photo content.
+    photo.set({
+      scaleX: snapshot.photoScale / groupScaleX,
+      scaleY: snapshot.photoScale / groupScaleY,
+      objectCaching: false,
+    });
+
+    const clipPath = photo.clipPath as FabricObject | undefined;
+    if (clipPath) {
+      clipPath.set({
+        scaleX:
+          desiredWidth /
+          snapshot.photoScale /
+          Math.max(Number(clipPath.width) || 1, 1),
+        scaleY:
+          desiredHeight /
+          snapshot.photoScale /
+          Math.max(Number(clipPath.height) || 1, 1),
+        objectCaching: false,
+      });
+      clipPath.setCoords();
+    }
+
+    photo.setCoords();
+    frameObj.set('dirty' as any, true);
+  }
+
+  /**
+   * Fabric resizes Groups by changing scaleX/scaleY, which also stretches a
+   * clipped photo. Rebuild the mask at its rendered dimensions while retaining
+   * the photo's previous scale and crop focus. Shrinking the frame therefore
+   * hides more of the photo instead of shrinking or stretching it.
+   */
+  private async normalizeFrameTransform(
+    frameObj: FabricObject
+  ): Promise<boolean> {
+    if (
+      !this.canvas ||
+      this.isNormalizingFrameTransform ||
+      !Boolean(frameObj.get('isFrame' as any))
+    ) {
+      return false;
+    }
+
+    const scaleX = Math.abs(Number(frameObj.scaleX) || 1);
+    const scaleY = Math.abs(Number(frameObj.scaleY) || 1);
+
+    if (Math.abs(scaleX - 1) < 0.0001 && Math.abs(scaleY - 1) < 0.0001) {
+      this.frameResizeSnapshots.delete(frameObj);
+      return false;
+    }
+
+    const sourceUrl = frameObj.get('originalSrc' as any) as string;
+    if (!sourceUrl) {
+      this.frameResizeSnapshots.delete(frameObj);
+      return false;
+    }
+
+    const snapshot = this.frameResizeSnapshots.get(frameObj);
+
+    this.isNormalizingFrameTransform = true;
+
+    try {
+      const replacement = await this.slotImageIntoFrame(frameObj, sourceUrl, {
+        naturalWidth:
+          snapshot?.naturalWidth ||
+          Number(frameObj.get('naturalWidth' as any)) ||
+          undefined,
+        naturalHeight:
+          snapshot?.naturalHeight ||
+          Number(frameObj.get('naturalHeight' as any)) ||
+          undefined,
+        fileSizeBytes:
+          Number(frameObj.get('fileSizeBytes' as any)) || undefined,
+        originalSrc: sourceUrl,
+        name: (frameObj.get('name' as any) as string) || 'Photo Frame',
+        photoFit: 'cover',
+        provider: frameObj.get('provider' as any) as string,
+        providerAssetId: frameObj.get('providerAssetId' as any) as string,
+        framePhotoScale: snapshot?.photoScale,
+        frameCropCenterX: snapshot?.cropCenterX,
+        frameCropCenterY: snapshot?.cropCenterY,
+      });
+
+      return Boolean(replacement);
+    } finally {
+      this.isNormalizingFrameTransform = false;
+      this.frameResizeSnapshots.delete(frameObj);
     }
   }
 
@@ -3364,7 +3912,7 @@ export class CanvasManager {
   public async addImageFromUrl(
     url: string,
     metadata?: ImageMetadata,
-    options?: Partial<FabricObject> & { skipFrameSlotting?: boolean }
+    options?: ImagePlacementOptions
   ): Promise<FabricImage | null> {
     if (!this.canvas) return null;
 
@@ -3436,17 +3984,69 @@ export class CanvasManager {
       const canvasW = this.dimensions.widthPx || 1063;
       const canvasH = this.dimensions.heightPx || 591;
 
-      const maxDisplayWidth = canvasW * 0.6;
-      const maxDisplayHeight = canvasH * 0.6;
-
       const naturalW = metadata?.naturalWidth || svgNormWidth || img.width || 400;
       const naturalH = metadata?.naturalHeight || svgNormHeight || img.height || 300;
 
-      const scale = Math.min(
-        maxDisplayWidth / naturalW,
-        maxDisplayHeight / naturalH,
-        1.0
+      // Library drag/drop commonly transfers only the CDN URL. Detect the
+      // supported providers so click insertion and drag/drop size identically.
+      const provider = String(metadata?.provider || '').toLowerCase();
+      const isSupportedLibraryProvider = [
+        'pexels',
+        'pixabay',
+        'freepik',
+      ].includes(provider);
+      const isSupportedLibraryUrl =
+        /^https?:\/\/(?:[^/]+\.)?(?:pexels|pixabay|freepik|flaticon)\.com\//i.test(
+          url.trim()
+        );
+      const requestedInsetMm = Number(
+        options?.fitToArtworkInsetMm ??
+        (isSupportedLibraryProvider || isSupportedLibraryUrl
+          ? 20
+          : Number.NaN)
       );
+      const shouldFitToArtwork =
+        Number.isFinite(requestedInsetMm) && requestedInsetMm >= 0;
+
+      let scale: number;
+
+      if (shouldFitToArtwork) {
+        const dpi = Math.max(Number(this.dimensions.dpi) || 300, 1);
+        const pxPerMm = dpi / 25.4;
+
+        // Never allow the inset to collapse a small artwork to zero or a
+        // negative size. Keep at least a 1 mm target area on each axis.
+        // Example: a 52 x 30 mm artwork cannot physically have a full 20 mm
+        // inset on every side, so the inset is reduced safely for that size.
+        const minimumTargetPx = pxPerMm;
+        const maximumInsetPx = Math.max(
+          0,
+          (Math.min(canvasW, canvasH) - minimumTargetPx) / 2
+        );
+        const requestedInsetPx = requestedInsetMm * pxPerMm;
+        const insetPx = Math.min(requestedInsetPx, maximumInsetPx);
+        const targetWidth = Math.max(1, canvasW - insetPx * 2);
+        const targetHeight = Math.max(1, canvasH - insetPx * 2);
+
+        // Preserve the source aspect ratio and allow small source images to
+        // display at the requested artwork size. Print-quality checks still
+        // use naturalWidth/naturalHeight and can warn about insufficient DPI.
+        scale = Math.min(
+          targetWidth / Math.max(naturalW, 1),
+          targetHeight / Math.max(naturalH, 1)
+        );
+      } else if (options?.preserveOriginalSize === true) {
+        scale = 1;
+      } else {
+        const maxDisplayWidth = canvasW * 0.6;
+        const maxDisplayHeight = canvasH * 0.6;
+
+        scale = Math.min(
+          maxDisplayWidth / Math.max(naturalW, 1),
+          maxDisplayHeight / Math.max(naturalH, 1),
+          1.0
+        );
+      }
 
       img.set({
         scaleX: scale,
@@ -3475,6 +4075,12 @@ export class CanvasManager {
       img.set('naturalWidth' as any, naturalW);
       img.set('naturalHeight' as any, naturalH);
       img.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
+      if (metadata?.provider) {
+        img.set('provider' as any, metadata.provider);
+      }
+      if (metadata?.providerAssetId !== undefined) {
+        img.set('providerAssetId' as any, String(metadata.providerAssetId));
+      }
       this.ensureObjectId(img, metadata?.name || 'Image Layer');
 
       this.canvas.add(img);
@@ -3632,6 +4238,8 @@ export class CanvasManager {
           cornerSize: 12,
           transparentCorners: false,
           padding: 6,
+          hoverCursor: 'move',
+          moveCursor: 'move',
           objectCaching: false,
           noScaleCache: false,
           strokeUniform: true,
@@ -4670,49 +5278,239 @@ export class CanvasManager {
     return active.getBoundingRect();
   }
 
-  public applyEffect(effectType: 'none' | 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon'): void {
+  private hexToRgba(hex: string, alpha: number): string {
+    let c = (hex || '#000000').replace('#', '').trim();
+    if (c.length === 3) {
+      c = c.split('').map((x) => x + x).join('');
+    }
+    const num = parseInt(c, 16);
+    if (isNaN(num)) return `rgba(0, 0, 0, ${alpha})`;
+    const r = (num >> 16) & 255;
+    const g = (num >> 8) & 255;
+    const b = num & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  private parseShadowColor(colorStr: string): { color: string; transparency: number } {
+    if (!colorStr) return { color: '#000000', transparency: 30 };
+    const rgbaMatch = colorStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/i);
+    if (rgbaMatch) {
+      const r = parseInt(rgbaMatch[1], 10).toString(16).padStart(2, '0');
+      const g = parseInt(rgbaMatch[2], 10).toString(16).padStart(2, '0');
+      const b = parseInt(rgbaMatch[3], 10).toString(16).padStart(2, '0');
+      const alpha = rgbaMatch[4] !== undefined ? parseFloat(rgbaMatch[4]) : 1;
+      return {
+        color: `#${r}${g}${b}`,
+        transparency: Math.round(alpha * 100),
+      };
+    }
+    if (colorStr.startsWith('#')) {
+      return { color: colorStr.slice(0, 7), transparency: 100 };
+    }
+    return { color: '#000000', transparency: 30 };
+  }
+
+  public applyEffect(
+    effectType: 'none' | 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon',
+    customShadowSettings?: Partial<{
+      direction: number;
+      offset: number;
+      blur: number;
+      transparency: number;
+      color: string;
+    }>
+  ): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
     if (!active) return;
 
+    const targets = active instanceof ActiveSelection ? active.getObjects() : [active];
+
     if (effectType === 'shadow') {
-      active.set('shadow', new Shadow({ color: 'rgba(0, 0, 0, 0.4)', blur: 12, offsetX: 6, offsetY: 6 }));
+      const settings = {
+        direction: customShadowSettings?.direction ?? -45,
+        offset: customShadowSettings?.offset ?? 20,
+        blur: customShadowSettings?.blur ?? 10,
+        transparency: customShadowSettings?.transparency ?? 30,
+        color: customShadowSettings?.color ?? '#000000',
+      };
+      const rad = (settings.direction * Math.PI) / 180;
+      const offsetX = Math.round(settings.offset * Math.cos(rad));
+      const offsetY = Math.round(settings.offset * Math.sin(rad));
+      const alpha = Math.max(0, Math.min(1, settings.transparency / 100));
+      const shadowColor = this.hexToRgba(settings.color, alpha);
+
+      for (const obj of targets) {
+        obj.set('shadow', new Shadow({
+          color: shadowColor,
+          blur: settings.blur,
+          offsetX,
+          offsetY,
+        }));
+        (obj as any)._shadowSettings = { ...settings };
+        (obj as any)._activeEffect = 'shadow';
+        (obj as any).dirty = true;
+      }
+      (active as any)._shadowSettings = { ...settings };
+      (active as any)._activeEffect = 'shadow';
     } else if (effectType === 'lift') {
-      active.set('shadow', new Shadow({ color: 'rgba(0, 0, 0, 0.3)', blur: 24, offsetX: 0, offsetY: 10 }));
+      for (const obj of targets) {
+        obj.set('shadow', new Shadow({ color: 'rgba(0, 0, 0, 0.3)', blur: 24, offsetX: 0, offsetY: 10 }));
+        (obj as any)._activeEffect = 'lift';
+        (obj as any).dirty = true;
+      }
+      (active as any)._activeEffect = 'lift';
     } else if (effectType === 'glow') {
-      active.set('shadow', new Shadow({ color: 'rgba(37, 99, 235, 0.8)', blur: 20, offsetX: 0, offsetY: 0 }));
+      for (const obj of targets) {
+        obj.set('shadow', new Shadow({ color: 'rgba(37, 99, 235, 0.8)', blur: 20, offsetX: 0, offsetY: 0 }));
+        (obj as any)._activeEffect = 'glow';
+        (obj as any).dirty = true;
+      }
+      (active as any)._activeEffect = 'glow';
     } else if (effectType === 'outline') {
-      active.set({
-        stroke: '#000000',
-        strokeWidth: 2,
-        shadow: null,
-      });
+      for (const obj of targets) {
+        obj.set({
+          stroke: '#000000',
+          strokeWidth: 2,
+          shadow: null,
+        });
+        (obj as any)._activeEffect = 'outline';
+        (obj as any).dirty = true;
+      }
+      (active as any)._activeEffect = 'outline';
     } else if (effectType === 'hollow') {
-      active.set({
-        fill: 'transparent',
-        stroke: typeof active.fill === 'string' && active.fill !== 'transparent' ? active.fill : '#000000',
-        strokeWidth: 2,
-        shadow: null,
-      });
+      for (const obj of targets) {
+        obj.set({
+          fill: 'transparent',
+          stroke: typeof obj.fill === 'string' && obj.fill !== 'transparent' ? obj.fill : '#000000',
+          strokeWidth: 2,
+          shadow: null,
+        });
+        (obj as any)._activeEffect = 'hollow';
+        (obj as any).dirty = true;
+      }
+      (active as any)._activeEffect = 'hollow';
     } else if (effectType === 'neon') {
-      active.set({
-        stroke: '#ec4899',
-        strokeWidth: 1,
-        shadow: new Shadow({ color: '#ec4899', blur: 30, offsetX: 0, offsetY: 0 }),
-      });
+      for (const obj of targets) {
+        obj.set({
+          stroke: '#ec4899',
+          strokeWidth: 1,
+          shadow: new Shadow({ color: '#ec4899', blur: 30, offsetX: 0, offsetY: 0 }),
+        });
+        (obj as any)._activeEffect = 'neon';
+        (obj as any).dirty = true;
+      }
+      (active as any)._activeEffect = 'neon';
     } else {
       // none
-      active.set({
-        shadow: null,
-        strokeWidth: 0,
-      });
+      for (const obj of targets) {
+        obj.set({
+          shadow: null,
+          strokeWidth: 0,
+        });
+        (obj as any)._activeEffect = 'none';
+        delete (obj as any)._shadowSettings;
+        (obj as any).dirty = true;
+      }
+      (active as any)._activeEffect = 'none';
+      delete (active as any)._shadowSettings;
     }
 
+    (active as any).dirty = true;
     active.setCoords();
     this.canvas.requestRenderAll();
     this.notifyChange();
     this.notifySelection();
     this.notifyLayers();
+  }
+
+  public applyShadow(settings: Partial<{
+    direction: number;
+    offset: number;
+    blur: number;
+    transparency: number;
+    color: string;
+  }>): void {
+    this.applyEffect('shadow', settings);
+  }
+
+  public applyTextEffect(
+    effectType: 'none' | 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon',
+    settings?: Partial<{
+      direction: number;
+      offset: number;
+      blur: number;
+      transparency: number;
+      color: string;
+    }>
+  ): void {
+    this.applyEffect(effectType, settings);
+  }
+
+  public getTextEffectState(): {
+    effect: string;
+    settings: {
+      direction: number;
+      offset: number;
+      blur: number;
+      transparency: number;
+      color: string;
+    };
+  } {
+    return this.getObjectEffectState();
+  }
+
+  public getObjectEffectState(): {
+    effect: string;
+    settings: {
+      direction: number;
+      offset: number;
+      blur: number;
+      transparency: number;
+      color: string;
+    };
+  } {
+    const defaultSettings = {
+      direction: -45,
+      offset: 20,
+      blur: 10,
+      transparency: 30,
+      color: '#000000',
+    };
+    if (!this.canvas) return { effect: 'none', settings: defaultSettings };
+    const active = this.canvas.getActiveObject();
+    if (!active) return { effect: 'none', settings: defaultSettings };
+
+    const storedEffect = (active as any)._activeEffect;
+    if (storedEffect) {
+      const storedSettings = (active as any)._shadowSettings;
+      return {
+        effect: storedEffect,
+        settings: storedSettings ? { ...defaultSettings, ...storedSettings } : defaultSettings,
+      };
+    }
+
+    const shadow = active.shadow as Shadow | undefined;
+    if (shadow && shadow.color) {
+      const blur = shadow.blur ?? 10;
+      const offsetX = shadow.offsetX ?? 6;
+      const offsetY = shadow.offsetY ?? 6;
+      const offset = Math.round(Math.sqrt(offsetX * offsetX + offsetY * offsetY));
+      const direction = Math.round((Math.atan2(offsetY, offsetX) * 180) / Math.PI);
+      const { color, transparency } = this.parseShadowColor(String(shadow.color));
+      return {
+        effect: 'shadow',
+        settings: {
+          direction,
+          offset,
+          blur,
+          transparency,
+          color,
+        },
+      };
+    }
+
+    return { effect: 'none', settings: defaultSettings };
   }
 
   /**
@@ -4822,6 +5620,9 @@ export class CanvasManager {
           case 'pixelate':
             targetImage.filters.push(new filters.Pixelate({ blocksize: 6 }));
             break;
+          case 'custom':
+            // 'custom' preset utilizes the fine-tune adjustment filter stack
+            break;
           case 'none':
           default:
             break;
@@ -4839,12 +5640,24 @@ export class CanvasManager {
         }
       }
 
+      (active as any)._activeFilterPreset = presetId;
+      (active as any)._filterIntensity = intensity;
       (active as any).dirty = true;
       active.setCoords();
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
     } else {
+      if ((active as any)._originalFill === undefined && typeof active.fill === 'string') {
+        (active as any)._originalFill = active.fill;
+      }
+      if ((active as any)._originalOpacity === undefined && active.opacity !== undefined) {
+        (active as any)._originalOpacity = active.opacity;
+      }
+
+      (active as any)._activeFilterPreset = presetId;
+      (active as any)._filterIntensity = intensity;
+
       if (presetId === 'mono' || presetId === 'grayscale' || presetId === 'blackwhite') {
         active.set('fill', '#333333');
       } else if (presetId === 'sepia' || presetId === 'warm') {
@@ -4855,10 +5668,35 @@ export class CanvasManager {
         active.set('fill', '#D97706');
       } else if (presetId === 'vivid') {
         active.set('fill', '#DC2626');
+      } else if (presetId === 'soft') {
+        active.set('fill', '#F472B6');
+        active.set('opacity', 0.85);
+      } else if (presetId === 'vintage') {
+        active.set('fill', '#92400E');
+      } else if (presetId === 'noir') {
+        active.set('fill', '#18181B');
+      } else if (presetId === 'drama') {
+        active.set('fill', '#4338CA');
+      } else if (presetId === 'invert') {
+        const currentFill = typeof active.fill === 'string' ? active.fill : '#000000';
+        if (currentFill.startsWith('#') && currentFill.length === 7) {
+          const num = parseInt(currentFill.slice(1), 16);
+          const inv = 0xffffff ^ num;
+          active.set('fill', '#' + inv.toString(16).padStart(6, '0'));
+        }
+      } else if (presetId === 'none') {
+        if ((active as any)._originalFill !== undefined) {
+          active.set('fill', (active as any)._originalFill);
+        }
+        if ((active as any)._originalOpacity !== undefined) {
+          active.set('opacity', (active as any)._originalOpacity);
+        }
       }
+      (active as any).dirty = true;
       active.setCoords();
       this.canvas.requestRenderAll();
       this.notifyChange();
+      this.notifySelection();
     }
   }
 
@@ -4926,6 +5764,41 @@ export class CanvasManager {
         }
       }
 
+      (active as any)._adjustments = { ...((active as any)._adjustments || {}), ...adjustments };
+      (active as any).dirty = true;
+      active.setCoords();
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+    } else {
+      const stored = (active as any)._adjustments || {
+        brightness: 0,
+        contrast: 0,
+        saturation: 0,
+        vibrance: 0,
+        blur: 0,
+        hue: 0,
+        warmth: 0,
+      };
+      const updated = { ...stored, ...adjustments };
+      (active as any)._adjustments = updated;
+
+      if ((active as any)._originalOpacity === undefined && active.opacity !== undefined) {
+        (active as any)._originalOpacity = active.opacity;
+      }
+      const baseOpacity = (active as any)._originalOpacity ?? 1;
+      const opacityDelta = (updated.brightness || 0) / 200;
+      active.set('opacity', Math.max(0.05, Math.min(1, baseOpacity + opacityDelta)));
+
+      if (updated.blur > 0) {
+        active.set('shadow', new Shadow({
+          color: typeof active.fill === 'string' ? active.fill : '#000000',
+          blur: updated.blur,
+          offsetX: 0,
+          offsetY: 0,
+        }));
+      }
+
       (active as any).dirty = true;
       active.setCoords();
       this.canvas.requestRenderAll();
@@ -4949,8 +5822,6 @@ export class CanvasManager {
     const active = this.canvas.getActiveObject();
     if (!active) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, blur: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
 
-    // For a group, the first image represents the shared toolbar state. Any
-    // change made from the toolbar is still applied to every image in it.
     const targetImage = this.getImagesFromObject(active)[0] || null;
 
     if (targetImage) {
@@ -4968,7 +5839,18 @@ export class CanvasManager {
       };
     }
 
-    return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, blur: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
+    const adj = (active as any)._adjustments || {};
+    return {
+      brightness: adj.brightness ?? 0,
+      contrast: adj.contrast ?? 0,
+      saturation: adj.saturation ?? 0,
+      vibrance: adj.vibrance ?? 0,
+      blur: adj.blur ?? 0,
+      hue: adj.hue ?? 0,
+      warmth: adj.warmth ?? 0,
+      activeFilter: (active as any)._activeFilterPreset || 'none',
+      intensity: Math.round(((active as any)._filterIntensity ?? 1) * 100),
+    };
   }
 
   public toggleBulletList(): void {
@@ -5347,6 +6229,8 @@ export class CanvasManager {
       transparentCorners: false,
       padding: 6,
       splitByGrapheme: false,
+      hoverCursor: 'move',
+      moveCursor: 'move',
       // Keep editable text sharp while zooming/resizing by redrawing glyphs
       // instead of enlarging Fabric's cached bitmap representation.
       objectCaching: false,
@@ -5520,6 +6404,22 @@ export class CanvasManager {
 
   private notifyZoom(): void {
     this.zoomListeners.forEach((cb) => cb(this.zoom));
+  }
+
+  private notifyZoomThrottled(): void {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - this.lastZoomNotifyTime > 80) {
+      this.lastZoomNotifyTime = now;
+      this.notifyZoom();
+    }
+    if (this.zoomNotifyTrailingTimer !== null) {
+      clearTimeout(this.zoomNotifyTrailingTimer);
+    }
+    this.zoomNotifyTrailingTimer = setTimeout(() => {
+      this.zoomNotifyTrailingTimer = null;
+      this.lastZoomNotifyTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      this.notifyZoom();
+    }, 90);
   }
 
   private notifyGuides(visible: boolean): void {
@@ -5864,6 +6764,13 @@ export class CanvasManager {
         this.canvas.getActiveObject();
       const target = rawTarget;
 
+      if (target && typeof target.get === 'function') {
+        const activeCorner =
+          opt?.transform?.corner ||
+          (target as any).__corner;
+        this.rememberFrameResizeState(target, activeCorner);
+      }
+
       if (
         target &&
         typeof target.set === 'function' &&
@@ -5871,6 +6778,17 @@ export class CanvasManager {
         !this.isNonInteractiveObject(target)
       ) {
         this.restoreObjectInteractivity(target);
+      }
+    });
+
+    this.canvas.on('before:transform', (opt: any) => {
+      const transform = opt?.transform;
+      const target = transform?.target;
+      if (!target || this.isNonInteractiveObject(target)) return;
+
+      const corner = transform?.corner;
+      if (corner) {
+        this.rememberFrameResizeState(target, corner);
       }
     });
 
@@ -5971,11 +6889,34 @@ export class CanvasManager {
       }
     });
 
+    this.canvas.on('mouse:dblclick', (opt: any) => {
+      const target = opt?.target;
+      if (
+        target &&
+        this.isTextObject(target) &&
+        !(target as any).isEditing &&
+        (target as any).editable !== false
+      ) {
+        (target as any).enterEditing?.(opt?.e);
+        (target as any).setCursorByClick?.(opt?.e);
+        (target as any).set?.('hoverCursor', 'text');
+        this.canvas?.setCursor('text');
+        this.canvas?.requestRenderAll();
+        this.notifySelection();
+      }
+    });
+
     this.canvas.on('selection:created', () => {
       const active = this.canvas?.getActiveObject();
       if (active) {
         applyCanvaControlsToObject(active);
       }
+      this.canvas?.forEachObject((obj) => {
+        if (obj !== active && this.isTextObject(obj) && (obj as any).isEditing) {
+          (obj as any).exitEditing?.();
+          (obj as any).set?.('hoverCursor', 'move');
+        }
+      });
       this.notifySelection();
       this.notifyLayers();
     });
@@ -5984,19 +6925,36 @@ export class CanvasManager {
       if (active) {
         applyCanvaControlsToObject(active);
       }
+      this.canvas?.forEachObject((obj) => {
+        if (obj !== active && this.isTextObject(obj) && (obj as any).isEditing) {
+          (obj as any).exitEditing?.();
+          (obj as any).set?.('hoverCursor', 'move');
+        }
+      });
       this.notifySelection();
       this.notifyLayers();
     });
     this.canvas.on('selection:cleared', () => {
       this.clearHoverFitHighlight();
       this.snapping.clearGuides();
+      this.canvas?.forEachObject((obj) => {
+        if (this.isTextObject(obj) && (obj as any).isEditing) {
+          (obj as any).exitEditing?.();
+          (obj as any).set?.('hoverCursor', 'move');
+        }
+      });
+      this.canvas?.setCursor('default');
       this.notifySelection();
       this.notifyLayers();
     });
 
     /* Keep the typography toolbar synchronized while entering, editing and
      * leaving a Fabric text object. */
-    this.canvas.on('text:editing:entered' as any, () => {
+    this.canvas.on('text:editing:entered' as any, (opt: any) => {
+      if (opt?.target) {
+        opt.target.set?.('hoverCursor', 'text');
+      }
+      this.canvas?.setCursor('text');
       this.notifySelection();
     });
     this.canvas.on('text:selection:changed' as any, () => {
@@ -6009,7 +6967,11 @@ export class CanvasManager {
       this.notifySelection();
       this.notifyChange();
     });
-    this.canvas.on('text:editing:exited' as any, () => {
+    this.canvas.on('text:editing:exited' as any, (opt: any) => {
+      if (opt?.target) {
+        opt.target.set?.('hoverCursor', 'move');
+      }
+      this.canvas?.setCursor('move');
       this.notifySelection();
       this.notifyChange();
       this.notifyLayers();
@@ -6032,8 +6994,12 @@ export class CanvasManager {
     this.canvas.on('object:modified', async (opt: any) => {
       this.snapping.clearGuides();
       if (opt?.target) {
+        this.frameResizeSnapshots.delete(opt.target);
         const handled = await this.handleShapeImageDrop(opt.target);
-        if (!handled) {
+        const normalized = handled
+          ? false
+          : await this.normalizeFrameTransform(opt.target);
+        if (!handled && !normalized) {
           opt.target.setCoords();
         }
       }
@@ -6048,9 +7014,16 @@ export class CanvasManager {
         this.handleShapeImageHover(opt.target);
       }
     });
-    this.canvas.on('object:scaling', (opt) => {
+    this.canvas.on('object:scaling', (opt: any) => {
       const target = opt.target;
       if (!target || this.isNonInteractiveObject(target)) return;
+
+      const activeCorner =
+        opt?.transform?.corner ||
+        (target as any).__corner;
+      this.rememberFrameResizeState(target, activeCorner);
+      this.previewFrameCropDuringScale(target);
+      this.keepFrameResizeAnchor(target);
 
       /*
        * IMPORTANT:
@@ -6061,6 +7034,7 @@ export class CanvasManager {
        */
       target.set({
         lockScalingFlip: true,
+        centeredScaling: false,
       });
       target.setCoords();
       this.canvas?.requestRenderAll();
@@ -6095,10 +7069,10 @@ export class CanvasManager {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
         e.stopPropagation();
-        const delta = e.deltaY;
-        let targetZoom = this.zoom - delta * 0.002;
-        targetZoom = Math.min(Math.max(targetZoom, 0.1), 8.0);
-        this.setZoom(targetZoom);
+        const zoomFactor = Math.pow(0.9985, e.deltaY);
+        const current = this.pendingZoom !== null ? this.pendingZoom : this.zoom;
+        const targetZoom = Math.min(Math.max(Number((current * zoomFactor).toFixed(3)), 0.05), 8.0);
+        this.setZoom(targetZoom, { clientX: e.clientX, clientY: e.clientY });
       }
     });
   }
@@ -6345,6 +7319,8 @@ export class CanvasManager {
       if (selectedImage) {
         const center = selectedImage.getCenterPoint();
         shape.set({ left: center.x, top: center.y, angle: selectedImage.angle || 0 });
+      } else if (typeof metadata.left === 'number' && typeof metadata.top === 'number') {
+        shape.set({ left: metadata.left, top: metadata.top });
       } else {
         this.centerObjectOnCanvas(shape);
       }
@@ -6535,6 +7511,17 @@ export class CanvasManager {
       cancelAnimationFrame(this.zoomAnimationFrame);
       this.zoomAnimationFrame = null;
       this.pendingZoom = null;
+      this.pendingZoomPivot = null;
+    }
+
+    if (this.shapeCacheRefreshTimer !== null) {
+      clearTimeout(this.shapeCacheRefreshTimer);
+      this.shapeCacheRefreshTimer = null;
+    }
+
+    if (this.zoomNotifyTrailingTimer !== null) {
+      clearTimeout(this.zoomNotifyTrailingTimer);
+      this.zoomNotifyTrailingTimer = null;
     }
 
     if (this.canvas) {

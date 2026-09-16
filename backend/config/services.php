@@ -8,8 +8,8 @@ return [
     ],
 
     'magnific' => [
-        'api_key' => env('EXTERNAL_ASSET_API_ONE_KEY', 'MS298ef362fc4148869212e3ba881f6bf2'),
-        'api_url' => env('EXTERNAL_ASSET_API_ONE_BASE_URL', 'https://api.magnific.com/v1'),
+        'api_key' => env('MAGNIFIC_API_KEY', env('EXTERNAL_ASSET_API_ONE_KEY', 'MS298ef362fc4148869212e3ba881f6bf2')),
+        'api_url' => env('MAGNIFIC_API_URL', env('EXTERNAL_ASSET_API_ONE_BASE_URL', 'https://api.magnific.com/v1')),
     ],
 
 ];

@@ -208,7 +208,9 @@ export const FramesPanel: React.FC<FramesPanelProps> = ({ canvasManager }) => {
         overlayUrl: config.overlayUrl,
         maskUrl: config.maskUrl,
         maskType: config.maskType,
-        photoFit: config.photoFit,
+        // Canva-style frames always preserve image aspect ratio and crop
+        // overflow through the mask instead of stretching the photo.
+        photoFit: 'cover',
         shape: config.shape,
         width: config.width,
         height: config.height,
@@ -326,8 +328,8 @@ export const FramesPanel: React.FC<FramesPanelProps> = ({ canvasManager }) => {
             key={chip}
             onClick={() => setSelectedCategory(chip)}
             className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition whitespace-nowrap shadow-2xs ${selectedCategory === chip
-                ? 'bg-purple-600 text-white shadow-purple-200'
-                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+              ? 'bg-purple-600 text-white shadow-purple-200'
+              : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}
           >
             {chip}

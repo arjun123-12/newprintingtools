@@ -127,6 +127,9 @@ export function DesignerCanvas({
 
   useEffect(() => {
     canvasManagerRef.current = canvasManager;
+    if (canvasManager && scrollViewportRef.current) {
+      canvasManager.setViewportElement(scrollViewportRef.current);
+    }
   }, [canvasManager]);
 
   /*
@@ -248,44 +251,50 @@ export function DesignerCanvas({
 
   /*
    * Apply zoom without rebuilding the canvas.
+   * CanvasManager handles zoom, dimensions, and synchronous viewport scrolling.
+   * Only call setZoom if zoom was updated from an external prop change not already applied.
    */
   useEffect(() => {
     if (!canvasManager || typeof zoom !== 'number') return;
-
-    const viewport = scrollViewportRef.current;
-    const previousZoom = Math.max(previousZoomRef.current || zoom, 0.01);
-    const zoomRatio = zoom / previousZoom;
-    const previousCenterX = viewport
-      ? viewport.scrollLeft + viewport.clientWidth / 2
-      : 0;
-    const previousCenterY = viewport
-      ? viewport.scrollTop + viewport.clientHeight / 2
-      : 0;
-
     previousZoomRef.current = zoom;
 
-    const frame = requestAnimationFrame(() => {
-      if (viewport && Number.isFinite(zoomRatio) && zoomRatio > 0) {
-        viewport.scrollLeft = Math.max(
-          0,
-          previousCenterX * zoomRatio - viewport.clientWidth / 2
-        );
-        viewport.scrollTop = Math.max(
-          0,
-          previousCenterY * zoomRatio - viewport.clientHeight / 2
-        );
-      }
-
-      // CanvasManager already rendered before notifying React about the zoom.
-      // Only update pointer offsets after scroll-centering; a second render here
-      // made every zoom step paint twice.
-      canvasManager.getCanvas()?.calcOffset();
-    });
-
-    return () => {
-      cancelAnimationFrame(frame);
-    };
+    if (Math.abs(canvasManager.getZoom() - zoom) >= 0.005) {
+      canvasManager.setZoom(zoom);
+    }
   }, [zoom, canvasManager]);
+
+  /*
+   * Native active wheel listener for smooth Canva-style zoom (Ctrl + wheel / pinch gesture).
+   * Using an active listener with passive: false reliably prevents native browser page zoom.
+   */
+  useEffect(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+    if (canvasManagerRef.current) {
+      canvasManagerRef.current.setViewportElement(viewport);
+    }
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const manager = canvasManagerRef.current;
+        if (!manager) return;
+
+        const zoomFactor = Math.pow(0.9985, e.deltaY);
+        const currentZoom = manager.getZoom();
+        const nextZoom = Math.min(Math.max(Number((currentZoom * zoomFactor).toFixed(3)), 0.05), 8.0);
+
+        manager.setZoom(nextZoom, { clientX: e.clientX, clientY: e.clientY });
+      }
+    };
+
+    viewport.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      viewport.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
 
   /*
    * Ensure Fabric remains interactive.
@@ -345,6 +354,13 @@ export function DesignerCanvas({
           isEditing?: boolean;
         }).isEditing
       ) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          (activeObject as any).exitEditing?.();
+          activeObject.set?.('hoverCursor', 'move');
+          canvas.setCursor('move');
+          canvas.requestRenderAll();
+        }
         return;
       }
 
@@ -747,21 +763,143 @@ export function DesignerCanvas({
             event.nativeEvent
           );
 
+      let elementJson: any = null;
+      try {
+        const rawJson = event.dataTransfer.getData('application/x-element-json');
+        if (rawJson) {
+          elementJson = JSON.parse(rawJson);
+        }
+      } catch {
+        // ignore
+      }
+
       if (pointer) {
         const targetFrame =
           canvasManager.getFrameUnderPoint(pointer);
 
-        if (targetFrame) {
+        if (
+          targetFrame &&
+          (!elementJson ||
+            elementJson.asset_type === 'photo' ||
+            (!elementJson.is_vector &&
+              elementJson.asset_type !== 'frame' &&
+              elementJson.asset_type !== 'shape'))
+        ) {
           await canvasManager.slotImageIntoFrame(
             targetFrame,
-            imageUrl
+            imageUrl,
+            {
+              originalSrc: imageUrl,
+              photoFit: 'cover',
+            }
           );
 
           return;
         }
       }
 
-      await canvasManager.addImageFromUrl(imageUrl);
+      // 1. Dropped Canva Frame
+      if (
+        elementJson &&
+        (elementJson.asset_type === 'frame' ||
+          elementJson.adminAsset?.asset_type === 'frame')
+      ) {
+        const adminAsset = elementJson.adminAsset;
+        const rawUrl =
+          adminAsset?.file_url ||
+          adminAsset?.asset_url ||
+          elementJson.url ||
+          imageUrl;
+        const maskUrl =
+          adminAsset?.metadata?.maskUrl ||
+          adminAsset?.metadata?.frame?.maskUrl ||
+          null;
+        const photoFit =
+          adminAsset?.metadata?.frame?.photoFit ||
+          adminAsset?.metadata?.photoFit ||
+          'cover';
+        const shape =
+          adminAsset?.metadata?.shape ||
+          adminAsset?.metadata?.frame?.shape ||
+          'rounded-rect';
+
+        if (rawUrl) {
+          await canvasManager.addFrameAsset(rawUrl, {
+            assetId: elementJson.providerAssetId,
+            name: elementJson.title,
+            provider: elementJson.provider || 'admin',
+            maskUrl: maskUrl || undefined,
+            photoFit: photoFit as any,
+            shape,
+            left: pointer?.x,
+            top: pointer?.y,
+          } as any);
+        } else {
+          canvasManager.addFrame(shape as any);
+        }
+        return;
+      }
+
+      // 2. Dropped Vector / SVG / Shape
+      const isSvgUrl =
+        Boolean(elementJson?.is_vector) ||
+        elementJson?.format === 'svg' ||
+        imageUrl.toLowerCase().split('?')[0].endsWith('.svg');
+
+      if (isSvgUrl) {
+        if (
+          elementJson?.asset_type === 'shape' ||
+          elementJson?.adminAsset?.asset_type === 'shape'
+        ) {
+          const adminAsset = elementJson.adminAsset;
+          const settings = {
+            ...(typeof adminAsset?.fabric_json === 'object' ? adminAsset.fabric_json : {}),
+            ...(typeof adminAsset?.metadata === 'object' ? adminAsset.metadata : {}),
+            ...(typeof adminAsset?.metadata?.shape === 'object' ? adminAsset.metadata.shape : {}),
+          };
+
+          const added = await canvasManager.addCustomPhotoShape(imageUrl, {
+            assetId: elementJson.providerAssetId || elementJson.id,
+            provider: elementJson.provider || 'admin',
+            name: elementJson.title || 'Shape',
+            originalSrc: imageUrl,
+            photoFit: settings.photoFit === 'contain' ? 'contain' : 'cover',
+            fill: typeof settings.fill === 'string' ? settings.fill : '#111111',
+            recolourable: settings.recolourable !== false,
+            allowPhotoDrop: settings.allowPhotoDrop !== false,
+            left: pointer?.x,
+            top: pointer?.y,
+          });
+
+          if (added) {
+            if (typeof (fabricCanvas as any).bringObjectToFront === 'function') {
+              (fabricCanvas as any).bringObjectToFront(added);
+            } else if (typeof (added as any).bringToFront === 'function') {
+              (added as any).bringToFront();
+            }
+            return;
+          }
+        }
+
+        await canvasManager.addSvgFromUrl(imageUrl, {
+          name: elementJson?.title || 'Vector Shape',
+          left: pointer?.x,
+          top: pointer?.y,
+        });
+        return;
+      }
+
+      await canvasManager.addImageFromUrl(
+        imageUrl,
+        {
+          name: elementJson?.title,
+          provider: elementJson?.provider,
+          providerAssetId: elementJson?.providerAssetId,
+          sourceType: elementJson?.asset_type,
+          originalSrc: imageUrl,
+        } as any,
+        pointer ? { left: pointer.x, top: pointer.y } : undefined
+      );
 
       const addedObject =
         fabricCanvas.getActiveObject() as
@@ -895,11 +1033,15 @@ export function DesignerCanvas({
           });
         }}
         onWheel={(event) => {
+          if (event.ctrlKey || event.metaKey) {
+            // Handled with passive: false in native wheel listener
+            event.preventDefault();
+            return;
+          }
+
           /* Shift + wheel scrolls horizontally, like Canva. */
           if (
             event.shiftKey &&
-            !event.ctrlKey &&
-            !event.metaKey &&
             Math.abs(event.deltaX) < Math.abs(event.deltaY)
           ) {
             event.preventDefault();

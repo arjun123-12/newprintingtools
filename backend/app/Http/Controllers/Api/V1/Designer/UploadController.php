@@ -206,7 +206,57 @@ class UploadController extends Controller
     }
 
     /**
+     * Store extracted PSD layer assets before Fabric.js canvas JSON is serialized.
+     *
+     * Validates raster image formats, stores on public disk, and returns a permanent
+     * collision-safe URL so neither data:image nor blob: URLs enter canvas_json.
+     */
+    public function storePsdAsset(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'image' => [
+                'required',
+                'file',
+                'mimetypes:image/png,image/jpeg,image/webp,image/svg+xml',
+                'mimes:png,jpg,jpeg,webp,svg',
+                'max:51200',
+            ],
+            'original_psd' => [
+                'nullable',
+                'file',
+                'max:102400',
+            ],
+            'psd_document_name' => ['nullable', 'string', 'max:255'],
+            'layer_name' => ['nullable', 'string', 'max:255'],
+            'layer_id' => ['nullable', 'string', 'max:255'],
+            'session_id' => ['nullable', 'string', 'max:255'],
+            'source_provider' => ['nullable', 'string', 'max:100'],
+            'source_provider_asset_id' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        // Retain original PSD file privately if provided (never exposed via predictable public URL)
+        if ($request->hasFile('original_psd')) {
+            try {
+                $psdFile = $request->file('original_psd');
+                $psdFile->storeAs('designer/private-psd-originals/' . Str::uuid(), Str::uuid() . '.psd', 'local');
+            } catch (\Throwable $e) {
+                Log::warning('Private PSD backup failed: ' . $e->getMessage());
+            }
+        }
+
+        return $this->storeImage(
+            request: $request,
+            file: $request->file('image'),
+            validated: $validated,
+            directory: 'designer/psd-assets',
+            processingType: 'psd_layer',
+            successMessage: 'PSD layer asset uploaded successfully.'
+        );
+    }
+
+    /**
      * Store an image before Fabric.js canvas JSON is serialized.
+
      *
      * The frontend should use the returned URL as the Fabric image src. This
      * prevents data:image/base64 and blob: values from entering canvas_json.

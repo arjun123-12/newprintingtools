@@ -28,9 +28,9 @@ interface RulerProps {
   zoom: number;
   dimensions: CanvasDimensions;
   canvasManager: CanvasManager | null;
-  paperRef: React.RefObject<HTMLDivElement>;
-  containerRef: React.RefObject<HTMLDivElement>;
-  viewportRef?: React.RefObject<HTMLDivElement>;
+  paperRef: React.RefObject<HTMLDivElement | null>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  viewportRef?: React.RefObject<HTMLDivElement | null>;
   selected?: SelectedObjectState | null;
   onUpdateDocumentSettings?: (
     settings: Partial<DocumentSettings>

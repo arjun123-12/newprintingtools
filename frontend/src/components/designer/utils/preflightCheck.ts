@@ -108,11 +108,28 @@ export function runPreflightCheck(
 
   if (!canvas) return emptyReport;
 
-  const objects = canvas.getObjects().filter((obj) => !obj.get('isGuide' as any));
+  // Editor-only objects must never take part in print validation.
+  const objects = canvas.getObjects().filter((obj) => {
+    return !(
+      obj.get('isGuide' as any) ||
+      obj.get('isPrintGuide' as any) ||
+      obj.get('isRulerGuide' as any) ||
+      obj.get('excludeFromExport' as any) ||
+      (obj as any).excludeFromExport
+    );
+  });
   const canvasW = dimensions.widthPx || 1063;
   const canvasH = dimensions.heightPx || 591;
   const bleedPx = dimensions.bleedPx || 0;
-  const safeZonePx = dimensions.safeZonePx || 35;
+  // Keep validation on the exact same inset used by CanvasGuides. Without
+  // this, the visible margin can be in one position while preflight checks a
+  // different invisible line and reports an apparently false warning.
+  const safeZonePx =
+    dimensions.marginPx !== undefined && dimensions.marginPx > 0
+      ? dimensions.marginPx
+      : dimensions.safeZonePx !== undefined && dimensions.safeZonePx > 0
+        ? dimensions.safeZonePx
+        : 35;
 
   // =========================================================================
   // ZONE BOUNDARIES (in canvas pixel coordinates)
@@ -149,27 +166,48 @@ export function runPreflightCheck(
   // Tolerance in px to consider "touching" vs "crossing"
   const TOUCH_TOLERANCE = 3;
 
-  objects.forEach((obj) => {
-    const id = (obj.get('id' as any) as string) || '';
+  objects.forEach((obj, objectIndex) => {
+    const id =
+      (obj.get('id' as any) as string) ||
+      `preflight-${obj.type || 'object'}-${objectIndex}`;
     if (obj.visible === false) return;
 
     const bound = obj.getBoundingRect();
     const objName = getObjectName(obj);
     const objType = getObjectType(obj);
 
-    // Skip full-canvas background fills
+    const sourceType = String(
+      obj.get('sourceType' as any) ||
+      (obj as any).metadata?.sourceType ||
+      ''
+    ).toLowerCase();
+
+    const isTextObject = obj instanceof Textbox || obj instanceof IText;
+
+    // Backgrounds and photo frames are intentionally allowed to extend past
+    // the safe and trim lines. They should only fail when they overflow the
+    // outer bleed/canvas boundary.
     const isBackground =
-      obj.type === 'rect' &&
-      bound.width >= canvasW * 0.9 &&
-      bound.height >= canvasH * 0.9;
-    if (isBackground) return;
+      Boolean(obj.get('isBackground' as any)) ||
+      sourceType === 'background' ||
+      (!isTextObject &&
+        bound.width >= canvasW * 0.9 &&
+        bound.height >= canvasH * 0.9);
+
+    const isFrameArtwork =
+      Boolean(obj.get('isFrame' as any)) ||
+      Boolean(obj.get('isPhotoShapeGroup' as any)) ||
+      Boolean(obj.get('isCustomFrame' as any)) ||
+      Boolean(obj.get('isCanvaPlaceholder' as any)) ||
+      sourceType === 'frame' ||
+      sourceType === 'frame-overlay';
+
+    const isIntentionalEdgeArtwork = isBackground || isFrameArtwork;
 
     const objLeft = bound.left;
     const objTop = bound.top;
     const objRight = bound.left + bound.width;
     const objBottom = bound.top + bound.height;
-
-    const violations: ZoneViolationType[] = [];
 
     // -----------------------------------------------------------------------
     // CHECK 1: Safe Zone
@@ -185,31 +223,15 @@ export function runPreflightCheck(
       outsideSafeRight > TOUCH_TOLERANCE ||
       outsideSafeBottom > TOUCH_TOLERANCE;
 
-    const isSafeTouch =
-      !isSafeViolation && (
-        Math.abs(objLeft - safeMinX) <= TOUCH_TOLERANCE ||
-        Math.abs(objTop - safeMinY) <= TOUCH_TOLERANCE ||
-        Math.abs(objRight - safeMaxX) <= TOUCH_TOLERANCE ||
-        Math.abs(objBottom - safeMaxY) <= TOUCH_TOLERANCE
-      );
-
-    if (isSafeViolation) {
-      violations.push('crosses-safe-zone');
+    // Touching the safe line is valid. Warn only after an actual crossing,
+    // and never warn for backgrounds/frames that are supposed to reach edges.
+    if (!isIntentionalEdgeArtwork && isSafeViolation) {
       safeMarginViolations.push(id);
       safeMarginDetails.push({
         objectId: id,
         objectName: objName,
         objectType: objType,
         violations: ['crosses-safe-zone'],
-      });
-    } else if (isSafeTouch) {
-      violations.push('touches-safe-zone');
-      safeMarginViolations.push(id);
-      safeMarginDetails.push({
-        objectId: id,
-        objectName: objName,
-        objectType: objType,
-        violations: ['touches-safe-zone'],
       });
     }
 
@@ -236,8 +258,7 @@ export function runPreflightCheck(
           Math.abs(objBottom - trimMaxY) <= TOUCH_TOLERANCE
         );
 
-      if (isTrimCross) {
-        violations.push('crosses-trim-line');
+      if (!isIntentionalEdgeArtwork && isTrimCross) {
         trimLineViolations.push(id);
         trimLineDetails.push({
           objectId: id,
@@ -245,8 +266,7 @@ export function runPreflightCheck(
           objectType: objType,
           violations: ['crosses-trim-line'],
         });
-      } else if (isTrimTouch) {
-        violations.push('touches-trim-line');
+      } else if (!isIntentionalEdgeArtwork && isTrimTouch) {
         trimLineViolations.push(id);
         trimLineDetails.push({
           objectId: id,
@@ -271,31 +291,13 @@ export function runPreflightCheck(
       outsideBleedRight > TOUCH_TOLERANCE ||
       outsideBleedBottom > TOUCH_TOLERANCE;
 
-    const isBleedTouch =
-      !isBleedOverflow && (
-        Math.abs(objLeft - bleedMinX) <= TOUCH_TOLERANCE ||
-        Math.abs(objTop - bleedMinY) <= TOUCH_TOLERANCE ||
-        Math.abs(objRight - bleedMaxX) <= TOUCH_TOLERANCE ||
-        Math.abs(objBottom - bleedMaxY) <= TOUCH_TOLERANCE
-      );
-
     if (isBleedOverflow) {
-      violations.push('crosses-bleed-edge');
       bleedViolations.push(id);
       bleedDetails.push({
         objectId: id,
         objectName: objName,
         objectType: objType,
         violations: ['crosses-bleed-edge'],
-      });
-    } else if (isBleedTouch) {
-      violations.push('touches-bleed-edge');
-      bleedViolations.push(id);
-      bleedDetails.push({
-        objectId: id,
-        objectName: objName,
-        objectType: objType,
-        violations: ['touches-bleed-edge'],
       });
     }
   });
@@ -307,11 +309,9 @@ export function runPreflightCheck(
   const safeCheck = checks.find((c) => c.id === 'safe-margin')!;
   if (safeMarginViolations.length > 0) {
     const crossCount = safeMarginDetails.filter(d => d.violations.includes('crosses-safe-zone')).length;
-    const touchCount = safeMarginDetails.filter(d => d.violations.includes('touches-safe-zone')).length;
-    safeCheck.status = crossCount > 0 ? 'warning' : 'warning';
+    safeCheck.status = 'warning';
     const parts: string[] = [];
     if (crossCount > 0) parts.push(`${crossCount} element(s) cross outside the safe margin`);
-    if (touchCount > 0) parts.push(`${touchCount} element(s) touch the safe margin line`);
     safeCheck.message = `${parts.join('; ')}. Text and logos here may be cut off during trimming.`;
     safeCheck.offendingObjectIds = safeMarginViolations;
     safeCheck.details = safeMarginDetails;
@@ -333,11 +333,9 @@ export function runPreflightCheck(
   const bleedCheck = checks.find((c) => c.id === 'bleed-area')!;
   if (bleedViolations.length > 0) {
     const overflowCount = bleedDetails.filter(d => d.violations.includes('crosses-bleed-edge')).length;
-    const touchCount = bleedDetails.filter(d => d.violations.includes('touches-bleed-edge')).length;
-    bleedCheck.status = overflowCount > 0 ? 'error' : 'warning';
+    bleedCheck.status = 'error';
     const parts: string[] = [];
     if (overflowCount > 0) parts.push(`${overflowCount} element(s) extend beyond the bleed area`);
-    if (touchCount > 0) parts.push(`${touchCount} element(s) touch the bleed edge`);
     bleedCheck.message = `${parts.join('; ')}. Content outside the bleed will be completely lost.`;
     bleedCheck.offendingObjectIds = bleedViolations;
     bleedCheck.details = bleedDetails;

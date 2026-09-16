@@ -116,9 +116,9 @@ export const PexelsPanel: React.FC<PexelsPanelProps> = ({ canvasManager }) => {
     if (!canvasManager) return;
     setIsInserting(photo.id);
     try {
-      // Use large2x or large for high-resolution print quality
+      // Prefer the original Pexels source for the best available print DPI.
       const targetUrl =
-        photo.src.large2x || photo.src.large || photo.src.original;
+        photo.src.original || photo.src.large2x || photo.src.large;
 
       await canvasManager.addImageFromUrl(
         targetUrl,
@@ -126,8 +126,18 @@ export const PexelsPanel: React.FC<PexelsPanelProps> = ({ canvasManager }) => {
           name: photo.alt || `Pexels-${photo.id}`,
           naturalWidth: photo.width,
           naturalHeight: photo.height,
+          originalSrc: photo.src.original || targetUrl,
+          provider: 'pexels',
+          providerAssetId: photo.id,
         },
-        { skipFrameSlotting: true }
+        {
+          skipFrameSlotting: true,
+          // Keep the complete photo proportional and place it inside the
+          // artwork with 20 mm space on the left, right, top and bottom.
+          // CanvasManager safely reduces this inset for very small artwork.
+          fitToArtworkInsetMm: 20,
+          preserveOriginalSize: false,
+        }
       );
 
       setInsertSuccess(photo.id);
@@ -169,7 +179,7 @@ export const PexelsPanel: React.FC<PexelsPanelProps> = ({ canvasManager }) => {
   // Drag start for dragging directly onto the canvas
   const handleDragStart = (e: React.DragEvent, photo: PexelsPhoto) => {
     const targetUrl =
-      photo.src.large2x || photo.src.large || photo.src.medium;
+      photo.src.original || photo.src.large2x || photo.src.large;
     e.dataTransfer.setData('text/plain', targetUrl);
     e.dataTransfer.setData('application/x-pexels-url', targetUrl);
     e.dataTransfer.effectAllowed = 'copy';
@@ -244,11 +254,10 @@ export const PexelsPanel: React.FC<PexelsPanelProps> = ({ canvasManager }) => {
               key={tab.id}
               type="button"
               onClick={() => setOrientation(tab.id as PexelsOrientation)}
-              className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${
-                orientation === tab.id
-                  ? 'bg-white text-[#05a081] shadow-sm ring-1 ring-black/[0.03]'
-                  : 'text-slate-500 hover:bg-white/60 hover:text-slate-800'
-              }`}
+              className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${orientation === tab.id
+                ? 'bg-white text-[#05a081] shadow-sm ring-1 ring-black/[0.03]'
+                : 'text-slate-500 hover:bg-white/60 hover:text-slate-800'
+                }`}
             >
               {tab.label}
             </button>
@@ -324,7 +333,8 @@ export const PexelsPanel: React.FC<PexelsPanelProps> = ({ canvasManager }) => {
                     className="group relative rounded-2xl border border-slate-200/80 bg-slate-100 overflow-hidden cursor-pointer shadow-sm hover:shadow-[0_12px_28px_rgba(5,160,129,0.2)] hover:border-[#05a081] hover:-translate-y-0.5 transition-all duration-200 aspect-[4/3] flex items-center justify-center select-none"
                     title={`Click to add to canvas or drag onto artwork (${photo.alt || 'Photo by ' + photo.photographer})`}
                   >
-                    {/* Thumbnail Image */}
+                    {/* Dynamic remote Pexels thumbnail image; keep native img for third-party CDN */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={photo.src.medium || photo.src.small}
                       alt={photo.alt || 'Pexels photo'}

@@ -23,7 +23,6 @@ import { exportLayeredPsd } from './services/psdExportService';
 import { preloadPopularFonts } from './utils/fonts';
 import { PreflightReport } from './utils/preflightCheck';
 import { FloatingDrawToolbar } from './toolbar/FloatingDrawToolbar';
-import { PreflightBadge } from './controls/PreflightBadge';
 import { ArtworkPreviewModal } from './controls/ArtworkPreviewModal';
 import { CustomBannerSizeModal } from './controls/CustomBannerSizeModal';
 import { AddToCartModal } from './controls/AddToCartModal';
@@ -1987,11 +1986,23 @@ export default function Designer({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
+      const manager = canvasManagerRef.current;
+
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        if (e.key === 'Escape' && manager) {
+          const canvas = manager.getCanvas();
+          const active = canvas?.getActiveObject() as any;
+          if (active?.isEditing) {
+            e.preventDefault();
+            active.exitEditing?.();
+            active.set?.('hoverCursor', 'move');
+            canvas?.setCursor('move');
+            canvas?.requestRenderAll();
+          }
+        }
         return;
       }
 
-      const manager = canvasManagerRef.current;
       if (!manager) return;
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -2281,16 +2292,6 @@ export default function Designer({
             printSides={printSides}
             sideNames={sideNames}
           />
-
-          {/* Inline Ready for Print Preflight Checklist Card */}
-          {preflightReport && (
-            <div className="w-full flex-shrink-0 bg-white">
-              <PreflightBadge
-                report={preflightReport}
-                canvasManager={canvasManager}
-              />
-            </div>
-          )}
         </div>
 
         {/* Right Properties Panel */}
@@ -2320,6 +2321,8 @@ export default function Designer({
         onFitCanvas={handleFitCanvas}
         showGuides={showGuides}
         onToggleGuides={handleToggleGuides}
+        preflightReport={preflightReport}
+        canvasManager={canvasManager}
       />
 
       {/* Print Preview Modal */}

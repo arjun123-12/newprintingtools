@@ -21,19 +21,20 @@ class FreepikClient
      */
     public function client(): PendingRequest
     {
-        $request = Http::withoutVerifying()->withHeaders([
-            'x-magnific-api-key' => $this->apiKey,
-            'x-freepik-api-key' => $this->apiKey,
-            'Accept-Language' => 'en-US',
-            'Accept' => 'application/json',
-        ])
-        ->baseUrl($this->apiUrl)
-        ->timeout(30);
-
-        if (app()->environment('local')) {
-            $request->withoutVerifying();
-        }
-
-        return $request;
+        return Http::withoutVerifying()
+            ->withHeaders([
+                'x-magnific-api-key' => $this->apiKey,
+                'x-freepik-api-key' => $this->apiKey,
+                'Accept-Language' => 'en-US',
+                'Accept' => 'application/json',
+            ])
+            ->withOptions([
+                'version' => 1.1,
+                'curl' => [
+                    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                ],
+            ])
+            ->baseUrl($this->apiUrl)
+            ->timeout(30);
     }
 }

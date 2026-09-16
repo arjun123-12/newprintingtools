@@ -328,19 +328,77 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
   const shapeButton = (asset: DesignAsset, compact = true) => {
     const thumbnail = getThumbnailUrl(asset);
     const applying = applyingId === asset.id;
+    const shapeUrl = getAssetUrl(asset) || thumbnail || '';
+
+    const handleDragStart = (e: React.DragEvent) => {
+      if (!shapeUrl) return;
+      e.dataTransfer.setData('text/plain', shapeUrl);
+      e.dataTransfer.setData(
+        'application/x-element-json',
+        JSON.stringify({
+          id: `admin:${asset.id}`,
+          title: asset.name,
+          url: shapeUrl,
+          provider: asset.provider || 'admin',
+          providerAssetId: asset.id,
+          asset_type: 'shape',
+          is_vector: true,
+          format: 'svg',
+          adminAsset: asset,
+        })
+      );
+      e.dataTransfer.effectAllowed = 'copy';
+
+      try {
+        const ghost = document.createElement('div');
+        ghost.style.position = 'absolute';
+        ghost.style.top = '-9999px';
+        ghost.style.left = '-9999px';
+        ghost.style.width = '64px';
+        ghost.style.height = '64px';
+        ghost.style.borderRadius = '12px';
+        ghost.style.background = '#ffffff';
+        ghost.style.boxShadow = '0 10px 25px rgba(0,0,0,0.15)';
+        ghost.style.display = 'flex';
+        ghost.style.alignItems = 'center';
+        ghost.style.justifyContent = 'center';
+        ghost.style.padding = '8px';
+        ghost.style.zIndex = '999999';
+
+        const img = document.createElement('img');
+        img.src = thumbnail || shapeUrl;
+        img.style.maxWidth = '100%';
+        img.style.maxHeight = '100%';
+        img.style.objectFit = 'contain';
+        ghost.appendChild(img);
+
+        document.body.appendChild(ghost);
+        e.dataTransfer.setDragImage(ghost, 32, 32);
+        setTimeout(() => {
+          if (document.body.contains(ghost)) {
+            document.body.removeChild(ghost);
+          }
+        }, 500);
+      } catch {
+        // ignore
+      }
+    };
+
     return (
       <button
         key={asset.id}
         type="button"
+        draggable
+        onDragStart={handleDragStart}
         disabled={Boolean(applyingId)}
         onClick={() => void applyShape(asset)}
-        title={asset.name}
-        className={`${compact ? 'w-[62px] shrink-0' : 'w-full'} group text-left disabled:cursor-wait disabled:opacity-60`}
+        title={`Click to add or drag onto canvas (${asset.name})`}
+        className={`${compact ? 'w-[64px] shrink-0' : 'w-full'} group text-left cursor-grab active:cursor-grabbing select-none disabled:cursor-wait disabled:opacity-60`}
       >
-        <span className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-transparent bg-gray-50 p-1.5 transition group-hover:border-purple-300 group-hover:bg-purple-50 group-focus-visible:ring-2 group-focus-visible:ring-purple-500">
+        <span className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-xl border border-gray-100 bg-gray-50/80 p-2 transition-all duration-200 group-hover:scale-105 group-hover:border-purple-300 group-hover:bg-purple-50 group-hover:shadow-sm group-focus-visible:ring-2 group-focus-visible:ring-purple-500">
           {thumbnail ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={thumbnail} alt="" loading="lazy" draggable={false} className="h-full w-full object-contain" />
+            <img src={thumbnail} alt="" loading="lazy" draggable={false} className="h-full w-full object-contain pointer-events-none" />
           ) : (
             <Shapes className="h-7 w-7 text-gray-800" />
           )}
@@ -350,7 +408,7 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
             </span>
           )}
         </span>
-        <span className="mt-1 block truncate px-0.5 text-[10px] font-medium text-gray-600">
+        <span className="mt-1 block truncate px-0.5 text-[10px] font-medium text-gray-600 text-center">
           {asset.name}
         </span>
       </button>

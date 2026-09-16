@@ -85,185 +85,6 @@ class DesignerController extends Controller
         ]);
     }
 
-    /**
-     * Return all templates for the admin templates table.
-     * canvas_json is excluded because it may be very large.
-     */
-    // public function indexTemplates(): JsonResponse
-    // {
-    //     $templates = DesignTemplate::query()
-    //         ->select([
-    //             'id',
-    //             'product_id',
-    //             'name',
-    //             'category',
-    //             'thumbnail_url',
-    //             'is_active',
-    //             'created_at',
-    //             'updated_at',
-    //         ])
-    //         ->with('product:id,name,slug')
-    //         ->latest()
-    //         ->get();
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'data' => $templates,
-    //     ]);
-    // }
-
-    /**
-     * Store an original editable template for a product.
-     */
-    // public function storeTemplate(Request $request, string $productId): JsonResponse
-    // {
-    //     $product = Product::query()->findOrFail($productId);
-
-    //     $validated = $request->validate([
-    //         'name' => ['required', 'string', 'max:255'],
-    //         'category' => ['nullable', 'string', 'max:255'],
-    //         'canvas_json' => ['required', 'array'],
-    //         'thumbnail_url' => ['nullable', 'string', 'max:255'],
-    //         'is_active' => ['sometimes', 'boolean'],
-    //     ]);
-
-    //     $template = $product->templates()->create([
-    //         'name' => $validated['name'],
-    //         'category' => $validated['category'] ?? null,
-    //         'canvas_json' => $validated['canvas_json'],
-    //         'thumbnail_url' => $validated['thumbnail_url'] ?? null,
-    //         'is_active' => $validated['is_active'] ?? true,
-    //     ]);
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'message' => 'Template saved successfully.',
-    //         'data' => $template,
-    //     ], 201);
-    // }
-
-    /**
-     * Return a single template by ID for admin editing.
-     */
-    // public function showTemplate(string $id): JsonResponse
-    // {
-    //     $template = DesignTemplate::with('product:id,name,slug,category_id')->findOrFail($id);
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'data' => $template,
-    //     ]);
-    // }
-
-    /**
-     * Store a new template from the admin template form.
-     */
-    // public function storeAdminTemplate(Request $request): JsonResponse
-    // {
-    //     $validated = $request->validate([
-    //         'product_id' => ['required', 'uuid', 'exists:products,id'],
-    //         'name' => ['required', 'string', 'max:255'],
-    //         'category' => ['nullable', 'string', 'max:255'],
-    //         'canvas_json' => ['nullable', 'array'],
-    //         'thumbnail_url' => ['nullable', 'string'],
-    //         'is_active' => ['nullable', 'boolean'],
-    //     ]);
-
-    //     $thumbnailUrl = $validated['thumbnail_url'] ?? null;
-    //     if (!empty($thumbnailUrl) && str_starts_with($thumbnailUrl, 'data:image/')) {
-    //         if (preg_match('#^data:image/(\w+);base64,(.+)$#si', $thumbnailUrl, $matches)) {
-    //             $ext = strtolower($matches[1]) === 'jpeg' ? 'jpg' : strtolower($matches[1]);
-    //             $binary = base64_decode($matches[2]);
-    //             if ($binary !== false) {
-    //                 $filename = 'templates/thumb_' . \Illuminate\Support\Str::uuid() . '.' . $ext;
-    //                 \Illuminate\Support\Facades\Storage::disk('public')->put($filename, $binary);
-    //                 $thumbnailUrl = '/storage/' . $filename;
-    //             }
-    //         }
-    //     }
-
-    //     $defaultCanvasJson = [
-    //         'version' => '6.0.0',
-    //         'objects' => [],
-    //         'background' => '#ffffff',
-    //     ];
-
-    //     $template = DesignTemplate::create([
-    //         'product_id' => $validated['product_id'],
-    //         'name' => $validated['name'],
-    //         'category' => $validated['category'] ?? 'Corporate',
-    //         'canvas_json' => $validated['canvas_json'] ?? $defaultCanvasJson,
-    //         'thumbnail_url' => $thumbnailUrl,
-    //         'is_active' => $validated['is_active'] ?? true,
-    //     ]);
-
-    //     $template->load('product:id,name,slug');
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'message' => 'Template created successfully.',
-    //         'data' => $template,
-    //     ], 201);
-    // }
-
-    /**
-     * Update a design template.
-     */
-    // public function updateTemplate(Request $request, string $id): JsonResponse
-    // {
-    //     $template = DesignTemplate::findOrFail($id);
-
-    //     $validated = $request->validate([
-    //         'product_id' => ['sometimes', 'required', 'uuid', 'exists:products,id'],
-    //         'name' => ['sometimes', 'required', 'string', 'max:255'],
-    //         'category' => ['nullable', 'string', 'max:255'],
-    //         'canvas_json' => ['sometimes', 'array'],
-    //         'thumbnail_url' => ['nullable', 'string'],
-    //         'is_active' => ['sometimes', 'boolean'],
-    //     ]);
-
-    //     if (array_key_exists('thumbnail_url', $validated)) {
-    //         $thumbnailUrl = $validated['thumbnail_url'];
-    //         if (!empty($thumbnailUrl) && str_starts_with($thumbnailUrl, 'data:image/')) {
-    //             if (preg_match('#^data:image/(\w+);base64,(.+)$#si', $thumbnailUrl, $matches)) {
-    //                 $ext = strtolower($matches[1]) === 'jpeg' ? 'jpg' : strtolower($matches[1]);
-    //                 $binary = base64_decode($matches[2]);
-    //                 if ($binary !== false) {
-    //                     $filename = 'templates/thumb_' . \Illuminate\Support\Str::uuid() . '.' . $ext;
-    //                     \Illuminate\Support\Facades\Storage::disk('public')->put($filename, $binary);
-    //                     $validated['thumbnail_url'] = '/storage/' . $filename;
-    //                 }
-    //             }
-    //         }
-    //     }
-
-    //     $template->update($validated);
-    //     $template->load('product:id,name,slug');
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'message' => 'Template updated successfully.',
-    //         'data' => $template,
-    //     ]);
-    // }
-
-    /**
-     * Delete a design template.
-     */
-    // public function destroyTemplate(string $id): JsonResponse
-    // {
-    //     $template = DesignTemplate::findOrFail($id);
-    //     $template->delete();
-
-    //     return response()->json([
-    //         'success' => true,
-    //         'message' => 'Template deleted successfully.',
-    //     ]);
-    // }
-
-    /**
-     * Serve local public storage files with full CORS support and path traversal protection.
-     */
     public function serveStorage(string $path)
     {
         $rawPath = urldecode($path);
@@ -387,18 +208,33 @@ class DesignerController extends Controller
             parse_url(config('app.url', ''), PHP_URL_HOST),
             parse_url(config('filesystems.disks.r2.url', ''), PHP_URL_HOST),
             parse_url(config('filesystems.disks.s3.url', ''), PHP_URL_HOST),
+            // Trusted stock-image providers. The boundary-safe suffix check
+            // below also permits their CDN subdomains, such as
+            // cdn.pixabay.com and images.pexels.com.
+            'pixabay.com',
+            'pexels.com',
             'freepik.com',
             'flaticon.com',
+            'b2bpic.net',
+            'magnific.com',
+            'downloadscdn6.magnific.com',
         ]);
 
         if (env('ALLOWED_IMAGE_PROXY_DOMAINS')) {
-            $extraDomains = array_map('trim', explode(',', env('ALLOWED_IMAGE_PROXY_DOMAINS')));
+            $extraDomains = array_values(array_filter(array_map(
+                static fn (string $domain): string => strtolower(trim($domain)),
+                explode(',', (string) env('ALLOWED_IMAGE_PROXY_DOMAINS'))
+            )));
             $allowedHosts = array_merge($allowedHosts, $extraDomains);
         }
 
         $isAllowedHost = false;
         foreach ($allowedHosts as $allowed) {
-            $allowed = strtolower($allowed);
+            $allowed = strtolower(trim((string) $allowed));
+            if ($allowed === '') {
+                continue;
+            }
+
             if ($host === $allowed || str_ends_with($host, '.' . $allowed)) {
                 $isAllowedHost = true;
                 break;
@@ -439,4 +275,3 @@ class DesignerController extends Controller
         }
     }
 }
-

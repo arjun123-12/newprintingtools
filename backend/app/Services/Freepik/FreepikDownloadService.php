@@ -23,59 +23,90 @@ class FreepikDownloadService
      *
      * Fabric.js must receive the stored URL, not a temporary Freepik URL.
      */
-    public function useAsset(string $id): array
+    public function useAsset(string $id, ?string $requestedFormat = null): array
     {
         $details = $this->resourceService->getDetails($id);
-        $remoteUrl = null;
+        $format = $this->resolveRequestedFormat($requestedFormat, $details);
+        $isPsd = $format === 'psd';
+        $downloadEndpoint = $isPsd
+            ? "/resources/{$id}/download/psd"
+            : "/resources/{$id}/download";
+
+        $response = null;
 
         try {
             $response = $this->client
                 ->client()
-                ->get("/resources/{$id}/download");
-
-            if ($response->successful()) {
-                $remoteUrl = $response->json('data.url');
-            } else {
-                Log::warning('Freepik download request was unsuccessful.', [
-                    'resource_id' => $id,
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                ]);
-            }
+                ->get($downloadEndpoint);
         } catch (Throwable $exception) {
-            Log::warning('Freepik download request failed.', [
+            Log::error('Freepik download request failed.', [
                 'resource_id' => $id,
+                'format' => $format,
                 'error' => $exception->getMessage(),
             ]);
-        }
 
-        // ZIP, EPS, AI and RAR files cannot be rendered by Fabric.js.
-        if (!$remoteUrl || $this->isUnsupportedArtworkUrl($remoteUrl)) {
-            $remoteUrl = $this->getRasterPreviewUrl($details);
-        }
-
-        if (!$remoteUrl) {
             throw new RuntimeException(
-                'Could not retrieve a renderable Freepik image URL.',
-                404
+                'Could not connect to the Freepik download API.',
+                502,
+                $exception
             );
         }
 
-        try {
-            $storedImage = $this->storeRemoteImage(
-                $remoteUrl,
-                "designer/freepik/{$id}"
+        if (!$response->successful()) {
+            Log::warning('Freepik download request was unsuccessful.', [
+                'resource_id' => $id,
+                'format' => $format,
+                'status' => $response->status(),
+                'body' => Str::limit($response->body(), 1000),
+            ]);
+
+            throw new RuntimeException(
+                $this->getFreepikDownloadErrorMessage($response, $isPsd),
+                $this->normaliseHttpStatus($response->status())
             );
-        } catch (RuntimeException $exception) {
-            // A download endpoint can return a ZIP even when its URL has no
-            // extension. In that case, store the raster preview instead.
+        }
+
+        $remoteUrl = $this->extractDownloadUrl($response);
+
+        // Some download endpoints return the file directly instead of JSON.
+        if ($remoteUrl === null && !$this->isJsonResponse($response)) {
+            $storedAsset = $isPsd
+                ? $this->storePsdBytes(
+                    $response->body(),
+                    "designer/freepik/{$id}"
+                )
+                : $this->storeRasterBytes(
+                    $response->body(),
+                    (string) ($response->header('Content-Type') ?? ''),
+                    "designer/freepik/{$id}"
+                );
+        } elseif ($remoteUrl !== null) {
+            $storedAsset = $isPsd
+                ? $this->storeRemotePsd(
+                    $remoteUrl,
+                    "designer/freepik/{$id}"
+                )
+                : $this->storeRemoteImage(
+                    $remoteUrl,
+                    "designer/freepik/{$id}"
+                );
+        } elseif ($isPsd) {
+            // Never silently replace a requested layered PSD with a preview.
+            throw new RuntimeException(
+                'Freepik did not return an original PSD download URL. Check that your API account can download PSD resources.',
+                422
+            );
+        } else {
             $previewUrl = $this->getRasterPreviewUrl($details);
 
-            if (!$previewUrl || $previewUrl === $remoteUrl) {
-                throw $exception;
+            if ($previewUrl === null) {
+                throw new RuntimeException(
+                    'Could not retrieve a renderable Freepik image URL.',
+                    404
+                );
             }
 
-            $storedImage = $this->storeRemoteImage(
+            $storedAsset = $this->storeRemoteImage(
                 $previewUrl,
                 "designer/freepik/{$id}"
             );
@@ -83,16 +114,20 @@ class FreepikDownloadService
 
         return [
             'id' => (string) $id,
-            'url' => $storedImage['url'],
-            'file_url' => $storedImage['url'],
-            'file_path' => $storedImage['path'],
-            'mime_type' => $storedImage['mime_type'],
+            'url' => $storedAsset['url'],
+            'file_url' => $storedAsset['url'],
+            'original_url' => $storedAsset['url'],
+            'file_path' => $storedAsset['path'],
+            'mime_type' => $storedAsset['mime_type'],
+            'file_format' => $isPsd ? 'psd' : $storedAsset['extension'],
             'title' => $details['title']
                 ?? $details['name']
                 ?? 'Freepik Asset',
-            'type' => $details['content_type']
-                ?? $details['type']
-                ?? 'photo',
+            'type' => $isPsd
+                ? 'psd'
+                : ($details['content_type']
+                    ?? $details['type']
+                    ?? 'photo'),
             'provider' => 'freepik',
             'provider_asset_id' => (string) $id,
         ];
@@ -123,18 +158,23 @@ class FreepikDownloadService
         $this->ensurePublicHttpUrl($imageUrl);
 
         try {
-            $response = Http::acceptJson()
+            $http = Http::acceptJson()
                 ->asForm()
                 ->withHeaders([
                     'x-magnific-api-key' => $apiKey,
                 ])
                 ->connectTimeout(20)
                 ->timeout(120)
-                ->retry(2, 500)
-                ->post(
-                    $apiUrl . '/ai/beta/remove-background',
-                    ['image_url' => $imageUrl]
-                );
+                ->retry(2, 500);
+
+            if (app()->environment('local')) {
+                $http = $http->withoutVerifying();
+            }
+
+            $response = $http->post(
+                $apiUrl . '/ai/beta/remove-background',
+                ['image_url' => $imageUrl]
+            );
         } catch (Throwable $exception) {
             Log::error('Magnific remove-background connection failed.', [
                 'error' => $exception->getMessage(),
@@ -213,13 +253,15 @@ class FreepikDownloadService
         string $directory,
         ?string $forcedExtension = null
     ): array {
+        $this->ensurePublicHttpUrl($remoteUrl);
+
         try {
             $http = Http::accept('image/*')
                 ->connectTimeout(20)
                 ->timeout(120)
                 ->retry(2, 500);
 
-            if (app()->environment('local') || true) {
+            if (app()->environment('local')) {
                 $http = $http->withoutVerifying();
             }
 
@@ -243,7 +285,7 @@ class FreepikDownloadService
 
         $mimeType = strtolower(trim(explode(
             ';',
-            (string) $response->header('Content-Type', '')
+            (string) ($response->header('Content-Type') ?? '')
         )[0]));
 
         $allowedMimeTypes = [
@@ -251,9 +293,12 @@ class FreepikDownloadService
             'image/png' => 'png',
             'image/webp' => 'webp',
             'image/gif' => 'gif',
+            'image/x-png' => 'png',
+            'application/octet-stream' => 'png',
+            'binary/octet-stream' => 'png',
         ];
 
-        if (!isset($allowedMimeTypes[$mimeType])) {
+        if (!isset($allowedMimeTypes[$mimeType]) && empty($forcedExtension)) {
             throw new RuntimeException(
                 'The remote resource is not a supported raster image.',
                 422
@@ -270,9 +315,9 @@ class FreepikDownloadService
         }
 
         // Prevent unexpectedly large remote files from filling storage.
-        if (strlen($body) > 20 * 1024 * 1024) {
+        if (strlen($body) > $this->maximumAssetBytes()) {
             throw new RuntimeException(
-                'The downloaded image exceeds the 20 MB limit.',
+                'The downloaded image exceeds the configured file-size limit.',
                 422
             );
         }
@@ -299,7 +344,296 @@ class FreepikDownloadService
             'path' => $path,
             'url' => Storage::disk($disk)->url($path),
             'mime_type' => $mimeType,
+            'extension' => $extension,
         ];
+    }
+
+    /**
+     * Download an original PSD. Freepik may return either a raw PSD or a ZIP
+     * containing the PSD, so both formats are handled without exposing the
+     * provider API key to the browser.
+     */
+    private function storeRemotePsd(string $remoteUrl, string $directory): array
+    {
+        $this->ensurePublicHttpUrl($remoteUrl);
+
+        try {
+            $http = Http::accept('*/*')
+                ->connectTimeout(20)
+                ->timeout(300)
+                ->retry(2, 750);
+
+            if (app()->environment('local')) {
+                $http = $http->withoutVerifying();
+            }
+
+            $response = $http->get($remoteUrl);
+        } catch (Throwable $exception) {
+            throw new RuntimeException(
+                'Could not download the original PSD file.',
+                502,
+                $exception
+            );
+        }
+
+        if ($response->failed()) {
+            throw new RuntimeException(
+                'The original PSD download failed with status '
+                    . $response->status()
+                    . '.',
+                502
+            );
+        }
+
+        return $this->storePsdBytes($response->body(), $directory);
+    }
+
+    private function storePsdBytes(string $body, string $directory): array
+    {
+        if ($body === '') {
+            throw new RuntimeException('The downloaded PSD is empty.', 502);
+        }
+
+        if (strlen($body) > $this->maximumAssetBytes()) {
+            throw new RuntimeException(
+                'The downloaded PSD exceeds the configured file-size limit.',
+                422
+            );
+        }
+
+        if (substr($body, 0, 4) === "PK\x03\x04") {
+            $body = $this->extractPsdFromZip($body);
+        }
+
+        if (substr($body, 0, 4) !== '8BPS') {
+            throw new RuntimeException(
+                'Freepik returned a preview or unsupported file instead of an original PSD.',
+                422
+            );
+        }
+
+        $path = trim($directory, '/')
+            . '/'
+            . Str::uuid()
+            . '.psd';
+        $disk = (string) config('filesystems.default', 'public');
+
+        if (!Storage::disk($disk)->put($path, $body)) {
+            throw new RuntimeException(
+                'The downloaded PSD could not be stored.',
+                500
+            );
+        }
+
+        return [
+            'path' => $path,
+            'url' => Storage::disk($disk)->url($path),
+            'mime_type' => 'image/vnd.adobe.photoshop',
+            'extension' => 'psd',
+        ];
+    }
+
+    private function extractPsdFromZip(string $zipBytes): string
+    {
+        if (!class_exists(\ZipArchive::class)) {
+            throw new RuntimeException(
+                'PHP ZipArchive is required to extract Freepik PSD downloads.',
+                500
+            );
+        }
+
+        $temporaryPath = tempnam(sys_get_temp_dir(), 'freepik_psd_');
+
+        if ($temporaryPath === false) {
+            throw new RuntimeException(
+                'Could not create a temporary file for PSD extraction.',
+                500
+            );
+        }
+
+        try {
+            if (file_put_contents($temporaryPath, $zipBytes) === false) {
+                throw new RuntimeException(
+                    'Could not prepare the PSD archive for extraction.',
+                    500
+                );
+            }
+
+            $zip = new \ZipArchive();
+            $opened = $zip->open($temporaryPath);
+
+            if ($opened !== true) {
+                throw new RuntimeException(
+                    'The downloaded PSD archive is invalid.',
+                    422
+                );
+            }
+
+            try {
+                for ($index = 0; $index < $zip->numFiles; $index++) {
+                    $stat = $zip->statIndex($index);
+                    $name = is_array($stat) ? (string) ($stat['name'] ?? '') : '';
+                    $size = is_array($stat) ? (int) ($stat['size'] ?? 0) : 0;
+
+                    if (!preg_match('/\.psd$/i', $name)) {
+                        continue;
+                    }
+
+                    if ($size <= 0 || $size > $this->maximumAssetBytes()) {
+                        throw new RuntimeException(
+                            'The PSD inside the archive exceeds the configured file-size limit.',
+                            422
+                        );
+                    }
+
+                    $psdBytes = $zip->getFromIndex($index);
+
+                    if (
+                        !is_string($psdBytes)
+                        || substr($psdBytes, 0, 4) !== '8BPS'
+                    ) {
+                        throw new RuntimeException(
+                            'The archive does not contain a valid PSD file.',
+                            422
+                        );
+                    }
+
+                    return $psdBytes;
+                }
+            } finally {
+                $zip->close();
+            }
+        } finally {
+            @unlink($temporaryPath);
+        }
+
+        throw new RuntimeException(
+            'The downloaded archive does not contain a PSD file.',
+            422
+        );
+    }
+
+    private function storeRasterBytes(
+        string $body,
+        string $contentType,
+        string $directory
+    ): array {
+        $mimeType = strtolower(trim(explode(';', $contentType)[0]));
+        $allowedMimeTypes = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            'image/gif' => 'gif',
+        ];
+
+        if (!isset($allowedMimeTypes[$mimeType])) {
+            throw new RuntimeException(
+                'Freepik returned an unsupported image format.',
+                422
+            );
+        }
+
+        if ($body === '' || strlen($body) > $this->maximumAssetBytes()) {
+            throw new RuntimeException(
+                'The downloaded image is empty or exceeds the configured file-size limit.',
+                422
+            );
+        }
+
+        $extension = $allowedMimeTypes[$mimeType];
+        $path = trim($directory, '/')
+            . '/'
+            . Str::uuid()
+            . '.'
+            . $extension;
+        $disk = (string) config('filesystems.default', 'public');
+
+        if (!Storage::disk($disk)->put($path, $body)) {
+            throw new RuntimeException(
+                'The downloaded image could not be stored.',
+                500
+            );
+        }
+
+        return [
+            'path' => $path,
+            'url' => Storage::disk($disk)->url($path),
+            'mime_type' => $mimeType,
+            'extension' => $extension,
+        ];
+    }
+
+    private function resolveRequestedFormat(
+        ?string $requestedFormat,
+        array $details
+    ): ?string {
+        $candidate = strtolower(trim((string) (
+            $requestedFormat
+            ?? $details['content_type']
+            ?? $details['type']
+            ?? $details['image']['type']
+            ?? ''
+        )));
+
+        return str_contains($candidate, 'psd') ? 'psd' : null;
+    }
+
+    private function extractDownloadUrl(Response $response): ?string
+    {
+        if (!$this->isJsonResponse($response)) {
+            return null;
+        }
+
+        $candidates = [
+            $response->json('data.url'),
+            $response->json('data.download_url'),
+            $response->json('url'),
+            $response->json('download_url'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && filter_var($candidate, FILTER_VALIDATE_URL)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function isJsonResponse(Response $response): bool
+    {
+        return str_contains(
+            strtolower((string) ($response->header('Content-Type') ?? '')),
+            'json'
+        );
+    }
+
+    private function maximumAssetBytes(): int
+    {
+        $megabytes = max(
+            1,
+            (int) config('services.freepik.max_download_mb', 100)
+        );
+
+        return $megabytes * 1024 * 1024;
+    }
+
+    private function getFreepikDownloadErrorMessage(
+        Response $response,
+        bool $isPsd
+    ): string {
+        $message = $response->json('message')
+            ?? $response->json('error.message')
+            ?? $response->json('error')
+            ?? null;
+
+        if (is_string($message) && $message !== '') {
+            return $message;
+        }
+
+        return $isPsd
+            ? 'Freepik could not provide the original PSD. Verify your download entitlement and API plan.'
+            : 'Freepik could not provide the requested asset.';
     }
 
     private function getRasterPreviewUrl(array $details): ?string

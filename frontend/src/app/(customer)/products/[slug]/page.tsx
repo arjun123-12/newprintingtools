@@ -1,19 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
 import {
-  Layers,
   Palette,
   ArrowLeft,
-  Sparkles,
-  CheckCircle2,
-  ExternalLink,
   Loader2,
   LayoutTemplate,
-  Ruler,
-  ShieldCheck,
 } from 'lucide-react';
 import { apiClient } from '@/services/api/client';
 
@@ -46,9 +39,14 @@ interface AdminTemplate {
   canvas_json?: any;
 }
 
-export default function ProductDetailPage() {
-  const params = useParams<{ slug: string }>();
-  const router = useRouter();
+interface ProductDetailPageProps {
+  params: Promise<{
+    slug: string;
+  }>;
+}
+
+export default function ProductDetailPage({ params }: ProductDetailPageProps) {
+  const { slug } = use(params);
 
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [templates, setTemplates] = useState<AdminTemplate[]>([]);
@@ -56,7 +54,7 @@ export default function ProductDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!params?.slug) return;
+    if (!slug) return;
 
     const fetchProductAndTemplates = async () => {
       setLoading(true);
@@ -64,7 +62,7 @@ export default function ProductDetailPage() {
 
       try {
         // 1. Fetch product
-        const prodRes = await apiClient.get(`/products/${params.slug}`);
+        const prodRes = await apiClient.get(`/products/${slug}`);
         const prodData = prodRes.data?.data;
         if (!prodData) {
           throw new Error('Product not found.');
@@ -90,7 +88,7 @@ export default function ProductDetailPage() {
     };
 
     void fetchProductAndTemplates();
-  }, [params?.slug]);
+  }, [slug]);
 
   if (loading) {
     return (
