@@ -59,6 +59,16 @@ import {
 // Apply Canva-style selection frame and handles globally
 applyCanvaControlsGlobal();
 
+// Ensure all Fabric text objects render directly from vector glyphs (no blurry bitmap caching)
+(Textbox as any).ownDefaults = {
+  ...((Textbox as any).ownDefaults || {}),
+  objectCaching: false,
+};
+(IText as any).ownDefaults = {
+  ...((IText as any).ownDefaults || {}),
+  objectCaching: false,
+};
+
 export const ZOOM_PRESETS = [
   0.1, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
 ];
@@ -1019,7 +1029,14 @@ export class CanvasManager {
     };
 
     this.canvas.getObjects().forEach((object) => {
-      if (
+      if (this.isTextObject(object)) {
+        object.set({
+          objectCaching: false,
+          noScaleCache: false,
+          dirty: true,
+        });
+        object.setCoords();
+      } else if (
         this.isShapeObject(object) ||
         Boolean(object.get('isFrame' as any)) ||
         Boolean(object.get('isPhotoShapeGroup' as any))
@@ -1205,7 +1222,7 @@ export class CanvasManager {
    * boundaries where instanceof is not reliable. Always retain a type-name
    * fallback so reselected text continues to expose typography properties.
    */
-  private isTextObject(
+  public isTextObject(
     obj: FabricObject | null | undefined
   ): obj is Textbox | IText {
     if (!obj) return false;
@@ -1283,6 +1300,14 @@ export class CanvasManager {
 
     const isLocked = getValue('isLocked') === true;
     const isText = this.isTextObject(fabricObject);
+
+    if (isText) {
+      fabricObject.set({
+        objectCaching: false,
+        noScaleCache: false,
+        strokeUniform: true,
+      });
+    }
 
     if (isLocked) {
       fabricObject.set({
@@ -6584,8 +6609,8 @@ export class CanvasManager {
       splitByGrapheme: false,
       hoverCursor: 'move',
       moveCursor: 'move',
-      // Enable objectCaching so cursor blinking does not repeatedly re-render glyphs
-      objectCaching: true,
+      // Render directly from vector glyphs so text stays sharp across zooms and retina displays
+      objectCaching: false,
       noScaleCache: false,
       strokeUniform: true,
       lockScalingFlip: true,
@@ -7475,6 +7500,9 @@ export class CanvasManager {
               width: nextWidth,
               scaleX: 1,
               scaleY: 1,
+              objectCaching: false,
+              noScaleCache: false,
+              strokeUniform: true,
               dirty: true,
             });
             textObj.set('fontSizePt' as any, (nextFontSize * 72) / artworkDpi);
@@ -7505,6 +7533,14 @@ export class CanvasManager {
     this.canvas.on('object:scaling', (opt: any) => {
       const target = opt.target;
       if (!target || this.isNonInteractiveObject(target)) return;
+
+      if (this.isTextObject(target)) {
+        target.set({
+          objectCaching: false,
+          noScaleCache: false,
+          dirty: true,
+        });
+      }
 
       const activeCorner =
         opt?.transform?.corner ||

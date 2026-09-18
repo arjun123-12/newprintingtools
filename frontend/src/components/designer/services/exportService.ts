@@ -1,5 +1,6 @@
 import { DocumentSettings, CanvasDimensions } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
+import { urlToSafeDataUrl } from '@/utils/imageUrl';
 
 import PDFDocument from 'pdfkit';
 import * as PDFKitModule from 'pdfkit';
@@ -177,7 +178,7 @@ function normalizeQuality(quality: number): number {
 }
 
 /** Converts an image Blob to a data URL that PDFKit can embed safely. */
-function blobToDataUrl(blob: Blob): Promise<string> {
+export function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ''));
@@ -187,9 +188,129 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /**
+ * Ensures any image URL, blob URL, or data URL is converted into a PDFKit/SVG-safe
+ * PNG or JPEG base64 data URL.
+ * WebP, AVIF, SVG data URLs are decoded through an offscreen HTMLCanvasElement
+ * into a lossless PNG data URL so PDFKit and external SVG viewers never fail.
+ */
+export async function ensureSafePngOrJpegDataUrl(
+  urlOrDataUrl: string,
+  timeoutMs: number = 15000
+): Promise<string> {
+  if (!urlOrDataUrl) return '';
+  const trimmed = urlOrDataUrl.trim();
+
+  // If already PNG or JPEG data URL, return directly!
+  if (
+    trimmed.startsWith('data:image/png;') ||
+    trimmed.startsWith('data:image/jpeg;') ||
+    trimmed.startsWith('data:image/jpg;')
+  ) {
+    return trimmed;
+  }
+
+  // Helper to draw an image element or loaded image onto a 2D canvas and get PNG data URL
+  const rasterizeToPngDataUrl = async (source: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const timer = setTimeout(() => {
+        img.onload = null;
+        img.onerror = null;
+        reject(new Error('Image rasterization timed out'));
+      }, timeoutMs);
+
+      img.onload = () => {
+        clearTimeout(timer);
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth || img.width || 1;
+          canvas.height = img.naturalHeight || img.height || 1;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Canvas 2D context unavailable'));
+            return;
+          }
+          ctx.drawImage(img, 0, 0);
+          const pngUrl = canvas.toDataURL('image/png');
+          if (pngUrl && pngUrl.startsWith('data:image/png;')) {
+            resolve(pngUrl);
+          } else {
+            reject(new Error('Failed to create PNG data URL'));
+          }
+        } catch (err) {
+          reject(err);
+        }
+      };
+
+      img.onerror = (err) => {
+        clearTimeout(timer);
+        reject(err);
+      };
+
+      img.src = source;
+    });
+  };
+
+  // If it's a data URL of any other format (like data:image/webp, data:image/svg+xml, etc.)
+  if (trimmed.startsWith('data:')) {
+    try {
+      return await rasterizeToPngDataUrl(trimmed);
+    } catch (e) {
+      console.warn('Failed to rasterize data URL to PNG:', e);
+      return trimmed;
+    }
+  }
+
+  // If it's a blob: URL
+  if (trimmed.startsWith('blob:')) {
+    try {
+      return await rasterizeToPngDataUrl(trimmed);
+    } catch {
+      try {
+        const res = await fetch(trimmed);
+        const blob = await res.blob();
+        const readerDataUrl = await blobToDataUrl(blob);
+        if (readerDataUrl.startsWith('data:image/png;') || readerDataUrl.startsWith('data:image/jpeg;')) {
+          return readerDataUrl;
+        }
+        return await rasterizeToPngDataUrl(readerDataUrl);
+      } catch (blobErr) {
+        console.warn('Failed to read blob URL to PNG data URL:', blobErr);
+      }
+    }
+  }
+
+  // If it's an HTTP/HTTPS or relative URL:
+  // First attempt urlToSafeDataUrl (which proxies through Laravel with CORS headers)
+  try {
+    const safeDataUrl = await urlToSafeDataUrl(trimmed, timeoutMs);
+    if (safeDataUrl) {
+      if (safeDataUrl.startsWith('data:image/png;') || safeDataUrl.startsWith('data:image/jpeg;')) {
+        return safeDataUrl;
+      }
+      if (safeDataUrl.startsWith('data:')) {
+        return await rasterizeToPngDataUrl(safeDataUrl);
+      }
+    }
+  } catch (safeErr) {
+    console.warn('urlToSafeDataUrl failed:', safeErr);
+  }
+
+  // Fallback: try rasterizeToPngDataUrl directly
+  try {
+    return await rasterizeToPngDataUrl(trimmed);
+  } catch (directErr) {
+    console.warn('Direct image loading failed:', directErr);
+  }
+
+  return trimmed;
+}
+
+/**
  * Fabric SVG keeps raster artwork in <image href="https://..."> elements.
  * svg-to-pdfkit cannot reliably fetch those browser URLs, so convert them to
- * embedded data URLs before handing the SVG to PDFKit.
+ * embedded PNG or JPEG data URLs before handing the SVG to PDFKit.
  */
 async function inlineExternalSvgImages(svg: string): Promise<string> {
   if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
@@ -202,39 +323,38 @@ async function inlineExternalSvgImages(svg: string): Promise<string> {
     throw new Error('Fabric produced invalid SVG for PDF export');
   }
 
-  const imageNodes = Array.from(documentNode.querySelectorAll('image'));
+  const root = documentNode.documentElement;
+  if (!root.getAttribute('xmlns')) {
+    root.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  }
+  root.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+
+  const imageNodes = [
+    ...Array.from(documentNode.getElementsByTagName('image')),
+    ...Array.from(documentNode.getElementsByTagNameNS('http://www.w3.org/2000/svg', 'image')),
+    ...Array.from(documentNode.querySelectorAll('image')),
+  ];
+  const uniqueImages = Array.from(new Set(imageNodes));
 
   await Promise.all(
-    imageNodes.map(async (imageNode) => {
+    uniqueImages.map(async (imageNode) => {
       const href =
         imageNode.getAttribute('href') ||
+        imageNode.getAttribute('xlink:href') ||
         imageNode.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ||
-        imageNode.getAttribute('xlink:href');
+        imageNode.getAttributeNS(null, 'href');
 
-      if (!href || href.startsWith('data:') || href.startsWith('blob:')) {
-        return;
-      }
+      if (!href) return;
 
-      try {
-        const resolvedUrl = new URL(href, window.location.href);
-        const response = await fetch(resolvedUrl.toString(), {
-          mode: 'cors',
-          credentials: resolvedUrl.origin === window.location.origin ? 'include' : 'omit',
-        });
+      const safeDataUrl = await ensureSafePngOrJpegDataUrl(href);
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+      if (safeDataUrl && safeDataUrl.startsWith('data:image/')) {
+        imageNode.removeAttribute('xlink:href');
+        imageNode.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+        imageNode.removeAttribute('href');
 
-        const dataUrl = await blobToDataUrl(await response.blob());
-        imageNode.setAttribute('href', dataUrl);
-        imageNode.setAttributeNS(
-          'http://www.w3.org/1999/xlink',
-          'xlink:href',
-          dataUrl
-        );
-      } catch (error) {
-        console.warn(`Unable to embed SVG image: ${href}`, error);
+        imageNode.setAttribute('href', safeDataUrl);
+        imageNode.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', safeDataUrl);
       }
     })
   );
@@ -425,6 +545,7 @@ export async function exportVectorPdf(
         width,
         height,
         assumePt: true,
+        imageCallback: (link: string) => (link ? link.trim() : ''),
 
         fontCallback: (
           family: string,

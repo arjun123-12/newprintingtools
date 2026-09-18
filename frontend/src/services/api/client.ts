@@ -37,11 +37,8 @@ apiClient.interceptors.request.use(
       config.data instanceof FormData;
 
     if (isFormData) {
-      // Important: never leave application/json on a FormData request.
-      // The browser must generate multipart/form-data with its boundary.
       config.headers.delete('Content-Type');
     } else if (config.data !== undefined && config.data !== null) {
-      // JSON content type is only for normal object/string requests.
       config.headers.set('Content-Type', 'application/json');
     }
 
