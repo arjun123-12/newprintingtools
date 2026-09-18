@@ -2935,66 +2935,112 @@ export class CanvasManager {
           this.loadCustomShapeObject(customShapeUrl),
         ]);
 
-        const natW = metadata?.naturalWidth || newImg.width || 400;
-        const natH = metadata?.naturalHeight || newImg.height || 400;
+        /*
+         * CUSTOM SVG PHOTO SHAPE
+         *
+         * Do NOT physically crop the FabricImage by changing width/height/cropX/cropY.
+         * That was causing Freepik/admin photos to lose half of their pixels before
+         * the SVG clipPath was applied.
+         *
+         * Keep the complete source image, scale it proportionally with cover/contain,
+         * centre it, and let ONLY the SVG clipPath decide what is visible.
+         */
+        const actualImageW = Math.max(Number(newImg.width) || 1, 1);
+        const actualImageH = Math.max(Number(newImg.height) || 1, 1);
+
+        // Prefer the dimensions Fabric actually decoded. Provider metadata can be
+        // stale/different from the stored/proxied file and must not control clipping.
+        const natW = actualImageW;
+        const natH = actualImageH;
+
         const photoFit =
           metadata?.photoFit ||
           (frameObj.get('photoFit' as any) as 'cover' | 'contain') ||
           'cover';
-        const minimumCoverScale = Math.max(
-          targetScaledW / natW,
-          targetScaledH / natH
-        );
-        const preservedPhotoScale = Math.max(
-          Number(metadata?.framePhotoScale) || 0,
-          0
-        );
-        const scaleFit =
-          photoFit === 'contain'
-            ? Math.min(targetScaledW / natW, targetScaledH / natH)
-            : Math.max(minimumCoverScale, preservedPhotoScale);
+
+        /*
+         * The PHOTO must adopt the TARGET SHAPE'S visible box.
+         * Fabric Group bounds include the whole image even when an image clipPath
+         * hides most of it. If we keep the full Freepik bitmap behind the mask,
+         * the selection/resize box follows the PHOTO dimensions instead of the
+         * shape dimensions.
+         *
+         * For COVER, crop the SOURCE bitmap mathematically to the target shape's
+         * aspect ratio first, then scale that cropped window exactly to the shape.
+         * We use Fabric's actually decoded image width/height, not provider metadata.
+         */
         let visibleSourceWidth = natW;
         let visibleSourceHeight = natH;
         let cropX = 0;
         let cropY = 0;
+        let scaleFit = 1;
 
-        if (photoFit === 'cover') {
-          visibleSourceWidth = Math.min(natW, targetScaledW / scaleFit);
-          visibleSourceHeight = Math.min(natH, targetScaledH / scaleFit);
-          const cropCenterX =
-            typeof metadata?.frameCropCenterX === 'number' &&
-              Number.isFinite(metadata.frameCropCenterX)
-              ? metadata.frameCropCenterX
-              : natW / 2;
-          const cropCenterY =
-            typeof metadata?.frameCropCenterY === 'number' &&
-              Number.isFinite(metadata.frameCropCenterY)
-              ? metadata.frameCropCenterY
-              : natH / 2;
-          cropX = Math.min(
-            Math.max(0, cropCenterX - visibleSourceWidth / 2),
-            Math.max(0, natW - visibleSourceWidth)
+        if (photoFit === 'contain') {
+          scaleFit = Math.min(
+            targetScaledW / natW,
+            targetScaledH / natH
           );
-          cropY = Math.min(
-            Math.max(0, cropCenterY - visibleSourceHeight / 2),
-            Math.max(0, natH - visibleSourceHeight)
+        } else {
+          const targetAspect = targetScaledW / Math.max(targetScaledH, 0.000001);
+          const imageAspect = natW / Math.max(natH, 0.000001);
+
+          if (imageAspect > targetAspect) {
+            // Source is wider than the shape: crop equal amounts from left/right.
+            visibleSourceHeight = natH;
+            visibleSourceWidth = natH * targetAspect;
+            cropX = Math.max(0, (natW - visibleSourceWidth) / 2);
+            cropY = 0;
+          } else {
+            // Source is taller than the shape: crop equal amounts from top/bottom.
+            visibleSourceWidth = natW;
+            visibleSourceHeight = natW / Math.max(targetAspect, 0.000001);
+            cropX = 0;
+            cropY = Math.max(0, (natH - visibleSourceHeight) / 2);
+          }
+
+          // Cropped photo window becomes EXACTLY the target shape dimensions.
+          scaleFit = Math.max(
+            targetScaledW / Math.max(visibleSourceWidth, 0.000001),
+            targetScaledH / Math.max(visibleSourceHeight, 0.000001)
           );
         }
 
-        const clipW = targetScaledW / scaleFit;
-        const clipH = targetScaledH / scaleFit;
+        /*
+         * The SVG clip lives in the image's local coordinate system.
+         * Its local dimensions therefore match the visible/cropped source window.
+         */
+        const clipW = targetScaledW / Math.max(scaleFit, 0.000001);
+        const clipH = targetScaledH / Math.max(scaleFit, 0.000001);
+
+        /*
+         * getBoundingRect() already includes the SVG object's existing scale /
+         * transform. Do NOT replace scaleX/scaleY with target/bounds directly:
+         * doing that applies the SVG transform twice and produces the tiny
+         * clipped photo seen inside a much larger selection box.
+         *
+         * Scale RELATIVE to the current rendered SVG bounds instead.
+         */
+        clipPath.setCoords();
+        const clipBounds = clipPath.getBoundingRect();
+        const clipRenderedW = Math.max(Number(clipBounds.width) || 1, 1);
+        const clipRenderedH = Math.max(Number(clipBounds.height) || 1, 1);
+        const clipBaseScaleX = Number(clipPath.scaleX) || 1;
+        const clipBaseScaleY = Number(clipPath.scaleY) || 1;
 
         clipPath.set({
           originX: 'center',
           originY: 'center',
-          left: 0,
-          top: 0,
           angle: 0,
-          scaleX: clipW / Math.max(clipPath.width || 1, 1),
-          scaleY: clipH / Math.max(clipPath.height || 1, 1),
+          fill: 'black',
+          scaleX: clipBaseScaleX * (clipW / clipRenderedW),
+          scaleY: clipBaseScaleY * (clipH / clipRenderedH),
           absolutePositioned: false,
+          selectable: false,
+          evented: false,
           objectCaching: false,
-        });
+        } as any);
+        clipPath.setPositionByOrigin(new Point(0, 0), 'center', 'center');
+        clipPath.setCoords();
 
         newImg.set({
           originX: 'center',
@@ -3002,10 +3048,14 @@ export class CanvasManager {
           left: 0,
           top: 0,
           angle: 0,
+
+          // Critical: Fabric's object/group bounds now follow the SHAPE window,
+          // not the original Freepik photo dimensions.
           width: visibleSourceWidth,
           height: visibleSourceHeight,
           cropX,
           cropY,
+
           scaleX: scaleFit,
           scaleY: scaleFit,
           clipPath,
@@ -3015,7 +3065,9 @@ export class CanvasManager {
           cornerStyle: 'circle',
           cornerSize: 12,
           transparentCorners: false,
-        });
+          objectCaching: false,
+          noScaleCache: false,
+        } as any);
 
         newImg.set('isFrame' as any, true);
         newImg.set('isShape' as any, true);
@@ -3034,17 +3086,26 @@ export class CanvasManager {
         newImg.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
         newImg.set('frameRole' as any, 'photo');
 
+        // Scale the outline RELATIVE to its current rendered SVG bounds.
+        // SVG paths may already carry transforms; replacing scaleX/scaleY from
+        // raw width/height makes the visible outline tiny inside the group.
+        shapeOutline.setCoords();
+        const outlineBoundsBeforeFit = shapeOutline.getBoundingRect();
+        const outlineRenderedW = Math.max(Number(outlineBoundsBeforeFit.width) || 1, 1);
+        const outlineRenderedH = Math.max(Number(outlineBoundsBeforeFit.height) || 1, 1);
+        const outlineBaseScaleX = Number(shapeOutline.scaleX) || 1;
+        const outlineBaseScaleY = Number(shapeOutline.scaleY) || 1;
+
         shapeOutline.set({
-          originX: 'center',
-          originY: 'center',
-          left: 0,
-          top: 0,
-          scaleX: targetScaledW / Math.max(shapeOutline.width || 1, 1),
-          scaleY: targetScaledH / Math.max(shapeOutline.height || 1, 1),
+          angle: 0,
+          scaleX: outlineBaseScaleX * (targetScaledW / outlineRenderedW),
+          scaleY: outlineBaseScaleY * (targetScaledH / outlineRenderedH),
           selectable: false,
           evented: false,
           objectCaching: false,
         });
+        shapeOutline.set({ originX: 'center', originY: 'center' });
+        shapeOutline.setPositionByOrigin(new Point(0, 0), 'center', 'center');
         shapeOutline.set('frameRole' as any, 'shape-outline');
         this.applyShapeOutlineProperty(
           shapeOutline,
@@ -3060,16 +3121,6 @@ export class CanvasManager {
         if (existingDash) {
           this.applyShapeOutlineProperty(shapeOutline, 'strokeDashArray', existingDash);
         }
-
-        // Keep one uniform image scale. The clip path—not independent X/Y
-        // image scaling—hides everything outside the frame.
-        newImg.set({
-          left: 0,
-          top: 0,
-          scaleX: scaleFit,
-          scaleY: scaleFit,
-          objectCaching: false,
-        });
 
         const photoShapeGroup = new Group([newImg, shapeOutline], {
           originX: 'center',
@@ -3282,6 +3333,9 @@ export class CanvasManager {
         absolutePositioned: false,
         objectCaching: false,
       });
+      // Guarantee the clip shape is centred at (0,0) in the image's local space
+      // regardless of how the shape was constructed.
+      clipPath.setPositionByOrigin(new Point(0, 0), 'center', 'center');
       newImg.set('clipPath', clipPath);
       newImg.set('isFrame' as any, true);
       newImg.set('frameShape' as any, shapeType);
@@ -3767,7 +3821,9 @@ export class CanvasManager {
 
     if (explicit && typeof explicit === 'string') {
       const clean = explicit.toLowerCase().trim();
-      if (clean === 'rect' || clean === 'rectangle') return 'rounded-rect';
+      // Map generic 'rect' / 'rectangle' to our 'rect' type (sharp rectangle)
+      // rather than 'rounded-rect' so the correct clip shape is generated.
+      if (clean === 'rect' || clean === 'rectangle') return 'rect';
       return clean as FrameShapeType;
     }
 
@@ -3776,10 +3832,12 @@ export class CanvasManager {
     if (type === 'triangle') return 'triangle';
     if (type === 'rect') {
       const rect = obj as Rect;
-      if (rect.rx && rect.rx > 0) return 'rounded-rect';
+      // Only use 'rounded-rect' when the shape explicitly has large rounded corners.
+      // A plain Rect (rx === 0 or very small) should be treated as 'rect'.
+      if (rect.rx && rect.rx > 8) return 'rounded-rect';
       const w = obj.getScaledWidth();
       const h = obj.getScaledHeight();
-      return Math.abs(w - h) < 10 ? 'square' : 'rounded-rect';
+      return Math.abs(w - h) < 10 ? 'square' : 'rect';
     }
     if (type === 'polygon') {
       const points = (obj as Polygon).points || [];
@@ -4037,16 +4095,33 @@ export class CanvasManager {
     // Canva Frame & Shape automatic slotting:
     // If a shape or frame is currently selected, or if an empty placeholder frame exists on the canvas,
     // slot this image directly into the shape/frame so it catches its size and shape mask!
-    if (!options?.skipFrameSlotting && !(options as any)?.isFrame) {
-      let targetFrame: FabricObject | null | undefined = this.canvas.getActiveObject();
-      if (!targetFrame || (!targetFrame.get('isFrame' as any) && !this.isShapeObject(targetFrame))) {
+    // IMPORTANT:
+    // skipFrameSlotting must disable ALL automatic shape/frame slotting,
+    // including the currently selected shape. Previously a selected shape
+    // bypassed this flag, so clicking a Freepik image unexpectedly replaced
+    // the shape and made the inserted image appear much smaller.
+    //
+    // Explicit drag-hover/drop still calls fitImageIntoShape() directly and
+    // therefore continues to fill the hovered shape/frame.
+    if (!(options as any)?.isFrame && !options?.skipFrameSlotting) {
+      const activeObj = this.canvas.getActiveObject();
+      let targetFrame: FabricObject | null | undefined = null;
+
+      if (activeObj && (activeObj.get('isFrame' as any) || this.isShapeObject(activeObj))) {
+        targetFrame = activeObj;
+      } else {
         const objects = this.canvas.getObjects();
         targetFrame = objects.find(
-          (obj) => (obj.get('isFrame' as any) && Boolean(obj.get('isCanvaPlaceholder' as any)))
+          (obj) =>
+            obj.get('isFrame' as any) &&
+            Boolean(obj.get('isCanvaPlaceholder' as any))
         );
       }
 
-      if (targetFrame && (targetFrame.get('isFrame' as any) || this.isShapeObject(targetFrame))) {
+      if (
+        targetFrame &&
+        (targetFrame.get('isFrame' as any) || this.isShapeObject(targetFrame))
+      ) {
         return this.fitImageIntoShape(targetFrame, url, metadata);
       }
     }
@@ -6753,7 +6828,7 @@ export class CanvasManager {
       });
       shapeObj.set('isShape' as any, true);
       shapeObj.set('shapeType' as any, 'rect');
-      shapeObj.set('frameShape' as any, 'rounded-rect');
+      shapeObj.set('frameShape' as any, 'rect');
       this.ensureObjectId(shapeObj, 'Rectangle Shape');
     }
 
@@ -7658,20 +7733,17 @@ export class CanvasManager {
   }
 
   private async loadCustomShapeObject(url: string): Promise<FabricObject> {
-    // Convert through the proxy/data-URL pipeline first. Laravel's static
-    // /storage responses can display in an <img> but still reject fetch with
-    // CORS, which previously left an empty selection rectangle on the canvas.
+    // Load the exact SVG saved by admin. We deliberately do NOT replace
+    // triangles/rectangles/etc. with generic Fabric primitives.
     const directUrl = formatImageUrl(url);
     const forcedProxyUrl =
       directUrl.startsWith('data:') ||
         directUrl.startsWith('blob:') ||
         directUrl.includes('/api/v1/designer/proxy-image')
         ? directUrl
-        : `${CANVAS_API_URL}/designer/proxy-image?url=${encodeURIComponent(
-          directUrl
-        )}`;
-    const safeUrl = await urlToSafeDataUrl(forcedProxyUrl);
+        : `${CANVAS_API_URL}/designer/proxy-image?url=${encodeURIComponent(directUrl)}`;
 
+    const safeUrl = await urlToSafeDataUrl(forcedProxyUrl);
     const response = await fetch(safeUrl, {
       method: 'GET',
       mode: 'cors',
@@ -7695,104 +7767,93 @@ export class CanvasManager {
     }
 
     const result = await loadSVGFromString(svgText);
-    let objects = (result?.objects || []).filter(
+    const parsed = (result?.objects || []).filter(
       (object): object is FabricObject => Boolean(object)
     );
 
-    let groupOptions = result?.options || {};
+    if (!parsed.length) {
+      throw new Error(
+        'The admin SVG contains no Fabric-supported drawable vector objects.'
+      );
+    }
 
     /*
-     * Some optimized production bundles can return null entries from Fabric's
-     * generic SVG loader even for a valid, simple <path>. Custom photo shapes
-     * are path-driven, so recover those paths directly instead of rejecting a
-     * valid uploaded mask.
+     * IMPORTANT:
+     * util.groupSVGElements(objects, result.options) can preserve the SVG
+     * viewBox width/height. If the artwork occupies only a small part of that
+     * viewBox, Fabric then gives us a huge selection rectangle with a tiny
+     * visible shape inside it.
+     *
+     * Build a fresh Group from the parsed drawable objects instead. Fabric
+     * recalculates the group from the actual children, producing tight bounds
+     * while preserving every vector/path exactly.
      */
-    if (objects.length === 0) {
-      const svgDocument = new DOMParser().parseFromString(
-        svgText,
-        'image/svg+xml'
-      );
+    let shape: FabricObject;
 
-      if (svgDocument.querySelector('parsererror')) {
-        throw new Error('The custom shape file contains invalid SVG XML.');
-      }
-
-      const svgElement = svgDocument.documentElement;
-      const fallbackPaths = Array.from(
-        svgDocument.querySelectorAll('path[d]')
-      ).map((pathElement) => {
-        const pathData = pathElement.getAttribute('d')?.trim() || '';
-        const opacityAttribute = pathElement.getAttribute('opacity');
-        const strokeWidthAttribute = pathElement.getAttribute('stroke-width');
-        const parsedOpacity = opacityAttribute === null
-          ? Number.NaN
-          : Number(opacityAttribute);
-        const parsedStrokeWidth = strokeWidthAttribute === null
-          ? Number.NaN
-          : Number(strokeWidthAttribute);
-        const fill = pathElement.getAttribute('fill');
-        const stroke = pathElement.getAttribute('stroke');
-
-        return new Path(pathData, {
-          fill: !fill || fill === 'none' ? '#000000' : fill,
-          fillRule:
-            pathElement.getAttribute('fill-rule') === 'evenodd'
-              ? 'evenodd'
-              : 'nonzero',
-          stroke: !stroke || stroke === 'none' ? undefined : stroke,
-          strokeWidth: Number.isFinite(parsedStrokeWidth)
-            ? parsedStrokeWidth
-            : 0,
-          opacity: Number.isFinite(parsedOpacity) ? parsedOpacity : 1,
+    if (parsed.length === 1) {
+      shape = parsed[0];
+    } else {
+      parsed.forEach((child) => {
+        child.set({
+          selectable: false,
+          evented: false,
+          objectCaching: false,
         } as any);
+        child.setCoords();
       });
 
-      objects = fallbackPaths;
-
-      const viewBox = (svgElement.getAttribute('viewBox') || '')
-        .trim()
-        .split(/[\s,]+/)
-        .map(Number);
-
-      if (
-        viewBox.length === 4 &&
-        viewBox.every(Number.isFinite) &&
-        viewBox[2] > 0 &&
-        viewBox[3] > 0
-      ) {
-        groupOptions = {
-          ...groupOptions,
-          width: viewBox[2],
-          height: viewBox[3],
-        };
-      }
+      shape = new Group(parsed, {
+        originX: 'center',
+        originY: 'center',
+        subTargetCheck: false,
+        interactive: false,
+        objectCaching: false,
+      } as any);
     }
 
-    if (objects.length === 0) {
-      throw new Error(
-        'The custom shape SVG contains no supported drawable paths.'
-      );
-    }
-
-    const shape = util.groupSVGElements(objects, groupOptions);
-
+    /*
+     * Tighten a single object's own geometry too. For Paths Fabric's width and
+     * height are already based on path geometry; for Groups the fresh Group
+     * above recalculates from child bounds. Do not copy root SVG viewBox
+     * dimensions back onto the object.
+     */
     shape.set({
+      originX: 'center',
+      originY: 'center',
       visible: true,
       opacity: 1,
       selectable: true,
       evented: true,
       hasControls: true,
       hasBorders: true,
-      perPixelTargetFind: true,
-    });
+      perPixelTargetFind: false,
+      objectCaching: false,
+      noScaleCache: false,
+      centeredScaling: false,
+      lockScalingFlip: true,
+    } as any);
+
+    shape.setCoords();
+
+    const tightBounds = shape.getBoundingRect();
+    if (
+      !Number.isFinite(tightBounds.width) ||
+      !Number.isFinite(tightBounds.height) ||
+      tightBounds.width <= 0 ||
+      tightBounds.height <= 0
+    ) {
+      throw new Error('The admin SVG has invalid visible bounds.');
+    }
 
     return shape;
   }
 
   /**
-   * Adds an admin-created SVG as a reusable photo shape.
-   * If an image is already selected, one click immediately clips that image.
-   * Otherwise the SVG is added as a placeholder which can be dragged over an image.
+   * Adds the exact admin-created SVG from the Shapes panel.
+   *
+   * The selection rectangle is calculated from actual drawable SVG content,
+   * not unused root viewBox whitespace. This prevents the "tiny shape inside
+   * a huge purple box" glitch.
    */
   public async addCustomPhotoShape(
     url: string,
@@ -7803,71 +7864,108 @@ export class CanvasManager {
     this.enableSelectionMode();
 
     try {
-      const selected = this.canvas.getActiveObject();
-      const selectedImage = this.isImageObject(selected) ? selected : null;
       const shape = await this.loadCustomShapeObject(url);
-      const canvasW = this.dimensions.widthPx || 1063;
-      const canvasH = this.dimensions.heightPx || 591;
-      const defaultSize = Math.min(canvasW * 0.3, canvasH * 0.45, 280);
-      const naturalW = Math.max(shape.width || 1, 1);
-      const naturalH = Math.max(shape.height || 1, 1);
-      const targetW = selectedImage?.getScaledWidth() || defaultSize;
-      const targetH = selectedImage?.getScaledHeight() ||
-        defaultSize * (naturalH / naturalW);
+
+      const canvasW = Math.max(this.dimensions.widthPx || 1063, 1);
+      const canvasH = Math.max(this.dimensions.heightPx || 591, 1);
+
+      shape.set({
+        scaleX: 1,
+        scaleY: 1,
+        angle: 0,
+      } as any);
+      shape.setCoords();
+
+      // Use the ACTUAL visible Fabric bounds after rebuilding the SVG group.
+      const visibleBounds = shape.getBoundingRect();
+      const naturalW = Math.max(visibleBounds.width || Number(shape.width) || 1, 1);
+      const naturalH = Math.max(visibleBounds.height || Number(shape.height) || 1, 1);
+
+      const maxW = Math.min(canvasW * 0.32, 300);
+      const maxH = Math.min(canvasH * 0.45, 300);
+
+      const uniformScale = Math.min(
+        maxW / naturalW,
+        maxH / naturalH
+      );
 
       shape.set({
         originX: 'center',
         originY: 'center',
-        scaleX: targetW / naturalW,
-        scaleY: targetH / naturalH,
+        scaleX: uniformScale,
+        scaleY: uniformScale,
+        angle: 0,
+
+        visible: true,
+        selectable: true,
+        evented: true,
+        hasControls: true,
+        hasBorders: true,
+
+        lockUniScaling: false,
+        lockScalingFlip: true,
+        centeredScaling: false,
+
         cornerColor: '#ffffff',
         cornerStrokeColor: '#8b3dff',
         borderColor: '#8b3dff',
         cornerStyle: 'circle',
         cornerSize: 12,
         transparentCorners: false,
-      });
+
+        objectCaching: false,
+        noScaleCache: false,
+        perPixelTargetFind: false,
+      } as any);
+
+      // Shapes-panel assets remain normal editable vectors.
       shape.set('isShape' as any, true);
-      shape.set('isFrame' as any, true);
-      shape.set('isCanvaPlaceholder' as any, true);
+      shape.set('isFrame' as any, false);
+      shape.set('isCanvaPlaceholder' as any, false);
       shape.set('shapeType' as any, 'custom-svg');
-      shape.set('frameShape' as any, 'custom-svg');
+      shape.set('frameShape' as any, undefined);
       shape.set('sourceType' as any, 'shape');
+
       shape.set('customShapeUrl' as any, url);
       shape.set('assetId' as any, metadata.assetId);
       shape.set('provider' as any, metadata.provider || 'admin');
-      shape.set('photoFit' as any, metadata.photoFit || 'cover');
-      shape.set('allowPhotoDrop' as any, metadata.allowPhotoDrop !== false);
-      this.ensureObjectId(shape, metadata.name || 'Custom Photo Shape');
+      shape.set('originalSrc' as any, metadata.originalSrc || url);
+      shape.set('recolourable' as any, metadata.recolourable !== false);
+      shape.set('allowPhotoDrop' as any, false);
 
-      if (selectedImage) {
-        const center = selectedImage.getCenterPoint();
-        shape.set({ left: center.x, top: center.y, angle: selectedImage.angle || 0 });
-      } else if (typeof metadata.left === 'number' && typeof metadata.top === 'number') {
-        shape.set({ left: metadata.left, top: metadata.top });
+      shape.set('sourceWidth' as any, naturalW);
+      shape.set('sourceHeight' as any, naturalH);
+
+      this.ensureObjectId(shape, metadata.name || 'Custom Shape');
+      applyCanvaControlsToObject(shape);
+
+      this.canvas.add(shape);
+
+      if (
+        typeof metadata.left === 'number' &&
+        typeof metadata.top === 'number'
+      ) {
+        shape.set({
+          left: metadata.left,
+          top: metadata.top,
+        });
       } else {
+        // Center only after the tight-bounds object is attached to the canvas.
         this.centerObjectOnCanvas(shape);
       }
 
-      this.canvas.add(shape);
       shape.setCoords();
-
-      if (selectedImage) {
-        return await this.fitImageIntoShape(shape, selectedImage, {
-          ...metadata,
-          photoFit: metadata.photoFit || 'cover',
-        });
-      }
-
       this.canvas.setActiveObject(shape);
+
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
       this.notifyLayers();
       this.saveHistoryState();
+
       return shape;
     } catch (error) {
-      console.error('Failed to add custom photo shape:', error);
+      console.error('Failed to add exact admin SVG shape:', error);
       return null;
     }
   }

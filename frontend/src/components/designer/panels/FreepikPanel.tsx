@@ -353,8 +353,9 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
   /**
    * Add image onto canvas.
    *
-   * Image card itself is clickable.
-   * There is no separate "Add to Canvas" badge.
+   * CLICK = add as a normal image on the artwork.
+   * It must NOT automatically fill a selected shape/frame.
+   * Shape/frame filling is reserved for drag-hover/drop handling in CanvasManager.
    */
   const handleAddToCanvas = async (
     asset: FreepikAsset
@@ -429,16 +430,16 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
             asset.id,
         },
         {
+          // CLICK behavior: always add as a normal image.
+          // Never auto-fill the currently selected shape/frame.
+          // Shape/frame filling is reserved for drag-hover/drop handling.
           skipFrameSlotting: true,
 
           /**
-           * Keep complete asset proportional
-           * and place it inside artwork with
-           * 20mm space.
+           * Freepik click insert must NOT auto-shrink.
+           * Keep the decoded source at 1:1 canvas pixel size.
            */
-          fitToArtworkInsetMm: 20,
-
-          preserveOriginalSize: false,
+          preserveOriginalSize: true,
         }
       );
 
@@ -844,6 +845,11 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
           <>
             {/* =====================================
                 2-COLUMN IMAGE GRID
+
+                IMPORTANT:
+                - hover = preview/actions
+                - click = add normal image to artwork
+                - drag/drop = artwork or shape/frame interaction
             ===================================== */}
             <div className="grid grid-cols-2 gap-2">
 
@@ -872,24 +878,9 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
                           asset
                         )
                       }
-                      /**
-                       * CLICK IMAGE = ADD TO CANVAS
-                       *
-                       * No Add to Canvas badge.
-                       */
-                      onClick={() =>
-                        handleAddToCanvas(
-                          asset
-                        )
-                      }
+                      onClick={() => void handleAddToCanvas(asset)}
                       className="group relative rounded-2xl border border-slate-200/80 bg-slate-100 overflow-hidden cursor-pointer shadow-sm hover:shadow-[0_12px_28px_rgba(37,99,235,0.18)] hover:border-blue-400 hover:-translate-y-0.5 transition-all duration-200 aspect-[4/3] flex items-center justify-center select-none"
-                      title={
-                        isCurrentInserting
-                          ? 'Adding to canvas...'
-                          : isCurrentSuccess
-                            ? 'Added to canvas'
-                            : `Click to add to canvas or drag onto artwork (${asset.title})`
-                      }
+                      title={`Click to add ${asset.title || 'image'} to artwork, or drag it onto a shape/frame`}
                     >
 
                       {/* =================================

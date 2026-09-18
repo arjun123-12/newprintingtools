@@ -247,6 +247,8 @@ export interface StockImage {
 
 export type FrameShapeType =
   | 'circle'
+  | 'rect'
+  | 'rectangle'
   | 'rounded-rect'
   | 'square'
   | 'squircle'

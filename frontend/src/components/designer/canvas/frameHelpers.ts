@@ -2,6 +2,7 @@ import {
   Circle,
   Rect,
   Polygon,
+  Triangle,
   Path,
   Point,
   FabricObject,
@@ -31,14 +32,34 @@ export function createFrameClipPath(
         radius: minDim / 2,
         originX: 'center',
         originY: 'center',
+        left: 0,
+        top: 0,
+      });
+
+    // Sharp rectangle — no rounded corners
+    case 'rect':
+    case 'rectangle':
+      return new Rect({
+        width: w,
+        height: h,
+        rx: 0,
+        ry: 0,
+        originX: 'center',
+        originY: 'center',
+        left: 0,
+        top: 0,
       });
 
     case 'square':
       return new Rect({
         width: minDim,
         height: minDim,
+        rx: 0,
+        ry: 0,
         originX: 'center',
         originY: 'center',
+        left: 0,
+        top: 0,
       });
 
     case 'rounded-rect':
@@ -49,6 +70,8 @@ export function createFrameClipPath(
         ry: minDim * 0.12,
         originX: 'center',
         originY: 'center',
+        left: 0,
+        top: 0,
       });
 
     case 'squircle':
@@ -59,6 +82,8 @@ export function createFrameClipPath(
         ry: minDim * 0.28,
         originX: 'center',
         originY: 'center',
+        left: 0,
+        top: 0,
       });
 
     case 'pill':
@@ -69,6 +94,8 @@ export function createFrameClipPath(
         ry: minDim / 2,
         originX: 'center',
         originY: 'center',
+        left: 0,
+        top: 0,
       });
 
     case 'oval': {
@@ -79,6 +106,8 @@ export function createFrameClipPath(
         scaleY: h / minDim,
         originX: 'center',
         originY: 'center',
+        left: 0,
+        top: 0,
       });
     }
 
@@ -201,19 +230,17 @@ export function createFrameClipPath(
     }
 
     case 'triangle': {
-      const halfW = w / 2;
-      const halfH = h / 2;
-      return new Polygon(
-        [
-          new Point(0, -halfH),
-          new Point(halfW, halfH),
-          new Point(-halfW, halfH),
-        ],
-        {
-          originX: 'center',
-          originY: 'center',
-        }
-      );
+      // Use Fabric's built-in Triangle class — it is more reliable as a
+      // clipPath than a manually constructed Polygon because its _render()
+      // draws relative to the object centre without a pathOffset calculation.
+      return new Triangle({
+        width: w,
+        height: h,
+        originX: 'center',
+        originY: 'center',
+        left: 0,
+        top: 0,
+      });
     }
 
     case 'shield': {
@@ -341,13 +368,17 @@ export function createFrameClipPath(
     }
 
     default:
+      // Unknown / fallback: use a sharp rectangle that exactly matches the
+      // frame's bounding box instead of adding unexpected rounded corners.
       return new Rect({
         width: w,
         height: h,
-        rx: minDim * 0.08,
-        ry: minDim * 0.08,
+        rx: 0,
+        ry: 0,
         originX: 'center',
         originY: 'center',
+        left: 0,
+        top: 0,
       });
   }
 }

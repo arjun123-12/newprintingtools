@@ -1959,7 +1959,7 @@ export const Ruler: React.FC<RulerProps> = ({
             }}
             title={`${guide.posMm} mm — drag to move, double-click to delete`}
           >
-            <span className="pointer-events-none absolute left-0 right-0 top-1/2 border-t border-[#7d2ae8] opacity-0 group-hover:opacity-100" />
+            <span className="pointer-events-none absolute left-0 right-0 top-1/2 border-t border-solid border-[#7d2ae8] opacity-100" />
           </div>
         ) : (
           <div
@@ -1981,7 +1981,7 @@ export const Ruler: React.FC<RulerProps> = ({
             }}
             title={`${guide.posMm} mm — drag to move, double-click to delete`}
           >
-            <span className="pointer-events-none absolute bottom-0 left-1/2 top-0 border-l border-[#7d2ae8] opacity-0 group-hover:opacity-100" />
+            <span className="pointer-events-none absolute bottom-0 left-1/2 top-0 border-l border-solid border-[#7d2ae8] opacity-100" />
           </div>
         )
       )}

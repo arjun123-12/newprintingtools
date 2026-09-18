@@ -321,6 +321,10 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
         ...metadata,
         ...toPlainObject(metadata.shape),
       };
+      // IMPORTANT:
+      // Always use the exact SVG stored by the admin. Do not convert an admin
+      // triangle/rectangle/circle into a generic Fabric primitive here, because
+      // that would lose the uploaded geometry, proportions and path details.
       const added = await canvasManager.addCustomPhotoShape(url, {
         assetId: asset.id,
         provider: asset.provider || 'admin',
@@ -366,6 +370,10 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
           asset_type: 'shape',
           is_vector: true,
           format: 'svg',
+          // Preserve the complete DB asset so canvas drop logic can use the
+          // same exact SVG + metadata as click-to-add.
+          originalSrc: shapeUrl,
+          exactAdminShape: true,
           adminAsset: asset,
         })
       );
