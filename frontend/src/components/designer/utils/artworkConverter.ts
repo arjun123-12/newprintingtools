@@ -85,7 +85,7 @@ export async function createArtworkFromImage(
   const img = await canvasManager.addImageFromUrl(imageUrl, {
     name: options?.name || 'Image',
     originalSrc: imageUrl,
-  });
+  }, { fitToArtworkInsetMm: 20 });
 
   if (img) {
     // Set custom properties for round-trip serialization

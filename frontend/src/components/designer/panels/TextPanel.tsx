@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Type, Plus, Minus, Sparkles, Sliders } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { SelectedObjectState } from '@/types/designer';
@@ -40,6 +40,7 @@ function extractResponseArray<T>(response: any): T[] {
 }
 
 export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected }) => {
+  const lastTextInsertAtRef = useRef(0);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
   const [showStrokePicker, setShowStrokePicker] = useState(false);
   const normalizedSelectedType = String(selected?.type || '')
@@ -89,9 +90,18 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     fetchData();
   }, []);
 
-  const handleAddHeading = () => {
+  const addTextOnce = (options: Parameters<CanvasManager['addText']>[0]) => {
     if (!canvasManager) return;
-    void canvasManager.addText({
+
+    const now = Date.now();
+    if (now - lastTextInsertAtRef.current < 350) return;
+    lastTextInsertAtRef.current = now;
+
+    void canvasManager.addText(options);
+  };
+
+  const handleAddHeading = () => {
+    addTextOnce({
       text: 'Add a heading',
       fontSizePt: DEFAULT_TEXT_SIZES_PT.heading,
       fontWeight: 'bold',
@@ -102,8 +112,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
   };
 
   const handleAddSubheading = () => {
-    if (!canvasManager) return;
-    void canvasManager.addText({
+    addTextOnce({
       text: 'Add a subheading',
       fontSizePt: DEFAULT_TEXT_SIZES_PT.subheading,
       fontWeight: '600',
@@ -114,8 +123,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
   };
 
   const handleAddBody = () => {
-    if (!canvasManager) return;
-    void canvasManager.addText({
+    addTextOnce({
       text: 'Add body text. Double-click to edit content directly on canvas.',
       fontSizePt: DEFAULT_TEXT_SIZES_PT.body,
       fontWeight: 'normal',
@@ -126,14 +134,13 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
   };
 
   const handleAddPreset = (asset: DesignAsset) => {
-    if (!canvasManager) return;
     const config = asset.fabric_json || {};
     const configuredPoints = Number(
       config.fontSizePt || asset.metadata?.fontSizePt || 0
     );
     const configuredWidth = Number(config.width) || Math.max(180, artworkWidth * 0.65);
 
-    void canvasManager.addText({
+    addTextOnce({
       ...config,
       text: config.text || asset.name,
       width: configuredWidth,
@@ -296,7 +303,15 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
                     />
                     {showStrokePicker && (
                       <div className="absolute right-0 top-full mt-2 z-50 p-2 bg-white rounded-xl shadow-2xl border border-gray-200">
-                        <ColorPicker value={currentStrokeColor} onChange={(hex) => handleUpdateProperty('stroke', hex)} />
+                        <ColorPicker
+                          label="Border Colour"
+                          value={currentStrokeColor}
+                          onChange={(hex) => {
+                            if (typeof hex === 'string') handleUpdateProperty('stroke', hex);
+                          }}
+                          onClose={() => setShowStrokePicker(false)}
+                          allowGradient={false}
+                        />
                       </div>
                     )}
                   </div>

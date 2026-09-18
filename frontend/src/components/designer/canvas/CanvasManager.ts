@@ -10,7 +10,6 @@ import {
   FabricObject,
   ActiveSelection,
   Group,
-  TPointerEventInfo,
   Point,
   PencilBrush,
   SprayBrush,
@@ -37,7 +36,9 @@ import {
   ArtworkConfig,
   DocumentSettings,
   UnitType,
+  DesignerGradientValue,
 } from '@/types/designer';
+import { fabricGradientToDesignerGradient } from '@/utils/colorUtils';
 import { calculateCanvasDimensions } from '../utils/dimensions';
 import { CanvasGuides } from './CanvasGuides';
 import { CanvasSnapping } from './CanvasSnapping';
@@ -61,6 +62,11 @@ applyCanvaControlsGlobal();
 export const ZOOM_PRESETS = [
   0.1, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
 ];
+
+const CANVAS_API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  'http://127.0.0.1:8000/api/v1'
+).replace(/\/$/, '');
 
 export type CanvasEventCallback = () => void;
 export type SelectionEventCallback = (state: SelectedObjectState | null) => void;
@@ -98,6 +104,9 @@ export interface ImageMetadata {
   photoFit?: 'cover' | 'contain';
   provider?: string;
   providerAssetId?: string | number;
+  sourceType?: string;
+  maskUrl?: string;
+  isIcon?: boolean;
   /** Internal frame-resize state: keep the photo size while changing the mask. */
   framePhotoScale?: number;
   frameCropCenterX?: number;
@@ -220,6 +229,8 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   'ry',
   'strokeDashArray',
   'strokeUniform',
+  'strokePosition',
+  'baseStrokeWidth',
   'lockMovementX',
   'lockMovementY',
   'isLocked',
@@ -248,6 +259,8 @@ const GROUP_RECURSIVE_PROPERTIES = new Set<keyof SelectedObjectState>([
   'fill',
   'stroke',
   'strokeWidth',
+  'strokePosition',
+  'baseStrokeWidth',
   'strokeDashArray',
   'strokeLineCap',
   'strokeLineJoin',
@@ -299,7 +312,6 @@ export class CanvasManager {
   private zoomAnimationFrame: number | null = null;
   private viewportElement: HTMLElement | null = null;
   private shapeCacheRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastZoomNotifyTime: number = 0;
   private zoomNotifyTrailingTimer: ReturnType<typeof setTimeout> | null = null;
   private isPanMode: boolean = false;
   private isDrawing: boolean = false;
@@ -336,12 +348,14 @@ export class CanvasManager {
   private backgroundListeners: Set<BackgroundEventCallback> = new Set();
   private historyListeners: Set<(canUndo: boolean, canRedo: boolean) => void> = new Set();
   private isPreflightScheduled: boolean = false;
+  private preflightDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private textSelectionThrottleTimer: ReturnType<typeof setTimeout> | null = null;
 
   // History / Undo & Redo Stack
   private undoStack: string[] = [];
   private redoStack: string[] = [];
   private isProcessingHistory: boolean = false;
-  private maxHistoryLength: number = 50;
+  private maxHistoryLength: number = 25;
   private historyDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private preventNativeDragHandler: ((e: DragEvent) => void) | null = null;
 
@@ -715,11 +729,14 @@ export class CanvasManager {
     return result.length > 0 ? result : ['#000000', '#ffffff', '#2563eb', '#10b981', '#ef4444'];
   }
 
-  public setBackgroundGradient(gradientConfig: {
-    type: 'linear' | 'radial';
-    angle: number;
-    stops: Array<{ offset: number; color: string }>;
-  }): void {
+  public setBackgroundGradient(
+    gradientConfig: {
+      type: 'linear' | 'radial';
+      angle: number;
+      stops: Array<{ offset: number; color: string }>;
+    },
+    isLivePreview: boolean = false
+  ): void {
     if (!this.canvas) return;
     this.canvas.backgroundImage = undefined;
 
@@ -763,7 +780,9 @@ export class CanvasManager {
     };
     this.canvas.requestRenderAll();
     this.notifyBackground();
-    this.notifyChange();
+    if (!isLivePreview) {
+      this.notifyChange();
+    }
   }
 
   public async setBackgroundImage(
@@ -885,6 +904,11 @@ export class CanvasManager {
     this.canvas.requestRenderAll();
     this.notifyBackground();
     this.notifyChange();
+    this.saveHistoryState();
+  }
+
+  public clearBackground(): void {
+    this.resetBackground();
   }
 
   public convertBackgroundToLayer(): void {
@@ -959,6 +983,15 @@ export class CanvasManager {
   }
 
   /**
+   * Returns the newest requested zoom, including a value waiting for the next
+   * animation frame. Wheel events must use this value so rapid input builds on
+   * the previous request instead of repeatedly starting from the last frame.
+   */
+  public getTargetZoom(): number {
+    return this.pendingZoom ?? this.zoom;
+  }
+
+  /**
    * Fabric keeps separate bitmap caches for groups and clipPaths. Custom SVG
    * photo shapes use both, so a viewport-only zoom can otherwise leave their
    * old cache visible while every normal canvas object zooms correctly.
@@ -1010,7 +1043,13 @@ export class CanvasManager {
 
   public setZoom(newZoom: number, pivotPoint?: { clientX?: number; clientY?: number }): void {
     if (!this.canvas) return;
-    const clampedZoom = Math.min(Math.max(Number(newZoom.toFixed(3)), 0.05), 8.0);
+    // Zoom is stored as a ratio: 1% = 0.01, 55% = 0.55, 100% = 1.00.
+    // Quantizing here keeps every input path (wheel, buttons, keyboard and
+    // direct percentage entry) on the same Canva-style one-percent scale.
+    const clampedZoom = Math.min(
+      Math.max(Math.round(newZoom * 100) / 100, 0.01),
+      8.0
+    );
 
     if (
       Math.abs(clampedZoom - this.zoom) < 0.001 &&
@@ -1110,9 +1149,13 @@ export class CanvasManager {
       this.scheduleShapeCacheRefresh();
       this.syncArtworkBoundaryLines();
       this.canvas.calcOffset();
-      const activeObj = this.canvas.getActiveObject();
-      activeObj?.setCoords();
-      this.canvas.requestRenderAll();
+      // setDimensions clears both Fabric canvas layers immediately. Deferring
+      // the redraw with requestRenderAll() leaves one browser paint where the
+      // white paper is visible, producing a white flash at every zoom step.
+      // We are already inside requestAnimationFrame, so render synchronously
+      // and commit the resized bitmap in this same frame.
+      this.canvas.cancelRequestedRender();
+      this.canvas.renderAll();
       this.notifyZoomThrottled();
 
       if (this.pendingZoom !== null && this.zoomAnimationFrame === null) {
@@ -1125,16 +1168,12 @@ export class CanvasManager {
 
   public zoomIn(): void {
     const current = this.pendingZoom !== null ? this.pendingZoom : this.zoom;
-    const nextPreset = ZOOM_PRESETS.find((z) => z > current + 0.05);
-    const targetZoom = nextPreset !== undefined ? nextPreset : Math.min(current + 0.25, 8.0);
-    this.setZoom(targetZoom);
+    this.setZoom(Math.min(current + 0.01, 8.0));
   }
 
   public zoomOut(): void {
     const current = this.pendingZoom !== null ? this.pendingZoom : this.zoom;
-    const prevPreset = [...ZOOM_PRESETS].reverse().find((z) => z < current - 0.05);
-    const targetZoom = prevPreset !== undefined ? prevPreset : Math.max(current - 0.25, 0.1);
-    this.setZoom(targetZoom);
+    this.setZoom(Math.max(current - 0.01, 0.01));
   }
 
   public resetZoom(): void {
@@ -1143,7 +1182,6 @@ export class CanvasManager {
       this.zoomNotifyTrailingTimer = null;
     }
     this.setZoom(1.0);
-    this.notifyZoom();
   }
 
   public fitToViewport(containerWidth: number, containerHeight: number, padding = 32, rulerOffset = 48): void {
@@ -1159,7 +1197,7 @@ export class CanvasManager {
     const scaleY = availableH / baseHeight;
     const fitZoom = Math.min(scaleX, scaleY);
 
-    this.setZoom(Number(Math.max(fitZoom, 0.05).toFixed(3)));
+    this.setZoom(Math.max(fitZoom, 0.01));
   }
 
   /**
@@ -1243,13 +1281,8 @@ export class CanvasManager {
       return;
     }
 
-    const isLocked =
-      getValue('isLocked') === true ||
-      (
-        fabricObject.lockMovementX === true &&
-        fabricObject.lockMovementY === true &&
-        getValue('isLocked') !== false
-      );
+    const isLocked = getValue('isLocked') === true;
+    const isText = this.isTextObject(fabricObject);
 
     if (isLocked) {
       fabricObject.set({
@@ -1264,6 +1297,7 @@ export class CanvasManager {
         hasBorders: true,
         hoverCursor: 'default',
         moveCursor: 'default',
+        ...(isText ? { editable: false } : {}),
       });
     } else {
       fabricObject.set({
@@ -1276,13 +1310,13 @@ export class CanvasManager {
         lockRotation: false,
         lockScalingX: false,
         lockScalingY: false,
-        // A dragged frame edge must resize against the opposite fixed edge.
         centeredScaling: false,
         hoverCursor:
-          this.isTextObject(fabricObject) && (fabricObject as any).isEditing
+          isText && (fabricObject as any).isEditing
             ? 'text'
             : 'move',
         moveCursor: 'move',
+        ...(isText ? { editable: true } : {}),
       });
     }
 
@@ -2037,6 +2071,10 @@ export class CanvasManager {
     return this.guides.addUserGuide(orientation, posPx);
   }
 
+  public updateUserGuide(id: string, posPx: number) {
+    return this.guides.updateUserGuide(id, posPx);
+  }
+
   public removeUserGuide(id: string): void {
     this.guides.removeUserGuide(id);
   }
@@ -2050,20 +2088,41 @@ export class CanvasManager {
   }
 
   public updateMargin(marginMm: number): void {
+    const maximumMarginMm = Math.max(
+      0,
+      Math.min(
+        Number(this.dimensions.widthMm) || 0,
+        Number(this.dimensions.heightMm) || 0
+      ) / 2 - 0.1
+    );
+
+    const normalizedMarginMm = Number(
+      Math.min(
+        maximumMarginMm,
+        Math.max(0, Number(marginMm) || 0)
+      ).toFixed(1)
+    );
+
     const dpi = this.dimensions.dpi || 300;
-    const marginPx = Math.round(marginMm * (1 / 25.4) * dpi);
+    const marginPx = Math.round(
+      normalizedMarginMm * (dpi / 25.4)
+    );
+
     this.dimensions = {
       ...this.dimensions,
-      marginMm,
+      marginMm: normalizedMarginMm,
       marginPx,
-      safeZoneMm: marginMm,
+      safeZoneMm: normalizedMarginMm,
       safeZonePx: marginPx,
     };
+
     this.guides.updateDimensions(this.dimensions);
     this.snapping.updateDimensions(this.dimensions);
+
     if (this.canvas) {
       this.canvas.requestRenderAll();
     }
+
     this.notifyChange();
   }
 
@@ -2362,6 +2421,7 @@ export class CanvasManager {
               {
                 left: pxLeft,
                 top: pxTop,
+                preserveOriginalSize: true,
               }
             );
           } catch (imgErr) {
@@ -2376,7 +2436,7 @@ export class CanvasManager {
         await this.addImageFromUrl((template as any).thumbnailUrl, {
           name: template.title || 'Template Image',
           originalSrc: (template as any).thumbnailUrl,
-        });
+        }, { preserveOriginalSize: true });
       } catch (imgErr) {
         console.warn('Could not load fallback template image:', imgErr);
       }
@@ -2455,6 +2515,26 @@ export class CanvasManager {
         if (object.get('sourceType' as any) !== 'psd-layer') {
           object.set('sourceType' as any, 'vector-text');
         }
+      }
+
+      // Uploaded frame overlays already contain their complete visible
+      // design. Remove any legacy/generated rectangular Fabric stroke without
+      // changing the artwork inside the overlay.
+      if (object instanceof Group && object.get('isCustomFrame' as any)) {
+        object.set({
+          stroke: 'transparent',
+          strokeWidth: 0,
+          strokeDashArray: null,
+          dirty: true,
+        });
+        object.getObjects().forEach((child) => {
+          child.set({
+            stroke: 'transparent',
+            strokeWidth: 0,
+            strokeDashArray: null,
+            dirty: true,
+          });
+        });
       }
     });
 
@@ -2576,6 +2656,9 @@ export class CanvasManager {
       selectable: false,
       evented: false,
       objectCaching: false,
+      stroke: 'transparent',
+      strokeWidth: 0,
+      strokeDashArray: null,
     });
 
     const clipWidth = frameWidth / photoScale;
@@ -2589,6 +2672,8 @@ export class CanvasManager {
       scaleY: clipHeight / Math.max(mask.height || 1, 1),
       absolutePositioned: false,
       objectCaching: false,
+      stroke: 'transparent',
+      strokeWidth: 0,
     });
     photo.set('clipPath', mask);
     photo.set('frameRole' as any, 'photo');
@@ -2603,6 +2688,9 @@ export class CanvasManager {
       selectable: false,
       evented: false,
       objectCaching: false,
+      stroke: 'transparent',
+      strokeWidth: 0,
+      strokeDashArray: null,
     });
     overlay.set('frameRole' as any, 'overlay');
 
@@ -2617,6 +2705,11 @@ export class CanvasManager {
       cornerSize: 12,
       transparentCorners: false,
       objectCaching: false,
+      // The uploaded overlay is the exact frame. Do not generate another
+      // rectangular stroke around the custom frame Group.
+      stroke: 'transparent',
+      strokeWidth: 0,
+      strokeDashArray: null,
     });
 
     const frameName = metadata.name || 'Custom Photo Frame';
@@ -3999,9 +4092,23 @@ export class CanvasManager {
         /^https?:\/\/(?:[^/]+\.)?(?:pexels|pixabay|freepik|flaticon)\.com\//i.test(
           url.trim()
         );
+
+      const isSvgImage = isSvg(url) || isSvg(safeUrl);
+      const isExcludedAsset =
+        isSvgImage ||
+        metadata?.sourceType === 'frame-overlay' ||
+        metadata?.sourceType === 'icon' ||
+        (metadata as any)?.isIcon === true ||
+        (options as any)?.isFrame === true ||
+        Boolean(metadata?.maskUrl);
+
+      // Centralized image-placement rule:
+      // Fit new raster images inside artwork with minimum 20 mm inset on every side.
+      // Default to 20 mm for ordinary raster images so any caller without options
+      // also receives the same 20 mm placement rule.
       const requestedInsetMm = Number(
         options?.fitToArtworkInsetMm ??
-        (isSupportedLibraryProvider || isSupportedLibraryUrl
+        (isSupportedLibraryProvider || isSupportedLibraryUrl || (!isExcludedAsset && !options?.preserveOriginalSize)
           ? 20
           : Number.NaN)
       );
@@ -4025,15 +4132,14 @@ export class CanvasManager {
         );
         const requestedInsetPx = requestedInsetMm * pxPerMm;
         const insetPx = Math.min(requestedInsetPx, maximumInsetPx);
-        const targetWidth = Math.max(1, canvasW - insetPx * 2);
-        const targetHeight = Math.max(1, canvasH - insetPx * 2);
+        const availableWidth = Math.max(1, canvasW - insetPx * 2);
+        const availableHeight = Math.max(1, canvasH - insetPx * 2);
 
-        // Preserve the source aspect ratio and allow small source images to
-        // display at the requested artwork size. Print-quality checks still
-        // use naturalWidth/naturalHeight and can warn about insufficient DPI.
+        // Preserve aspect ratio and scale using contain behavior:
+        // Large images scale down, small images scale up.
         scale = Math.min(
-          targetWidth / Math.max(naturalW, 1),
-          targetHeight / Math.max(naturalH, 1)
+          availableWidth / Math.max(naturalW, 1),
+          availableHeight / Math.max(naturalH, 1)
         );
       } else if (options?.preserveOriginalSize === true) {
         scale = 1;
@@ -4085,12 +4191,12 @@ export class CanvasManager {
 
       this.canvas.add(img);
 
-      if (options?.left !== undefined || options?.top !== undefined) {
+      if (shouldFitToArtwork || (options?.left === undefined && options?.top === undefined)) {
+        this.centerObjectOnCanvas(img);
+      } else {
         if (options?.left !== undefined) img.set('left', options.left);
         if (options?.top !== undefined) img.set('top', options.top);
         img.setCoords();
-      } else {
-        this.centerObjectOnCanvas(img);
       }
 
       this.canvas.setActiveObject(img);
@@ -4353,58 +4459,26 @@ export class CanvasManager {
     const active = this.canvas.getActiveObject();
     if (!active || !(active instanceof FabricImage)) return;
 
+    if (active.get('isFrame' as any)) {
+      await this.slotImageIntoFrame(active, newUrl, metadata);
+      return;
+    }
+
     try {
-      let safeUrl = await urlToSafeDataUrl(newUrl);
-      if (isSvg(newUrl) || isSvg(safeUrl)) {
-        try {
-          const norm = await normalizeSvgUrl(safeUrl);
-          safeUrl = norm.dataUrl;
-        } catch {
-          // ignore
-        }
-      }
-      const newImg = await FabricImage.fromURL(safeUrl, { crossOrigin: 'anonymous' });
-
-      const prevLeft = active.left || 0;
-      const prevTop = active.top || 0;
-      const prevAngle = active.angle || 0;
-      const prevScaleX = active.scaleX || 1;
-      const prevScaleY = active.scaleY || 1;
-      const prevClip = active.clipPath;
-      const prevId = active.get('id' as any);
       const prevName = active.get('name' as any);
-      const prevIndex = this.canvas.getObjects().indexOf(active);
-
       this.canvas.remove(active);
 
-      newImg.set({
-        left: prevLeft,
-        top: prevTop,
-        angle: prevAngle,
-        scaleX: prevScaleX,
-        scaleY: prevScaleY,
-        clipPath: prevClip,
-        cornerColor: '#ffffff',
-        cornerStrokeColor: '#8b3dff',
-        borderColor: '#8b3dff',
-        cornerStyle: 'circle',
-        cornerSize: 12,
-        transparentCorners: false,
-      });
-
-      newImg.set('id' as any, prevId);
-      newImg.set('name' as any, prevName);
-      newImg.set('originalSrc' as any, newUrl);
-      newImg.set('naturalWidth' as any, metadata?.naturalWidth || newImg.width);
-      newImg.set('naturalHeight' as any, metadata?.naturalHeight || newImg.height);
-      newImg.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
-
-      this.canvas.insertAt(prevIndex, newImg);
-      this.canvas.setActiveObject(newImg);
-      this.canvas.requestRenderAll();
-      this.notifyChange();
-      this.notifySelection();
-      this.notifyLayers();
+      await this.addImageFromUrl(
+        newUrl,
+        {
+          name: metadata?.name || prevName || 'Image Layer',
+          ...metadata,
+        },
+        {
+          fitToArtworkInsetMm: 20,
+          skipFrameSlotting: true,
+        }
+      );
     } catch (err) {
       console.error('Failed to replace image:', err);
     }
@@ -4838,10 +4912,38 @@ export class CanvasManager {
     const shapeBorderProperties = new Set<keyof SelectedObjectState>([
       'stroke',
       'strokeWidth',
+      'strokePosition',
+      'baseStrokeWidth',
       'strokeDashArray',
       'strokeLineCap',
       'strokeLineJoin',
     ]);
+
+    // Generic group styling applies strokes to image children and creates an
+    // unwanted rectangular border. Uploaded custom frames are intentionally
+    // stroke-free because their overlay asset is already the complete frame.
+    if (
+      root instanceof Group &&
+      root.get('isCustomFrame' as any) &&
+      shapeBorderProperties.has(prop)
+    ) {
+      root.set({
+        stroke: 'transparent',
+        strokeWidth: 0,
+        strokeDashArray: null,
+        dirty: true,
+      });
+      root.getObjects().forEach((child) => {
+        child.set({
+          stroke: 'transparent',
+          strokeWidth: 0,
+          strokeDashArray: null,
+          dirty: true,
+        });
+        child.setCoords();
+      });
+      return;
+    }
 
     // A filled photo shape contains two children: the clipped photo and a
     // transparent SVG outline. Border controls must style only that outline;
@@ -4882,14 +4984,88 @@ export class CanvasManager {
       const isText = this.isTextObject(obj);
 
       if (prop === 'fill') {
-        if (!isImage) obj.set('fill', value as string);
+        if (!isImage) {
+          if (typeof value === 'object' && value !== null && 'stops' in value) {
+            const config = value as DesignerGradientValue;
+            const safeStops = config.stops
+              .filter((s) => typeof s.color === 'string')
+              .map((s) => ({
+                offset: Math.max(0, Math.min(1, Number(s.offset) || 0)),
+                color: s.color,
+              }))
+              .sort((a, b) => a.offset - b.offset);
+
+            if (safeStops.length >= 2) {
+              const width = Math.max(obj.width || 1, 1);
+              const height = Math.max(obj.height || 1, 1);
+              const centerX = width / 2;
+              const centerY = height / 2;
+              const angleRadians = ((Number(config.angle) || 0) - 90) * Math.PI / 180;
+              const radius = Math.sqrt(width * width + height * height) / 2;
+
+              const gradient = config.type === 'radial'
+                ? new Gradient({
+                  type: 'radial',
+                  gradientUnits: 'pixels',
+                  coords: {
+                    x1: centerX,
+                    y1: centerY,
+                    r1: 0,
+                    x2: centerX,
+                    y2: centerY,
+                    r2: radius,
+                  },
+                  colorStops: safeStops,
+                })
+                : new Gradient({
+                  type: 'linear',
+                  gradientUnits: 'pixels',
+                  coords: {
+                    x1: centerX - Math.cos(angleRadians) * radius,
+                    y1: centerY - Math.sin(angleRadians) * radius,
+                    x2: centerX + Math.cos(angleRadians) * radius,
+                    y2: centerY + Math.sin(angleRadians) * radius,
+                  },
+                  colorStops: safeStops,
+                });
+
+              obj.set({ fill: gradient, dirty: true });
+              obj.setCoords();
+            }
+          } else {
+            obj.set({ fill: value as string, dirty: true });
+          }
+        }
       } else if (prop === 'stroke') {
-        obj.set({ stroke: value as string, strokeUniform: true, paintFirst: 'fill' });
-      } else if (prop === 'strokeWidth') {
+        const pos = (obj.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
         obj.set({
-          strokeWidth: Math.max(0, Number(value) || 0),
+          stroke: value as string,
           strokeUniform: true,
-          paintFirst: 'fill',
+          paintFirst: pos === 'outside' ? 'stroke' : 'fill',
+          dirty: true,
+        });
+      } else if (prop === 'strokeWidth') {
+        const baseW = Math.max(0, Number(value) || 0);
+        const pos = (obj.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
+        obj.set('baseStrokeWidth' as any, baseW);
+        obj.set({
+          strokeWidth: pos === 'outside' && baseW > 0 ? baseW * 2 : baseW,
+          strokeUniform: true,
+          paintFirst: pos === 'outside' ? 'stroke' : 'fill',
+          dirty: true,
+        });
+      } else if (prop === 'strokePosition') {
+        const pos = value === 'outside' ? 'outside' : 'inside';
+        obj.set('strokePosition' as any, pos);
+        const baseW = typeof obj.get('baseStrokeWidth' as any) === 'number'
+          ? (obj.get('baseStrokeWidth' as any) as number)
+          : (obj.paintFirst === 'stroke' && obj.strokeWidth ? Math.round(obj.strokeWidth / 2) : (obj.strokeWidth || 0));
+        obj.set('baseStrokeWidth' as any, baseW);
+        obj.set({
+          strokeWidth: pos === 'outside' && baseW > 0 ? baseW * 2 : baseW,
+          strokeUniform: true,
+          paintFirst: pos === 'outside' ? 'stroke' : 'fill',
+          dirty: true,
         });
       } else if (prop === 'strokeDashArray') {
         obj.set('strokeDashArray', value ? (value as number[]) : null);
@@ -4933,7 +5109,7 @@ export class CanvasManager {
       } else if (isText && prop === 'fontSize') {
         const textObject = obj as Textbox | IText;
         const nextFontSize = Math.max(1, Number(value) || 1);
-        textObject.set({ fontSize: nextFontSize, objectCaching: false, dirty: true });
+        textObject.set({ fontSize: nextFontSize, dirty: true });
         textObject.set(
           'fontSizePt' as any,
           (nextFontSize * 72) /
@@ -4956,6 +5132,17 @@ export class CanvasManager {
         (obj as Textbox | IText).set('charSpacing', Number(value));
       } else if (isText && prop === 'lineHeight') {
         (obj as Textbox | IText).set('lineHeight', Number(value));
+      }
+
+      if (isText) {
+        const textObj = obj as Textbox | IText;
+        const prevWidth = textObj.width;
+        textObj.set('dirty', true);
+        textObj.initDimensions?.();
+        if (textObj instanceof Textbox && prevWidth) {
+          textObj.set('width', prevWidth);
+          textObj.initDimensions?.();
+        }
       }
 
       obj.set('dirty', true);
@@ -4986,7 +5173,20 @@ export class CanvasManager {
       if (prop === 'stroke') {
         object.set('stroke', String(value || 'transparent'));
       } else if (prop === 'strokeWidth') {
-        object.set('strokeWidth', Math.max(0, Number(value) || 0));
+        const baseW = Math.max(0, Number(value) || 0);
+        const pos = (object.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
+        object.set('baseStrokeWidth' as any, baseW);
+        object.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
+        object.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+      } else if (prop === 'strokePosition') {
+        const pos = value === 'outside' ? 'outside' : 'inside';
+        object.set('strokePosition' as any, pos);
+        const baseW = typeof object.get('baseStrokeWidth' as any) === 'number'
+          ? (object.get('baseStrokeWidth' as any) as number)
+          : (object.strokeWidth || 0);
+        object.set('baseStrokeWidth' as any, baseW);
+        object.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
+        object.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
       } else if (prop === 'strokeDashArray') {
         object.set('strokeDashArray', value ? (value as number[]) : null);
       } else if (prop === 'strokeLineCap') {
@@ -5007,14 +5207,21 @@ export class CanvasManager {
    * gets coordinates based on its own local bounds, so grouped/multi-path SVGs
    * render sharply and the gradient survives Fabric JSON and vector export.
    */
-  public setSelectedGradient(config: {
-    type: 'linear' | 'radial';
-    angle: number;
-    stops: Array<{ offset: number; color: string }>;
-  }): void {
+  public setSelectedGradient(
+    config: {
+      type: 'linear' | 'radial';
+      angle: number;
+      stops: Array<{ offset: number; color: string }>;
+    },
+    isLivePreview: boolean = false
+  ): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
-    if (!active || !this.isShapeObject(active)) return;
+    if (!active) return;
+    // Do not apply gradients to normal raster image pixels or frames filled with photos
+    if (active instanceof FabricImage || active.type === 'image') return;
+    const isPhotoFrame = Boolean(active.get('isPhotoShapeGroup' as any)) && !Boolean(active.get('isCanvaPlaceholder' as any));
+    if (isPhotoFrame) return;
 
     const safeStops = config.stops
       .filter((stop) => typeof stop.color === 'string')
@@ -5080,8 +5287,10 @@ export class CanvasManager {
     this.canvas.requestRenderAll();
     this.notifyChange();
     this.notifySelection();
-    this.notifyLayers();
-    this.saveHistoryState();
+    if (!isLivePreview) {
+      this.notifyLayers();
+      this.saveHistoryState();
+    }
   }
 
   public updateSelectedProperty<K extends keyof SelectedObjectState>(
@@ -5139,15 +5348,35 @@ export class CanvasManager {
       }
     } else if (prop === 'angle') active.set('angle', value as number);
     else if (prop === 'opacity') active.set('opacity', value as number);
-    else if (prop === 'fill') active.set('fill', value as string);
+    else if (prop === 'fill') {
+      if (typeof value === 'object' && value !== null && 'stops' in value) {
+        this.setSelectedGradient(value as any, false);
+        return;
+      }
+      active.set('fill', value as string);
+    }
     else if (prop === 'stroke') {
       active.set('stroke', value as string);
       active.set('strokeUniform', true);
-      active.set('paintFirst', 'fill');
+      const pos = (active.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
+      active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
     } else if (prop === 'strokeWidth') {
-      active.set('strokeWidth', value as number);
+      const baseW = Math.max(0, Number(value) || 0);
+      const pos = (active.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
+      active.set('baseStrokeWidth' as any, baseW);
+      active.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
       active.set('strokeUniform', true);
-      active.set('paintFirst', 'fill');
+      active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+    } else if (prop === 'strokePosition') {
+      const pos = value === 'outside' ? 'outside' : 'inside';
+      active.set('strokePosition' as any, pos);
+      const baseW = typeof active.get('baseStrokeWidth' as any) === 'number'
+        ? (active.get('baseStrokeWidth' as any) as number)
+        : (active.paintFirst === 'stroke' && active.strokeWidth ? Math.round(active.strokeWidth / 2) : (active.strokeWidth || 0));
+      active.set('baseStrokeWidth' as any, baseW);
+      active.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
+      active.set('strokeUniform', true);
+      active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
     } else if (prop === 'strokeLineCap') active.set('strokeLineCap', value as 'round' | 'square' | 'butt');
     else if (prop === 'strokeLineJoin') active.set('strokeLineJoin', value as 'round' | 'bevel' | 'miter');
     else if (prop === 'flipX') active.set('flipX', value as boolean);
@@ -5164,20 +5393,31 @@ export class CanvasManager {
           const scaleY = active.scaleY || 1;
           const unscaledRx = radius / Math.max(scaleX, 0.001);
           const unscaledRy = radius / Math.max(scaleY, 0.001);
-          active.clipPath = new Rect({
+          const roundedClipPath = new Rect({
             width: w,
             height: h,
             rx: unscaledRx,
             ry: unscaledRy,
             originX: 'center',
             originY: 'center',
+            objectCaching: false,
           });
+          roundedClipPath.set('dirty', true);
+          roundedClipPath.setCoords();
+          active.clipPath = roundedClipPath;
         } else {
           active.clipPath = undefined;
         }
       } else {
         active.set({ rx: radius, ry: radius } as any);
       }
+
+      // Fabric caches images and their clip paths. Replacing the clip path is
+      // not always enough to invalidate the cached bitmap, especially while
+      // reducing the radius. Mark both the object and its parent group dirty
+      // so every slider input is visible immediately instead of after Save.
+      active.set('dirty', true);
+      active.group?.set('dirty', true);
     } else if (prop === 'curve') {
       const curveVal = Number(value) || 0;
       (active as any).curve = curveVal;
@@ -5227,7 +5467,7 @@ export class CanvasManager {
     } else if (isText && prop === 'fontSize') {
       const textObject = active as Textbox | IText;
       const nextFontSize = Math.max(1, Number(value) || 1);
-      textObject.set({ fontSize: nextFontSize, objectCaching: false, dirty: true });
+      textObject.set({ fontSize: nextFontSize, dirty: true });
       textObject.set(
         'fontSizePt' as any,
         (nextFontSize * 72) /
@@ -5238,12 +5478,19 @@ export class CanvasManager {
       const fontItem = POPULAR_FONTS.find((f) => f.family === fontName || f.name === fontName);
       if (fontItem) {
         loadFont(fontItem).then(() => {
-          (active as Textbox | IText).set('fontFamily', fontName);
+          if (!this.canvas || !this.canvas.getObjects().includes(active)) return;
+          const textObj = active as Textbox | IText;
+          const prevWidth = textObj.width;
+          textObj.set({ fontFamily: fontName, dirty: true });
+          textObj.initDimensions?.();
+          if (textObj instanceof Textbox && prevWidth) {
+            textObj.set('width', prevWidth);
+            textObj.initDimensions?.();
+          }
           active.setCoords();
           this.canvas?.requestRenderAll();
           this.notifyChange();
           this.notifySelection();
-          this.notifyLayers();
         });
         return;
       }
@@ -5264,11 +5511,21 @@ export class CanvasManager {
       (active as Textbox | IText).set('lineHeight', Number(value));
     }
 
+    if (isText) {
+      const textObj = active as Textbox | IText;
+      const prevWidth = textObj.width;
+      textObj.set('dirty', true);
+      textObj.initDimensions?.();
+      if (textObj instanceof Textbox && prevWidth) {
+        textObj.set('width', prevWidth);
+        textObj.initDimensions?.();
+      }
+    }
+
     active.setCoords();
     this.canvas.requestRenderAll();
     this.notifyChange();
     this.notifySelection();
-    this.notifyLayers();
   }
 
   public getActiveObjectBoundingRect(): { left: number; top: number; width: number; height: number } | null {
@@ -5310,15 +5567,32 @@ export class CanvasManager {
     return { color: '#000000', transparency: 30 };
   }
 
+  private ensureOriginalStylesSaved(obj: FabricObject): void {
+    if ((obj as any)._originalFill === undefined && obj.fill && obj.fill !== 'transparent') {
+      (obj as any)._originalFill = obj.fill;
+    }
+    if ((obj as any)._originalStroke === undefined) {
+      (obj as any)._originalStroke = obj.stroke ?? null;
+      (obj as any)._originalStrokeWidth = obj.strokeWidth ?? 0;
+    }
+  }
+
+  private resetObjectEffectStyles(obj: FabricObject): void {
+    if ((obj as any)._originalFill !== undefined) {
+      obj.set('fill', (obj as any)._originalFill);
+    }
+    obj.set('shadow', null);
+    if ((obj as any)._originalStroke !== undefined) {
+      obj.set('stroke', (obj as any)._originalStroke);
+      obj.set('strokeWidth', (obj as any)._originalStrokeWidth ?? 0);
+    } else {
+      obj.set('strokeWidth', 0);
+    }
+  }
+
   public applyEffect(
     effectType: 'none' | 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon',
-    customShadowSettings?: Partial<{
-      direction: number;
-      offset: number;
-      blur: number;
-      transparency: number;
-      color: string;
-    }>
+    customSettings?: any
   ): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
@@ -5328,11 +5602,11 @@ export class CanvasManager {
 
     if (effectType === 'shadow') {
       const settings = {
-        direction: customShadowSettings?.direction ?? -45,
-        offset: customShadowSettings?.offset ?? 20,
-        blur: customShadowSettings?.blur ?? 10,
-        transparency: customShadowSettings?.transparency ?? 30,
-        color: customShadowSettings?.color ?? '#000000',
+        direction: customSettings?.direction ?? -45,
+        offset: customSettings?.offset ?? 20,
+        blur: customSettings?.blur ?? 10,
+        transparency: customSettings?.transparency ?? 30,
+        color: customSettings?.color ?? '#000000',
       };
       const rad = (settings.direction * Math.PI) / 180;
       const offsetX = Math.round(settings.offset * Math.cos(rad));
@@ -5341,6 +5615,8 @@ export class CanvasManager {
       const shadowColor = this.hexToRgba(settings.color, alpha);
 
       for (const obj of targets) {
+        this.ensureOriginalStylesSaved(obj);
+        this.resetObjectEffectStyles(obj);
         obj.set('shadow', new Shadow({
           color: shadowColor,
           blur: settings.blur,
@@ -5349,67 +5625,149 @@ export class CanvasManager {
         }));
         (obj as any)._shadowSettings = { ...settings };
         (obj as any)._activeEffect = 'shadow';
+        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
+        (obj as any)._effectSettings.shadow = { ...settings };
         (obj as any).dirty = true;
       }
       (active as any)._shadowSettings = { ...settings };
       (active as any)._activeEffect = 'shadow';
+      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
+      (active as any)._effectSettings.shadow = { ...settings };
     } else if (effectType === 'lift') {
+      const settings = {
+        intensity: customSettings?.intensity ?? 50,
+        blur: customSettings?.blur ?? 24,
+        transparency: customSettings?.transparency ?? 30,
+        color: customSettings?.color ?? '#000000',
+      };
+      const alpha = Math.max(0, Math.min(1, settings.transparency / 100));
+      const shadowColor = this.hexToRgba(settings.color, alpha);
+      const offsetY = Math.round((settings.intensity / 100) * 20);
+      const blur = settings.blur ?? Math.round((settings.intensity / 100) * 48);
+
       for (const obj of targets) {
-        obj.set('shadow', new Shadow({ color: 'rgba(0, 0, 0, 0.3)', blur: 24, offsetX: 0, offsetY: 10 }));
+        this.ensureOriginalStylesSaved(obj);
+        this.resetObjectEffectStyles(obj);
+        obj.set('shadow', new Shadow({
+          color: shadowColor,
+          blur,
+          offsetX: 0,
+          offsetY,
+        }));
         (obj as any)._activeEffect = 'lift';
+        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
+        (obj as any)._effectSettings.lift = { ...settings };
         (obj as any).dirty = true;
       }
       (active as any)._activeEffect = 'lift';
+      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
+      (active as any)._effectSettings.lift = { ...settings };
     } else if (effectType === 'glow') {
+      const settings = {
+        blur: customSettings?.blur ?? 20,
+        transparency: customSettings?.transparency ?? 80,
+        color: customSettings?.color ?? '#2563eb',
+      };
+      const alpha = Math.max(0, Math.min(1, settings.transparency / 100));
+      const glowColor = this.hexToRgba(settings.color, alpha);
+
       for (const obj of targets) {
-        obj.set('shadow', new Shadow({ color: 'rgba(37, 99, 235, 0.8)', blur: 20, offsetX: 0, offsetY: 0 }));
+        this.ensureOriginalStylesSaved(obj);
+        this.resetObjectEffectStyles(obj);
+        obj.set('shadow', new Shadow({
+          color: glowColor,
+          blur: settings.blur,
+          offsetX: 0,
+          offsetY: 0,
+        }));
         (obj as any)._activeEffect = 'glow';
+        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
+        (obj as any)._effectSettings.glow = { ...settings };
         (obj as any).dirty = true;
       }
       (active as any)._activeEffect = 'glow';
+      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
+      (active as any)._effectSettings.glow = { ...settings };
     } else if (effectType === 'outline') {
+      const settings = {
+        thickness: customSettings?.thickness ?? 2,
+        color: customSettings?.color ?? '#000000',
+      };
+
       for (const obj of targets) {
+        this.ensureOriginalStylesSaved(obj);
+        this.resetObjectEffectStyles(obj);
         obj.set({
-          stroke: '#000000',
-          strokeWidth: 2,
+          stroke: settings.color,
+          strokeWidth: settings.thickness,
           shadow: null,
         });
         (obj as any)._activeEffect = 'outline';
+        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
+        (obj as any)._effectSettings.outline = { ...settings };
         (obj as any).dirty = true;
       }
       (active as any)._activeEffect = 'outline';
+      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
+      (active as any)._effectSettings.outline = { ...settings };
     } else if (effectType === 'hollow') {
+      const fallbackColor = typeof active.stroke === 'string' && active.stroke !== 'transparent'
+        ? active.stroke
+        : (typeof active.fill === 'string' && active.fill !== 'transparent' ? active.fill : '#000000');
+      const settings = {
+        thickness: customSettings?.thickness ?? 2,
+        color: customSettings?.color ?? fallbackColor,
+      };
+
       for (const obj of targets) {
+        this.ensureOriginalStylesSaved(obj);
+        this.resetObjectEffectStyles(obj);
         obj.set({
           fill: 'transparent',
-          stroke: typeof obj.fill === 'string' && obj.fill !== 'transparent' ? obj.fill : '#000000',
-          strokeWidth: 2,
+          stroke: settings.color,
+          strokeWidth: settings.thickness,
           shadow: null,
         });
         (obj as any)._activeEffect = 'hollow';
+        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
+        (obj as any)._effectSettings.hollow = { ...settings };
         (obj as any).dirty = true;
       }
       (active as any)._activeEffect = 'hollow';
+      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
+      (active as any)._effectSettings.hollow = { ...settings };
     } else if (effectType === 'neon') {
+      const settings = {
+        intensity: customSettings?.intensity ?? 50,
+        color: customSettings?.color ?? '#ec4899',
+      };
+      const blur = Math.max(5, Math.round(10 + (settings.intensity / 100) * 40));
+
       for (const obj of targets) {
+        this.ensureOriginalStylesSaved(obj);
+        this.resetObjectEffectStyles(obj);
         obj.set({
-          stroke: '#ec4899',
+          stroke: settings.color,
           strokeWidth: 1,
-          shadow: new Shadow({ color: '#ec4899', blur: 30, offsetX: 0, offsetY: 0 }),
+          shadow: new Shadow({ color: settings.color, blur, offsetX: 0, offsetY: 0 }),
         });
         (obj as any)._activeEffect = 'neon';
+        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
+        (obj as any)._effectSettings.neon = { ...settings };
         (obj as any).dirty = true;
       }
       (active as any)._activeEffect = 'neon';
+      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
+      (active as any)._effectSettings.neon = { ...settings };
     } else {
       // none
       for (const obj of targets) {
-        obj.set({
-          shadow: null,
-          strokeWidth: 0,
-        });
+        this.resetObjectEffectStyles(obj);
         (obj as any)._activeEffect = 'none';
         delete (obj as any)._shadowSettings;
+        delete (obj as any)._originalFill;
+        delete (obj as any)._originalStroke;
+        delete (obj as any)._originalStrokeWidth;
         (obj as any).dirty = true;
       }
       (active as any)._activeEffect = 'none';
@@ -5436,57 +5794,47 @@ export class CanvasManager {
 
   public applyTextEffect(
     effectType: 'none' | 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon',
-    settings?: Partial<{
-      direction: number;
-      offset: number;
-      blur: number;
-      transparency: number;
-      color: string;
-    }>
+    settings?: any
   ): void {
     this.applyEffect(effectType, settings);
   }
 
   public getTextEffectState(): {
     effect: string;
-    settings: {
-      direction: number;
-      offset: number;
-      blur: number;
-      transparency: number;
-      color: string;
-    };
+    settings: any;
+    allSettings?: Record<string, any>;
   } {
     return this.getObjectEffectState();
   }
 
   public getObjectEffectState(): {
     effect: string;
-    settings: {
-      direction: number;
-      offset: number;
-      blur: number;
-      transparency: number;
-      color: string;
-    };
+    settings: any;
+    allSettings?: Record<string, any>;
   } {
-    const defaultSettings = {
-      direction: -45,
-      offset: 20,
-      blur: 10,
-      transparency: 30,
-      color: '#000000',
+    const defaultSettings: Record<string, any> = {
+      shadow: { direction: -45, offset: 20, blur: 10, transparency: 30, color: '#000000' },
+      lift: { intensity: 50, blur: 24, transparency: 30, color: '#000000' },
+      glow: { blur: 20, transparency: 80, color: '#2563eb' },
+      outline: { thickness: 2, color: '#000000' },
+      hollow: { thickness: 2, color: '#000000' },
+      neon: { intensity: 50, color: '#ec4899' },
     };
-    if (!this.canvas) return { effect: 'none', settings: defaultSettings };
+
+    if (!this.canvas) return { effect: 'none', settings: defaultSettings.shadow, allSettings: defaultSettings };
     const active = this.canvas.getActiveObject();
-    if (!active) return { effect: 'none', settings: defaultSettings };
+    if (!active) return { effect: 'none', settings: defaultSettings.shadow, allSettings: defaultSettings };
 
     const storedEffect = (active as any)._activeEffect;
-    if (storedEffect) {
-      const storedSettings = (active as any)._shadowSettings;
+    const allSettings = (active as any)._effectSettings || {};
+
+    if (storedEffect && storedEffect !== 'none') {
+      const effectDefault = defaultSettings[storedEffect] || defaultSettings.shadow;
+      const stored = allSettings[storedEffect] || (storedEffect === 'shadow' ? (active as any)._shadowSettings : null);
       return {
         effect: storedEffect,
-        settings: storedSettings ? { ...defaultSettings, ...storedSettings } : defaultSettings,
+        settings: stored ? { ...effectDefault, ...stored } : effectDefault,
+        allSettings: { ...defaultSettings, ...allSettings },
       };
     }
 
@@ -5498,19 +5846,24 @@ export class CanvasManager {
       const offset = Math.round(Math.sqrt(offsetX * offsetX + offsetY * offsetY));
       const direction = Math.round((Math.atan2(offsetY, offsetX) * 180) / Math.PI);
       const { color, transparency } = this.parseShadowColor(String(shadow.color));
+      const shadowSettings = {
+        direction,
+        offset,
+        blur,
+        transparency,
+        color,
+      };
       return {
         effect: 'shadow',
-        settings: {
-          direction,
-          offset,
-          blur,
-          transparency,
-          color,
+        settings: shadowSettings,
+        allSettings: {
+          ...defaultSettings,
+          shadow: shadowSettings,
         },
       };
     }
 
-    return { effect: 'none', settings: defaultSettings };
+    return { effect: 'none', settings: defaultSettings.shadow, allSettings: defaultSettings };
   }
 
   /**
@@ -6192,18 +6545,18 @@ export class CanvasManager {
 
     this.enableSelectionMode();
 
+    const requestedFontFamily = options?.fontFamily || 'Inter, sans-serif';
+    const requestedFontName = requestedFontFamily
+      .split(',')[0]
+      .trim()
+      .replace(/^['"]|['"]$/g, '');
     const fontItem = POPULAR_FONTS.find(
-      (f) => f.family === options?.fontFamily || f.name === options?.fontFamily
+      (f) =>
+        f.family === requestedFontFamily ||
+        f.name === requestedFontFamily ||
+        f.family === requestedFontName ||
+        f.name === requestedFontName
     );
-    if (fontItem) {
-      // Wait for the real web font before Fabric measures and draws the text.
-      try {
-        await loadFont(fontItem);
-      } catch (error) {
-        console.warn(`Could not preload font ${fontItem.family}:`, error);
-      }
-      if (!this.canvas) return;
-    }
 
     const textWidth = options?.width || 420;
     const artworkDpi = Math.max(72, Number(this.dimensions.dpi) || 96);
@@ -6216,7 +6569,7 @@ export class CanvasManager {
       top: 0,
       width: textWidth,
       fontSize,
-      fontFamily: options?.fontFamily || 'Inter, sans-serif',
+      fontFamily: requestedFontFamily,
       fontWeight: options?.fontWeight || 'normal',
       fontStyle: (options?.fontStyle as '' | 'normal' | 'italic' | 'oblique') || 'normal',
       fill: options?.fill || '#0f172a',
@@ -6231,11 +6584,13 @@ export class CanvasManager {
       splitByGrapheme: false,
       hoverCursor: 'move',
       moveCursor: 'move',
-      // Keep editable text sharp while zooming/resizing by redrawing glyphs
-      // instead of enlarging Fabric's cached bitmap representation.
-      objectCaching: false,
+      // Enable objectCaching so cursor blinking does not repeatedly re-render glyphs
+      objectCaching: true,
       noScaleCache: false,
       strokeUniform: true,
+      lockScalingFlip: true,
+      lockUniScaling: false,
+      centeredScaling: false,
     });
 
     text.set(
@@ -6245,6 +6600,7 @@ export class CanvasManager {
     text.set('sourceType' as any, 'vector-text');
 
     this.ensureObjectId(text, options?.name || 'Text Layer');
+    applyCanvaControlsToObject(text);
     this.canvas.add(text);
 
     if (options?.left !== undefined || options?.top !== undefined) {
@@ -6260,6 +6616,31 @@ export class CanvasManager {
     this.notifyChange();
     this.notifySelection();
     this.notifyLayers();
+
+    // Do not block insertion while a web font downloads. Fabric displays the
+    // text immediately with the browser fallback, then remeasures it once the
+    // requested font is ready. This removes the intermittent first-click lag.
+    if (fontItem) {
+      void loadFont(fontItem)
+        .then(() => {
+          if (!this.canvas || !this.canvas.getObjects().includes(text)) return;
+
+          text.set({
+            fontFamily: requestedFontFamily,
+            dirty: true,
+          });
+          text.initDimensions();
+          text.setCoords();
+          this.canvas.requestRenderAll();
+
+          if (this.canvas.getActiveObject() === text) {
+            this.notifySelection();
+          }
+        })
+        .catch((error) => {
+          console.warn(`Could not load font ${fontItem.family}:`, error);
+        });
+    }
   }
 
   // --- Basic Shapes Inserter ---
@@ -6407,19 +6788,17 @@ export class CanvasManager {
   }
 
   private notifyZoomThrottled(): void {
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    if (now - this.lastZoomNotifyTime > 80) {
-      this.lastZoomNotifyTime = now;
-      this.notifyZoom();
-    }
+    // Keep zooming inside Fabric's animation-frame path. Updating React state
+    // for every wheel event re-renders the complete editor/sidebar and makes
+    // zoom look like the artwork is repeatedly refreshing. Notify React once
+    // after the gesture settles instead.
     if (this.zoomNotifyTrailingTimer !== null) {
       clearTimeout(this.zoomNotifyTrailingTimer);
     }
     this.zoomNotifyTrailingTimer = setTimeout(() => {
       this.zoomNotifyTrailingTimer = null;
-      this.lastZoomNotifyTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
       this.notifyZoom();
-    }, 90);
+    }, 120);
   }
 
   private notifyGuides(visible: boolean): void {
@@ -6433,23 +6812,16 @@ export class CanvasManager {
   }
 
   private notifyPreflight(): void {
-    // Many actions notify change + layers in the same tick. Coalesce their
-    // expensive full-canvas preflight scans into one calculation per frame.
-    if (this.isPreflightScheduled) return;
-    this.isPreflightScheduled = true;
-
-    const run = () => {
-      this.isPreflightScheduled = false;
+    if (this.preflightListeners.size === 0) return;
+    if (this.preflightDebounceTimer !== null) {
+      clearTimeout(this.preflightDebounceTimer);
+    }
+    this.preflightDebounceTimer = setTimeout(() => {
+      this.preflightDebounceTimer = null;
       if (!this.canvas || this.preflightListeners.size === 0) return;
       const report = this.getPreflightReport();
       this.preflightListeners.forEach((cb) => cb(report));
-    };
-
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(run);
-    } else {
-      Promise.resolve().then(run);
-    }
+    }, 250);
   }
 
   private notifyChange(): void {
@@ -6639,11 +7011,10 @@ export class CanvasManager {
     const brushType = (active.get('brushType' as any) as BrushType) || undefined;
     const isBrushPath = isPath || Boolean(active.get('isBrushPath' as any));
     const sourceType = active.get('sourceType' as any) as string | undefined;
-    // Do not classify decorative/photo frames as colourable shapes merely
-    // because isShapeObject() also recognises frame drop targets.
+    // Classify vector shapes and empty/placeholder frames as colourable shapes.
     const isShapeObject =
       sourceType === 'shape' ||
-      (!isFrameObject && this.isShapeObject(active));
+      (this.isShapeObject(active) && (!imageObj || Boolean(active.get('isCanvaPlaceholder' as any))));
     const isCanvaPlaceholder = Boolean(active.get('isCanvaPlaceholder' as any)) ||
       Boolean(imageObj?.get('isCanvaPlaceholder' as any));
 
@@ -6671,19 +7042,49 @@ export class CanvasManager {
       scaleY: Number((active.scaleY || 1).toFixed(2)),
       angle: Math.round(active.angle || 0),
       opacity: Number((active.opacity !== undefined ? active.opacity : 1).toFixed(2)),
-      fill: usesChildStyles && typeof styleSource.fill === 'string'
-        ? styleSource.fill
-        : typeof active.fill === 'string'
-          ? active.fill
-          : '#2563eb',
+      fill: (() => {
+        const rawFill = usesChildStyles ? styleSource.fill : active.fill;
+        const designerGrad = fabricGradientToDesignerGradient(rawFill);
+        if (designerGrad) return designerGrad;
+        return typeof rawFill === 'string' ? rawFill : '#2563eb';
+      })(),
+      fillGradient: (() => {
+        const rawFill = usesChildStyles ? styleSource.fill : active.fill;
+        return fabricGradientToDesignerGradient(rawFill) || undefined;
+      })(),
       stroke: usesChildStyles && typeof styleSource.stroke === 'string'
         ? styleSource.stroke
         : typeof active.stroke === 'string'
           ? active.stroke
           : '#000000',
-      strokeWidth: usesChildStyles
-        ? styleSource.strokeWidth || active.strokeWidth || 0
-        : active.strokeWidth || 0,
+      strokeWidth: (() => {
+        const rawW = usesChildStyles
+          ? styleSource.strokeWidth || active.strokeWidth || 0
+          : active.strokeWidth || 0;
+        const storedBaseW = (active.get('baseStrokeWidth' as any) ||
+          styleSource.get('baseStrokeWidth' as any)) as number | undefined;
+        const storedPos = (active.get('strokePosition' as any) ||
+          styleSource.get('strokePosition' as any)) as 'inside' | 'outside' | undefined;
+        if (typeof storedBaseW === 'number') return storedBaseW;
+        if (storedPos === 'outside' && rawW > 0) return Math.round(rawW / 2);
+        return rawW;
+      })(),
+      strokePosition: (() => {
+        const storedPos = (active.get('strokePosition' as any) ||
+          styleSource.get('strokePosition' as any)) as 'inside' | 'outside' | undefined;
+        if (storedPos) return storedPos;
+        return (active.paintFirst === 'stroke' || styleSource.paintFirst === 'stroke') ? 'outside' : 'inside';
+      })(),
+      baseStrokeWidth: (() => {
+        const storedBaseW = (active.get('baseStrokeWidth' as any) ||
+          styleSource.get('baseStrokeWidth' as any)) as number | undefined;
+        if (typeof storedBaseW === 'number') return storedBaseW;
+        const rawW = usesChildStyles
+          ? styleSource.strokeWidth || active.strokeWidth || 0
+          : active.strokeWidth || 0;
+        const isOut = active.paintFirst === 'stroke' || styleSource.paintFirst === 'stroke';
+        return isOut && rawW > 0 ? Math.round(rawW / 2) : rawW;
+      })(),
       strokeLineCap:
         (active.strokeLineCap as 'round' | 'square' | 'butt') ||
         (styleSource.strokeLineCap as 'round' | 'square' | 'butt') ||
@@ -6764,6 +7165,41 @@ export class CanvasManager {
         this.canvas.getActiveObject();
       const target = rawTarget;
 
+      // Canva-like interaction: Auto-exit text editing when clicking on controls
+      // or near the bounding border perimeter so the user can immediately drag & move the text box.
+      const activeObj = this.canvas.getActiveObject();
+      if (activeObj && this.isTextObject(activeObj) && (activeObj as any).isEditing) {
+        const corner = opt?.transform?.corner || (activeObj as any).__corner;
+        if (corner) {
+          (activeObj as any).exitEditing?.();
+          (activeObj as any).set?.('hoverCursor', 'move');
+          this.canvas.setCursor('move');
+          this.canvas.requestRenderAll();
+        } else if (opt.e) {
+          const pointer = opt.scenePoint || (this.canvas && opt.e ? (this.canvas as any).getScenePoint?.(opt.e) : null);
+          const localPoint = pointer && (activeObj as any).toLocalPoint?.(pointer, 'center', 'center');
+          if (localPoint) {
+            const halfW = (activeObj.width || 0) / 2;
+            const halfH = (activeObj.height || 0) / 2;
+            const scaleX = Math.abs(activeObj.scaleX || 1);
+            const scaleY = Math.abs(activeObj.scaleY || 1);
+            const thresholdX = 14 / Math.max(scaleX, 0.01);
+            const thresholdY = 14 / Math.max(scaleY, 0.01);
+
+            const isNearBorder =
+              Math.abs(localPoint.x) >= halfW - thresholdX ||
+              Math.abs(localPoint.y) >= halfH - thresholdY;
+
+            if (isNearBorder) {
+              (activeObj as any).exitEditing?.();
+              (activeObj as any).set?.('hoverCursor', 'move');
+              this.canvas.setCursor('move');
+              this.canvas.requestRenderAll();
+            }
+          }
+        }
+      }
+
       if (target && typeof target.get === 'function') {
         const activeCorner =
           opt?.transform?.corner ||
@@ -6838,6 +7274,27 @@ export class CanvasManager {
     });
 
     this.canvas.on('mouse:move', (opt: any) => {
+      // Canva-style dynamic cursor: when editing text, hovering near the border shows 'move' cursor
+      const activeText = this.canvas?.getActiveObject();
+      if (activeText && this.isTextObject(activeText) && (activeText as any).isEditing && opt.e) {
+        const pointer = opt.scenePoint || (this.canvas && opt.e ? (this.canvas as any).getScenePoint?.(opt.e) : null);
+        const localPoint = pointer && (activeText as any).toLocalPoint?.(pointer, 'center', 'center');
+        if (localPoint) {
+          const halfW = (activeText.width || 0) / 2;
+          const halfH = (activeText.height || 0) / 2;
+          const scaleX = Math.abs(activeText.scaleX || 1);
+          const scaleY = Math.abs(activeText.scaleY || 1);
+          const thresholdX = 14 / Math.max(scaleX, 0.01);
+          const thresholdY = 14 / Math.max(scaleY, 0.01);
+
+          const isNearBorder =
+            Math.abs(localPoint.x) >= halfW - thresholdX ||
+            Math.abs(localPoint.y) >= halfH - thresholdY;
+
+          this.canvas?.setCursor(isNearBorder ? 'move' : 'text');
+        }
+      }
+
       if (this.isErasing && this.isDrawing && this.brushSettings.tool === 'eraser') {
         const pointer = opt.scenePoint || (this.canvas && opt.e ? (this.canvas as any).getScenePoint?.(opt.e) : null);
         if (pointer && this.lastErasePoint) {
@@ -6918,7 +7375,6 @@ export class CanvasManager {
         }
       });
       this.notifySelection();
-      this.notifyLayers();
     });
     this.canvas.on('selection:updated', () => {
       const active = this.canvas?.getActiveObject();
@@ -6932,7 +7388,6 @@ export class CanvasManager {
         }
       });
       this.notifySelection();
-      this.notifyLayers();
     });
     this.canvas.on('selection:cleared', () => {
       this.clearHoverFitHighlight();
@@ -6945,7 +7400,6 @@ export class CanvasManager {
       });
       this.canvas?.setCursor('default');
       this.notifySelection();
-      this.notifyLayers();
     });
 
     /* Keep the typography toolbar synchronized while entering, editing and
@@ -6958,7 +7412,11 @@ export class CanvasManager {
       this.notifySelection();
     });
     this.canvas.on('text:selection:changed' as any, () => {
-      this.notifySelection();
+      if (this.textSelectionThrottleTimer !== null) return;
+      this.textSelectionThrottleTimer = setTimeout(() => {
+        this.textSelectionThrottleTimer = null;
+        this.notifySelection();
+      }, 150);
     });
     this.canvas.on('text:changed' as any, (opt: any) => {
       opt?.target?.set?.('dirty', true);
@@ -6970,10 +7428,14 @@ export class CanvasManager {
     this.canvas.on('text:editing:exited' as any, (opt: any) => {
       if (opt?.target) {
         opt.target.set?.('hoverCursor', 'move');
+        applyCanvaControlsToObject(opt.target);
+        opt.target.setCoords?.();
       }
       this.canvas?.setCursor('move');
+      this.canvas?.requestRenderAll();
       this.notifySelection();
       this.notifyChange();
+      this.saveHistoryState();
       this.notifyLayers();
     });
 
@@ -6995,6 +7457,32 @@ export class CanvasManager {
       this.snapping.clearGuides();
       if (opt?.target) {
         this.frameResizeSnapshots.delete(opt.target);
+
+        if (this.isTextObject(opt.target)) {
+          const textObj = opt.target as Textbox | IText;
+          const sX = Math.abs(textObj.scaleX || 1);
+          const sY = Math.abs(textObj.scaleY || 1);
+          if (Math.abs(sX - 1) > 0.001 || Math.abs(sY - 1) > 0.001) {
+            const scale = (sX + sY) / 2;
+            const currentFontSize = textObj.fontSize || 16;
+            const nextFontSize = Math.max(1, Math.round(currentFontSize * scale));
+            const currentWidth = Math.max(24, textObj.width || 100);
+            const nextWidth = Math.max(24, Math.round(currentWidth * sX));
+            const artworkDpi = Math.max(72, Number(this.dimensions.dpi) || 96);
+
+            textObj.set({
+              fontSize: nextFontSize,
+              width: nextWidth,
+              scaleX: 1,
+              scaleY: 1,
+              dirty: true,
+            });
+            textObj.set('fontSizePt' as any, (nextFontSize * 72) / artworkDpi);
+            textObj.initDimensions();
+            textObj.setCoords();
+          }
+        }
+
         const handled = await this.handleShapeImageDrop(opt.target);
         const normalized = handled
           ? false
@@ -7063,18 +7551,6 @@ export class CanvasManager {
       this.canvas.on('object:modified', (opt: any) => logDiag('object:modified', opt.target));
     }
 
-    // Wheel zoom on Ctrl/Cmd + wheel
-    this.canvas.on('mouse:wheel', (opt: TPointerEventInfo<WheelEvent>) => {
-      const e = opt.e;
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        const zoomFactor = Math.pow(0.9985, e.deltaY);
-        const current = this.pendingZoom !== null ? this.pendingZoom : this.zoom;
-        const targetZoom = Math.min(Math.max(Number((current * zoomFactor).toFixed(3)), 0.05), 8.0);
-        this.setZoom(targetZoom, { clientX: e.clientX, clientY: e.clientY });
-      }
-    });
   }
 
   public setSmartGuidesEnabled(enabled: boolean): void {
@@ -7146,12 +7622,21 @@ export class CanvasManager {
   }
 
   private async loadCustomShapeObject(url: string): Promise<FabricObject> {
-    // Custom shapes are SVG vector documents. Fetch the original Laravel
-    // storage URL as text instead of converting it through the image/Data URL
-    // pipeline, which can produce a response Fabric cannot parse in production.
+    // Convert through the proxy/data-URL pipeline first. Laravel's static
+    // /storage responses can display in an <img> but still reject fetch with
+    // CORS, which previously left an empty selection rectangle on the canvas.
     const directUrl = formatImageUrl(url);
+    const forcedProxyUrl =
+      directUrl.startsWith('data:') ||
+        directUrl.startsWith('blob:') ||
+        directUrl.includes('/api/v1/designer/proxy-image')
+        ? directUrl
+        : `${CANVAS_API_URL}/designer/proxy-image?url=${encodeURIComponent(
+          directUrl
+        )}`;
+    const safeUrl = await urlToSafeDataUrl(forcedProxyUrl);
 
-    const response = await fetch(directUrl, {
+    const response = await fetch(safeUrl, {
       method: 'GET',
       mode: 'cors',
       credentials: 'omit',
@@ -7260,6 +7745,9 @@ export class CanvasManager {
       opacity: 1,
       selectable: true,
       evented: true,
+      hasControls: true,
+      hasBorders: true,
+      perPixelTargetFind: true,
     });
 
     return shape;
@@ -7523,6 +8011,24 @@ export class CanvasManager {
       clearTimeout(this.zoomNotifyTrailingTimer);
       this.zoomNotifyTrailingTimer = null;
     }
+
+    if (this.historyDebounceTimer !== null) {
+      clearTimeout(this.historyDebounceTimer);
+      this.historyDebounceTimer = null;
+    }
+
+    if (this.preflightDebounceTimer !== null) {
+      clearTimeout(this.preflightDebounceTimer);
+      this.preflightDebounceTimer = null;
+    }
+
+    if (this.textSelectionThrottleTimer !== null) {
+      clearTimeout(this.textSelectionThrottleTimer);
+      this.textSelectionThrottleTimer = null;
+    }
+
+    this.undoStack = [];
+    this.redoStack = [];
 
     if (this.canvas) {
       if (this.canvas.upperCanvasEl && this.preventNativeDragHandler) {

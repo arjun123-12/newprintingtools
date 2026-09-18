@@ -18,6 +18,7 @@ import {
 import { SelectedObjectState } from '@/types/designer';
 import { FontSelector } from './FontSelector';
 import { ColorPicker } from './ColorPicker';
+import { colorOrGradientToCss } from '@/utils/colorUtils';
 
 interface TextControlsProps {
   selected: SelectedObjectState;
@@ -115,10 +116,10 @@ export const TextControls: React.FC<TextControlsProps> = ({ selected, onUpdate, 
           >
             <div
               className="w-5 h-5 rounded-md border border-black/10 shadow-2xs"
-              style={{ backgroundColor: selected.fill || '#0f172a' }}
+              style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#0f172a') }}
             />
             <span className="text-[10px] font-mono font-bold text-gray-700 uppercase">
-              {selected.fill || '#0f172a'}
+              {typeof selected.fill === 'string' ? selected.fill : 'Gradient'}
             </span>
           </button>
         </div>
@@ -129,10 +130,11 @@ export const TextControls: React.FC<TextControlsProps> = ({ selected, onUpdate, 
         <div className="p-1 bg-gray-50/90 border border-gray-200 rounded-2xl shadow-inner animate-in fade-in zoom-in-95 duration-100 flex justify-center">
           <ColorPicker
             label="Text Color"
-            value={selected.fill || '#0f172a'}
-            onChange={(color) => onUpdate('fill', color)}
+            value={selected.fillGradient || selected.fill || '#0f172a'}
+            onChange={(color) => onUpdate('fill', color as any)}
             canvasManager={canvasManager}
             onClose={() => setIsColorOpen(false)}
+            allowGradient={true}
           />
         </div>
       )}

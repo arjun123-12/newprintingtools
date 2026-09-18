@@ -99,8 +99,11 @@ export const BrushPathControls: React.FC<BrushPathControlsProps> = ({
         <ColorPicker
           label="Stroke Color"
           value={strokeColor}
-          onChange={(hex) => onUpdate('stroke', hex)}
+          onChange={(hex) => {
+            if (typeof hex === 'string') onUpdate('stroke', hex);
+          }}
           canvasManager={canvasManager}
+          allowGradient={false}
         />
       </div>
     </div>

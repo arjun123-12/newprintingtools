@@ -2,11 +2,8 @@
 
 import React from 'react';
 import { CanvasManager } from '../canvas/CanvasManager';
-import { SelectedObjectState } from '@/types/designer';
-import {
-  ColorPicker,
-  ColorGradientValue,
-} from '../controls/ColorPicker';
+import { SelectedObjectState, DesignerGradientValue } from '@/types/designer';
+import { ColorPicker } from '../controls/ColorPicker';
 
 interface ColorPanelProps {
   canvasManager: CanvasManager | null;
@@ -36,14 +33,14 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
       selected.isBrushPath)
   );
 
-  // isShape is explicit because uploaded SVG/photo shapes may internally be
-  // Fabric groups or images. Their selected.type alone is not reliable.
+  // Shape identity takes priority over Fabric's underlying object type.
+  // Custom SVG/photo shapes or placeholder frames must receive shape color controls.
   const isShape = Boolean(
     selected &&
     !isText &&
     !isPath &&
     !selected.isMultiple &&
-    (selected.isShape ||
+    (Boolean(selected.isShape) ||
       selected.type === 'shape' ||
       selected.type === 'rect' ||
       selected.type === 'circle' ||
@@ -52,61 +49,92 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
       selected.type === 'line')
   );
 
+  const isImage = Boolean(
+    selected &&
+    !isShape &&
+    (selected.type === 'image' ||
+      selected.type === 'fabricImage' ||
+      (Boolean(selected.isFrame) && !selected.isCanvaPlaceholder) ||
+      Boolean(selected.src))
+  );
+
   let label = 'Colour';
-  let currentColor = '#000000';
-  let handleColorChange = (color: string) => {
-    canvasManager?.setBackgroundColor(color);
-  };
-  let handleGradientChange: ((gradient: ColorGradientValue) => void) | undefined;
+  let currentValue: string | DesignerGradientValue = '#000000';
+  let allowGradient = false;
 
   if (isDrawing && canvasManager) {
     label = 'Brush Colour';
-    currentColor = canvasManager.getBrushSettings().color || '#2563eb';
-    handleColorChange = (color: string) => {
-      canvasManager.setBrushSettings({ color });
-    };
+    currentValue = canvasManager.getBrushSettings().color || '#2563eb';
+    allowGradient = false;
   } else if (isText && selected) {
     label = 'Text Colour';
-    currentColor = selected.fill || '#000000';
-    handleColorChange = (color: string) => {
-      canvasManager?.updateSelectedProperty('fill', color);
-    };
-  } else if (isShape && selected) {
-    label = 'Shape Colour';
-    currentColor = selected.fill || '#2563eb';
-    handleColorChange = (color: string) => {
-      canvasManager?.updateSelectedProperty('fill', color);
-    };
-    handleGradientChange = (gradient: ColorGradientValue) => {
-      canvasManager?.setSelectedGradient(gradient);
-    };
+    currentValue = selected.fillGradient || selected.fill || '#000000';
+    allowGradient = true;
   } else if (isPath && selected) {
     label = 'Stroke Colour';
-    currentColor = selected.stroke || selected.fill || '#2563eb';
-    handleColorChange = (color: string) => {
-      if (!canvasManager) return;
-      canvasManager.updateSelectedProperty('stroke', color);
-      canvasManager.updateSelectedProperty('fill', color);
-    };
+    currentValue = selected.stroke || (typeof selected.fill === 'string' ? selected.fill : '#2563eb');
+    allowGradient = false;
+  } else if (isShape && selected) {
+    label = 'Shape Colour';
+    currentValue = selected.fillGradient || selected.fill || '#2563eb';
+    allowGradient = true;
+  } else if (selected && !isImage) {
+    label = selected.isShape ? 'Shape Colour' : 'Element Colour';
+    currentValue = selected.fillGradient || selected.fill || '#2563eb';
+    allowGradient = selected.isCanvaPlaceholder !== false;
   } else if (canvasManager) {
     label = 'Background Colour';
-    currentColor =
-      (canvasManager.getBackgroundSettings().color as string) || '#ffffff';
-    handleColorChange = (color: string) => {
-      canvasManager.setBackgroundColor(color);
-    };
+    const bgSettings = canvasManager.getBackgroundSettings();
+    if (bgSettings.type === 'gradient' && bgSettings.gradient) {
+      currentValue = bgSettings.gradient;
+    } else {
+      currentValue = (bgSettings.color as string) || '#ffffff';
+    }
+    allowGradient = true;
   }
+
+  const handleColorChange = (value: string | DesignerGradientValue) => {
+    if (typeof value === 'object' && value !== null && 'stops' in value) {
+      if (isShape || (selected && !isPath && !isDrawing && !isImage)) {
+        canvasManager?.setSelectedGradient(value, false);
+      } else if (!selected && canvasManager) {
+        canvasManager.setBackgroundGradient(value, false);
+      }
+    } else {
+      // Solid color
+      if (isDrawing && canvasManager) {
+        canvasManager.setBrushSettings({ color: value });
+      } else if (isText && selected) {
+        canvasManager?.updateSelectedProperty('fill', value);
+      } else if (isPath && selected) {
+        canvasManager?.updateSelectedProperty('stroke', value);
+        canvasManager?.updateSelectedProperty('fill', value);
+      } else if (isShape || (selected && !isImage)) {
+        canvasManager?.updateSelectedProperty('fill', value);
+      } else if (canvasManager) {
+        canvasManager.setBackgroundColor(value);
+      }
+    }
+  };
+
+  const handleGradientChange = (gradient: DesignerGradientValue) => {
+    if (isShape || (selected && !isPath && !isDrawing && !isImage)) {
+      canvasManager?.setSelectedGradient(gradient, true);
+    } else if (!selected && canvasManager) {
+      canvasManager.setBackgroundGradient(gradient, true);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-white select-none">
       <ColorPicker
         label={label}
-        value={currentColor}
+        value={currentValue}
         onChange={handleColorChange}
         canvasManager={canvasManager}
         onClose={onClose}
         embedded
-        allowGradient={isShape && selected?.isCanvaPlaceholder !== false}
+        allowGradient={allowGradient}
         onGradientChange={handleGradientChange}
       />
     </div>

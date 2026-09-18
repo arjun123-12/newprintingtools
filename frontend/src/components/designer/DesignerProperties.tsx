@@ -5,6 +5,7 @@ import {
   SelectedObjectState,
   DocumentSettings,
   CanvasDimensions,
+  DesignerGradientValue,
 } from '@/types/designer';
 import { CanvasManager } from './canvas/CanvasManager';
 import { ColorPicker } from './controls/ColorPicker';
@@ -99,20 +100,30 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
     canvasManager.updateSelectedProperty(prop, value);
   };
 
-  const handleFillChange = (color: string) => {
+  const handleFillChange = (val: string | DesignerGradientValue) => {
     if (!canvasManager) return;
-    canvasManager.updateSelectedProperty('fill', color);
+    if (typeof val === 'object' && val !== null) {
+      canvasManager.setSelectedGradient(val, false);
+    } else {
+      canvasManager.updateSelectedProperty('fill', val);
+    }
   };
 
-  const handleStrokeChange = (color: string) => {
+  const handleStrokeChange = (val: string | DesignerGradientValue) => {
     if (!canvasManager) return;
-    canvasManager.updateSelectedProperty('stroke', color);
+    if (typeof val === 'string') {
+      canvasManager.updateSelectedProperty('stroke', val);
+    }
   };
 
-  const handleCanvasBgChange = (color: string) => {
+  const handleCanvasBgChange = (val: string | DesignerGradientValue) => {
     if (!canvasManager) return;
-    canvasManager.setBackgroundColor(color);
-    onUpdateDocumentSettings({ backgroundColor: color });
+    if (typeof val === 'object' && val !== null) {
+      canvasManager.setBackgroundGradient(val, false);
+    } else {
+      canvasManager.setBackgroundColor(val);
+      onUpdateDocumentSettings({ backgroundColor: val });
+    }
   };
 
   const isText = Boolean(
@@ -362,15 +373,17 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
               <div className="space-y-3.5">
                 <ColorPicker
                   label="Fill Color"
-                  value={selected.fill || '#2563eb'}
+                  value={selected.fillGradient || selected.fill || '#2563eb'}
                   onChange={handleFillChange}
                   canvasManager={canvasManager}
+                  allowGradient={true}
                 />
                 <ColorPicker
                   label="Border / Stroke Color"
                   value={selected.stroke || '#000000'}
                   onChange={handleStrokeChange}
                   canvasManager={canvasManager}
+                  allowGradient={false}
                 />
               </div>
             )}
@@ -385,6 +398,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                 value={documentSettings.backgroundColor || '#ffffff'}
                 onChange={handleCanvasBgChange}
                 canvasManager={canvasManager}
+                allowGradient={true}
               />
             </div>
 

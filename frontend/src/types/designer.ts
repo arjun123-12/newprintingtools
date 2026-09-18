@@ -129,6 +129,17 @@ export interface ArtworkQualityInfo {
   printHeightMm: number;
 }
 
+export interface DesignerGradientStop {
+  offset: number;
+  color: string;
+}
+
+export interface DesignerGradientValue {
+  type: 'linear' | 'radial';
+  angle: number;
+  stops: DesignerGradientStop[];
+}
+
 export interface SelectedObjectState {
   id?: string;
   name?: string;
@@ -143,7 +154,8 @@ export interface SelectedObjectState {
   scaleY: number;
   angle: number;
   opacity: number;
-  fill: string;
+  fill: string | DesignerGradientValue;
+  fillGradient?: DesignerGradientValue;
   stroke: string;
   strokeWidth: number;
   flipX: boolean;
@@ -204,6 +216,8 @@ export interface SelectedObjectState {
   strokeDashArray?: number[];
   strokeUniform?: boolean;
   paintFirst?: 'fill' | 'stroke';
+  strokePosition?: 'inside' | 'outside';
+  baseStrokeWidth?: number;
 }
 
 export interface UploadedAsset {

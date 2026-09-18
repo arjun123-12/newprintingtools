@@ -10,34 +10,45 @@ import {
   Sparkles,
   Image as ImageIcon,
   Check,
+  RotateCcw,
+  Sliders,
+  History,
+  ArrowRightLeft,
 } from 'lucide-react';
-import { CanvasManager } from '../canvas/CanvasManager';
+import type { CanvasManager } from '../canvas/CanvasManager';
+import { DesignerGradientValue, DesignerGradientStop } from '@/types/designer';
+import {
+  hexToRgb,
+  rgbToHex,
+  hexToHsv,
+  hsvToHex,
+  isValidHex,
+  colorOrGradientToCss,
+  getRecentColors,
+  addRecentColor,
+} from '@/utils/colorUtils';
 
-interface ColorPickerProps {
+export interface ColorPickerProps {
   label?: string;
-  value: string;
-  onChange: (color: string) => void;
-  canvasManager?: CanvasManager | null;
+  value: string | DesignerGradientValue;
+  onChange: (value: string | DesignerGradientValue) => void;
   onClose?: () => void;
+  allowGradient?: boolean;
+  allowAlpha?: boolean;
   showAlpha?: boolean;
+  recentColors?: string[];
+  canvasManager?: CanvasManager | null;
   embedded?: boolean;
   className?: string;
-  allowGradient?: boolean;
-  onGradientChange?: (gradient: ColorGradientValue) => void;
+  onGradientChange?: (gradient: DesignerGradientValue) => void;
 }
 
-export interface ColorGradientStop {
-  offset: number;
-  color: string;
-}
+// Re-export for backward compatibility
+export type ColorGradientValue = DesignerGradientValue;
+export type ColorGradientStop = DesignerGradientStop;
 
-export interface ColorGradientValue {
-  type: 'linear' | 'radial';
-  angle: number;
-  stops: ColorGradientStop[];
-}
+// --- Curated Canva-Style Solid Palettes ---
 
-// Brand Kit Palette (from reference Canva design)
 const BRAND_KIT_COLORS = [
   { name: 'Warm Brown', hex: '#6b5335' },
   { name: 'Rich Black', hex: '#1c1917' },
@@ -47,7 +58,6 @@ const BRAND_KIT_COLORS = [
   { name: 'Deep Emerald', hex: '#065f46' },
 ];
 
-// Photo Colors Palette (from reference Canva design)
 const PHOTO_COLORS = [
   { name: 'Warm Sand', hex: '#e2c2a4' },
   { name: 'Bright Magenta', hex: '#e14e9d' },
@@ -56,7 +66,6 @@ const PHOTO_COLORS = [
   { name: 'Ruby Red', hex: '#c11e2b' },
 ];
 
-// Default Canva Solid Colors
 const DEFAULT_SOLID_ROW_1 = [
   { name: 'Black', hex: '#000000' },
   { name: 'Dark Gray', hex: '#4b4b4b' },
@@ -94,72 +103,70 @@ const EXTENDED_SOLID_COLORS = [
   { name: 'Zinc', hex: '#71717a' },
 ];
 
-// --- HSV & Color Conversion Utilities ---
+// --- Curated Canva Gradient Presets ---
 
-function hsvToHex(h: number, s: number, v: number): string {
-  s = s / 100;
-  v = v / 100;
-  const c = v * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = v - c;
-  let r = 0, g = 0, b = 0;
-  if (h >= 0 && h < 60) { r = c; g = x; b = 0; }
-  else if (h >= 60 && h < 120) { r = x; g = c; b = 0; }
-  else if (h >= 120 && h < 180) { r = 0; g = c; b = x; }
-  else if (h >= 180 && h < 240) { r = 0; g = x; b = c; }
-  else if (h >= 240 && h < 300) { r = x; g = 0; b = c; }
-  else { r = c; g = 0; b = x; }
-  const rHex = Math.round((r + m) * 255).toString(16).padStart(2, '0');
-  const gHex = Math.round((g + m) * 255).toString(16).padStart(2, '0');
-  const bHex = Math.round((b + m) * 255).toString(16).padStart(2, '0');
-  return `#${rHex}${gHex}${bHex}`.toLowerCase();
+interface GradientPreset {
+  name: string;
+  colors: string[];
+  angle?: number;
+  type?: 'linear' | 'radial';
 }
 
-function hexToHsv(hex: string): { h: number; s: number; v: number } {
-  let cleaned = hex.replace('#', '');
-  if (cleaned.length === 3) {
-    cleaned = cleaned.split('').map((c) => c + c).join('');
-  }
-  if (cleaned.length !== 6) {
-    return { h: 0, s: 100, v: 100 };
-  }
-  const r = parseInt(cleaned.substring(0, 2), 16) / 255 || 0;
-  const g = parseInt(cleaned.substring(2, 4), 16) / 255 || 0;
-  const b = parseInt(cleaned.substring(4, 6), 16) / 255 || 0;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const d = max - min;
-  let h = 0;
-  const s = max === 0 ? 0 : (d / max) * 100;
-  const v = max * 100;
-  if (max !== min) {
-    switch (max) {
-      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-      case g: h = (b - r) / d + 2; break;
-      case b: h = (r - g) / d + 4; break;
-    }
-    h = h * 60;
-  }
-  return { h: Math.round(h), s: Math.round(s), v: Math.round(v) };
-}
+const GRADIENT_PRESETS: GradientPreset[] = [
+  { name: 'Canva Purple Aqua', colors: ['#7d2ae8', '#00c4cc'] },
+  { name: 'Sunset', colors: ['#ff5757', '#ffde59'] },
+  { name: 'Electric Violet', colors: ['#0047ff', '#cb6ce6'] },
+  { name: 'Fresh Mint', colors: ['#00d287', '#00c4cc'] },
+  { name: 'Berry', colors: ['#f43f5e', '#8b5cf6'] },
+  { name: 'Midnight', colors: ['#111827', '#64748b'] },
+  { name: 'Ocean', colors: ['#0052d4', '#4364f7', '#6fb1fc'] },
+  { name: 'Aurora', colors: ['#00f5a0', '#00d9f5', '#7d2ae8'] },
+  { name: 'Instagram', colors: ['#833ab4', '#fd1d1d', '#fcb045'] },
+  { name: 'Peach', colors: ['#ffecd2', '#fcb69f'] },
+  { name: 'Cotton Candy', colors: ['#fbc2eb', '#a6c1ee'] },
+  { name: 'Lavender', colors: ['#e0c3fc', '#8ec5fc'] },
+  { name: 'Rose Gold', colors: ['#f4c4c4', '#dba39a', '#b76e79'] },
+  { name: 'Golden Hour', colors: ['#fff3b0', '#e09f3e', '#9e2a2b'] },
+  { name: 'Tropical', colors: ['#f9d423', '#ff4e50'] },
+  { name: 'Mango', colors: ['#ffe259', '#ffa751'] },
+  { name: 'Fire', colors: ['#ff512f', '#dd2476'] },
+  { name: 'Candy', colors: ['#ff6a88', '#ff99ac', '#fbc2eb'] },
+  { name: 'Sky', colors: ['#56ccf2', '#2f80ed'] },
+  { name: 'Ice', colors: ['#e0ffff', '#80deea', '#00acc1'] },
+  { name: 'Deep Sea', colors: ['#2c3e50', '#4ca1af'] },
+  { name: 'Emerald', colors: ['#11998e', '#38ef7d'] },
+  { name: 'Forest', colors: ['#134e5e', '#71b280'] },
+  { name: 'Lime', colors: ['#a8ff78', '#78ffd6'] },
+  { name: 'Royal', colors: ['#141e30', '#243b55', '#7d2ae8'] },
+  { name: 'Neon', colors: ['#fc00ff', '#00dbde'] },
+  { name: 'Galaxy', colors: ['#0f0c29', '#302b63', '#24243e'] },
+  { name: 'Radial Glow', colors: ['#ffffff', '#8ec5fc', '#7d2ae8'], type: 'radial' },
+  { name: 'Radial Sunset', colors: ['#ffde59', '#ff5757', '#8b3dff'], type: 'radial' },
+  { name: 'Radial Aqua', colors: ['#e0ffff', '#00c4cc', '#0047ff'], type: 'radial' },
+];
 
-// --- Canva-Style Interactive 2D Color Spectrum & Hue Chart ---
+// --- Canva Color Chart (HSV Spectrum + Hex/RGB inputs + Eyedropper) ---
 
 interface CanvaColorChartProps {
   color: string;
   onChange: (hex: string) => void;
+  onSelectAndClose?: (hex: string) => void;
   onClose?: () => void;
-  onPickEyedropper?: () => void;
+  allowAlpha?: boolean;
 }
 
 const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
   color,
   onChange,
-  onClose,
-  onPickEyedropper,
+  onSelectAndClose,
+  allowAlpha = false,
 }) => {
-  const [hsv, setHsv] = useState(() => hexToHsv(color || '#d97706'));
-  const [hexInput, setHexInput] = useState(color || '#d97706');
+  const initialHex = color && typeof color === 'string' && color.startsWith('#') ? color : '#7d2ae8';
+  const [hsv, setHsv] = useState(() => hexToHsv(initialHex));
+  const [hexInput, setHexInput] = useState(initialHex);
+  const [inputMode, setInputMode] = useState<'hex' | 'rgb'>('hex');
+  const [rgbState, setRgbState] = useState(() => hexToRgb(initialHex) || { r: 125, g: 42, b: 232, a: 1 });
+  const [alpha, setAlpha] = useState<number>(100);
 
   const spectrumRef = useRef<HTMLDivElement | null>(null);
   const hueSliderRef = useRef<HTMLDivElement | null>(null);
@@ -167,18 +174,28 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
   const isDraggingHue = useRef(false);
 
   useEffect(() => {
-    if (color) {
+    if (color && typeof color === 'string' && color.startsWith('#')) {
       setHexInput(color);
-      const parsed = hexToHsv(color);
+      const parsedHsv = hexToHsv(color);
+      const parsedRgb = hexToRgb(color);
+      if (parsedRgb) {
+        setRgbState(parsedRgb);
+        setAlpha(Math.round((parsedRgb.a ?? 1) * 100));
+      }
       setHsv((prev) => {
-        // Keep current hue if saturation is 0 (grayscale)
-        if (parsed.s === 0 && parsed.v > 0) {
-          return { ...parsed, h: prev.h };
+        if (parsedHsv.s === 0 && parsedHsv.v > 0) {
+          return { ...parsedHsv, h: prev.h };
         }
-        return parsed;
+        return parsedHsv;
       });
     }
   }, [color]);
+
+  const emitColor = useCallback((nextHex: string) => {
+    onChange(nextHex);
+    const parsedRgb = hexToRgb(nextHex);
+    if (parsedRgb) setRgbState(parsedRgb);
+  }, [onChange]);
 
   // Spectrum 2D Drag Handler
   const handleSpectrumMove = useCallback((clientX: number, clientY: number) => {
@@ -191,10 +208,10 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
     const v = Math.round((1 - y / rect.height) * 100);
 
     const nextHex = hsvToHex(hsv.h, s, v);
-    setHsv({ ...hsv, s, v });
+    setHsv((prev) => ({ ...prev, s, v }));
     setHexInput(nextHex);
-    onChange(nextHex);
-  }, [hsv, onChange]);
+    emitColor(nextHex);
+  }, [hsv.h, emitColor]);
 
   // Hue Slider Drag Handler
   const handleHueMove = useCallback((clientX: number) => {
@@ -204,10 +221,10 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
     const h = Math.round((x / rect.width) * 360) % 360;
 
     const nextHex = hsvToHex(h, hsv.s, hsv.v);
-    setHsv({ ...hsv, h });
+    setHsv((prev) => ({ ...prev, h }));
     setHexInput(nextHex);
-    onChange(nextHex);
-  }, [hsv, onChange]);
+    emitColor(nextHex);
+  }, [hsv.s, hsv.v, emitColor]);
 
   const handlePointerDownSpectrum = (e: React.PointerEvent) => {
     isDraggingSpectrum.current = true;
@@ -247,54 +264,98 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
     let val = e.target.value.trim();
     setHexInput(val);
     if (!val.startsWith('#')) val = '#' + val;
-    if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
-      onChange(val);
+    if (isValidHex(val)) {
+      setHsv(hexToHsv(val));
+      emitColor(val);
+    }
+  };
+
+  const handleHexKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      let val = hexInput.trim();
+      if (!val.startsWith('#')) val = '#' + val;
+      if (isValidHex(val)) {
+        if (onSelectAndClose) {
+          onSelectAndClose(val);
+        } else {
+          emitColor(val);
+        }
+      }
+    }
+  };
+
+  const handleRgbChange = (channel: 'r' | 'g' | 'b', valueStr: string) => {
+    const num = Math.max(0, Math.min(255, parseInt(valueStr) || 0));
+    const nextRgb = { ...rgbState, [channel]: num };
+    setRgbState(nextRgb);
+    const hex = rgbToHex(nextRgb.r, nextRgb.g, nextRgb.b);
+    setHexInput(hex);
+    setHsv(hexToHsv(hex));
+    emitColor(hex);
+  };
+
+  // Native Browser Eyedropper API
+  const handleEyedropper = async () => {
+    if (typeof window !== 'undefined' && 'EyeDropper' in window) {
+      try {
+        const picker = new (window as any).EyeDropper();
+        const result = await picker.open();
+        if (result?.sRGBHex) {
+          const hex = result.sRGBHex.toUpperCase();
+          setHexInput(hex);
+          emitColor(hex);
+          if (onSelectAndClose) {
+            onSelectAndClose(hex);
+          }
+        }
+      } catch {
+        // Gracefully ignore user cancellation
+      }
     }
   };
 
   return (
-    <div className="p-3 bg-white rounded-2xl border border-gray-200/90 shadow-xl space-y-3 animate-in fade-in zoom-in-95 duration-150 select-none">
-      {/* Header */}
-      <div className="flex items-center justify-between pb-1">
-        <span className="text-xs font-bold text-gray-900">Custom Color Chart</span>
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-[11px] font-bold text-gray-500 hover:text-gray-900"
-          >
-            Done
-          </button>
-        )}
-      </div>
-
-      {/* 1. 2D SATURATION / BRIGHTNESS SPECTRUM AREA */}
+    <div className="p-3 bg-white rounded-2xl border border-gray-200/90 shadow-sm space-y-3 select-none">
+      {/* 1. 2D SATURATION & VALUE CANVAS */}
       <div
         ref={spectrumRef}
         onPointerDown={handlePointerDownSpectrum}
         onPointerMove={handlePointerMoveSpectrum}
         onPointerUp={handlePointerUpSpectrum}
         onPointerCancel={handlePointerUpSpectrum}
-        className="relative w-full h-32 rounded-xl cursor-crosshair overflow-hidden shadow-inner ring-1 ring-black/5"
+        className="relative w-full h-32 rounded-xl overflow-hidden cursor-crosshair shadow-inner"
         style={{
           backgroundColor: `hsl(${hsv.h}, 100%, 50%)`,
-          backgroundImage:
-            'linear-gradient(to top, #000000, transparent), linear-gradient(to right, #ffffff, transparent)',
           touchAction: 'none',
         }}
       >
-        {/* Draggable Circle Picker Marker */}
+        {/* Horizontal White gradient (Saturation 0% to 100%) */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'linear-gradient(to right, #ffffff 0%, rgba(255,255,255,0) 100%)',
+          }}
+        />
+        {/* Vertical Black gradient (Value 100% to 0%) */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'linear-gradient(to top, #000000 0%, rgba(0,0,0,0) 100%)',
+          }}
+        />
+
+        {/* Draggable Selector Thumb */}
         <div
           className="absolute w-4 h-4 rounded-full border-2 border-white shadow-md -translate-x-1/2 -translate-y-1/2 pointer-events-none ring-1 ring-black/30"
           style={{
             left: `${hsv.s}%`,
             top: `${100 - hsv.v}%`,
-            backgroundColor: color,
+            backgroundColor: hexInput,
           }}
         />
       </div>
 
-      {/* 2. RAINBOW HUE SLIDER */}
+      {/* 2. HUE RAINBOW SLIDER */}
       <div className="space-y-1">
         <div
           ref={hueSliderRef}
@@ -309,7 +370,6 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
             touchAction: 'none',
           }}
         >
-          {/* Draggable Hue Thumb */}
           <div
             className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white border-2 border-white shadow-md -translate-x-1/2 pointer-events-none ring-1 ring-black/30"
             style={{
@@ -320,109 +380,173 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
         </div>
       </div>
 
-      {/* 3. HEX INPUT & EYEDROPPER CONTROLS */}
-      <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
-        {/* Selected Color Box */}
-        <div
-          className="w-8 h-8 rounded-lg border border-gray-300 shadow-2xs shrink-0 ring-1 ring-black/5"
-          style={{ backgroundColor: color }}
-        />
-
-        {/* Hex Input */}
-        <div className="flex-1 relative">
+      {/* 3. ALPHA SLIDER (OPTIONAL) */}
+      {allowAlpha && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[10px] font-bold text-gray-500">
+            <span>Opacity</span>
+            <span>{alpha}%</span>
+          </div>
           <input
-            type="text"
-            value={hexInput.toUpperCase()}
-            onChange={handleHexChange}
-            placeholder="#D97706"
-            className="w-full pl-2.5 pr-2 py-1.5 rounded-lg border border-gray-200 bg-gray-50 text-xs font-mono font-bold uppercase text-gray-900 focus:outline-none focus:border-purple-600 focus:bg-white transition"
+            type="range"
+            min="0"
+            max="100"
+            value={alpha}
+            onChange={(e) => setAlpha(Number(e.target.value))}
+            className="w-full h-2 rounded-full accent-purple-600 cursor-pointer"
           />
         </div>
+      )}
 
-        {/* Pipette / Eyedropper Button */}
-        {typeof window !== 'undefined' && 'EyeDropper' in window && onPickEyedropper && (
-          <button
-            type="button"
-            onClick={onPickEyedropper}
-            title="Pick color from screen"
-            className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 hover:text-purple-600 transition shadow-2xs shrink-0"
-          >
-            <Pipette className="w-4 h-4" />
-          </button>
+      {/* 4. HEX / RGB TOGGLE & INPUTS */}
+      <div className="pt-2 border-t border-gray-100 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg text-[10px] font-bold">
+            <button
+              type="button"
+              onClick={() => setInputMode('hex')}
+              className={`px-2 py-0.5 rounded-md transition ${inputMode === 'hex' ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              HEX
+            </button>
+            <button
+              type="button"
+              onClick={() => setInputMode('rgb')}
+              className={`px-2 py-0.5 rounded-md transition ${inputMode === 'rgb' ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              RGB
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {/* Native Eyedropper API */}
+            {typeof window !== 'undefined' && 'EyeDropper' in window && (
+              <button
+                type="button"
+                onClick={handleEyedropper}
+                title="Sample colour from screen"
+                className="p-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-white hover:border-purple-500 text-gray-700 hover:text-purple-600 transition shadow-2xs"
+              >
+                <Pipette className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Native Color Picker input trigger */}
+            <div className="relative w-6 h-6 rounded-lg border border-gray-300 overflow-hidden cursor-pointer shadow-2xs hover:scale-105 transition" title="Open native OS colour picker">
+              <input
+                type="color"
+                value={hexInput.startsWith('#') && hexInput.length === 7 ? hexInput : '#7d2ae8'}
+                onChange={(e) => {
+                  const val = e.target.value.toUpperCase();
+                  setHexInput(val);
+                  setHsv(hexToHsv(val));
+                  emitColor(val);
+                  if (onSelectAndClose) onSelectAndClose(val);
+                }}
+                className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer opacity-0"
+              />
+              <div className="w-full h-full" style={{ backgroundColor: hexInput }} />
+            </div>
+          </div>
+        </div>
+
+        {inputMode === 'hex' ? (
+          <div className="flex items-center gap-2">
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                value={hexInput.toUpperCase()}
+                onChange={handleHexChange}
+                onKeyDown={handleHexKeyDown}
+                placeholder="#7D2AE8"
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 text-xs font-mono font-bold uppercase text-gray-900 focus:outline-none focus:border-purple-600 focus:bg-white transition"
+              />
+            </div>
+            {onSelectAndClose && (
+              <button
+                type="button"
+                onClick={() => onSelectAndClose(hexInput)}
+                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition shadow-2xs"
+              >
+                Select
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-1.5">
+            <div>
+              <span className="block text-[9px] font-bold text-gray-400 mb-0.5">R</span>
+              <input
+                type="number"
+                min="0"
+                max="255"
+                value={rgbState.r}
+                onChange={(e) => handleRgbChange('r', e.target.value)}
+                className="w-full px-2 py-1 rounded-lg border border-gray-200 bg-gray-50 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:border-purple-600 focus:bg-white text-center"
+              />
+            </div>
+            <div>
+              <span className="block text-[9px] font-bold text-gray-400 mb-0.5">G</span>
+              <input
+                type="number"
+                min="0"
+                max="255"
+                value={rgbState.g}
+                onChange={(e) => handleRgbChange('g', e.target.value)}
+                className="w-full px-2 py-1 rounded-lg border border-gray-200 bg-gray-50 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:border-purple-600 focus:bg-white text-center"
+              />
+            </div>
+            <div>
+              <span className="block text-[9px] font-bold text-gray-400 mb-0.5">B</span>
+              <input
+                type="number"
+                min="0"
+                max="255"
+                value={rgbState.b}
+                onChange={(e) => handleRgbChange('b', e.target.value)}
+                className="w-full px-2 py-1 rounded-lg border border-gray-200 bg-gray-50 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:border-purple-600 focus:bg-white text-center"
+              />
+            </div>
+          </div>
         )}
       </div>
     </div>
   );
 };
 
+// --- Gradient Editor (Linear, Radial, Multi-Stops, Angle, Presets, Apply/Cancel) ---
+
 interface GradientEditorProps {
-  value: string;
-  onChange: (gradient: ColorGradientValue) => void;
-  onPickEyedropper: () => void;
+  initialGradient: DesignerGradientValue;
+  onPreview: (gradient: DesignerGradientValue) => void;
+  onApply: (gradient: DesignerGradientValue) => void;
+  onCancel: () => void;
 }
-
-interface GradientPreset {
-  name: string;
-  colors: string[];
-  angle?: number;
-  type?: 'linear' | 'radial';
-}
-
-// A broad Canva-style gradient library. These are original curated presets,
-// grouped visually from vivid and pastel through metallic and dark themes.
-const GRADIENT_PRESETS: GradientPreset[] = [
-  { name: 'Canva Purple Aqua', colors: ['#7d2ae8', '#00c4cc'] },
-  { name: 'Sunset', colors: ['#ff5757', '#ffde59'] },
-  { name: 'Electric Violet', colors: ['#0047ff', '#cb6ce6'] },
-  { name: 'Fresh Mint', colors: ['#00d287', '#00c4cc'] },
-  { name: 'Berry', colors: ['#f43f5e', '#8b5cf6'] },
-  { name: 'Midnight', colors: ['#111827', '#64748b'] },
-  { name: 'Ocean', colors: ['#0052d4', '#4364f7', '#6fb1fc'] },
-  { name: 'Aurora', colors: ['#00f5a0', '#00d9f5', '#7d2ae8'] },
-  { name: 'Instagram', colors: ['#833ab4', '#fd1d1d', '#fcb045'] },
-  { name: 'Peach', colors: ['#ffecd2', '#fcb69f'] },
-  { name: 'Cotton Candy', colors: ['#fbc2eb', '#a6c1ee'] },
-  { name: 'Lavender', colors: ['#e0c3fc', '#8ec5fc'] },
-  { name: 'Rose Gold', colors: ['#f4c4c4', '#dba39a', '#b76e79'] },
-  { name: 'Golden Hour', colors: ['#fff3b0', '#e09f3e', '#9e2a2b'] },
-  { name: 'Tropical', colors: ['#f9d423', '#ff4e50'] },
-  { name: 'Mango', colors: ['#ffe259', '#ffa751'] },
-  { name: 'Fire', colors: ['#ff512f', '#dd2476'] },
-  { name: 'Candy', colors: ['#ff6a88', '#ff99ac', '#fbc2eb'] },
-  { name: 'Sky', colors: ['#56ccf2', '#2f80ed'] },
-  { name: 'Ice', colors: ['#e0ffff', '#80deea', '#00acc1'] },
-  { name: 'Deep Sea', colors: ['#2c3e50', '#4ca1af'] },
-  { name: 'Emerald', colors: ['#11998e', '#38ef7d'] },
-  { name: 'Forest', colors: ['#134e5e', '#71b280'] },
-  { name: 'Lime', colors: ['#a8ff78', '#78ffd6'] },
-  { name: 'Royal', colors: ['#141e30', '#243b55', '#7d2ae8'] },
-  { name: 'Neon', colors: ['#fc00ff', '#00dbde'] },
-  { name: 'Galaxy', colors: ['#0f0c29', '#302b63', '#24243e'] },
-  { name: 'Chrome', colors: ['#f5f7fa', '#c3cfe2', '#6b7280'] },
-  { name: 'Gold', colors: ['#fff7ad', '#ffa800', '#7a4b00'] },
-  { name: 'Silver', colors: ['#ffffff', '#bdc3c7', '#2c3e50'] },
-  { name: 'Black Glow', colors: ['#000000', '#434343'] },
-  { name: 'Radial Glow', colors: ['#ffffff', '#8ec5fc', '#7d2ae8'], type: 'radial' },
-  { name: 'Radial Sunset', colors: ['#ffde59', '#ff5757', '#8b3dff'], type: 'radial' },
-  { name: 'Radial Aqua', colors: ['#e0ffff', '#00c4cc', '#0047ff'], type: 'radial' },
-];
 
 const GradientEditor: React.FC<GradientEditorProps> = ({
-  value,
-  onChange,
-  onPickEyedropper,
+  initialGradient,
+  onPreview,
+  onApply,
+  onCancel,
 }) => {
-  const [type, setType] = useState<'linear' | 'radial'>('linear');
-  const [angle, setAngle] = useState(90);
-  const [stops, setStops] = useState<ColorGradientStop[]>([
-    { offset: 0, color: value || '#7d2ae8' },
-    { offset: 1, color: '#00c4cc' },
-  ]);
-  const [activeStop, setActiveStop] = useState(0);
+  const [type, setType] = useState<'linear' | 'radial'>(initialGradient.type || 'linear');
+  const [angle, setAngle] = useState<number>(initialGradient.angle ?? 90);
+  const [stops, setStops] = useState<DesignerGradientStop[]>(
+    initialGradient.stops && initialGradient.stops.length >= 2
+      ? initialGradient.stops
+      : [
+          { offset: 0, color: '#7d2ae8' },
+          { offset: 1, color: '#00c4cc' },
+        ]
+  );
+  const [activeStop, setActiveStop] = useState<number>(0);
 
-  const emit = useCallback((nextType: 'linear' | 'radial', nextAngle: number, nextStops: ColorGradientStop[]) => {
-    onChange({ type: nextType, angle: nextAngle, stops: nextStops });
-  }, [onChange]);
+  const emit = useCallback(
+    (nextType: 'linear' | 'radial', nextAngle: number, nextStops: DesignerGradientStop[]) => {
+      onPreview({ type: nextType, angle: nextAngle, stops: nextStops });
+    },
+    [onPreview]
+  );
 
   const updateType = (nextType: 'linear' | 'radial') => {
     setType(nextType);
@@ -442,55 +566,26 @@ const GradientEditor: React.FC<GradientEditorProps> = ({
     emit(type, angle, nextStops);
   };
 
-  const applyPreset = (preset: GradientPreset) => {
-    const denominator = Math.max(preset.colors.length - 1, 1);
-    const nextStops = preset.colors.map((color, index) => ({
-      offset: index / denominator,
-      color,
-    }));
-    const nextType = preset.type || 'linear';
-    const nextAngle = preset.angle ?? angle;
-    setType(nextType);
-    setAngle(nextAngle);
+  const updateStopPosition = (percent: number) => {
+    const offset = Math.max(0, Math.min(100, percent)) / 100;
+    const nextStops = stops.map((stop, index) =>
+      index === activeStop ? { ...stop, offset } : stop
+    );
     setStops(nextStops);
-    setActiveStop(0);
-    emit(nextType, nextAngle, nextStops);
-  };
-
-  const updateStopPosition = (positionPercent: number) => {
-    const offset = Math.max(0, Math.min(100, positionPercent)) / 100;
-    const nextStops = stops
-      .map((stop, index) => index === activeStop ? { ...stop, offset } : stop)
-      .sort((a, b) => a.offset - b.offset);
-    const activeColor = stops[activeStop]?.color;
-    const nextActiveIndex = Math.max(0, nextStops.findIndex((stop) => stop.color === activeColor && stop.offset === offset));
-    setStops(nextStops);
-    setActiveStop(nextActiveIndex);
     emit(type, angle, nextStops);
   };
 
   const addStop = () => {
     if (stops.length >= 8) return;
-    const ordered = [...stops].sort((a, b) => a.offset - b.offset);
-    let insertAfter = 0;
-    let largestGap = -1;
-    for (let index = 0; index < ordered.length - 1; index += 1) {
-      const gap = ordered[index + 1].offset - ordered[index].offset;
-      if (gap > largestGap) {
-        largestGap = gap;
-        insertAfter = index;
-      }
-    }
-    const left = ordered[insertAfter];
-    const right = ordered[insertAfter + 1] || left;
-    const nextStop = {
-      offset: (left.offset + right.offset) / 2,
-      color: left.color,
-    };
-    const nextStops = [...ordered, nextStop].sort((a, b) => a.offset - b.offset);
-    const nextIndex = nextStops.indexOf(nextStop);
+    const current = stops[activeStop] || stops[0];
+    const newOffset = Math.min(0.95, current.offset + 0.15);
+    const newColor = '#ffffff';
+    const nextStops = [...stops, { offset: newOffset, color: newColor }].sort(
+      (a, b) => a.offset - b.offset
+    );
+    const newIndex = nextStops.findIndex((s) => s.offset === newOffset && s.color === newColor);
     setStops(nextStops);
-    setActiveStop(nextIndex);
+    setActiveStop(newIndex >= 0 ? newIndex : nextStops.length - 1);
     emit(type, angle, nextStops);
   };
 
@@ -512,31 +607,72 @@ const GradientEditor: React.FC<GradientEditorProps> = ({
     emit(type, angle, nextStops);
   };
 
-  const cssGradient = type === 'radial'
-    ? `radial-gradient(circle, ${stops.map((stop) => `${stop.color} ${stop.offset * 100}%`).join(', ')})`
-    : `linear-gradient(${angle}deg, ${stops.map((stop) => `${stop.color} ${stop.offset * 100}%`).join(', ')})`;
+  const applyPreset = (preset: GradientPreset) => {
+    const denominator = Math.max(preset.colors.length - 1, 1);
+    const nextStops = preset.colors.map((color, index) => ({
+      offset: index / denominator,
+      color,
+    }));
+    const nextType = preset.type || 'linear';
+    const nextAngle = preset.angle ?? 135;
+    setType(nextType);
+    setAngle(nextAngle);
+    setStops(nextStops);
+    setActiveStop(0);
+    emit(nextType, nextAngle, nextStops);
+  };
+
+  const currentGradientVal: DesignerGradientValue = useMemo(
+    () => ({ type, angle, stops }),
+    [type, angle, stops]
+  );
+
+  const cssGradient = colorOrGradientToCss(currentGradientVal);
 
   return (
-    <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-3 shadow-sm">
-      <div className="h-20 rounded-xl border border-black/10 shadow-inner" style={{ background: cssGradient }} />
+    <div className="space-y-3.5 rounded-2xl border border-gray-200 bg-white p-3 shadow-xs">
+      {/* 1. LIVE GRADIENT PREVIEW BAR */}
+      <div
+        className="h-16 rounded-xl border border-black/10 shadow-inner flex items-end justify-end p-2 transition"
+        style={{ background: cssGradient }}
+      >
+        <span className="text-[10px] font-mono font-bold px-2 py-0.5 bg-black/60 text-white rounded-md backdrop-blur-xs">
+          {type === 'radial' ? 'Radial' : `${angle}° Linear`}
+        </span>
+      </div>
 
+      {/* 2. GRADIENT TYPE SELECTOR (Linear vs Radial) */}
       <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
-        {(['linear', 'radial'] as const).map((gradientType) => (
+        {(['linear', 'radial'] as const).map((t) => (
           <button
-            key={gradientType}
+            key={t}
             type="button"
-            onClick={() => updateType(gradientType)}
-            className={`rounded-lg py-1.5 text-[11px] font-bold capitalize transition ${type === gradientType ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+            onClick={() => updateType(t)}
+            className={`rounded-lg py-1.5 text-xs font-bold capitalize transition ${
+              type === t ? 'bg-white text-purple-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'
+            }`}
           >
-            {gradientType}
+            {t}
           </button>
         ))}
       </div>
 
+      {/* 3. LINEAR ANGLE SLIDER & INPUT */}
       {type === 'linear' && (
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-[11px] font-semibold text-gray-600">
-            <span>Angle</span><span>{angle}°</span>
+        <div className="space-y-1.5 pt-0.5">
+          <div className="flex items-center justify-between text-xs font-bold text-gray-700">
+            <span>Angle</span>
+            <div className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-md font-mono text-[11px]">
+              <input
+                type="number"
+                min="0"
+                max="360"
+                value={angle}
+                onChange={(e) => updateAngle(Number(e.target.value) % 361)}
+                className="w-8 bg-transparent text-right font-bold text-gray-900 focus:outline-none"
+              />
+              <span>°</span>
+            </div>
           </div>
           <input
             type="range"
@@ -544,21 +680,22 @@ const GradientEditor: React.FC<GradientEditorProps> = ({
             max="360"
             step="1"
             value={angle}
-            onChange={(event) => updateAngle(Number(event.target.value))}
-            className="w-full accent-purple-600"
+            onChange={(e) => updateAngle(Number(e.target.value))}
+            className="w-full h-2 rounded-full accent-purple-600 cursor-pointer"
           />
         </div>
       )}
 
-      <div className="space-y-2">
+      {/* 4. COLOUR STOPS BAR & CONTROLS */}
+      <div className="space-y-2.5 pt-1 border-t border-gray-100">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold text-gray-700">Custom colour stops</span>
+          <span className="text-xs font-bold text-gray-800">Colour Stops</span>
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={addStop}
               disabled={stops.length >= 8}
-              className="flex h-7 items-center gap-1 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+              className="flex h-7 items-center gap-1 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition shadow-2xs"
             >
               <Plus className="h-3 w-3" /> Add
             </button>
@@ -566,16 +703,22 @@ const GradientEditor: React.FC<GradientEditorProps> = ({
               type="button"
               onClick={removeStop}
               disabled={stops.length <= 2}
-              className="h-7 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+              className="h-7 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-700 hover:bg-red-50 hover:text-red-600 disabled:opacity-40 transition shadow-2xs"
             >
               Remove
             </button>
-            <button type="button" onClick={reverseStops} className="h-7 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-600 hover:bg-gray-50">
-              Reverse
+            <button
+              type="button"
+              onClick={reverseStops}
+              title="Reverse stop order"
+              className="h-7 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-700 hover:bg-gray-50 transition shadow-2xs flex items-center gap-1"
+            >
+              <ArrowRightLeft className="h-3 w-3" /> Reverse
             </button>
           </div>
         </div>
 
+        {/* Swatches for each stop */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
           {stops.map((stop, index) => (
             <button
@@ -583,15 +726,18 @@ const GradientEditor: React.FC<GradientEditorProps> = ({
               type="button"
               onClick={() => setActiveStop(index)}
               title={`Colour stop ${index + 1}: ${Math.round(stop.offset * 100)}%`}
-              className={`h-9 min-w-9 flex-1 rounded-xl border transition ${activeStop === index ? 'border-purple-600 ring-2 ring-purple-200' : 'border-gray-200'}`}
+              className={`h-9 min-w-9 flex-1 rounded-xl border transition shadow-2xs ${
+                activeStop === index ? 'border-purple-600 ring-2 ring-purple-300 scale-105' : 'border-gray-200 hover:border-gray-400'
+              }`}
               style={{ backgroundColor: stop.color }}
             />
           ))}
         </div>
 
+        {/* Selected stop position slider */}
         <div className="space-y-1">
           <div className="flex items-center justify-between text-[10px] font-semibold text-gray-500">
-            <span>Selected stop position</span>
+            <span>Stop {activeStop + 1} Position</span>
             <span>{Math.round((stops[activeStop]?.offset || 0) * 100)}%</span>
           </div>
           <input
@@ -600,28 +746,36 @@ const GradientEditor: React.FC<GradientEditorProps> = ({
             max="100"
             step="1"
             value={Math.round((stops[activeStop]?.offset || 0) * 100)}
-            onChange={(event) => updateStopPosition(Number(event.target.value))}
-            className="w-full accent-purple-600"
+            onChange={(e) => updateStopPosition(Number(e.target.value))}
+            className="w-full h-2 rounded-full accent-purple-600 cursor-pointer"
           />
         </div>
+
+        {/* Active stop color editor */}
+        <CanvaColorChart
+          color={stops[activeStop]?.color || '#7d2ae8'}
+          onChange={updateStopColor}
+        />
       </div>
 
+      {/* 5. USEFUL GRADIENT PRESETS */}
       <div className="space-y-2 border-t border-gray-100 pt-2">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold text-gray-700">Gradient library</span>
-          <span className="text-[9px] font-semibold text-gray-400">{GRADIENT_PRESETS.length} presets</span>
+          <span className="text-xs font-bold text-gray-800">Gradient Library</span>
+          <span className="text-[10px] font-semibold text-gray-400">{GRADIENT_PRESETS.length} presets</span>
         </div>
-        <div className="grid grid-cols-5 gap-1.5">
+        <div className="grid grid-cols-6 gap-1.5">
           {GRADIENT_PRESETS.map((preset) => (
             <button
               key={preset.name}
               type="button"
               onClick={() => applyPreset(preset)}
-              className="h-9 rounded-lg border border-gray-200 shadow-sm transition hover:scale-105"
+              className="h-8 rounded-lg border border-gray-200 shadow-2xs transition hover:scale-110"
               style={{
-                background: preset.type === 'radial'
-                  ? `radial-gradient(circle, ${preset.colors.join(', ')})`
-                  : `linear-gradient(${preset.angle ?? 135}deg, ${preset.colors.join(', ')})`,
+                background:
+                  preset.type === 'radial'
+                    ? `radial-gradient(circle, ${preset.colors.join(', ')})`
+                    : `linear-gradient(${preset.angle ?? 135}deg, ${preset.colors.join(', ')})`,
               }}
               title={preset.name}
             />
@@ -629,43 +783,68 @@ const GradientEditor: React.FC<GradientEditorProps> = ({
         </div>
       </div>
 
-      <CanvaColorChart
-        color={stops[activeStop]?.color || '#7d2ae8'}
-        onChange={updateStopColor}
-        onPickEyedropper={onPickEyedropper}
-      />
+      {/* 6. APPLY & CANCEL BUTTONS */}
+      <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 py-2 rounded-xl border border-gray-200 text-xs font-bold text-gray-700 hover:bg-gray-50 transition"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => onApply(currentGradientVal)}
+          className="flex-1 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition shadow-xs flex items-center justify-center gap-1.5"
+        >
+          <Check className="w-3.5 h-3.5" /> Apply
+        </button>
+      </div>
     </div>
   );
 };
 
-// --- Main ColorPicker Component ---
+// --- Reusable Main ColorPicker Component ---
 
 export const ColorPicker: React.FC<ColorPickerProps> = ({
   label = 'Colour',
   value = '#2563eb',
   onChange,
-  canvasManager,
   onClose,
-  embedded = false,
-  className,
   allowGradient = false,
+  allowAlpha = false,
+  showAlpha = false,
+  recentColors: propRecentColors,
+  canvasManager,
+  embedded = false,
+  className = '',
   onGradientChange,
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  // Canva-style behaviour: opening the colour panel immediately exposes the
-  // spectrum; the user does not need to click the rainbow plus button first.
-  const [showCustomPicker, setShowCustomPicker] = useState(true);
-  const [mode, setMode] = useState<'solid' | 'gradient'>('solid');
-  const [showAllSolid, setShowAllSolid] = useState(false);
-  const [designColors, setDesignColors] = useState<string[]>([]);
-  const [hexInput, setHexInput] = useState(value);
+  const isInitialGradient = typeof value === 'object' && value !== null && 'stops' in value;
 
-  // Sync hex input when value changes externally
+  const [mode, setMode] = useState<'solid' | 'gradient'>(
+    allowGradient && isInitialGradient ? 'gradient' : 'solid'
+  );
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showAllSolid, setShowAllSolid] = useState(false);
+  const [showAllGradients, setShowAllGradients] = useState(false);
+  const [recentList, setRecentList] = useState<string[]>(() => {
+    if (propRecentColors && propRecentColors.length > 0) return propRecentColors;
+    return getRecentColors();
+  });
+  const [designColors, setDesignColors] = useState<string[]>([]);
+
+  // Snapshot initial value so Cancel button in Gradient mode restores it completely
+  const initialValueRef = useRef<string | DesignerGradientValue>(value);
+
+  // Keep recent list synced with prop or localStorage
   useEffect(() => {
-    if (value) {
-      setHexInput(value);
+    if (propRecentColors && propRecentColors.length > 0) {
+      setRecentList(propRecentColors);
+    } else {
+      setRecentList(getRecentColors());
     }
-  }, [value]);
+  }, [propRecentColors]);
 
   // Extract colors present in design
   useEffect(() => {
@@ -677,393 +856,505 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     }
   }, [canvasManager, value]);
 
-  // Native Eyedropper API
-  const handlePickEyedropper = async () => {
-    if (typeof window !== 'undefined' && 'EyeDropper' in window) {
-      try {
-        const eyeDropper = new (window as any).EyeDropper();
-        const result = await eyeDropper.open();
-        if (result?.sRGBHex) {
-          onChange(result.sRGBHex);
-          setHexInput(result.sRGBHex);
-        }
-      } catch {
-        // User cancelled or not supported
+  // Handle ESC key to close popover
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose?.();
       }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  // Helper for selecting a solid color: applies immediately, saves to recents, and closes popover
+  const handleSelectSolid = useCallback(
+    (color: string) => {
+      const updatedRecents = addRecentColor(color);
+      setRecentList(updatedRecents);
+      onChange(color);
+      onClose?.();
+    },
+    [onChange, onClose]
+  );
+
+  // Helper for selecting a preset gradient directly from the panel
+  const handleSelectPresetGradient = useCallback(
+    (gradVal: DesignerGradientValue) => {
+      gradVal.stops.forEach((s) => {
+        if (typeof s.color === 'string') addRecentColor(s.color);
+      });
+      setRecentList(getRecentColors());
+      onChange(gradVal);
+      onGradientChange?.(gradVal);
+      if (canvasManager) {
+        canvasManager.setSelectedGradient(gradVal, false);
+      }
+    },
+    [onChange, onGradientChange, canvasManager]
+  );
+
+  // Gradient live preview handler (without saving undo history state)
+  const handleGradientPreview = useCallback(
+    (gradient: DesignerGradientValue) => {
+      onChange(gradient);
+      onGradientChange?.(gradient);
+      if (canvasManager) {
+        // If current selection is object, use isLivePreview=true
+        canvasManager.setSelectedGradient(gradient, true);
+      }
+    },
+    [onChange, onGradientChange, canvasManager]
+  );
+
+  // Gradient Apply handler: commits gradient, saves undo history, and closes panel
+  const handleGradientApply = useCallback(
+    (gradient: DesignerGradientValue) => {
+      // Add stop colors to recent list
+      gradient.stops.forEach((s) => {
+        if (typeof s.color === 'string') addRecentColor(s.color);
+      });
+      setRecentList(getRecentColors());
+
+      onChange(gradient);
+      onGradientChange?.(gradient);
+      if (canvasManager) {
+        canvasManager.setSelectedGradient(gradient, false);
+      }
+      onClose?.();
+    },
+    [onChange, onGradientChange, canvasManager, onClose]
+  );
+
+  // Gradient Cancel handler: restores original value and closes
+  const handleGradientCancel = useCallback(() => {
+    const restored = initialValueRef.current;
+    if (typeof restored === 'string') {
+      onChange(restored);
+      if (canvasManager) canvasManager.updateSelectedProperty('fill', restored);
+    } else if (typeof restored === 'object' && restored !== null) {
+      onChange(restored);
+      onGradientChange?.(restored);
+      if (canvasManager) canvasManager.setSelectedGradient(restored, false);
     }
-  };
+    onClose?.();
+  }, [onChange, onGradientChange, canvasManager, onClose]);
 
-  const handleSelectColor = (hex: string) => {
-    setMode('solid');
-    onChange(hex);
-    setHexInput(hex);
-  };
-
-  const openGradientMode = () => {
-    setMode('gradient');
-    onGradientChange?.({
-      type: 'linear',
-      angle: 90,
-      stops: [
-        { offset: 0, color: value || '#7d2ae8' },
-        { offset: 1, color: '#00c4cc' },
-      ],
-    });
-  };
-
-  // Search filtering
-  const query = searchQuery.trim().toLowerCase();
-  const isSearchHex = query.startsWith('#') || /^[0-9a-fA-F]{3,6}$/.test(query);
-  const searchHexCandidate = isSearchHex ? (query.startsWith('#') ? query : '#' + query) : null;
+  // Current solid color string
+  const currentSolidHex = useMemo(() => {
+    if (typeof value === 'string' && value.startsWith('#')) return value;
+    if (typeof value === 'object' && value !== null && 'stops' in value && value.stops.length > 0) {
+      return value.stops[0].color || '#7d2ae8';
+    }
+    return '#2563eb';
+  }, [value]);
 
   const matchesSearch = (name: string, hex: string) => {
-    if (!query) return true;
-    return name.toLowerCase().includes(query) || hex.toLowerCase().includes(query);
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return name.toLowerCase().includes(q) || hex.toLowerCase().includes(q);
   };
 
   return (
     <div
-      className={
-        className ||
-        (embedded
-          ? 'w-full h-full bg-white flex flex-col overflow-hidden select-none text-gray-800'
-          : 'w-full max-w-sm bg-white rounded-2xl shadow-xl border border-gray-200/90 flex flex-col max-h-[520px] overflow-hidden select-none text-gray-800')
-      }
+      onClick={(e) => e.stopPropagation()}
+      className={`flex flex-col bg-white select-none ${
+        embedded ? 'w-full' : 'w-80 rounded-2xl border border-gray-200/90 shadow-2xl overflow-hidden'
+      } ${className}`}
     >
-      {/* 1. TOP HEADER (Title & Close) */}
-      <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5 shrink-0 border-b border-gray-100">
-        <h3 className="text-base font-bold text-gray-900 tracking-tight">
-          {label}
-        </h3>
-        <div className="flex items-center gap-1">
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              title="Close"
-              className="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+      {/* HEADER */}
+      <div className="flex items-center justify-between px-3.5 py-3 border-b border-gray-100 bg-white sticky top-0 z-10">
+        <div className="flex items-center gap-2">
+          <Palette className="w-4 h-4 text-purple-600" />
+          <h3 className="text-xs font-bold text-gray-900">{label}</h3>
         </div>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition"
+            title="Close colour picker"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
-      {/* Scrollable Content */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
-        {/* Canva-style Solid / Gradient switcher */}
-        {allowGradient && onGradientChange && (
+      {/* TABS: SOLID vs GRADIENT (Shown only where gradient is supported) */}
+      {allowGradient && (
+        <div className="px-3 pt-2.5 pb-1 bg-white">
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
             <button
               type="button"
               onClick={() => setMode('solid')}
-              className={`rounded-lg py-2 text-xs font-bold transition ${mode === 'solid' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+              className={`rounded-lg py-1.5 text-xs font-bold transition ${
+                mode === 'solid' ? 'bg-white text-purple-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'
+              }`}
             >
               Solid
             </button>
             <button
               type="button"
-              onClick={openGradientMode}
-              className={`rounded-lg py-2 text-xs font-bold transition ${mode === 'gradient' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+              onClick={() => setMode('gradient')}
+              className={`rounded-lg py-1.5 text-xs font-bold transition ${
+                mode === 'gradient' ? 'bg-white text-purple-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'
+              }`}
             >
               Gradient
             </button>
           </div>
-        )}
-
-        {/* 2. SEARCH INPUT */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder='Try "blue" or "#00c4cc"'
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 rounded-xl border border-gray-200 bg-gray-50/70 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-purple-600 focus:bg-white transition"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 rounded-full"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
+      )}
 
-        {/* Direct Hex candidate apply */}
-        {searchHexCandidate && /^#[0-9A-Fa-f]{3,6}$/.test(searchHexCandidate) && (
-          <div className="p-2.5 rounded-xl border border-purple-200 bg-purple-50/50 flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div
-                className="w-7 h-7 rounded-full border border-black/15 shadow-xs"
-                style={{ backgroundColor: searchHexCandidate }}
-              />
-              <span className="text-xs font-mono font-bold text-purple-900">
-                {searchHexCandidate.toUpperCase()}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => handleSelectColor(searchHexCandidate)}
-              className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold transition shadow-xs"
-            >
-              Apply
-            </button>
-          </div>
-        )}
-
-        {/* 3. CANVA DIRECT COLOR SPECTRUM CHART (Direct Interactive Color Chart) */}
-        {mode === 'gradient' && onGradientChange && (
+      {/* TAB CONTENT */}
+      <div className="p-3.5 space-y-4 overflow-y-auto max-h-[520px] custom-scrollbar">
+        {mode === 'gradient' && allowGradient ? (
+          /* GRADIENT TAB CONTENT */
           <GradientEditor
-            value={value}
-            onChange={onGradientChange}
-            onPickEyedropper={handlePickEyedropper}
+            initialGradient={
+              isInitialGradient
+                ? (value as DesignerGradientValue)
+                : {
+                    type: 'linear',
+                    angle: 90,
+                    stops: [
+                      { offset: 0, color: currentSolidHex },
+                      { offset: 1, color: '#00c4cc' },
+                    ],
+                  }
+            }
+            onPreview={handleGradientPreview}
+            onApply={handleGradientApply}
+            onCancel={handleGradientCancel}
           />
-        )}
+        ) : (
+          /* SOLID TAB CONTENT */
+          <>
+            {/* 1. SEARCH BAR */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search colour or hex..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-gray-200 bg-gray-50/70 text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:border-purple-600 focus:bg-white transition"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
 
-        {mode === 'solid' && showCustomPicker && (
-          <CanvaColorChart
-            color={value}
-            onChange={onChange}
-            onClose={() => setShowCustomPicker(false)}
-            onPickEyedropper={handlePickEyedropper}
-          />
-        )}
-
-        {/* 4. COLOURS IN THIS DESIGN (Document Colors) */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
-            <Palette className="w-4 h-4 text-purple-600" />
-            <span>Colours in this design</span>
-          </div>
-
-          <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
-            {/* Add Custom Color Circle Button with Canva Rainbow conic-gradient */}
-            <button
-              type="button"
-              onClick={() => {
-                setMode('solid');
-                setShowCustomPicker((prev) => !prev);
-              }}
-              title="Add a new custom color"
-              className={`relative w-8 h-8 rounded-full p-[2px] shrink-0 transition hover:scale-110 shadow-xs ${showCustomPicker ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
-                }`}
-              style={{
-                background:
-                  'conic-gradient(from 0deg, #ff0000, #ff8800, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
-              }}
-            >
-              <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-gray-700">
-                <Plus className="w-4 h-4 text-gray-800" strokeWidth={2.5} />
+            {/* 2. RECENT COLORS */}
+            {recentList.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
+                  <History className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Recent colours</span>
+                </div>
+                <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+                  {recentList.filter((hex) => matchesSearch(hex, hex)).map((hex) => {
+                    const isSelected = currentSolidHex.toLowerCase() === hex.toLowerCase();
+                    const isWhite = hex.toLowerCase() === '#ffffff';
+                    return (
+                      <button
+                        key={hex}
+                        type="button"
+                        onClick={() => handleSelectSolid(hex)}
+                        title={hex}
+                        className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
+                          isWhite ? 'border border-gray-300' : ''
+                        } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
+                        style={{ backgroundColor: hex }}
+                      >
+                        {isSelected && (
+                          <Check
+                            className={`w-3.5 h-3.5 ${isWhite ? 'text-gray-900' : 'text-white'}`}
+                            strokeWidth={3}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </button>
-
-            {/* Eyedropper Tool Circle Button */}
-            {typeof window !== 'undefined' && 'EyeDropper' in window && (
-              <button
-                type="button"
-                onClick={handlePickEyedropper}
-                title="Pick color from design"
-                className="w-8 h-8 rounded-full border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center text-gray-700 hover:text-purple-600 transition hover:scale-110 shadow-xs shrink-0"
-              >
-                <Pipette className="w-3.5 h-3.5" />
-              </button>
             )}
 
-            {/* Design Colors Swatches */}
-            {designColors.map((colorHex, idx) => {
-              const isSelected = value.toLowerCase() === colorHex.toLowerCase();
-              const isWhite = colorHex.toLowerCase() === '#ffffff' || colorHex.toLowerCase() === '#fff';
-              return (
-                <button
-                  key={`${colorHex}_${idx}`}
-                  type="button"
-                  onClick={() => handleSelectColor(colorHex)}
-                  title={colorHex}
-                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${isWhite ? 'border border-gray-200' : ''
-                    } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
-                  style={{ backgroundColor: colorHex }}
-                >
-                  {isSelected && (
-                    <Check
-                      className={`w-3.5 h-3.5 ${isWhite || colorHex.toLowerCase() === '#ffde59' ? 'text-gray-900' : 'text-white'
-                        }`}
-                      strokeWidth={3}
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+            {/* 3. DOCUMENT / DESIGN COLORS */}
+            {designColors.length > 0 && (
+              <div className="space-y-1.5 pt-1 border-t border-gray-100">
+                <span className="text-xs font-bold text-gray-900 block">Document colours</span>
+                <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+                  {designColors.filter((hex) => matchesSearch(hex, hex)).map((hex) => {
+                    const isSelected = currentSolidHex.toLowerCase() === hex.toLowerCase();
+                    const isWhite = hex.toLowerCase() === '#ffffff';
+                    return (
+                      <button
+                        key={hex}
+                        type="button"
+                        onClick={() => handleSelectSolid(hex)}
+                        title={hex}
+                        className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
+                          isWhite ? 'border border-gray-300' : ''
+                        } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
+                        style={{ backgroundColor: hex }}
+                      >
+                        {isSelected && (
+                          <Check
+                            className={`w-3.5 h-3.5 ${isWhite ? 'text-gray-900' : 'text-white'}`}
+                            strokeWidth={3}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
-        {/* 5. BRAND KIT SECTION */}
-        <div className="space-y-2 pt-1 border-t border-gray-100">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
-              <Sparkles className="w-4 h-4 text-amber-500" />
-              <span>Brand Kit</span>
-            </div>
-          </div>
-          <p className="text-[10px] text-gray-400 truncate max-w-full font-medium">
-            Colors from ORIGINAL LOGO DESIGN
-          </p>
-
-          <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
-            {BRAND_KIT_COLORS.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
-              const isSelected = value.toLowerCase() === item.hex.toLowerCase();
-              const isWhite = item.hex.toLowerCase() === '#ffffff';
-              return (
-                <button
-                  key={item.hex}
-                  type="button"
-                  onClick={() => handleSelectColor(item.hex)}
-                  title={`${item.name} (${item.hex})`}
-                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${isWhite ? 'border border-gray-200' : ''
-                    } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
-                  style={{ backgroundColor: item.hex }}
-                >
-                  {isSelected && (
-                    <Check
-                      className={`w-3.5 h-3.5 ${isWhite ? 'text-gray-900' : 'text-white'
-                        }`}
-                      strokeWidth={3}
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 6. PHOTO COLOURS SECTION */}
-        <div className="space-y-2 pt-1 border-t border-gray-100">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
-            <ImageIcon className="w-4 h-4 text-emerald-600" />
-            <span>Photo colours</span>
-          </div>
-
-          <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
-            <div className="w-8 h-8 rounded-lg overflow-hidden border border-gray-200 bg-emerald-50 flex items-center justify-center text-emerald-600 shrink-0 shadow-xs">
-              <ImageIcon className="w-4 h-4" />
+            {/* 4. CUSTOM COLOR PICKER CHART */}
+            <div className="space-y-1.5 pt-1 border-t border-gray-100">
+              <span className="text-xs font-bold text-gray-900 block">Custom colour</span>
+              <CanvaColorChart
+                color={currentSolidHex}
+                onChange={(hex) => {
+                  onChange(hex);
+                }}
+                onSelectAndClose={handleSelectSolid}
+                allowAlpha={allowAlpha || showAlpha}
+              />
             </div>
 
-            {PHOTO_COLORS.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
-              const isSelected = value.toLowerCase() === item.hex.toLowerCase();
-              return (
-                <button
-                  key={item.hex}
-                  type="button"
-                  onClick={() => handleSelectColor(item.hex)}
-                  title={`${item.name} (${item.hex})`}
-                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
-                    }`}
-                  style={{ backgroundColor: item.hex }}
-                >
-                  {isSelected && (
-                    <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 7. DEFAULT SOLID COLOURS SECTION */}
-        <div className="space-y-2 pt-1 border-t border-gray-100">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
-              <Palette className="w-4 h-4 text-gray-700" />
-              <span>Default solid colours</span>
+            {/* 5. BRAND KIT SECTION */}
+            <div className="space-y-2 pt-1 border-t border-gray-100">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <span>Brand Kit</span>
+              </div>
+              <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+                {BRAND_KIT_COLORS.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
+                  const isSelected = currentSolidHex.toLowerCase() === item.hex.toLowerCase();
+                  const isWhite = item.hex.toLowerCase() === '#ffffff';
+                  return (
+                    <button
+                      key={item.hex}
+                      type="button"
+                      onClick={() => handleSelectSolid(item.hex)}
+                      title={`${item.name} (${item.hex})`}
+                      className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
+                        isWhite ? 'border border-gray-200' : ''
+                      } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
+                      style={{ backgroundColor: item.hex }}
+                    >
+                      {isSelected && (
+                        <Check
+                          className={`w-3.5 h-3.5 ${isWhite ? 'text-gray-900' : 'text-white'}`}
+                          strokeWidth={3}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowAllSolid((prev) => !prev)}
-              className="text-[11px] font-semibold text-purple-600 hover:text-purple-700 hover:underline"
-            >
-              {showAllSolid ? 'Show less' : 'See all'}
-            </button>
-          </div>
 
-          {/* Row 1: Grayscale & Neutrals */}
-          <div className="grid grid-cols-7 gap-2">
-            {DEFAULT_SOLID_ROW_1.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
-              const isSelected = value.toLowerCase() === item.hex.toLowerCase();
-              const isWhite = item.hex.toLowerCase() === '#ffffff';
-              return (
-                <button
-                  key={item.hex}
-                  type="button"
-                  onClick={() => handleSelectColor(item.hex)}
-                  title={`${item.name} (${item.hex})`}
-                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${isWhite ? 'border border-gray-300' : ''
-                    } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
-                  style={{ backgroundColor: item.hex }}
-                >
-                  {isSelected && (
-                    <Check
-                      className={`w-3.5 h-3.5 ${isWhite || item.hex === '#e0e0e0' ? 'text-gray-900' : 'text-white'
-                        }`}
-                      strokeWidth={3}
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Row 2: Vivid Spectrum */}
-          <div className="grid grid-cols-7 gap-2">
-            {DEFAULT_SOLID_ROW_2.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
-              const isSelected = value.toLowerCase() === item.hex.toLowerCase();
-              return (
-                <button
-                  key={item.hex}
-                  type="button"
-                  onClick={() => handleSelectColor(item.hex)}
-                  title={`${item.name} (${item.hex})`}
-                  className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
-                    }`}
-                  style={{ backgroundColor: item.hex }}
-                >
-                  {isSelected && (
-                    <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Extended Swatches when "See all" is toggled */}
-          {showAllSolid && (
-            <div className="grid grid-cols-7 gap-2 pt-1 animate-in fade-in duration-150">
-              {EXTENDED_SOLID_COLORS.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
-                const isSelected = value.toLowerCase() === item.hex.toLowerCase();
-                const isLight = item.hex === '#ffde59' || item.hex === '#7ed957';
-                return (
-                  <button
-                    key={item.hex}
-                    type="button"
-                    onClick={() => handleSelectColor(item.hex)}
-                    title={`${item.name} (${item.hex})`}
-                    className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
+            {/* 6. PHOTO COLOURS SECTION */}
+            <div className="space-y-2 pt-1 border-t border-gray-100">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
+                <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Photo colours</span>
+              </div>
+              <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+                {PHOTO_COLORS.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
+                  const isSelected = currentSolidHex.toLowerCase() === item.hex.toLowerCase();
+                  return (
+                    <button
+                      key={item.hex}
+                      type="button"
+                      onClick={() => handleSelectSolid(item.hex)}
+                      title={`${item.name} (${item.hex})`}
+                      className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
+                        isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
                       }`}
-                    style={{ backgroundColor: item.hex }}
-                  >
-                    {isSelected && (
-                      <Check
-                        className={`w-3.5 h-3.5 ${isLight ? 'text-gray-900' : 'text-white'}`}
-                        strokeWidth={3}
-                      />
-                    )}
-                  </button>
-                );
-              })}
+                      style={{ backgroundColor: item.hex }}
+                    >
+                      {isSelected && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* 7. DEFAULT SOLID COLOURS */}
+            <div className="space-y-2 pt-1 border-t border-gray-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
+                  <Palette className="w-3.5 h-3.5 text-gray-700" />
+                  <span>Default solid colours</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAllSolid((prev) => !prev)}
+                  className="text-[11px] font-semibold text-purple-600 hover:text-purple-700 hover:underline"
+                >
+                  {showAllSolid ? 'Show less' : 'See all'}
+                </button>
+              </div>
+
+              {/* Row 1: Grayscale */}
+              <div className="grid grid-cols-7 gap-2">
+                {DEFAULT_SOLID_ROW_1.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
+                  const isSelected = currentSolidHex.toLowerCase() === item.hex.toLowerCase();
+                  const isWhite = item.hex.toLowerCase() === '#ffffff';
+                  return (
+                    <button
+                      key={item.hex}
+                      type="button"
+                      onClick={() => handleSelectSolid(item.hex)}
+                      title={`${item.name} (${item.hex})`}
+                      className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
+                        isWhite ? 'border border-gray-300' : ''
+                      } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
+                      style={{ backgroundColor: item.hex }}
+                    >
+                      {isSelected && (
+                        <Check
+                          className={`w-3.5 h-3.5 ${isWhite || item.hex === '#e0e0e0' ? 'text-gray-900' : 'text-white'}`}
+                          strokeWidth={3}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Row 2: Spectrum */}
+              <div className="grid grid-cols-7 gap-2">
+                {DEFAULT_SOLID_ROW_2.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
+                  const isSelected = currentSolidHex.toLowerCase() === item.hex.toLowerCase();
+                  return (
+                    <button
+                      key={item.hex}
+                      type="button"
+                      onClick={() => handleSelectSolid(item.hex)}
+                      title={`${item.name} (${item.hex})`}
+                      className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
+                        isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
+                      }`}
+                      style={{ backgroundColor: item.hex }}
+                    >
+                      {isSelected && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Extended Row */}
+              {showAllSolid && (
+                <div className="grid grid-cols-7 gap-2 pt-1 animate-in fade-in duration-150">
+                  {EXTENDED_SOLID_COLORS.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
+                    const isSelected = currentSolidHex.toLowerCase() === item.hex.toLowerCase();
+                    const isLight = item.hex === '#ffde59' || item.hex === '#7ed957';
+                    return (
+                      <button
+                        key={item.hex}
+                        type="button"
+                        onClick={() => handleSelectSolid(item.hex)}
+                        title={`${item.name} (${item.hex})`}
+                        className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
+                          isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
+                        }`}
+                        style={{ backgroundColor: item.hex }}
+                      >
+                        {isSelected && (
+                          <Check
+                            className={`w-3.5 h-3.5 ${isLight ? 'text-gray-900' : 'text-white'}`}
+                            strokeWidth={3}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* 8. DEFAULT GRADIENTS (Canva Style) */}
+            {allowGradient && (
+              <div className="space-y-2 pt-1 border-t border-gray-100">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
+                    <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Gradients</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMode('gradient')}
+                    className="text-[11px] font-semibold text-purple-600 hover:text-purple-700 hover:underline"
+                  >
+                    Customise
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-7 gap-2">
+                  {GRADIENT_PRESETS.slice(0, showAllGradients ? GRADIENT_PRESETS.length : 14).map((preset) => {
+                    const denominator = Math.max(preset.colors.length - 1, 1);
+                    const stops: DesignerGradientStop[] = preset.colors.map((color, index) => ({
+                      offset: index / denominator,
+                      color,
+                    }));
+                    const gradVal: DesignerGradientValue = {
+                      type: preset.type || 'linear',
+                      angle: preset.angle ?? 135,
+                      stops,
+                    };
+                    const cssBg = colorOrGradientToCss(gradVal);
+                    const isSelected =
+                      typeof value === 'object' &&
+                      value !== null &&
+                      'stops' in value &&
+                      value.type === gradVal.type &&
+                      value.stops?.length === gradVal.stops.length &&
+                      value.stops.every((s, i) => s.color.toLowerCase() === gradVal.stops[i].color.toLowerCase());
+
+                    return (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        onClick={() => handleSelectPresetGradient(gradVal)}
+                        title={preset.name}
+                        className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center border border-black/10 ${
+                          isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
+                        }`}
+                        style={{ background: cssBg }}
+                      >
+                        {isSelected && <Check className="w-3.5 h-3.5 text-white drop-shadow-md" strokeWidth={3} />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {GRADIENT_PRESETS.length > 14 && (
+                  <div className="flex justify-end pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowAllGradients((prev) => !prev)}
+                      className="text-[11px] font-semibold text-purple-600 hover:text-purple-700 hover:underline"
+                    >
+                      {showAllGradients ? 'Show less' : 'See all gradients'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

@@ -646,9 +646,23 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
             <div className="rounded-2xl overflow-hidden">
               <ColorPicker
                 label="Background Colour"
-                value={bgSettings.type === 'color' && bgSettings.color ? bgSettings.color : customColor}
-                onChange={(color) => handleSelectColor(color)}
+                value={
+                  bgSettings.type === 'gradient' && bgSettings.gradient
+                    ? bgSettings.gradient
+                    : bgSettings.type === 'color' && bgSettings.color
+                      ? bgSettings.color
+                      : customColor
+                }
+                onChange={(val) => {
+                  if (typeof val === 'string') {
+                    handleSelectColor(val);
+                  } else {
+                    applyGradient(val.type, val.angle, val.stops);
+                  }
+                }}
                 canvasManager={canvasManager}
+                allowGradient={true}
+                embedded={true}
               />
             </div>
 

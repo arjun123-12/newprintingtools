@@ -28,9 +28,9 @@ import { ElementsPanel } from './panels/ElementsPanel';
 import { ShapesPanel } from './panels/ShapesPanel';
 import { FramesPanel } from './panels/FramesPanel';
 import { StockPhotosPanel } from './panels/StockPhotosPanel';
-import { PixabayPanel } from './panels/PixabayPanel';
+// import { PixabayPanel } from './panels/PixabayPanel';
 import { FreepikPanel } from './panels/FreepikPanel';
-import { PexelsPanel } from './panels/PexelsPanel';
+// import { PexelsPanel } from './panels/PexelsPanel';
 import { UploadsPanel } from './panels/UploadsPanel';
 import { IconsPanel } from './panels/IconsPanel';
 import { TextPanel } from './panels/TextPanel';
@@ -63,8 +63,8 @@ const SIDEBAR_TABS: TabItem[] = [
   { id: 'text', label: 'Text', icon: Type },
   { id: 'uploads', label: 'Uploads', icon: UploadCloud },
   { id: 'photos', label: 'Photos', icon: ImageIcon },
-  { id: 'pexels', label: 'Pexels', icon: Camera },
-  { id: 'pixabay', label: 'Pixabay', icon: ImagePlus },
+  // { id: 'pexels', label: 'Pexels', icon: Camera },
+  // { id: 'pixabay', label: 'Pixabay', icon: ImagePlus },
   { id: 'freepik', label: 'Freepik', icon: Sparkles },
   { id: 'icons', label: 'Icons', icon: Smile },
   { id: 'frames', label: 'Frames', icon: Crop },
@@ -102,9 +102,9 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   };
 
   const getPanelTitle = () => {
-    if (activeTab === 'pexels') return 'Pexels Photography';
+    // if (activeTab === 'pexels') return 'Pexels Photography';
     if (activeTab === 'freepik') return 'Freepik Media';
-    if (activeTab === 'pixabay') return 'Pixabay Media';
+    // if (activeTab === 'pixabay') return 'Pixabay Media';
     if (activeTab === 'photos') return 'Stock Photos';
     if (activeTab === 'icons') return 'Icons Library';
     if (activeTab === 'draw') return 'Illustrator Draw';
@@ -199,12 +199,12 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
             {activeTab === 'photos' && (
               <StockPhotosPanel canvasManager={canvasManager} />
             )}
-            {activeTab === 'pexels' && (
+            {/* {activeTab === 'pexels' && (
               <PexelsPanel canvasManager={canvasManager} />
-            )}
-            {activeTab === 'pixabay' && (
+            )} */}
+            {/* {activeTab === 'pixabay' && (
               <PixabayPanel canvasManager={canvasManager} />
-            )}
+            )} */}
             {activeTab === 'freepik' && (
               <FreepikPanel canvasManager={canvasManager} />
             )}

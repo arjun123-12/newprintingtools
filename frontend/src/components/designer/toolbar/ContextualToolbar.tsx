@@ -49,6 +49,7 @@ import { BrushCapsPopover } from './BrushCapsPopover';
 import { CornerRoundingPopover } from './CornerRoundingPopover';
 import { BorderStylePopover } from './BorderStylePopover';
 import { removeImageBackground } from '@/services/backgroundRemoval';
+import { colorOrGradientToCss } from '@/utils/colorUtils';
 
 function isMagnificCompatibleImageUrl(
   value: unknown
@@ -421,6 +422,21 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               <span>Backgrounds</span>
             </button>
           )}
+
+          <div className="h-4 w-px bg-gray-200 mx-0.5" />
+
+          {/* Delete BG Button (Clears background image, gradient, or color back to default white) */}
+          <button
+            type="button"
+            onClick={() => {
+              canvasManager?.resetBackground();
+            }}
+            title="Delete Background (Reset to white)"
+            className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-red-500" />
+            <span>Delete BG</span>
+          </button>
         </>
       )}
 
@@ -675,7 +691,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             <span className="text-xs font-black text-gray-900 leading-none">A</span>
             <span
               className="w-4 h-1 rounded-full mt-0.5"
-              style={{ backgroundColor: selected.fill || '#0f172a' }}
+              style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#0f172a') }}
             />
           </button>
 
@@ -852,7 +868,18 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                       name: file.name,
                     });
                   } else {
-                    await canvasManager.addImageFromUrl(dataUrl);
+                    if (activeObj && !selected.isFrame) {
+                      await canvasManager.replaceActiveImage(dataUrl, {
+                        name: file.name,
+                        fileSizeBytes: file.size,
+                      });
+                    } else {
+                      await canvasManager.addImageFromUrl(
+                        dataUrl,
+                        { name: file.name, fileSizeBytes: file.size },
+                        { fitToArtworkInsetMm: 20 }
+                      );
+                    }
                   }
                 };
                 reader.readAsDataURL(file);
@@ -1041,7 +1068,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           >
             <div
               className="w-5 h-5 rounded-md border border-gray-300 shadow-2xs"
-              style={{ backgroundColor: selected.fill || '#2563eb' }}
+              style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#2563eb') }}
             />
           </button>
 
@@ -1131,7 +1158,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           >
             <div
               className="w-5 h-5 rounded-md border border-gray-300 shadow-2xs"
-              style={{ backgroundColor: selected.fill || '#2563eb' }}
+              style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#2563eb') }}
             />
           </button>
 
@@ -1261,7 +1288,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             {activePopover === 'brushSize' && (
               <BrushSizePopover
                 size={selected.strokeWidth || 4}
-                color={selected.stroke || selected.fill || '#2563eb'}
+                color={selected.stroke || (typeof selected.fill === 'string' ? selected.fill : '#2563eb')}
                 opacity={selected.opacity}
                 onChange={(size) => handleUpdate('strokeWidth', size)}
                 onClose={() => setActivePopover(null)}
@@ -1285,7 +1312,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           >
             <div
               className="w-5 h-5 rounded-full border border-gray-300 shadow-2xs"
-              style={{ backgroundColor: selected.stroke || selected.fill || '#2563eb' }}
+              style={{ background: colorOrGradientToCss(selected.stroke || selected.fillGradient || selected.fill, '#2563eb') }}
             />
           </button>
 

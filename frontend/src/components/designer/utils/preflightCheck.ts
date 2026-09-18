@@ -120,7 +120,7 @@ export function runPreflightCheck(
   });
   const canvasW = dimensions.widthPx || 1063;
   const canvasH = dimensions.heightPx || 591;
-  const bleedPx = dimensions.bleedPx || 0;
+  const bleedPx = Math.max(0, dimensions.bleedPx || 0);
   // Keep validation on the exact same inset used by CanvasGuides. Without
   // this, the visible margin can be in one position while preflight checks a
   // different invisible line and reports an apparently false warning.
@@ -129,31 +129,34 @@ export function runPreflightCheck(
       ? dimensions.marginPx
       : dimensions.safeZonePx !== undefined && dimensions.safeZonePx > 0
         ? dimensions.safeZonePx
-        : 35;
+        : 0;
 
   // =========================================================================
   // ZONE BOUNDARIES (in canvas pixel coordinates)
   // =========================================================================
-  // The canvas size IS the full canvas including bleed.
-  // Trim line sits inset by bleedPx from the canvas edges.
-  // Safe zone sits further inset by safeZonePx from the trim line.
+  // Fabric canvas coordinates represent the trimmed artwork itself.
+  // CanvasGuides draws the black trim line at 0..width / 0..height and draws
+  // the green safe line exactly safeZonePx inside it. CanvasManager renders
+  // the red bleed boundary outside the Fabric canvas. Preflight must use the
+  // same coordinate model or the invisible safe boundary is shifted inward
+  // by bleedPx and creates false warnings.
   // =========================================================================
 
-  const trimMinX = bleedPx;
-  const trimMinY = bleedPx;
-  const trimMaxX = canvasW - bleedPx;
-  const trimMaxY = canvasH - bleedPx;
+  const trimMinX = 0;
+  const trimMinY = 0;
+  const trimMaxX = canvasW;
+  const trimMaxY = canvasH;
 
   const safeMinX = trimMinX + safeZonePx;
   const safeMinY = trimMinY + safeZonePx;
   const safeMaxX = trimMaxX - safeZonePx;
   const safeMaxY = trimMaxY - safeZonePx;
 
-  // Bleed edge = canvas boundary (0, 0, canvasW, canvasH)
-  const bleedMinX = 0;
-  const bleedMinY = 0;
-  const bleedMaxX = canvasW;
-  const bleedMaxY = canvasH;
+  // The permitted bleed area extends outside the trimmed artwork.
+  const bleedMinX = -bleedPx;
+  const bleedMinY = -bleedPx;
+  const bleedMaxX = canvasW + bleedPx;
+  const bleedMaxY = canvasH + bleedPx;
 
   const safeMarginViolations: string[] = [];
   const safeMarginDetails: ZoneViolationDetail[] = [];
@@ -163,8 +166,12 @@ export function runPreflightCheck(
   const bleedDetails: ZoneViolationDetail[] = [];
   const alertMessages: AlertMessage[] = [];
 
-  // Tolerance in px to consider "touching" vs "crossing"
-  const TOUCH_TOLERANCE = 3;
+  // Roughly 0.25 mm of scene-space tolerance prevents stroke width and
+  // floating-point rounding from flagging an object that visually touches
+  // (but does not cross) a printed boundary. This value does not depend on
+  // editor zoom.
+  const dpi = dimensions.dpi || 300;
+  const TOUCH_TOLERANCE = Math.max(1, (dpi / 25.4) * 0.25);
 
   objects.forEach((obj, objectIndex) => {
     const id =
@@ -218,10 +225,11 @@ export function runPreflightCheck(
     const outsideSafeBottom = objBottom - safeMaxY;
 
     const isSafeViolation =
-      outsideSafeLeft > TOUCH_TOLERANCE ||
-      outsideSafeTop > TOUCH_TOLERANCE ||
-      outsideSafeRight > TOUCH_TOLERANCE ||
-      outsideSafeBottom > TOUCH_TOLERANCE;
+      safeZonePx > 0 &&
+      (outsideSafeLeft > TOUCH_TOLERANCE ||
+        outsideSafeTop > TOUCH_TOLERANCE ||
+        outsideSafeRight > TOUCH_TOLERANCE ||
+        outsideSafeBottom > TOUCH_TOLERANCE);
 
     // Touching the safe line is valid. Warn only after an actual crossing,
     // and never warn for backgrounds/frames that are supposed to reach edges.

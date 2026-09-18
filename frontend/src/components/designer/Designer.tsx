@@ -32,6 +32,7 @@ import { renderCanvasJsonToThumbnail } from './utils/canvasThumbnail';
 import {
   updateTemplateDesign,
 } from '@/services/designTemplateService';
+import { formatImageUrl, urlToSafeDataUrl } from '@/utils/imageUrl';
 import { AlertTriangle } from 'lucide-react';
 
 const API_URL = (
@@ -39,7 +40,9 @@ const API_URL = (
   'http://127.0.0.1:8000/api/v1'
 ).replace(/\/$/, '');
 
-function isEmbeddedImageSource(value: unknown): value is string {
+type EmbeddedImageSource = `data:image/${string}` | `blob:${string}`;
+
+function isEmbeddedImageSource(value: unknown): value is EmbeddedImageSource {
   return (
     typeof value === 'string' &&
     (value.startsWith('data:image/') || value.startsWith('blob:'))
@@ -545,14 +548,20 @@ export default function Designer({
         anyObj.src;
 
       if (anyObj.type === 'image' && isEmbeddedImageSource(src)) {
-        const storedUrl = await uploadEmbeddedImageSource(src);
+        const uploadedUrl = await uploadEmbeddedImageSource(src);
+        const storedUrl = formatImageUrl(uploadedUrl);
 
-        if (typeof anyObj.setSrc === 'function') {
-          await anyObj.setSrc(storedUrl, {
-            crossOrigin: 'anonymous',
-          });
-        } else {
-          anyObj.set?.('src', storedUrl);
+        // Keep an existing data URL on the live Fabric object. Reloading the
+        // freshly uploaded cross-origin storage URL here caused saving to fail
+        // before the PUT request. Blob URLs are converted to data URLs because
+        // they do not survive a page reload.
+        if (src.startsWith('blob:')) {
+          const safeCanvasSrc = await urlToSafeDataUrl(src);
+          if (typeof anyObj.setSrc === 'function') {
+            await anyObj.setSrc(safeCanvasSrc);
+          } else {
+            anyObj.set?.('src', safeCanvasSrc);
+          }
         }
 
         const existingOriginal = anyObj.originalSrc || anyObj.get?.('originalSrc');
@@ -562,7 +571,6 @@ export default function Designer({
             : storedUrl;
 
         anyObj.set?.({
-          src: storedUrl,
           originalSrc: preserveOriginal,
           sourceUrl: preserveOriginal,
           dirty: true,
@@ -1989,7 +1997,7 @@ export default function Designer({
       const manager = canvasManagerRef.current;
 
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
-        if (e.key === 'Escape' && manager) {
+        if ((e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) && manager) {
           const canvas = manager.getCanvas();
           const active = canvas?.getActiveObject() as any;
           if (active?.isEditing) {

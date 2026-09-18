@@ -17,20 +17,6 @@ function isProxyUrl(value: string): boolean {
   return value.includes('/api/v1/designer/proxy-image');
 }
 
-function isBackendStorageUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value, `${BACKEND_BASE_URL}/`);
-    const backend = new URL(`${BACKEND_BASE_URL}/`);
-
-    return (
-      parsed.origin === backend.origin &&
-      parsed.pathname.startsWith('/storage/')
-    );
-  } catch {
-    return false;
-  }
-}
-
 function containsSvgMarkup(value: string): boolean {
   return /<svg[\s>]/i.test(value) && !/<(?:html|body)[\s>]/i.test(value);
 }
@@ -47,7 +33,6 @@ export function normalizeLaravelStoragePath(path: string): string {
     normalizedPath = `/${normalizedPath}`;
   }
 
-  /* This operates only on a URL pathname, so collapsing duplicate slashes is safe. */
   normalizedPath = normalizedPath.replace(/\/{2,}/g, '/');
 
   normalizedPath = normalizedPath
@@ -98,36 +83,30 @@ export function formatImageUrl(url?: string | null): string {
 }
 
 /**
- * Get a CORS-safe URL. Same-backend Laravel storage is already safe and must
- * not be routed through a proxy that can return an HTML/placeholder response.
+ * Return a URL that Fabric/canvas can fetch without tainting the canvas.
+ *
+ * Laravel's public /storage files are on a different origin when Next.js runs
+ * on port 3000. Those static files do not necessarily receive API CORS headers,
+ * so every HTTP asset must pass through the API proxy.
  */
 export function getProxiedImageUrl(url?: string | null): string {
   const value = url?.trim();
   if (!value) return '';
 
-  if (isDataOrBlobUrl(value)) {
-    return value;
-  }
-
-  if (
-    isProxyUrl(value) ||
-    value.includes('/api/v1/storage/')
-  ) {
+  if (isDataOrBlobUrl(value) || isProxyUrl(value)) {
     return value;
   }
 
   const formattedUrl = formatImageUrl(value);
-
-  if (isBackendStorageUrl(formattedUrl)) {
-    return formattedUrl;
-  }
+  if (!formattedUrl) return '';
 
   return `${API_URL}/designer/proxy-image?url=${encodeURIComponent(formattedUrl)}`;
 }
 
 /**
- * Convert any image URL into an export-safe data URL. SVG responses are
- * accepted only when their body contains actual SVG markup.
+ * Convert any image URL into an export-safe data URL. The proxy is always
+ * attempted first so expected browser CORS failures do not appear for every
+ * element click. The original URL remains a compatibility fallback.
  */
 export async function urlToSafeDataUrl(
   url: string,
@@ -158,18 +137,15 @@ export async function urlToSafeDataUrl(
 
   if (trimmed.startsWith('blob:')) {
     addCandidate(trimmed);
+  } else if (isProxyUrl(trimmed)) {
+    addCandidate(trimmed);
   } else {
     const formatted = formatImageUrl(trimmed);
 
-    /* Own storage first; external resources still use the proxy first. */
-    if (isBackendStorageUrl(formatted)) {
-      addCandidate(formatted);
-      addCandidate(getProxiedImageUrl(formatted));
-    } else {
-      addCandidate(getProxiedImageUrl(trimmed));
-      addCandidate(formatted);
-    }
-
+    // Proxy first for both backend storage and third-party assets.
+    addCandidate(getProxiedImageUrl(formatted));
+    // Direct loading is retained only for servers that already allow CORS.
+    addCandidate(formatted);
     addCandidate(trimmed);
   }
 
@@ -198,7 +174,6 @@ export async function urlToSafeDataUrl(
       if (responseLooksLikeSvg) {
         const text = await res.text();
 
-        /* A 200 proxy placeholder, JSON response or HTML page is not an SVG. */
         if (!containsSvgMarkup(text)) continue;
 
         const { normalizeSvgString } = await import('./svgNormalizer');
@@ -225,7 +200,7 @@ export async function urlToSafeDataUrl(
         return dataUrl;
       }
     } catch {
-      /* Continue to the next direct/proxy candidate. */
+      // Continue to the next proxy/direct candidate.
     } finally {
       clearTimeout(timer);
     }
@@ -283,7 +258,7 @@ export async function urlToSafeDataUrl(
         return dataUrl;
       }
     } catch {
-      /* Continue to the next candidate. */
+      // Continue to the next candidate.
     }
   }
 

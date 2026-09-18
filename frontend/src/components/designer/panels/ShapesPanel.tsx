@@ -26,6 +26,10 @@ interface ShapeSection {
 const RECENT_SHAPES_KEY = 'print_designer_recent_shape_ids';
 const ROW_PREVIEW_LIMIT = 6;
 const PAGE_SIZE = 100;
+const DESIGNER_API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  'http://127.0.0.1:8000/api/v1'
+).replace(/\/$/, '');
 
 function toPlainObject(value: unknown): Record<string, any> {
   if (!value) return {};
@@ -46,7 +50,25 @@ function toPlainObject(value: unknown): Record<string, any> {
 
 function getAssetUrl(asset: DesignAsset): string | null {
   const raw = asset.file_url || (asset as any).asset_url;
-  return raw ? formatImageUrl(raw) : null;
+  if (!raw) return null;
+
+  const formatted = formatImageUrl(raw);
+  if (!formatted) return null;
+
+  if (
+    formatted.startsWith('data:') ||
+    formatted.startsWith('blob:') ||
+    formatted.includes('/api/v1/designer/proxy-image')
+  ) {
+    return formatted;
+  }
+
+  // Force every canvas SVG through the Laravel API proxy. The shared helper
+  // intentionally returns backend /storage URLs unchanged, but those static
+  // responses do not pass through Laravel CORS middleware.
+  return `${DESIGNER_API_URL}/designer/proxy-image?url=${encodeURIComponent(
+    formatted
+  )}`;
 }
 
 function getThumbnailUrl(asset: DesignAsset): string | null {

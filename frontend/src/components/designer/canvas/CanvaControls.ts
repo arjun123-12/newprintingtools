@@ -721,15 +721,143 @@ function createSideScaleControls(): Record<string, Control> {
   };
 }
 
+/**
+ * Canva-style move handle with 4-way arrow icon.
+ */
+export function renderCanvaMoveHandle(
+  ctx: CanvasRenderingContext2D,
+  left: number,
+  top: number,
+  _styleOverride: any,
+  fabricObject: FabricObject
+): void {
+  const size = 26;
+  const radius = size / 2;
+  const angle = fabricObject.angle || 0;
+  const radians = (angle * Math.PI) / 180;
+  const stemLength = 21;
+
+  ctx.save();
+
+  // Connecting line to bottom edge
+  ctx.save();
+  ctx.translate(left, top);
+  ctx.rotate(radians);
+
+  ctx.beginPath();
+  ctx.moveTo(0, -radius);
+  ctx.lineTo(0, -radius - stemLength);
+  ctx.strokeStyle = CANVA_PURPLE;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.restore();
+
+  // Circular button
+  ctx.beginPath();
+  ctx.arc(left, top, radius, 0, Math.PI * 2);
+
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.20)';
+  ctx.shadowBlur = 6;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 1.5;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.stroke();
+
+  // 4-way move arrow icon
+  ctx.save();
+  ctx.translate(left, top);
+  ctx.rotate(radians);
+
+  ctx.strokeStyle = '#1e293b';
+  ctx.fillStyle = '#1e293b';
+  ctx.lineWidth = 1.4;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const arm = 5.5;
+  ctx.beginPath();
+  ctx.moveTo(-arm, 0);
+  ctx.lineTo(arm, 0);
+  ctx.moveTo(0, -arm);
+  ctx.lineTo(0, arm);
+  ctx.stroke();
+
+  const arr = 2.4;
+  // Left arrow
+  ctx.beginPath();
+  ctx.moveTo(-arm + arr, -arr);
+  ctx.lineTo(-arm, 0);
+  ctx.lineTo(-arm + arr, arr);
+  ctx.stroke();
+
+  // Right arrow
+  ctx.beginPath();
+  ctx.moveTo(arm - arr, -arr);
+  ctx.lineTo(arm, 0);
+  ctx.lineTo(arm - arr, arr);
+  ctx.stroke();
+
+  // Top arrow
+  ctx.beginPath();
+  ctx.moveTo(-arr, -arm + arr);
+  ctx.lineTo(0, -arm);
+  ctx.lineTo(arr, -arm + arr);
+  ctx.stroke();
+
+  // Bottom arrow
+  ctx.beginPath();
+  ctx.moveTo(-arr, arm - arr);
+  ctx.lineTo(0, arm);
+  ctx.lineTo(arr, arm - arr);
+  ctx.stroke();
+
+  ctx.restore();
+  ctx.restore();
+}
+
+function createMoveControl(): Control {
+  return new Control({
+    x: 0,
+    y: 0.5,
+    offsetX: -16,
+    offsetY: 34,
+    cursorStyleHandler: () => 'move',
+    actionHandler: (eventData, transform, x, y) => {
+      const target = transform.target;
+      if (target && (target as any).isEditing) {
+        (target as any).exitEditing?.();
+        (target as any).set?.('hoverCursor', 'move');
+      }
+      return controlsUtils.dragHandler(eventData, transform, x, y);
+    },
+    actionName: 'drag',
+    withConnection: false,
+    render: renderCanvaMoveHandle,
+  });
+}
+
 function createRotationControl(): Control {
   return new Control({
     x: 0,
     y: 0.5,
+    offsetX: 16,
     offsetY: 34,
-    cursorStyleHandler:
-      controlsUtils.rotationStyleHandler,
-    actionHandler:
-      controlsUtils.rotationWithSnapping,
+    cursorStyleHandler: controlsUtils.rotationStyleHandler,
+    actionHandler: (eventData, transform, x, y) => {
+      const target = transform.target;
+      if (target && (target as any).isEditing) {
+        (target as any).exitEditing?.();
+        (target as any).set?.('hoverCursor', 'move');
+      }
+      return controlsUtils.rotationWithSnapping(eventData, transform, x, y);
+    },
     actionName: 'rotate',
     withConnection: false,
     render: renderCanvaRotationHandle,
@@ -746,6 +874,7 @@ export function createCanvaControls(): Record<
   return {
     ...createCornerControls(),
     ...createSideScaleControls(),
+    mb_move: createMoveControl(),
     mbr: createRotationControl(),
   };
 }
@@ -791,6 +920,7 @@ export function createTextboxCanvaControls(): Record<
       render: renderCanvaSideHandle(true),
     }),
 
+    mb_move: createMoveControl(),
     mbr: createRotationControl(),
   };
 }
@@ -808,6 +938,7 @@ export function createImageCanvaControls(): Record<
   return {
     ...createCornerControls(),
     ...createSideScaleControls(),
+    mb_move: createMoveControl(),
     mbr: createRotationControl(),
   };
 }
@@ -846,6 +977,11 @@ export function applyCanvaControlsToObject(
     obj.controls = createTextboxCanvaControls();
     obj.hoverCursor = (obj as any).isEditing ? 'text' : 'move';
     obj.moveCursor = 'move';
+    obj.set({
+      lockScalingFlip: true,
+      lockUniScaling: false,
+      centeredScaling: false,
+    });
   } else if (isImageOrFrame) {
     obj.controls = createImageCanvaControls();
 
@@ -883,10 +1019,15 @@ export function applyCanvaControlsToObject(
   });
 }
 
+let isGlobalCanvaControlsApplied = false;
+
 /**
  * Apply Canva controls globally.
  */
 export function applyCanvaControlsGlobal(): void {
+  if (isGlobalCanvaControlsApplied) return;
+  isGlobalCanvaControlsApplied = true;
+
   (FabricObject as any).createControls = () => ({
     controls: createCanvaControls(),
   });
@@ -953,10 +1094,10 @@ export function applyCanvaControlsGlobal(): void {
       createTextboxCanvaControls
     );
 
-    prototype.splitByGrapheme = true;
+    prototype.splitByGrapheme = false;
 
     prototype.dynamicMinWidth = function () {
-      return 10;
+      return Math.max(24, Number((this as any).fontSize || 16) * 0.8);
     };
 
     // Text objects show the move / draggable cursor by default when hovering,
@@ -993,7 +1134,8 @@ export function applyCanvaControlsGlobal(): void {
     // Double-click enters text editing mode.
     const origDoubleClickHandler = prototype.doubleClickHandler;
     prototype.doubleClickHandler = function (options: any) {
-      if (!this.isEditing && this.editable !== false) {
+      const isLocked = typeof this.get === 'function' ? this.get('isLocked') === true : (this as any).isLocked === true;
+      if (!this.isEditing && this.editable !== false && !isLocked) {
         this.enterEditing(options?.e);
         this.setCursorByClick?.(options?.e);
         this.hoverCursor = 'text';
@@ -1021,8 +1163,18 @@ export function applyCanvaControlsGlobal(): void {
     prototype.exitEditing = function () {
       const res = origExitEditing.call(this);
       this.hoverCursor = 'move';
+      this.selectable = true;
+      this.evented = true;
+      const isLocked = typeof this.get === 'function' ? this.get('isLocked') === true : (this as any).isLocked === true;
+      if (!isLocked) {
+        this.lockMovementX = false;
+        this.lockMovementY = false;
+        this.hasControls = true;
+      }
+      this.setCoords?.();
       if (this.canvas) {
         this.canvas.setCursor('move');
+        this.canvas.requestRenderAll();
       }
       return res;
     };

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, X } from 'lucide-react';
 
 export interface CornerRoundingPopoverProps {
@@ -21,7 +21,22 @@ export const CornerRoundingPopover: React.FC<CornerRoundingPopoverProps> = ({
     [maxRadius]
   );
 
-  const radius = Math.min(safeMax, Math.max(0, Number(rx) || 0));
+  const normalizedPropRadius = Math.min(
+    safeMax,
+    Math.max(0, Number(rx) || 0)
+  );
+  const [liveRadius, setLiveRadius] = useState(normalizedPropRadius);
+  const isInteractingRef = useRef(false);
+
+  // Keep the control synchronized when another object is selected or its
+  // radius changes elsewhere. Do not overwrite the live value mid-drag.
+  useEffect(() => {
+    if (!isInteractingRef.current) {
+      setLiveRadius(normalizedPropRadius);
+    }
+  }, [normalizedPropRadius]);
+
+  const radius = Math.min(safeMax, Math.max(0, liveRadius));
   const percentage = Math.round((radius / safeMax) * 100);
   const sliderStep = Math.max(0.1, safeMax / 100);
 
@@ -29,8 +44,16 @@ export const CornerRoundingPopover: React.FC<CornerRoundingPopoverProps> = ({
     const nextValue = Number.isFinite(value)
       ? Math.min(safeMax, Math.max(0, value))
       : 0;
+    const normalizedValue = Number(nextValue.toFixed(2));
 
-    onChange(Number(nextValue.toFixed(2)));
+    // Update the control immediately, then update Fabric. This avoids waiting
+    // for the selected-object state to travel through the parent component.
+    setLiveRadius(normalizedValue);
+    onChange(normalizedValue);
+  };
+
+  const finishInteraction = () => {
+    isInteractingRef.current = false;
   };
 
   const setPercentage = (value: number) => {
@@ -46,9 +69,6 @@ export const CornerRoundingPopover: React.FC<CornerRoundingPopoverProps> = ({
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h3 className="text-sm font-bold text-gray-900">Corner rounding</h3>
-          <p className="mt-0.5 text-[11px] text-gray-500">
-            Round every corner equally
-          </p>
         </div>
 
         <button
@@ -100,7 +120,15 @@ export const CornerRoundingPopover: React.FC<CornerRoundingPopoverProps> = ({
         max={safeMax}
         step={sliderStep}
         value={radius}
-        onChange={(event) => updateRadius(Number(event.target.value))}
+        onPointerDown={() => {
+          isInteractingRef.current = true;
+        }}
+        onPointerUp={finishInteraction}
+        onPointerCancel={finishInteraction}
+        onBlur={finishInteraction}
+        onInput={(event) =>
+          updateRadius(Number((event.currentTarget as HTMLInputElement).value))
+        }
         className="h-2 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-[#8b3dff]"
         aria-label="Corner radius"
       />
@@ -111,21 +139,7 @@ export const CornerRoundingPopover: React.FC<CornerRoundingPopoverProps> = ({
         <span>Maximum</span>
       </div>
 
-      <div className="mt-4 grid grid-cols-5 gap-1.5">
-        {[0, 25, 50, 75, 100].map((preset) => (
-          <button
-            key={preset}
-            type="button"
-            onClick={() => setPercentage(preset)}
-            className={`rounded-lg border px-1 py-1.5 text-[10px] font-bold transition ${Math.abs(percentage - preset) <= 1
-              ? 'border-[#8b3dff] bg-purple-50 text-[#7c3aed]'
-              : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300 hover:bg-purple-50'
-              }`}
-          >
-            {preset}%
-          </button>
-        ))}
-      </div>
+
     </div>
   );
 };

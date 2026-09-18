@@ -114,7 +114,7 @@ export const StockPhotosPanel: React.FC<StockPhotosPanelProps> = ({
           naturalHeight: Number(asset.metadata?.height || asset.metadata?.naturalHeight) || undefined,
           fileSizeBytes: Number(asset.metadata?.fileSizeBytes) || undefined,
         },
-        { skipFrameSlotting: true }
+        { skipFrameSlotting: true, fitToArtworkInsetMm: 20 }
       );
     } catch (addError) {
       console.error('Failed to add admin photo to canvas:', addError);

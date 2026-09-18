@@ -248,7 +248,8 @@ export async function exportLayeredPsd(
   canvasManager: CanvasManager,
   documentSettings: DocumentSettings,
   dimensions: CanvasDimensions,
-  filename?: string
+  filename?: string,
+  includeTrimMarks: boolean = false
 ): Promise<void> {
   const fabricCanvas = canvasManager.getCanvas();
   if (!fabricCanvas) throw new Error('Canvas is not initialized');
@@ -278,13 +279,31 @@ export async function exportLayeredPsd(
     throw new Error('Unable to create the PSD background layer');
   }
 
-  const backgroundColor =
-    typeof fabricCanvas.backgroundColor === 'string' && fabricCanvas.backgroundColor !== 'transparent'
-      ? fabricCanvas.backgroundColor
-      : documentSettings.backgroundColor || '#ffffff';
+  const bgSettings = canvasManager.getBackgroundSettings?.();
+  if (bgSettings?.type === 'gradient' && bgSettings.gradient) {
+    const grad = bgSettings.gradient;
+    const angleRad = (((grad.angle || 0) - 90) * Math.PI) / 180;
+    const len = Math.sqrt(width * width + height * height) / 2;
+    const canvasGrad = backgroundContext.createLinearGradient(
+      width / 2 - Math.cos(angleRad) * len,
+      height / 2 - Math.sin(angleRad) * len,
+      width / 2 + Math.cos(angleRad) * len,
+      height / 2 + Math.sin(angleRad) * len
+    );
+    (grad.stops || []).forEach((s) => canvasGrad.addColorStop(s.offset, s.color));
+    backgroundContext.fillStyle = canvasGrad;
+    backgroundContext.fillRect(0, 0, width, height);
+  } else {
+    const backgroundColor =
+      typeof fabricCanvas.backgroundColor === 'string' && fabricCanvas.backgroundColor !== 'transparent'
+        ? fabricCanvas.backgroundColor
+        : (bgSettings?.type === 'color' && bgSettings.color && bgSettings.color !== 'transparent'
+            ? bgSettings.color
+            : documentSettings.backgroundColor || '#ffffff');
 
-  backgroundContext.fillStyle = backgroundColor;
-  backgroundContext.fillRect(0, 0, width, height);
+    backgroundContext.fillStyle = backgroundColor;
+    backgroundContext.fillRect(0, 0, width, height);
+  }
 
   if (fabricCanvas.backgroundImage) {
     const renderedBackground = renderFabricObjectLayer(
@@ -319,6 +338,61 @@ export async function exportLayeredPsd(
       }
     } catch (error) {
       console.warn('Skipping unsupported PSD layer:', obj.type, error);
+    }
+  }
+
+  if (includeTrimMarks) {
+    const marksCanvas = createCanvas(width, height);
+    const marksCtx = marksCanvas.getContext('2d');
+    if (marksCtx) {
+      const pxPerMm = (dimensions.dpi || 300) / 25.4;
+      const marginPx = Math.round(6 * pxPerMm);
+      const markLen = Math.round(4 * pxPerMm);
+      const markGap = Math.round(1.5 * pxPerMm);
+
+      const x1 = marginPx;
+      const y1 = marginPx;
+      const x2 = Math.max(x1, width - marginPx);
+      const y2 = Math.max(y1, height - marginPx);
+
+      marksCtx.strokeStyle = '#000000';
+      marksCtx.lineWidth = Math.max(1, Math.round(pxPerMm * 0.25));
+      marksCtx.lineCap = 'square';
+      marksCtx.beginPath();
+
+      // Top-Left
+      marksCtx.moveTo(x1, y1 - markGap);
+      marksCtx.lineTo(x1, Math.max(0, y1 - markGap - markLen));
+      marksCtx.moveTo(x1 - markGap, y1);
+      marksCtx.lineTo(Math.max(0, x1 - markGap - markLen), y1);
+
+      // Top-Right
+      marksCtx.moveTo(x2, y1 - markGap);
+      marksCtx.lineTo(x2, Math.max(0, y1 - markGap - markLen));
+      marksCtx.moveTo(x2 + markGap, y1);
+      marksCtx.lineTo(Math.min(width, x2 + markGap + markLen), y1);
+
+      // Bottom-Left
+      marksCtx.moveTo(x1, y2 + markGap);
+      marksCtx.lineTo(x1, Math.min(height, y2 + markGap + markLen));
+      marksCtx.moveTo(x1 - markGap, y2);
+      marksCtx.lineTo(Math.max(0, x1 - markGap - markLen), y2);
+
+      // Bottom-Right
+      marksCtx.moveTo(x2, y2 + markGap);
+      marksCtx.lineTo(x2, Math.min(height, y2 + markGap + markLen));
+      marksCtx.moveTo(x2 + markGap, y2);
+      marksCtx.lineTo(Math.min(width, x2 + markGap + markLen), y2);
+
+      marksCtx.stroke();
+
+      layers.push({
+        name: 'Trim Marks',
+        canvas: marksCanvas,
+        left: 0,
+        top: 0,
+        opacity: 1,
+      });
     }
   }
 

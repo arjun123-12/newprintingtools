@@ -1774,6 +1774,105 @@ export const Ruler: React.FC<RulerProps> = ({
     );
   };
 
+  const startExistingGuideDrag = (
+    guide: {
+      id: string;
+      orientation: 'horizontal' | 'vertical';
+      posPx: number;
+    },
+    event: React.PointerEvent<HTMLDivElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const viewport = viewportRef?.current ?? containerRef.current;
+    const paper = paperRef.current;
+    if (!viewport || !paper) return;
+
+    const originalPosPx = guide.posPx;
+    let latestCanvasPosition = originalPosPx;
+    let isInsideArtwork = true;
+
+    const update = (clientX: number, clientY: number) => {
+      const viewportRect = viewport.getBoundingClientRect();
+      const paperRect = paper.getBoundingClientRect();
+
+      const screenPosition =
+        guide.orientation === 'horizontal'
+          ? clientY - paperRect.top
+          : clientX - paperRect.left;
+
+      latestCanvasPosition =
+        guide.orientation === 'horizontal'
+          ? screenPosition * (heightPx / Math.max(paperRect.height, 1))
+          : screenPosition * (widthPx / Math.max(paperRect.width, 1));
+
+      const maximum =
+        guide.orientation === 'horizontal' ? heightPx : widthPx;
+      isInsideArtwork =
+        latestCanvasPosition >= 0 && latestCanvasPosition <= maximum;
+
+      const dpi = dimensions.dpi || 300;
+      const valueMm = Number(
+        ((latestCanvasPosition / dpi) * 25.4).toFixed(1)
+      );
+
+      setDraggingGuide({
+        orientation: guide.orientation,
+        viewportPosition:
+          guide.orientation === 'horizontal'
+            ? clientY - viewportRect.top
+            : clientX - viewportRect.left,
+        valueMm,
+      });
+
+      if (isInsideArtwork) {
+        canvasManager?.updateUserGuide(
+          guide.id,
+          Number(latestCanvasPosition.toFixed(2))
+        );
+      }
+    };
+
+    function handleMove(moveEvent: PointerEvent) {
+      moveEvent.preventDefault();
+      update(moveEvent.clientX, moveEvent.clientY);
+    }
+
+    function cleanup() {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleCancel);
+      setDraggingGuide(null);
+      setGuideRevision((value) => value + 1);
+    }
+
+    function handleUp(upEvent: PointerEvent) {
+      update(upEvent.clientX, upEvent.clientY);
+
+      if (isInsideArtwork) {
+        canvasManager?.updateUserGuide(
+          guide.id,
+          Number(latestCanvasPosition.toFixed(2))
+        );
+      } else {
+        canvasManager?.removeUserGuide(guide.id);
+      }
+
+      cleanup();
+    }
+
+    function handleCancel() {
+      canvasManager?.updateUserGuide(guide.id, originalPosPx);
+      cleanup();
+    }
+
+    update(event.clientX, event.clientY);
+    window.addEventListener('pointermove', handleMove, { passive: false });
+    window.addEventListener('pointerup', handleUp, { once: true });
+    window.addEventListener('pointercancel', handleCancel, { once: true });
+  };
+
   const userGuides = useMemo(
     () =>
       canvasManager?.getUserGuides?.() ??
@@ -1790,6 +1889,8 @@ export const Ruler: React.FC<RulerProps> = ({
     );
   };
 
+  // Kept for API compatibility with DesignerCanvas. Safe-area settings are
+  // intentionally fixed here and are not editable from the ruler overlay.
   void onUpdateDocumentSettings;
 
   return (
@@ -1833,6 +1934,56 @@ export const Ruler: React.FC<RulerProps> = ({
             }}
           />
         </>
+      )}
+
+      {/* Hit areas for existing purple ruler guides. Their visible dashed
+          lines are painted by CanvasGuides; these overlays add interaction. */}
+      {userGuides.map((guide) =>
+        guide.orientation === 'horizontal' ? (
+          <div
+            key={guide.id}
+            className="group pointer-events-auto absolute z-30 h-3 -translate-y-1/2 cursor-row-resize touch-none"
+            style={{
+              left: `${geometry.originX}px`,
+              top: `${geometry.originY +
+                guide.posPx * (geometry.paperHeight / Math.max(heightPx, 1))
+                }px`,
+              width: `${geometry.paperWidth}px`,
+            }}
+            onPointerDown={(event) => startExistingGuideDrag(guide, event)}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              canvasManager?.removeUserGuide(guide.id);
+              setGuideRevision((value) => value + 1);
+            }}
+            title={`${guide.posMm} mm — drag to move, double-click to delete`}
+          >
+            <span className="pointer-events-none absolute left-0 right-0 top-1/2 border-t border-[#7d2ae8] opacity-0 group-hover:opacity-100" />
+          </div>
+        ) : (
+          <div
+            key={guide.id}
+            className="group pointer-events-auto absolute z-30 w-3 -translate-x-1/2 cursor-col-resize touch-none"
+            style={{
+              left: `${geometry.originX +
+                guide.posPx * (geometry.paperWidth / Math.max(widthPx, 1))
+                }px`,
+              top: `${geometry.originY}px`,
+              height: `${geometry.paperHeight}px`,
+            }}
+            onPointerDown={(event) => startExistingGuideDrag(guide, event)}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              canvasManager?.removeUserGuide(guide.id);
+              setGuideRevision((value) => value + 1);
+            }}
+            title={`${guide.posMm} mm — drag to move, double-click to delete`}
+          >
+            <span className="pointer-events-none absolute bottom-0 left-1/2 top-0 border-l border-[#7d2ae8] opacity-0 group-hover:opacity-100" />
+          </div>
+        )
       )}
 
       {/* Top Horizontal Ruler */}

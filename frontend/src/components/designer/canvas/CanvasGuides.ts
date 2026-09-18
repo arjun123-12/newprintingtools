@@ -81,15 +81,43 @@ export class CanvasGuides {
     posPx: number
   ): UserRulerGuide {
     const dpi = this.dimensions.dpi || 300;
+    const maximum =
+      orientation === 'horizontal'
+        ? this.dimensions.heightPx
+        : this.dimensions.widthPx;
+    const normalizedPosPx = Math.max(0, Math.min(maximum, posPx));
     const guide: UserRulerGuide = {
       id: `guide_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       orientation,
-      posPx,
-      posMm: Number(((posPx / dpi) * 25.4).toFixed(1)),
+      posPx: normalizedPosPx,
+      posMm: Number(((normalizedPosPx / dpi) * 25.4).toFixed(1)),
     };
     this.userGuides.push(guide);
     this.canvas?.requestRenderAll();
-    return guide;
+    return { ...guide };
+  }
+
+  public updateUserGuide(id: string, posPx: number): UserRulerGuide | null {
+    const index = this.userGuides.findIndex((guide) => guide.id === id);
+    if (index < 0) return null;
+
+    const current = this.userGuides[index];
+    const maximum =
+      current.orientation === 'horizontal'
+        ? this.dimensions.heightPx
+        : this.dimensions.widthPx;
+    const normalizedPosPx = Math.max(0, Math.min(maximum, posPx));
+    const dpi = this.dimensions.dpi || 300;
+
+    const updated: UserRulerGuide = {
+      ...current,
+      posPx: normalizedPosPx,
+      posMm: Number(((normalizedPosPx / dpi) * 25.4).toFixed(1)),
+    };
+
+    this.userGuides[index] = updated;
+    this.canvas?.requestRenderAll();
+    return { ...updated };
   }
 
   public removeUserGuide(id: string): void {
@@ -103,22 +131,14 @@ export class CanvasGuides {
   }
 
   public getUserGuides(): UserRulerGuide[] {
-    return [...this.userGuides];
+    return this.userGuides.map((guide) => ({ ...guide }));
   }
 
   public setUserGuides(guides: UserRulerGuide[]): void {
-    this.userGuides = [...guides];
+    this.userGuides = guides.map((guide) => ({ ...guide }));
     this.canvas?.requestRenderAll();
   }
 
-  /**
-   * Paints only the two boundaries that belong inside/on the artwork:
-   * 1. black full-artwork boundary
-   * 2. green safe-margin boundary
-   *
-   * The red bleed boundary is intentionally rendered outside the canvas by
-   * CanvasManager because the 2D canvas context clips outside pixels.
-   */
   public renderGuides(ctx: CanvasRenderingContext2D, zoom: number): void {
     if (!this.isVisible || !this.canvas) return;
 
@@ -133,7 +153,6 @@ export class CanvasGuides {
     ctx.save();
     ctx.scale(zoom, zoom);
 
-    // Black line exactly on the complete artwork boundary.
     if (this.settings.showTrim) {
       const halfPixel = 0.5 / zoom;
       ctx.save();
@@ -149,7 +168,6 @@ export class CanvasGuides {
       ctx.restore();
     }
 
-    // One green dashed safe-margin line inside the artwork.
     if (
       this.settings.showSafeZone &&
       safeInset > 0 &&
@@ -170,7 +188,6 @@ export class CanvasGuides {
       ctx.restore();
     }
 
-    // Preserve user-created ruler guidelines; these are not print boundaries.
     if (this.userGuides.length > 0) {
       ctx.save();
       ctx.strokeStyle = 'rgba(125, 42, 232, 0.9)';
@@ -191,17 +208,9 @@ export class CanvasGuides {
         ctx.fillStyle = 'rgba(125, 42, 232, 0.95)';
         ctx.font = `${Math.max(10 / zoom, 9)}px sans-serif`;
         if (guide.orientation === 'horizontal') {
-          ctx.fillText(
-            `${guide.posMm} mm`,
-            8 / zoom,
-            guide.posPx - 3 / zoom
-          );
+          ctx.fillText(`${guide.posMm} mm`, 8 / zoom, guide.posPx - 3 / zoom);
         } else {
-          ctx.fillText(
-            `${guide.posMm} mm`,
-            guide.posPx + 4 / zoom,
-            16 / zoom
-          );
+          ctx.fillText(`${guide.posMm} mm`, guide.posPx + 4 / zoom, 16 / zoom);
         }
       }
       ctx.restore();

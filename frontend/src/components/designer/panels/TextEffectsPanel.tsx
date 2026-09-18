@@ -47,12 +47,68 @@ interface ShadowSettings {
   color: string;
 }
 
+interface LiftSettings {
+  intensity: number;
+  blur: number;
+  transparency: number;
+  color: string;
+}
+
+interface GlowSettings {
+  blur: number;
+  transparency: number;
+  color: string;
+}
+
+interface OutlineSettings {
+  thickness: number;
+  color: string;
+}
+
+interface HollowSettings {
+  thickness: number;
+  color: string;
+}
+
+interface NeonSettings {
+  intensity: number;
+  color: string;
+}
+
 const DEFAULT_SHADOW_SETTINGS: ShadowSettings = {
   direction: -45,
   offset: 20,
   blur: 10,
   transparency: 30,
   color: '#000000',
+};
+
+const DEFAULT_LIFT_SETTINGS: LiftSettings = {
+  intensity: 50,
+  blur: 24,
+  transparency: 30,
+  color: '#000000',
+};
+
+const DEFAULT_GLOW_SETTINGS: GlowSettings = {
+  blur: 20,
+  transparency: 80,
+  color: '#2563eb',
+};
+
+const DEFAULT_OUTLINE_SETTINGS: OutlineSettings = {
+  thickness: 2,
+  color: '#000000',
+};
+
+const DEFAULT_HOLLOW_SETTINGS: HollowSettings = {
+  thickness: 2,
+  color: '#000000',
+};
+
+const DEFAULT_NEON_SETTINGS: NeonSettings = {
+  intensity: 50,
+  color: '#ec4899',
 };
 
 const ShadowSlider: React.FC<{
@@ -118,6 +174,21 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
   const [shadowSettings, setShadowSettings] = useState<ShadowSettings>(
     DEFAULT_SHADOW_SETTINGS
   );
+  const [liftSettings, setLiftSettings] = useState<LiftSettings>(
+    DEFAULT_LIFT_SETTINGS
+  );
+  const [glowSettings, setGlowSettings] = useState<GlowSettings>(
+    DEFAULT_GLOW_SETTINGS
+  );
+  const [outlineSettings, setOutlineSettings] = useState<OutlineSettings>(
+    DEFAULT_OUTLINE_SETTINGS
+  );
+  const [hollowSettings, setHollowSettings] = useState<HollowSettings>(
+    DEFAULT_HOLLOW_SETTINGS
+  );
+  const [neonSettings, setNeonSettings] = useState<NeonSettings>(
+    DEFAULT_NEON_SETTINGS
+  );
 
   const [adjustments, setAdjustments] = useState({
     brightness: 0,
@@ -142,12 +213,23 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
 
     const effectState = (canvasManager as any).getObjectEffectState?.() ||
       (canvasManager as any).getTextEffectState?.();
-    setActiveEffect(effectState?.effect || (selected as any)?.textEffect || 'none');
-    if (effectState?.settings) {
-      setShadowSettings({
-        ...DEFAULT_SHADOW_SETTINGS,
-        ...effectState.settings,
-      });
+    const currEffect = effectState?.effect || (selected as any)?.textEffect || 'none';
+    setActiveEffect(currEffect);
+
+    if (effectState?.allSettings) {
+      if (effectState.allSettings.shadow) setShadowSettings({ ...DEFAULT_SHADOW_SETTINGS, ...effectState.allSettings.shadow });
+      if (effectState.allSettings.lift) setLiftSettings({ ...DEFAULT_LIFT_SETTINGS, ...effectState.allSettings.lift });
+      if (effectState.allSettings.glow) setGlowSettings({ ...DEFAULT_GLOW_SETTINGS, ...effectState.allSettings.glow });
+      if (effectState.allSettings.outline) setOutlineSettings({ ...DEFAULT_OUTLINE_SETTINGS, ...effectState.allSettings.outline });
+      if (effectState.allSettings.hollow) setHollowSettings({ ...DEFAULT_HOLLOW_SETTINGS, ...effectState.allSettings.hollow });
+      if (effectState.allSettings.neon) setNeonSettings({ ...DEFAULT_NEON_SETTINGS, ...effectState.allSettings.neon });
+    } else if (effectState?.settings) {
+      if (currEffect === 'shadow') setShadowSettings({ ...DEFAULT_SHADOW_SETTINGS, ...effectState.settings });
+      else if (currEffect === 'lift') setLiftSettings({ ...DEFAULT_LIFT_SETTINGS, ...effectState.settings });
+      else if (currEffect === 'glow') setGlowSettings({ ...DEFAULT_GLOW_SETTINGS, ...effectState.settings });
+      else if (currEffect === 'outline') setOutlineSettings({ ...DEFAULT_OUTLINE_SETTINGS, ...effectState.settings });
+      else if (currEffect === 'hollow') setHollowSettings({ ...DEFAULT_HOLLOW_SETTINGS, ...effectState.settings });
+      else if (currEffect === 'neon') setNeonSettings({ ...DEFAULT_NEON_SETTINGS, ...effectState.settings });
     }
 
     const current = canvasManager.getImageAdjustments();
@@ -170,14 +252,19 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     if (!canvasManager) return;
     setActiveEffect(effectId);
     const manager = canvasManager as any;
-    if (effectId === 'shadow') {
-      if (typeof manager.applyShadow === 'function') {
-        manager.applyShadow(shadowSettings);
-      } else if (typeof manager.applyEffect === 'function') {
-        manager.applyEffect('shadow', shadowSettings);
-      }
-    } else if (typeof manager.applyEffect === 'function') {
-      manager.applyEffect(effectId);
+
+    let settings: any = undefined;
+    if (effectId === 'shadow') settings = shadowSettings;
+    else if (effectId === 'lift') settings = liftSettings;
+    else if (effectId === 'glow') settings = glowSettings;
+    else if (effectId === 'outline') settings = outlineSettings;
+    else if (effectId === 'hollow') settings = hollowSettings;
+    else if (effectId === 'neon') settings = neonSettings;
+
+    if (typeof manager.applyEffect === 'function') {
+      manager.applyEffect(effectId, settings);
+    } else if (effectId === 'shadow' && typeof manager.applyShadow === 'function') {
+      manager.applyShadow(settings);
     }
   };
 
@@ -194,6 +281,51 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     } else if (typeof manager.applyEffect === 'function') {
       manager.applyEffect('shadow', next);
     }
+  };
+
+  const handleLiftSettingChange = <K extends keyof LiftSettings>(
+    key: K,
+    value: LiftSettings[K]
+  ) => {
+    const next = { ...liftSettings, [key]: value };
+    setLiftSettings(next);
+    (canvasManager as any)?.applyEffect?.('lift', next);
+  };
+
+  const handleGlowSettingChange = <K extends keyof GlowSettings>(
+    key: K,
+    value: GlowSettings[K]
+  ) => {
+    const next = { ...glowSettings, [key]: value };
+    setGlowSettings(next);
+    (canvasManager as any)?.applyEffect?.('glow', next);
+  };
+
+  const handleOutlineSettingChange = <K extends keyof OutlineSettings>(
+    key: K,
+    value: OutlineSettings[K]
+  ) => {
+    const next = { ...outlineSettings, [key]: value };
+    setOutlineSettings(next);
+    (canvasManager as any)?.applyEffect?.('outline', next);
+  };
+
+  const handleHollowSettingChange = <K extends keyof HollowSettings>(
+    key: K,
+    value: HollowSettings[K]
+  ) => {
+    const next = { ...hollowSettings, [key]: value };
+    setHollowSettings(next);
+    (canvasManager as any)?.applyEffect?.('hollow', next);
+  };
+
+  const handleNeonSettingChange = <K extends keyof NeonSettings>(
+    key: K,
+    value: NeonSettings[K]
+  ) => {
+    const next = { ...neonSettings, [key]: value };
+    setNeonSettings(next);
+    (canvasManager as any)?.applyEffect?.('neon', next);
   };
 
   const handleCurveChange = (val: number) => {
@@ -451,6 +583,350 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                 className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
               >
                 Remove shadow
+              </button>
+            </div>
+          )}
+
+          {activeEffect === 'lift' && (
+            <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-900">Lift settings</span>
+                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
+                  <input
+                    type="color"
+                    value={liftSettings.color}
+                    onChange={(event) =>
+                      handleLiftSettingChange('color', event.target.value)
+                    }
+                    className="h-6 w-7 cursor-pointer border-0 bg-transparent p-0"
+                    aria-label="Lift shadow color"
+                  />
+                  <span className="text-[10px] font-semibold uppercase text-gray-500">
+                    {liftSettings.color}
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Lift Presets */}
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  { label: 'Subtle', intensity: 25, blur: 12, transparency: 20 },
+                  { label: 'Medium', intensity: 50, blur: 24, transparency: 30 },
+                  { label: 'Strong', intensity: 75, blur: 36, transparency: 45 },
+                  { label: 'High', intensity: 100, blur: 50, transparency: 60 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      const next = {
+                        ...liftSettings,
+                        intensity: preset.intensity,
+                        blur: preset.blur,
+                        transparency: preset.transparency,
+                      };
+                      setLiftSettings(next);
+                      (canvasManager as any)?.applyEffect?.('lift', next);
+                    }}
+                    className="rounded-lg border border-purple-200 bg-white px-1 py-1 text-[10px] font-semibold text-purple-700 hover:bg-purple-100 transition text-center"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <ShadowSlider
+                label="Intensity"
+                value={liftSettings.intensity}
+                min={0}
+                max={100}
+                onChange={(value) => handleLiftSettingChange('intensity', value)}
+              />
+              <ShadowSlider
+                label="Blur"
+                value={liftSettings.blur}
+                min={0}
+                max={100}
+                onChange={(value) => handleLiftSettingChange('blur', value)}
+              />
+              <ShadowSlider
+                label="Transparency"
+                value={liftSettings.transparency}
+                min={0}
+                max={100}
+                suffix="%"
+                onChange={(value) => handleLiftSettingChange('transparency', value)}
+              />
+
+              <button
+                type="button"
+                onClick={() => handleApplyStyle('none')}
+                className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
+              >
+                Remove lift
+              </button>
+            </div>
+          )}
+
+          {activeEffect === 'glow' && (
+            <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-900">Glow settings</span>
+                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
+                  <input
+                    type="color"
+                    value={glowSettings.color}
+                    onChange={(event) =>
+                      handleGlowSettingChange('color', event.target.value)
+                    }
+                    className="h-6 w-7 cursor-pointer border-0 bg-transparent p-0"
+                    aria-label="Glow color"
+                  />
+                  <span className="text-[10px] font-semibold uppercase text-gray-500">
+                    {glowSettings.color}
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Glow Presets */}
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  { label: 'Blue', color: '#2563eb', blur: 20, transparency: 80 },
+                  { label: 'Amber', color: '#f59e0b', blur: 25, transparency: 85 },
+                  { label: 'Rose', color: '#f43f5e', blur: 25, transparency: 85 },
+                  { label: 'Purple', color: '#9333ea', blur: 25, transparency: 85 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      const next = {
+                        ...glowSettings,
+                        color: preset.color,
+                        blur: preset.blur,
+                        transparency: preset.transparency,
+                      };
+                      setGlowSettings(next);
+                      (canvasManager as any)?.applyEffect?.('glow', next);
+                    }}
+                    className="rounded-lg border border-purple-200 bg-white px-1 py-1 text-[10px] font-semibold text-purple-700 hover:bg-purple-100 transition text-center"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <ShadowSlider
+                label="Blur / Size"
+                value={glowSettings.blur}
+                min={0}
+                max={100}
+                onChange={(value) => handleGlowSettingChange('blur', value)}
+              />
+              <ShadowSlider
+                label="Transparency"
+                value={glowSettings.transparency}
+                min={0}
+                max={100}
+                suffix="%"
+                onChange={(value) => handleGlowSettingChange('transparency', value)}
+              />
+
+              <button
+                type="button"
+                onClick={() => handleApplyStyle('none')}
+                className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
+              >
+                Remove glow
+              </button>
+            </div>
+          )}
+
+          {activeEffect === 'outline' && (
+            <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-900">Outline settings</span>
+                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
+                  <input
+                    type="color"
+                    value={outlineSettings.color}
+                    onChange={(event) =>
+                      handleOutlineSettingChange('color', event.target.value)
+                    }
+                    className="h-6 w-7 cursor-pointer border-0 bg-transparent p-0"
+                    aria-label="Outline color"
+                  />
+                  <span className="text-[10px] font-semibold uppercase text-gray-500">
+                    {outlineSettings.color}
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Outline Presets */}
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  { label: 'Thin', thickness: 1 },
+                  { label: 'Medium', thickness: 3 },
+                  { label: 'Thick', thickness: 6 },
+                  { label: 'Bold', thickness: 12 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      const next = { ...outlineSettings, thickness: preset.thickness };
+                      setOutlineSettings(next);
+                      (canvasManager as any)?.applyEffect?.('outline', next);
+                    }}
+                    className="rounded-lg border border-purple-200 bg-white px-1 py-1 text-[10px] font-semibold text-purple-700 hover:bg-purple-100 transition text-center"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <ShadowSlider
+                label="Thickness"
+                value={outlineSettings.thickness}
+                min={1}
+                max={50}
+                suffix="px"
+                onChange={(value) => handleOutlineSettingChange('thickness', value)}
+              />
+
+              <button
+                type="button"
+                onClick={() => handleApplyStyle('none')}
+                className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
+              >
+                Remove outline
+              </button>
+            </div>
+          )}
+
+          {activeEffect === 'hollow' && (
+            <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-900">Hollow settings</span>
+                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
+                  <input
+                    type="color"
+                    value={hollowSettings.color}
+                    onChange={(event) =>
+                      handleHollowSettingChange('color', event.target.value)
+                    }
+                    className="h-6 w-7 cursor-pointer border-0 bg-transparent p-0"
+                    aria-label="Hollow border color"
+                  />
+                  <span className="text-[10px] font-semibold uppercase text-gray-500">
+                    {hollowSettings.color}
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Hollow Presets */}
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  { label: 'Fine', thickness: 1 },
+                  { label: 'Thin', thickness: 2 },
+                  { label: 'Medium', thickness: 4 },
+                  { label: 'Thick', thickness: 8 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      const next = { ...hollowSettings, thickness: preset.thickness };
+                      setHollowSettings(next);
+                      (canvasManager as any)?.applyEffect?.('hollow', next);
+                    }}
+                    className="rounded-lg border border-purple-200 bg-white px-1 py-1 text-[10px] font-semibold text-purple-700 hover:bg-purple-100 transition text-center"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <ShadowSlider
+                label="Thickness"
+                value={hollowSettings.thickness}
+                min={1}
+                max={50}
+                suffix="px"
+                onChange={(value) => handleHollowSettingChange('thickness', value)}
+              />
+
+              <button
+                type="button"
+                onClick={() => handleApplyStyle('none')}
+                className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
+              >
+                Remove hollow
+              </button>
+            </div>
+          )}
+
+          {activeEffect === 'neon' && (
+            <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-900">Neon settings</span>
+                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
+                  <input
+                    type="color"
+                    value={neonSettings.color}
+                    onChange={(event) =>
+                      handleNeonSettingChange('color', event.target.value)
+                    }
+                    className="h-6 w-7 cursor-pointer border-0 bg-transparent p-0"
+                    aria-label="Neon color"
+                  />
+                  <span className="text-[10px] font-semibold uppercase text-gray-500">
+                    {neonSettings.color}
+                  </span>
+                </div>
+              </div>
+
+              {/* Quick Neon Presets */}
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  { label: 'Pink', color: '#ec4899', intensity: 60 },
+                  { label: 'Cyan', color: '#06b6d4', intensity: 70 },
+                  { label: 'Lime', color: '#84cc16', intensity: 65 },
+                  { label: 'Amber', color: '#f59e0b', intensity: 70 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      const next = {
+                        ...neonSettings,
+                        color: preset.color,
+                        intensity: preset.intensity,
+                      };
+                      setNeonSettings(next);
+                      (canvasManager as any)?.applyEffect?.('neon', next);
+                    }}
+                    className="rounded-lg border border-purple-200 bg-white px-1 py-1 text-[10px] font-semibold text-purple-700 hover:bg-purple-100 transition text-center"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <ShadowSlider
+                label="Intensity / Glow"
+                value={neonSettings.intensity}
+                min={1}
+                max={100}
+                onChange={(value) => handleNeonSettingChange('intensity', value)}
+              />
+
+              <button
+                type="button"
+                onClick={() => handleApplyStyle('none')}
+                className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
+              >
+                Remove neon
               </button>
             </div>
           )}

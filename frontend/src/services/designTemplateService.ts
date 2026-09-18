@@ -1,7 +1,9 @@
 const API_URL = (
     process.env.NEXT_PUBLIC_API_URL ??
-    'http://localhost:8000/api/v1'
+    'http://127.0.0.1:8000/api/v1'
 ).replace(/\/+$/, '');
+
+const BACKEND_BASE_URL = API_URL.replace(/\/api\/v1\/?$/, '');
 
 const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -78,15 +80,30 @@ function getAuthHeaders(): HeadersInit {
  * with 127.0.0.1.
  */
 function normalizeAssetUrl(url: string): string {
-    return url.replace(
-        'http://127.0.0.1:8000',
-        'http://localhost:8000'
-    );
+    if (!url || url.startsWith('data:') || url.startsWith('blob:')) {
+        return url;
+    }
+
+    try {
+        const parsed = new URL(url, `${BACKEND_BASE_URL}/`);
+        const configuredBackend = new URL(`${BACKEND_BASE_URL}/`);
+        const isLocalBackend =
+            parsed.hostname === 'localhost' ||
+            parsed.hostname === '127.0.0.1';
+
+        if (isLocalBackend) {
+            return `${configuredBackend.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+        }
+
+        return parsed.toString();
+    } catch {
+        return url;
+    }
 }
 
 function isEmbeddedImage(
     value: unknown
-): value is string {
+): value is `data:image/${string}` {
     return (
         typeof value === 'string' &&
         value.startsWith('data:image/')
@@ -178,6 +195,20 @@ function sanitizeCanvasValue(
     ) {
         result.url = result.src;
     }
+
+    // Normalize every persisted non-embedded image reference, including old
+    // localhost URLs already stored in inactive front/back page JSON.
+    ['src', 'originalSrc', 'sourceUrl', 'url'].forEach((key) => {
+        const candidate = result[key];
+        if (
+            typeof candidate === 'string' &&
+            candidate.length > 0 &&
+            !isEmbeddedImage(candidate) &&
+            !candidate.startsWith('blob:')
+        ) {
+            result[key] = normalizeAssetUrl(candidate);
+        }
+    });
 
     return result;
 }

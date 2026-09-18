@@ -75,9 +75,7 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
   const stroke = selected.stroke || '#000000';
   const rx = selected.rx || 0;
   const strokeDashArray = selected.strokeDashArray;
-  const storedStrokePosition = (selected as SelectedObjectState & {
-    strokePosition?: StrokePosition;
-  }).strokePosition;
+  const storedStrokePosition = selected.strokePosition;
 
   // Derive stroke style
   let currentStyle: StrokeStyle = 'none';
@@ -118,7 +116,6 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
   const handleStepRadius = (delta: number) => {
     const newR = Math.max(0, Math.min(100, rx + delta));
     handleUpdate('rx', newR);
-    handleUpdate('ry', newR);
   };
 
   const handleStyleChange = (style: StrokeStyle) => {
@@ -143,10 +140,7 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
   };
 
   const handlePositionChange = (pos: StrokePosition) => {
-    // strokePosition is a saved custom Fabric property. It is intentionally
-    // cast here because older SelectedObjectState definitions do not include
-    // this project-specific field yet.
-    handleUpdate('strokePosition' as keyof SelectedObjectState, pos);
+    handleUpdate('strokePosition', pos);
   };
 
   const canRoundCorners = selected.type === 'rect' || selected.type === 'shape' || selected.type === 'image' || selected.type === 'fabricImage' || Boolean(selected.src);
@@ -224,11 +218,15 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
             {showColorPicker && (
               <div className="mt-2 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden">
                 <ColorPicker
-                  label=""
+                  label="Border Colour"
                   value={stroke || '#000000'}
-                  onChange={(color) => handleColorChange(color)}
+                  onChange={(color) => {
+                    if (typeof color === 'string') handleColorChange(color);
+                  }}
+                  onClose={() => setShowColorPicker(false)}
                   canvasManager={canvasManager}
                   embedded={true}
+                  allowGradient={false}
                 />
               </div>
             )}
@@ -389,7 +387,6 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
                     onChange={(e) => {
                       const val = Math.max(0, Number(e.target.value));
                       handleUpdate('rx', val);
-                      handleUpdate('ry', val);
                     }}
                     className="w-7 bg-transparent text-xs font-mono font-bold text-gray-800 focus:outline-none text-right"
                   />
@@ -414,7 +411,6 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
               onChange={(e) => {
                 const val = Number(e.target.value);
                 handleUpdate('rx', val);
-                handleUpdate('ry', val);
               }}
               className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#7c3aed]"
             />
@@ -427,7 +423,6 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
                   type="button"
                   onClick={() => {
                     handleUpdate('rx', r.val);
-                    handleUpdate('ry', r.val);
                   }}
                   className={`px-2 py-1 text-[10px] font-bold rounded-lg border transition ${rx === r.val
                     ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-2xs'

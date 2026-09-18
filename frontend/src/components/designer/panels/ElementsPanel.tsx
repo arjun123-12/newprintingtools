@@ -569,7 +569,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
           await canvasManager.addImageFromUrl(
             formatImageUrl(renderUrl),
             { ...metadata } as any,
-            { skipFrameSlotting: true }
+            { skipFrameSlotting: true, fitToArtworkInsetMm: 20 }
           );
         }
 
@@ -620,7 +620,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
           await canvasManager.addImageFromUrl(
             stableUrl,
             metadata,
-            { skipFrameSlotting: true }
+            { skipFrameSlotting: true, fitToArtworkInsetMm: 20 }
           );
         }
 

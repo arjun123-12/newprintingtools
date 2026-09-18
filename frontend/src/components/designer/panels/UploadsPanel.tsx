@@ -481,7 +481,7 @@ export const UploadsPanel: React.FC<UploadsPanelProps> = ({
                 naturalHeight: asset.naturalHeight,
                 fileSizeBytes: file.size,
               },
-              { skipFrameSlotting: true }
+              { skipFrameSlotting: true, fitToArtworkInsetMm: 20 }
             );
           }
         } catch (error) {
@@ -547,7 +547,7 @@ export const UploadsPanel: React.FC<UploadsPanelProps> = ({
           naturalHeight: asset.naturalHeight,
           fileSizeBytes: asset.fileSizeBytes,
         },
-        { skipFrameSlotting: true }
+        { skipFrameSlotting: true, fitToArtworkInsetMm: 20 }
       );
     } catch (error) {
       setUploadError(

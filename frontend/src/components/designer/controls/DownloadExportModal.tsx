@@ -73,6 +73,122 @@ const inlineSvgRasterImages = async (svgMarkup: string): Promise<string> => {
   return new XMLSerializer().serializeToString(svgDocument);
 };
 
+/**
+ * Resolves effective background settings from the canvas / manager / document.
+ */
+function getEffectiveBackground(
+  canvasManager: CanvasManager | null,
+  documentSettings: DocumentSettings
+): {
+  type: 'color' | 'gradient' | 'image' | 'none';
+  color?: string;
+  gradient?: any;
+  image?: any;
+} {
+  if (!canvasManager) {
+    return { type: 'color', color: documentSettings.backgroundColor || '#ffffff' };
+  }
+  const canvas = canvasManager.getCanvas();
+  const bgSettings = canvasManager.getBackgroundSettings?.();
+
+  if (canvas?.backgroundImage) {
+    return { type: 'image', image: canvas.backgroundImage };
+  }
+  if (bgSettings?.type === 'gradient' && bgSettings.gradient) {
+    return { type: 'gradient', gradient: bgSettings.gradient };
+  }
+  if (canvas?.backgroundColor) {
+    if (typeof canvas.backgroundColor === 'string' && canvas.backgroundColor !== 'transparent' && canvas.backgroundColor !== '') {
+      return { type: 'color', color: canvas.backgroundColor };
+    }
+    if ((canvas.backgroundColor as any)?.type === 'linear' || (canvas.backgroundColor as any)?.type === 'radial') {
+      return { type: 'gradient', gradient: canvas.backgroundColor };
+    }
+  }
+  if (bgSettings?.type === 'color' && bgSettings.color && bgSettings.color !== 'transparent' && bgSettings.color !== '') {
+    return { type: 'color', color: bgSettings.color };
+  }
+  return { type: 'color', color: documentSettings.backgroundColor || '#ffffff' };
+}
+
+/**
+ * Adds professional prepress crop / trim marks and bleed around a rendered artwork canvas.
+ */
+function renderCanvasWithTrimMarks(
+  sourceCanvas: HTMLCanvasElement,
+  dimensions: CanvasDimensions,
+  dpi: number,
+  marginMm: number = 6,
+  backgroundColor: string = '#ffffff'
+): HTMLCanvasElement {
+  const pxPerMm = dpi / 25.4;
+  const marginPx = Math.round(marginMm * pxPerMm);
+  const markLengthPx = Math.round(4 * pxPerMm); // 4mm mark length
+  const markGapPx = Math.round(1.5 * pxPerMm);   // 1.5mm offset from cut line
+  const lineWidth = Math.max(1, Math.round(0.75 * (dpi / 72)));
+
+  const artW = sourceCanvas.width;
+  const artH = sourceCanvas.height;
+
+  const totalW = artW + marginPx * 2;
+  const totalH = artH + marginPx * 2;
+
+  const exportCanvas = document.createElement('canvas');
+  exportCanvas.width = totalW;
+  exportCanvas.height = totalH;
+  const ctx = exportCanvas.getContext('2d');
+  if (!ctx) return sourceCanvas;
+
+  // Background for outer slug area
+  if (backgroundColor && backgroundColor !== 'transparent') {
+    ctx.fillStyle = backgroundColor;
+    ctx.fillRect(0, 0, totalW, totalH);
+  }
+
+  // Draw artwork centered inside the trim marks
+  ctx.drawImage(sourceCanvas, marginPx, marginPx);
+
+  // Setup stroke for registration black crop marks
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = 'square';
+
+  const x1 = marginPx;
+  const y1 = marginPx;
+  const x2 = marginPx + artW;
+  const y2 = marginPx + artH;
+
+  ctx.beginPath();
+
+  // Top-Left Corner
+  ctx.moveTo(x1, y1 - markGapPx);
+  ctx.lineTo(x1, Math.max(0, y1 - markGapPx - markLengthPx));
+  ctx.moveTo(x1 - markGapPx, y1);
+  ctx.lineTo(Math.max(0, x1 - markGapPx - markLengthPx), y1);
+
+  // Top-Right Corner
+  ctx.moveTo(x2, y1 - markGapPx);
+  ctx.lineTo(x2, Math.max(0, y1 - markGapPx - markLengthPx));
+  ctx.moveTo(x2 + markGapPx, y1);
+  ctx.lineTo(Math.min(totalW, x2 + markGapPx + markLengthPx), y1);
+
+  // Bottom-Left Corner
+  ctx.moveTo(x1, y2 + markGapPx);
+  ctx.lineTo(x1, Math.min(totalH, y2 + markGapPx + markLengthPx));
+  ctx.moveTo(x1 - markGapPx, y2);
+  ctx.lineTo(Math.max(0, x1 - markGapPx - markLengthPx), y2);
+
+  // Bottom-Right Corner
+  ctx.moveTo(x2, y2 + markGapPx);
+  ctx.lineTo(x2, Math.min(totalH, y2 + markGapPx + markLengthPx));
+  ctx.moveTo(x2 + markGapPx, y2);
+  ctx.lineTo(Math.min(totalW, x2 + markGapPx + markLengthPx), y2);
+
+  ctx.stroke();
+
+  return exportCanvas;
+}
+
 export interface DownloadExportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -105,6 +221,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
   const [customDpi, setCustomDpi] = useState<number>(300);
   const [jpegQuality, setJpegQuality] = useState<number>(95);
   const [backgroundColor, setBackgroundColor] = useState<string>('#ffffff');
+  const [transparentBackground, setTransparentBackground] = useState<boolean>(false);
+  const [includeTrimMarks, setIncludeTrimMarks] = useState<boolean>(true);
   const [includeNormal, setIncludeNormal] = useState<boolean>(false);
   const [includeEnhanced, setIncludeEnhanced] = useState<boolean>(true);
 
@@ -180,8 +298,9 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
   // Calculate estimated output dimensions and file size
   const calculatedSpecs = useMemo(() => {
-    const mmW = dimensions.widthMm || 90;
-    const mmH = dimensions.heightMm || 50;
+    const trimMarginMm = includeTrimMarks ? 6 : 0;
+    const mmW = (dimensions.widthMm || 90) + trimMarginMm * 2;
+    const mmH = (dimensions.heightMm || 50) + trimMarginMm * 2;
 
     const inchesW = mmW / 25.4;
     const inchesH = mmH / 25.4;
@@ -209,14 +328,14 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
       mmH: Math.round(mmH),
       estimatedSizeStr:
         format === 'svg'
-          ? 'Vector + original images'
+          ? (includeTrimMarks ? 'Vector with trim marks' : 'Vector + original images')
           : estimatedMb < 1
             ? `${Math.round(estimatedMb * 1024)} KB`
             : `${estimatedMb.toFixed(1)} MB`,
       isUltraLarge:
         format !== 'svg' && (targetDpi >= 600 || totalPixels > 30000000),
     };
-  }, [dimensions, targetDpi, format, jpegQuality]);
+  }, [dimensions, targetDpi, format, jpegQuality, includeTrimMarks]);
 
   // Handle Export Execution
   const handleStartExport = useCallback(async () => {
@@ -263,7 +382,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           const physicalWidthMm = Math.max(dimensions.widthMm || 90, 1);
           const physicalHeightMm = Math.max(dimensions.heightMm || 50, 1);
 
-          const fabricSvg = canvas.toSVG({
+          let fabricSvg = canvas.toSVG({
             suppressPreamble: true,
             width: `${physicalWidthMm}mm`,
             height: `${physicalHeightMm}mm`,
@@ -275,11 +394,99 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             },
           });
 
+          // FIX: Ensure Background is NEVER missing in SVG!
+          // 1. If backgroundImage exists, Fabric toSVG omits it. We serialize and prepend it!
+          // 2. If background color or gradient exists and not transparent, ensure a background rect exists!
+          const effBg = getEffectiveBackground(canvasManager, documentSettings);
+          let bgSvgElements = '';
+
+          if (!transparentBackground) {
+            if (effBg.type === 'color' && effBg.color) {
+              if (!fabricSvg.includes('<rect ') || fabricSvg.indexOf('<rect') > fabricSvg.indexOf('<g')) {
+                bgSvgElements += `<rect x="0" y="0" width="${canvasWidth}" height="${canvasHeight}" fill="${effBg.color}" />\n`;
+              }
+            } else if (effBg.type === 'gradient' && effBg.gradient) {
+              const grad = effBg.gradient;
+              const angleRad = (((grad.angle || 0) - 90) * Math.PI) / 180;
+              const cx = canvasWidth / 2;
+              const cy = canvasHeight / 2;
+              const len = Math.sqrt(canvasWidth * canvasWidth + canvasHeight * canvasHeight) / 2;
+              const x1 = cx - Math.cos(angleRad) * len;
+              const y1 = cy - Math.sin(angleRad) * len;
+              const x2 = cx + Math.cos(angleRad) * len;
+              const y2 = cy + Math.sin(angleRad) * len;
+              const stops = (grad.stops || []).map(
+                (s: any) => `<stop offset="${s.offset * 100}%" stop-color="${s.color}" />`
+              ).join('');
+              bgSvgElements += `<defs><linearGradient id="export-bg-grad" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" gradientUnits="userSpaceOnUse">${stops}</linearGradient></defs><rect x="0" y="0" width="${canvasWidth}" height="${canvasHeight}" fill="url(#export-bg-grad)" />\n`;
+            }
+
+            if (canvas.backgroundImage && typeof canvas.backgroundImage.toSVG === 'function') {
+              bgSvgElements += canvas.backgroundImage.toSVG() + '\n';
+            }
+          }
+
+          if (bgSvgElements) {
+            const svgOpenTagEnd = fabricSvg.indexOf('>') + 1;
+            fabricSvg = fabricSvg.slice(0, svgOpenTagEnd) + '\n' + bgSvgElements + fabricSvg.slice(svgOpenTagEnd);
+          }
+
+          // FIX: If includeTrimMarks is enabled for SVG, expand viewBox and draw 8 precision corner crop marks!
+          if (includeTrimMarks) {
+            const marginMm = 6;
+            const pxPerMm = canvasWidth / physicalWidthMm;
+            const marginPx = Math.round(marginMm * pxPerMm);
+            const totalW = canvasWidth + marginPx * 2;
+            const totalH = canvasHeight + marginPx * 2;
+            const totalMmW = physicalWidthMm + marginMm * 2;
+            const totalMmH = physicalHeightMm + marginMm * 2;
+
+            const x1 = marginPx;
+            const y1 = marginPx;
+            const x2 = marginPx + canvasWidth;
+            const y2 = marginPx + canvasHeight;
+            const markLen = Math.round(4 * pxPerMm);
+            const markGap = Math.round(1.5 * pxPerMm);
+
+            const trimMarksSvg = `
+  <!-- Trim Marks -->
+  <g stroke="#000000" stroke-width="0.75" stroke-linecap="square">
+    <!-- Top-Left -->
+    <line x1="${x1}" y1="${y1 - markGap}" x2="${x1}" y2="${y1 - markGap - markLen}" />
+    <line x1="${x1 - markGap}" y1="${y1}" x2="${x1 - markGap - markLen}" y2="${y1}" />
+    <!-- Top-Right -->
+    <line x1="${x2}" y1="${y1 - markGap}" x2="${x2}" y2="${y1 - markGap - markLen}" />
+    <line x1="${x2 + markGap}" y1="${y1}" x2="${x2 + markGap + markLen}" y2="${y1}" />
+    <!-- Bottom-Left -->
+    <line x1="${x1}" y1="${y2 + markGap}" x2="${x1}" y2="${y2 + markGap + markLen}" />
+    <line x1="${x1 - markGap}" y1="${y2}" x2="${x1 - markGap - markLen}" y2="${y2}" />
+    <!-- Bottom-Right -->
+    <line x1="${x2}" y1="${y2 + markGap}" x2="${x2}" y2="${y2 + markGap + markLen}" />
+    <line x1="${x2 + markGap}" y1="${y2}" x2="${x2 + markGap + markLen}" y2="${y2}" />
+  </g>
+`;
+
+            const svgOpenMatch = fabricSvg.match(/<svg[^>]*>/);
+            if (svgOpenMatch) {
+              const openTag = svgOpenMatch[0];
+              const innerContent = fabricSvg.slice(openTag.length, fabricSvg.lastIndexOf('</svg>'));
+              const newOpenTag = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="${totalMmW}mm" height="${totalMmH}mm" viewBox="0 0 ${totalW} ${totalH}">`;
+              fabricSvg = `${newOpenTag}
+  <!-- Slug background -->
+  <rect x="0" y="0" width="${totalW}" height="${totalH}" fill="#ffffff" />
+  <g transform="translate(${marginPx}, ${marginPx})">
+    ${innerContent}
+  </g>
+  ${trimMarksSvg}
+</svg>`;
+            }
+          }
+
           setExportProgress(70);
           setProgressMessage('Embedding original-resolution images...');
 
           const selfContainedSvg = await inlineSvgRasterImages(fabricSvg);
-          downloadSvgFile(selfContainedSvg, `${sanitizedDocName}-vector.svg`);
+          downloadSvgFile(selfContainedSvg, `${sanitizedDocName}-vector${includeTrimMarks ? '-with-trim-marks' : ''}.svg`);
 
           setExportProgress(100);
           setProgressMessage('Vector download ready.');
@@ -359,13 +566,14 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
       canvas.discardActiveObject();
       canvasManager.setZoom(1.0);
 
-      if (backgroundColor) {
-        canvas.backgroundColor = backgroundColor;
-      } else if (
-        (format === 'jpeg' || format === 'pdf') &&
-        (!canvas.backgroundColor || canvas.backgroundColor === 'transparent')
-      ) {
-        canvas.backgroundColor = documentSettings.backgroundColor || '#ffffff';
+      const effBg = getEffectiveBackground(canvasManager, documentSettings);
+      const effBgColor = effBg.type === 'color' && effBg.color ? effBg.color : documentSettings.backgroundColor || '#ffffff';
+
+      // DO NOT overwrite existing custom background color or gradient with plain white!
+      if (transparentBackground && (format === 'png' || format === 'webp')) {
+        canvas.backgroundColor = '';
+      } else if (!canvas.backgroundColor || canvas.backgroundColor === 'transparent') {
+        canvas.backgroundColor = effBgColor;
       }
 
       canvas.requestRenderAll();
@@ -377,7 +585,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
       const multiplier = Math.max(1, targetDpi / 72);
       const mimeFormat = format === 'jpeg' ? 'jpeg' : format === 'webp' ? 'webp' : 'png';
-      const renderedDataUrl = canvas.toDataURL({
+      let renderedDataUrl = canvas.toDataURL({
         format: mimeFormat,
         quality: jpegQuality / 100,
         multiplier,
@@ -391,12 +599,42 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
       setExportProgress(75);
 
+      // ADD TRIM MARKS & BLEED TO RASTER CANVAS IF REQUESTED
+      if (includeTrimMarks) {
+        setProgressMessage('Adding precision trim marks and bleed...');
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = () => reject(new Error('Failed to load rendered artwork for trim marks'));
+          i.src = renderedDataUrl;
+        });
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = img.naturalWidth || img.width;
+        tempCanvas.height = img.naturalHeight || img.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (tempCtx) {
+          tempCtx.drawImage(img, 0, 0);
+          const withMarksCanvas = renderCanvasWithTrimMarks(
+            tempCanvas,
+            dimensions,
+            targetDpi,
+            6,
+            transparentBackground ? 'transparent' : '#ffffff'
+          );
+          renderedDataUrl = withMarksCanvas.toDataURL(
+            mimeFormat === 'jpeg' ? 'image/jpeg' : 'image/png',
+            jpegQuality / 100
+          );
+        }
+      }
+
       // 3. Client-side direct downloads (when not requesting both normal + enhanced ZIP package)
       if (!includeNormal || !includeEnhanced) {
         if (format === 'psd') {
           setProgressMessage('Creating layered PSD...');
-          const psdFilename = `${sanitizedDocName}-${targetDpi}dpi.psd`;
-          await exportLayeredPsd(canvasManager, documentSettings, dimensions, psdFilename);
+          const psdFilename = `${sanitizedDocName}-${targetDpi}dpi${includeTrimMarks ? '-with-trim-marks' : ''}.psd`;
+          await exportLayeredPsd(canvasManager, documentSettings, dimensions, psdFilename, includeTrimMarks);
           setExportProgress(100);
           setProgressMessage('Download ready.');
           setIsExporting(false);
@@ -405,19 +643,18 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
         if (format === 'pdf') {
           setProgressMessage('Generating PDF...');
-          const pdfFilename = `${sanitizedDocName}-${targetDpi}dpi.pdf`;
+          const pdfFilename = `${sanitizedDocName}-${targetDpi}dpi${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`;
 
           /*
            * Use the rendered PNG that already contains every Fabric object.
-           * The old SVG PDF path kept external images as URL references, so
-           * those images could be missing when jsPDF created the document.
            */
           if (!renderedDataUrl.startsWith('data:image/')) {
             throw new Error('Artwork could not be rendered for PDF export.');
           }
 
-          const pdfWidthMm = Math.max(dimensions.widthMm || 90, 1);
-          const pdfHeightMm = Math.max(dimensions.heightMm || 50, 1);
+          const marginMm = includeTrimMarks ? 6 : 0;
+          const pdfWidthMm = Math.max((dimensions.widthMm || 90) + marginMm * 2, 1);
+          const pdfHeightMm = Math.max((dimensions.heightMm || 50) + marginMm * 2, 1);
           const orientation: 'portrait' | 'landscape' =
             pdfWidthMm > pdfHeightMm ? 'landscape' : 'portrait';
 
@@ -450,7 +687,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
         if (format === 'png' || format === 'jpeg' || format === 'webp') {
           setProgressMessage('Generating image file...');
           const ext = format === 'jpeg' ? 'jpg' : format;
-          const imgFilename = `${sanitizedDocName}-${targetDpi}dpi.${ext}`;
+          const imgFilename = `${sanitizedDocName}-${targetDpi}dpi${includeTrimMarks ? '-with-trim-marks' : ''}.${ext}`;
           downloadFile(renderedDataUrl, imgFilename);
           setExportProgress(100);
           setProgressMessage('Download ready.');
@@ -487,12 +724,12 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
         include_normal: includeNormal,
         include_enhanced: includeEnhanced,
         quality: jpegQuality,
-        background_color: backgroundColor,
+        background_color: effBgColor,
         dimensions: {
-          width_mm: dimensions.widthMm || 90,
-          height_mm: dimensions.heightMm || 50,
-          width_px: dimensions.widthPx || 1063,
-          height_px: dimensions.heightPx || 591,
+          width_mm: (dimensions.widthMm || 90) + (includeTrimMarks ? 12 : 0),
+          height_mm: (dimensions.heightMm || 50) + (includeTrimMarks ? 12 : 0),
+          width_px: calculatedSpecs.pxW,
+          height_px: calculatedSpecs.pxH,
         },
         pages: serializablePages,
       });
@@ -752,43 +989,68 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             )}
           </div>
 
-          {/* Format Specific Options */}
-          {(format === 'jpeg' || format === 'webp') && (
-            <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 space-y-3">
-              <div className="flex justify-between text-xs font-semibold text-gray-700">
-                <span>Compression Quality</span>
-                <span className="font-mono text-blue-600">{jpegQuality}%</span>
-              </div>
+          {/* Print Trim Marks & Bleed Option (Available for all formats) */}
+          <div className="p-4 rounded-xl bg-purple-50/60 border border-purple-200 space-y-2">
+            <label className="flex items-start gap-3 cursor-pointer">
               <input
-                type="range"
-                min="60"
-                max="100"
-                step="1"
-                value={jpegQuality}
-                onChange={(e) => setJpegQuality(Number(e.target.value))}
-                className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                type="checkbox"
+                checked={includeTrimMarks}
+                onChange={(e) => setIncludeTrimMarks(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded text-purple-600 focus:ring-purple-500 accent-purple-600"
               />
-              <div className="flex items-center gap-3 pt-1">
-                <span className="text-xs text-gray-600 font-medium">Background:</span>
-                <button
-                  type="button"
-                  onClick={() => setBackgroundColor('#ffffff')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold border ${backgroundColor === '#ffffff' ? 'bg-white border-blue-600 text-blue-600 ring-1 ring-blue-600' : 'bg-white border-gray-300 text-gray-700'
-                    }`}
-                >
-                  White
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBackgroundColor('#000000')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold border ${backgroundColor === '#000000' ? 'bg-black border-blue-600 text-white ring-1 ring-blue-600' : 'bg-black text-white border-gray-800'
-                    }`}
-                >
-                  Black
-                </button>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-gray-900">Crop marks and bleed (Trim marks)</span>
+                  <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-md">
+                    Print Ready
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-600 mt-1 leading-relaxed">
+                  Adds standard 3mm bleed and precision corner trim marks for professional printing & cutting across {format.toUpperCase()} and all formats.
+                </p>
               </div>
+            </label>
+          </div>
+
+          {/* Artwork Background Options */}
+          <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-gray-800">Background Handling</span>
+              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                Preserves Design Background
+              </span>
             </div>
-          )}
+
+            {(format === 'png' || format === 'svg' || format === 'webp') && (
+              <label className="flex items-center gap-2 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={transparentBackground}
+                  onChange={(e) => setTransparentBackground(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-blue-500 accent-blue-600"
+                />
+                <span className="text-xs font-semibold text-gray-700">Transparent Background (Cutout)</span>
+              </label>
+            )}
+
+            {(format === 'jpeg' || format === 'webp') && (
+              <div className="space-y-2 pt-2 border-t border-gray-200">
+                <div className="flex justify-between text-xs font-semibold text-gray-700">
+                  <span>Compression Quality</span>
+                  <span className="font-mono text-blue-600">{jpegQuality}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="60"
+                  max="100"
+                  step="1"
+                  value={jpegQuality}
+                  onChange={(e) => setJpegQuality(Number(e.target.value))}
+                  className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                />
+              </div>
+            )}
+          </div>
 
           {/* Technical Export Summary */}
           <div className="flex items-center justify-between text-xs text-gray-500 px-1 font-mono">
@@ -796,7 +1058,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
               Output:{' '}
               <span className="text-gray-800 font-bold">
                 {format === 'svg'
-                  ? 'Resolution-independent vector'
+                  ? (includeTrimMarks ? 'Vector with trim marks' : 'Resolution-independent vector')
                   : `${calculatedSpecs.pxW} × ${calculatedSpecs.pxH} px`}
               </span>{' '}
               ({calculatedSpecs.mmW} × {calculatedSpecs.mmH} mm)
@@ -865,8 +1127,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                 <Download className="w-3.5 h-3.5" />
                 <span>
                   {format === 'svg'
-                    ? 'Download SVG Vector'
-                    : `Download ${format.toUpperCase()} (${targetDpi} DPI)`}
+                    ? `Download SVG Vector${includeTrimMarks ? ' (With Trim Marks)' : ''}`
+                    : `Download ${format.toUpperCase()} (${targetDpi} DPI)${includeTrimMarks ? ' + Trim Marks' : ''}`}
                 </span>
               </>
             )}

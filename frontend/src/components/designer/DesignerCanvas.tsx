@@ -64,7 +64,6 @@ function makeAbsoluteStorageUrl(url: string): string {
 export function DesignerCanvas({
   zoom,
   productId,
-  setZoom,
   dimensions,
   canvasManager,
   selected = null,
@@ -78,7 +77,6 @@ export function DesignerCanvas({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const paperRef = useRef<HTMLDivElement | null>(null);
-  const previousZoomRef = useRef(zoom);
   const scrollUpdateFrameRef = useRef<number | null>(null);
   const isSpacePressedRef = useRef(false);
   const isViewportPanningRef = useRef(false);
@@ -256,8 +254,6 @@ export function DesignerCanvas({
    */
   useEffect(() => {
     if (!canvasManager || typeof zoom !== 'number') return;
-    previousZoomRef.current = zoom;
-
     if (Math.abs(canvasManager.getZoom() - zoom) >= 0.005) {
       canvasManager.setZoom(zoom);
     }
@@ -282,9 +278,15 @@ export function DesignerCanvas({
         const manager = canvasManagerRef.current;
         if (!manager) return;
 
-        const zoomFactor = Math.pow(0.9985, e.deltaY);
-        const currentZoom = manager.getZoom();
-        const nextZoom = Math.min(Math.max(Number((currentZoom * zoomFactor).toFixed(3)), 0.05), 8.0);
+        const currentZoom = manager.getTargetZoom();
+        const direction = e.deltaY === 0 ? 0 : e.deltaY > 0 ? -1 : 1;
+        const nextZoom = Math.min(
+          Math.max(
+            Math.round((currentZoom + direction * 0.01) * 100) / 100,
+            0.01
+          ),
+          8.0
+        );
 
         manager.setZoom(nextZoom, { clientX: e.clientX, clientY: e.clientY });
       }
@@ -354,7 +356,7 @@ export function DesignerCanvas({
           isEditing?: boolean;
         }).isEditing
       ) {
-        if (event.key === 'Escape') {
+        if (event.key === 'Escape' || (event.key === 'Enter' && (event.ctrlKey || event.metaKey))) {
           event.preventDefault();
           (activeObject as any).exitEditing?.();
           activeObject.set?.('hoverCursor', 'move');
@@ -379,11 +381,7 @@ export function DesignerCanvas({
       ) {
         event.preventDefault();
 
-        if (setZoom) {
-          setZoom(Math.min(Number((zoom + 0.1).toFixed(2)), 8));
-        } else {
-          canvasManager.zoomIn();
-        }
+        canvasManager.zoomIn();
 
         return;
       }
@@ -394,11 +392,7 @@ export function DesignerCanvas({
       ) {
         event.preventDefault();
 
-        if (setZoom) {
-          setZoom(Math.max(Number((zoom - 0.1).toFixed(2)), 0.1));
-        } else {
-          canvasManager.zoomOut();
-        }
+        canvasManager.zoomOut();
 
         return;
       }
@@ -406,11 +400,7 @@ export function DesignerCanvas({
       if (isCtrlOrCmd && event.key === '0') {
         event.preventDefault();
 
-        if (setZoom) {
-          setZoom(1);
-        } else {
-          canvasManager.resetZoom();
-        }
+        canvasManager.resetZoom();
 
         return;
       }
@@ -554,7 +544,7 @@ export function DesignerCanvas({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', stopTemporaryPan);
     };
-  }, [canvasManager, setZoom, zoom]);
+  }, [canvasManager]);
 
   /*
    * Save a Freepik image in Laravel storage.
@@ -898,7 +888,9 @@ export function DesignerCanvas({
           sourceType: elementJson?.asset_type,
           originalSrc: imageUrl,
         } as any,
-        pointer ? { left: pointer.x, top: pointer.y } : undefined
+        {
+          fitToArtworkInsetMm: 20,
+        }
       );
 
       const addedObject =

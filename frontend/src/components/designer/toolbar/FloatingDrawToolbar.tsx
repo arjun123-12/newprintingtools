@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { ActiveSidebarTab } from '@/types/designer';
+import { ColorPicker } from '../controls/ColorPicker';
 
 interface FloatingDrawToolbarProps {
   canvasManager: CanvasManager | null;
@@ -403,51 +404,17 @@ export const FloatingDrawToolbar: React.FC<FloatingDrawToolbarProps> = ({
 
             {/* Canva Color Swatch Popover */}
             {isColorPickerOpen && (
-              <div className="absolute left-full top-0 ml-3 bg-white rounded-2xl shadow-2xl border border-gray-200/90 p-3 w-56 z-50 animate-in fade-in zoom-in-95 duration-150">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-gray-800">Drawing Color</span>
-                  <button
-                    type="button"
-                    onClick={() => setIsColorPickerOpen(false)}
-                    className="p-1 text-gray-400 hover:text-gray-700 rounded-lg"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                {/* Preset Color Swatches Grid */}
-                <div className="grid grid-cols-6 gap-2 mb-3">
-                  {CANVA_DRAW_PALETTE.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => handleColorChange(color)}
-                      className={`w-6 h-6 rounded-full border border-black/10 transition hover:scale-110 flex items-center justify-center ${drawColor.toLowerCase() === color.toLowerCase() ? 'ring-2 ring-purple-600 ring-offset-1' : ''
-                        }`}
-                      style={{ backgroundColor: color }}
-                    >
-                      {drawColor.toLowerCase() === color.toLowerCase() && (
-                        <Check className={`w-3 h-3 ${color === '#ffffff' || color === '#eab308' ? 'text-black' : 'text-white'}`} />
-                      )}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Custom Hex Color Picker Input */}
-                <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-                  <input
-                    type="color"
-                    value={drawColor}
-                    onChange={(e) => handleColorChange(e.target.value)}
-                    className="w-7 h-7 rounded-lg border border-gray-200 cursor-pointer p-0"
-                  />
-                  <input
-                    type="text"
-                    value={drawColor.toUpperCase()}
-                    onChange={(e) => handleColorChange(e.target.value)}
-                    className="flex-1 text-xs font-mono px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-gray-800 uppercase focus:outline-none focus:border-purple-500"
-                  />
-                </div>
+              <div className="absolute left-full top-0 ml-3 z-50 animate-in fade-in zoom-in-95 duration-150">
+                <ColorPicker
+                  label="Drawing Colour"
+                  value={drawColor}
+                  onChange={(val) => {
+                    if (typeof val === 'string') handleColorChange(val);
+                  }}
+                  onClose={() => setIsColorPickerOpen(false)}
+                  allowGradient={false}
+                  canvasManager={canvasManager}
+                />
               </div>
             )}
           </div>

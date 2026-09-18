@@ -164,9 +164,9 @@ export const PixabayPanel: React.FC<PixabayPanelProps> = ({ canvasManager }) => 
           },
           {
             skipFrameSlotting: true,
-            // 10 mm per side = artwork width/height reduced by 20 mm total.
+            // 20 mm per side = artwork width/height reduced by 40 mm total.
             // The image remains proportional and is never stretched.
-            fitToArtworkInsetMm: 10,
+            fitToArtworkInsetMm: 20,
             preserveOriginalSize: false,
           }
         );
