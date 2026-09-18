@@ -43,10 +43,17 @@ const inlineSvgRasterImages = async (
   canvasManager?: CanvasManager | null
 ): Promise<string> => {
   const parser = new DOMParser();
-  const svgDocument = parser.parseFromString(svgMarkup, 'image/svg+xml');
+  let svgDocument = parser.parseFromString(svgMarkup, 'image/svg+xml');
 
   if (svgDocument.querySelector('parsererror')) {
-    throw new Error('Fabric generated invalid SVG markup.');
+    // Repair unescaped ampersands or invalid entity sequences that frequently appear in font URLs or text
+    const repairedSvg = svgMarkup.replace(/&(?!(amp|lt|gt|quot|apos|#\d+|#x[a-f\d]+);)/gi, '&amp;');
+    const retryDoc = parser.parseFromString(repairedSvg, 'image/svg+xml');
+    if (!retryDoc.querySelector('parsererror')) {
+      svgDocument = retryDoc;
+    } else {
+      console.warn('XML parse error in SVG markup:', svgDocument.querySelector('parsererror')?.textContent);
+    }
   }
 
   // Ensure root SVG declares both SVG and XLINK namespaces cleanly
@@ -622,7 +629,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           let fontDefs = '';
           if (googleFontQueries.size > 0) {
             const fontUrl = `https://fonts.googleapis.com/css2?${Array.from(googleFontQueries).join('&')}&display=swap`;
-            fontDefs = `<defs><style type="text/css">@import url('${fontUrl}');</style></defs>\n`;
+            fontDefs = `<defs><style type="text/css"><![CDATA[@import url('${fontUrl}');]]></style></defs>\n`;
           }
 
           // FIX: Ensure Background is NEVER missing in SVG!

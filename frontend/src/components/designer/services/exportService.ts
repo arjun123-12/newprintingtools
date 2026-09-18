@@ -318,9 +318,15 @@ async function inlineExternalSvgImages(svg: string): Promise<string> {
   }
 
   const parser = new DOMParser();
-  const documentNode = parser.parseFromString(svg, 'image/svg+xml');
+  let documentNode = parser.parseFromString(svg, 'image/svg+xml');
   if (documentNode.querySelector('parsererror')) {
-    throw new Error('Fabric produced invalid SVG for PDF export');
+    const repairedSvg = svg.replace(/&(?!(amp|lt|gt|quot|apos|#\d+|#x[a-f\d]+);)/gi, '&amp;');
+    const retryDoc = parser.parseFromString(repairedSvg, 'image/svg+xml');
+    if (!retryDoc.querySelector('parsererror')) {
+      documentNode = retryDoc;
+    } else {
+      console.warn('XML parse warning in SVG for PDF export:', documentNode.querySelector('parsererror')?.textContent);
+    }
   }
 
   const root = documentNode.documentElement;
