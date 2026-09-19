@@ -1020,7 +1020,7 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                   <button
                     type="button"
                     onClick={handleConvertToLayer}
-                    title="Convert background into a movable, editable layer (Shortcut: Shift+B or Double-click background)"
+                    title="Convert background into a movable, editable layer (Shortcut: Ctrl+Alt+G or Double-click background)"
                     className="w-full py-2 px-3 rounded-lg border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium flex items-center justify-between gap-2 transition"
                   >
                     <span className="flex items-center gap-2">
@@ -1028,7 +1028,7 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                       <span>Detach to Movable Layer</span>
                     </span>
                     <span className="px-1.5 py-0.5 rounded bg-gray-100 text-[10px] font-mono font-semibold text-gray-500">
-                      Shift+B
+                      Ctrl+Alt+G
                     </span>
                   </button>
                 </div>

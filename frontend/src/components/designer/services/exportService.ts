@@ -482,6 +482,127 @@ export async function exportHighResolutionImage(
   void dimensions;
 }
 
+
+/**
+ * Builds a PDF-safe hybrid representation for SVG filter shadows.
+ *
+ * SVG-to-PDFKit does not render every SVG filter primitive (notably Fabric
+ * drop-shadows / Gaussian blur) consistently. To keep the artwork vector,
+ * only the FILTER EFFECT is rasterized at high resolution. The original
+ * text/path/shape is then drawn again as normal PDF vector artwork.
+ */
+async function prepareSvgFiltersForVectorPdf(
+  svg: string,
+  rasterScale: number = 4
+): Promise<{ vectorSvg: string; shadowDataUrl: string | null }> {
+  if (
+    typeof window === 'undefined' ||
+    typeof DOMParser === 'undefined' ||
+    typeof XMLSerializer === 'undefined'
+  ) {
+    return { vectorSvg: svg, shadowDataUrl: null };
+  }
+
+  const parser = new DOMParser();
+  const sourceDoc = parser.parseFromString(svg, 'image/svg+xml');
+  if (sourceDoc.querySelector('parsererror')) {
+    return { vectorSvg: svg, shadowDataUrl: null };
+  }
+
+  const filtered = Array.from(sourceDoc.querySelectorAll('[filter]'));
+  if (filtered.length === 0) {
+    return { vectorSvg: svg, shadowDataUrl: null };
+  }
+
+  // Main PDF layer: keep all artwork vector, but remove unsupported filters.
+  const vectorDoc = sourceDoc.cloneNode(true) as Document;
+  vectorDoc.querySelectorAll('[filter]').forEach((node) => {
+    node.removeAttribute('filter');
+  });
+
+  // Shadow layer: retain only objects that use filters. The source graphic
+  // inside Fabric's feMerge is removed so this bitmap contains the effect,
+  // not a second raster copy of the vector object.
+  const shadowDoc = sourceDoc.cloneNode(true) as Document;
+  const shadowRoot = shadowDoc.documentElement;
+
+  shadowDoc.querySelectorAll('filter').forEach((filter) => {
+    filter.querySelectorAll('feMerge').forEach((merge) => {
+      merge.querySelectorAll('feMergeNode').forEach((node) => {
+        const input = (node.getAttribute('in') || '').toLowerCase();
+        if (input === 'sourcegraphic') {
+          node.remove();
+        }
+      });
+    });
+  });
+
+  // Hide normal drawable nodes that do not participate in a filter. Keep
+  // structural containers, defs, clipPaths and masks intact.
+  const drawableSelector = 'path,rect,circle,ellipse,line,polyline,polygon,text,image,use';
+  shadowDoc.querySelectorAll(drawableSelector).forEach((node) => {
+    const element = node as Element;
+    const ownsFilter = element.hasAttribute('filter');
+    const insideFilteredParent = Boolean(element.parentElement?.closest('[filter]'));
+    const insideDefs = Boolean(element.closest('defs,clipPath,mask,filter,pattern,linearGradient,radialGradient'));
+    if (!ownsFilter && !insideFilteredParent && !insideDefs) {
+      element.setAttribute('visibility', 'hidden');
+    }
+  });
+
+  const serializedShadow = new XMLSerializer().serializeToString(shadowRoot);
+
+  const viewBox = shadowRoot.getAttribute('viewBox')?.trim().split(/\s+/).map(Number);
+  let logicalWidth = viewBox && viewBox.length === 4 ? viewBox[2] : 0;
+  let logicalHeight = viewBox && viewBox.length === 4 ? viewBox[3] : 0;
+
+  if (!logicalWidth || !logicalHeight) {
+    logicalWidth = parseFloat(shadowRoot.getAttribute('width') || '0') || 1;
+    logicalHeight = parseFloat(shadowRoot.getAttribute('height') || '0') || 1;
+  }
+
+  const blob = new Blob([serializedShadow], { type: 'image/svg+xml;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Failed to render SVG shadow layer'));
+      img.src = objectUrl;
+    });
+
+    const scale = Math.max(2, Math.min(8, rasterScale));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.ceil(logicalWidth * scale));
+    canvas.height = Math.max(1, Math.ceil(logicalHeight * scale));
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return {
+        vectorSvg: new XMLSerializer().serializeToString(vectorDoc.documentElement),
+        shadowDataUrl: null,
+      };
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    return {
+      vectorSvg: new XMLSerializer().serializeToString(vectorDoc.documentElement),
+      shadowDataUrl: canvas.toDataURL('image/png'),
+    };
+  } catch (error) {
+    console.warn('Could not create PDF shadow-effect layer; exporting vectors without filter:', error);
+    return {
+      vectorSvg: new XMLSerializer().serializeToString(vectorDoc.documentElement),
+      shadowDataUrl: null,
+    };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 /**
  * Exports one or more SVG pages as a vector PDF.
  *
@@ -542,12 +663,24 @@ export async function exportVectorPdf(
 
       const embeddedSvg = await inlineExternalSvgImages(svg);
 
+      // Preserve the original artwork as vectors while rendering only
+      // unsupported SVG filter effects (Fabric shadows/blur) as a transparent
+      // high-resolution bitmap underneath.
+      const preparedPdfSvg = await prepareSvgFiltersForVectorPdf(embeddedSvg, 4);
+
       pdf.addPage({
         size: [width, height],
         margin: 0,
       });
 
-      SVGtoPDF(pdf, embeddedSvg, 0, 0, {
+      if (preparedPdfSvg.shadowDataUrl) {
+        pdf.image(preparedPdfSvg.shadowDataUrl, 0, 0, {
+          width,
+          height,
+        });
+      }
+
+      SVGtoPDF(pdf, preparedPdfSvg.vectorSvg, 0, 0, {
         width,
         height,
         assumePt: true,

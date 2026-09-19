@@ -12,6 +12,7 @@ export interface PrintSettings {
 }
 
 export interface CanvasDimensions {
+  unit?: UnitType;
   widthPx: number;
   heightPx: number;
   widthMm: number;

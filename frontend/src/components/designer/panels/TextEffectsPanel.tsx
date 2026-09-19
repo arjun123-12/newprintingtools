@@ -35,6 +35,7 @@ const STYLE_EFFECTS = [
   { id: 'outline', label: 'Outline', desc: 'Solid outline', icon: CircleDashed },
   { id: 'hollow', label: 'Hollow', desc: 'Transparent fill', icon: CircleDashed },
   { id: 'neon', label: 'Neon', desc: 'Glowing neon', icon: Zap },
+  { id: 'blur', label: 'Blur', desc: 'Blur effect', icon: SlidersHorizontal },
 ] as const;
 
 type TextEffectId = typeof STYLE_EFFECTS[number]['id'];
@@ -75,6 +76,10 @@ interface NeonSettings {
   color: string;
 }
 
+interface BlurSettings {
+  blur: number;
+}
+
 const DEFAULT_SHADOW_SETTINGS: ShadowSettings = {
   direction: -45,
   offset: 20,
@@ -109,6 +114,10 @@ const DEFAULT_HOLLOW_SETTINGS: HollowSettings = {
 const DEFAULT_NEON_SETTINGS: NeonSettings = {
   intensity: 50,
   color: '#ec4899',
+};
+
+const DEFAULT_BLUR_SETTINGS: BlurSettings = {
+  blur: 25,
 };
 
 const ShadowSlider: React.FC<{
@@ -189,6 +198,9 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
   const [neonSettings, setNeonSettings] = useState<NeonSettings>(
     DEFAULT_NEON_SETTINGS
   );
+  const [blurSettings, setBlurSettings] = useState<BlurSettings>(
+    DEFAULT_BLUR_SETTINGS
+  );
 
   const [adjustments, setAdjustments] = useState({
     brightness: 0,
@@ -223,6 +235,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       if (effectState.allSettings.outline) setOutlineSettings({ ...DEFAULT_OUTLINE_SETTINGS, ...effectState.allSettings.outline });
       if (effectState.allSettings.hollow) setHollowSettings({ ...DEFAULT_HOLLOW_SETTINGS, ...effectState.allSettings.hollow });
       if (effectState.allSettings.neon) setNeonSettings({ ...DEFAULT_NEON_SETTINGS, ...effectState.allSettings.neon });
+      if (effectState.allSettings.blur) setBlurSettings({ ...DEFAULT_BLUR_SETTINGS, ...effectState.allSettings.blur });
     } else if (effectState?.settings) {
       if (currEffect === 'shadow') setShadowSettings({ ...DEFAULT_SHADOW_SETTINGS, ...effectState.settings });
       else if (currEffect === 'lift') setLiftSettings({ ...DEFAULT_LIFT_SETTINGS, ...effectState.settings });
@@ -230,6 +243,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       else if (currEffect === 'outline') setOutlineSettings({ ...DEFAULT_OUTLINE_SETTINGS, ...effectState.settings });
       else if (currEffect === 'hollow') setHollowSettings({ ...DEFAULT_HOLLOW_SETTINGS, ...effectState.settings });
       else if (currEffect === 'neon') setNeonSettings({ ...DEFAULT_NEON_SETTINGS, ...effectState.settings });
+      else if (currEffect === 'blur') setBlurSettings({ ...DEFAULT_BLUR_SETTINGS, ...effectState.settings });
     }
 
     const current = canvasManager.getImageAdjustments();
@@ -260,6 +274,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     else if (effectId === 'outline') settings = outlineSettings;
     else if (effectId === 'hollow') settings = hollowSettings;
     else if (effectId === 'neon') settings = neonSettings;
+    else if (effectId === 'blur') settings = blurSettings;
 
     if (typeof manager.applyEffect === 'function') {
       manager.applyEffect(effectId, settings);
@@ -326,6 +341,15 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     const next = { ...neonSettings, [key]: value };
     setNeonSettings(next);
     (canvasManager as any)?.applyEffect?.('neon', next);
+  };
+
+  const handleBlurSettingChange = <K extends keyof BlurSettings>(
+    key: K,
+    value: BlurSettings[K]
+  ) => {
+    const next = { ...blurSettings, [key]: value };
+    setBlurSettings(next);
+    (canvasManager as any)?.applyEffect?.('blur', next);
   };
 
   const handleCurveChange = (val: number) => {
@@ -927,6 +951,53 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                 className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
               >
                 Remove neon
+              </button>
+            </div>
+          )}
+
+          {activeEffect === 'blur' && (
+            <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-900">Blur settings</span>
+              </div>
+
+              {/* Quick Blur Presets */}
+              <div className="grid grid-cols-4 gap-1">
+                {[
+                  { label: 'Soft', blur: 15 },
+                  { label: 'Medium', blur: 35 },
+                  { label: 'Strong', blur: 65 },
+                  { label: 'Max', blur: 100 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      const next = { blur: preset.blur };
+                      setBlurSettings(next);
+                      (canvasManager as any)?.applyEffect?.('blur', next);
+                    }}
+                    className="rounded-lg border border-purple-200 bg-white px-1 py-1 text-[10px] font-semibold text-purple-700 hover:bg-purple-100 transition text-center"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <ShadowSlider
+                label="Blur Amount"
+                value={blurSettings.blur}
+                min={0}
+                max={100}
+                onChange={(value) => handleBlurSettingChange('blur', value)}
+              />
+
+              <button
+                type="button"
+                onClick={() => handleApplyStyle('none')}
+                className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
+              >
+                Remove blur
               </button>
             </div>
           )}

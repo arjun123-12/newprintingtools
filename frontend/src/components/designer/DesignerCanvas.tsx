@@ -406,13 +406,14 @@ export function DesignerCanvas({
       }
 
       /*
-       * Canva-style Background shortcut: Shift + B or Alt + B
+       * Photoshop-style Background shortcut: Ctrl/Cmd + Alt + G
        * Selected Image -> Set image as canvas background
        * Canvas / Background -> Detach background into editable, movable layer
        */
       if (
-        (event.shiftKey || event.altKey) &&
-        event.key.toLowerCase() === 'b'
+        isCtrlOrCmd &&
+        event.altKey &&
+        event.key.toLowerCase() === 'g'
       ) {
         event.preventDefault();
         const activeObj = canvas.getActiveObject();
@@ -430,6 +431,7 @@ export function DesignerCanvas({
       if (
         isCtrlOrCmd &&
         !event.shiftKey &&
+        !event.altKey &&
         event.key.toLowerCase() === 'g'
       ) {
         event.preventDefault();

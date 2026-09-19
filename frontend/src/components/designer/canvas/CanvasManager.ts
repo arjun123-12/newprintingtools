@@ -42,6 +42,7 @@ import { fabricGradientToDesignerGradient } from '@/utils/colorUtils';
 import { calculateCanvasDimensions } from '../utils/dimensions';
 import { CanvasGuides } from './CanvasGuides';
 import { CanvasSnapping } from './CanvasSnapping';
+import { SmartSpacingManager } from './SmartSpacingManager';
 import { applyCanvaControlsGlobal, applyCanvaControlsToObject } from './CanvaControls';
 import { createFrameClipPath } from './frameHelpers';
 import { CANVA_FRAME_PLACEHOLDER_SVG, FRAME_PRESETS } from '../data/framesData';
@@ -316,6 +317,7 @@ export class CanvasManager {
   private dimensions: CanvasDimensions;
   private guides: CanvasGuides;
   private snapping: CanvasSnapping;
+  private smartSpacingManager: SmartSpacingManager;
   private zoom: number = 1.0;
   private pendingZoom: number | null = null;
   private pendingZoomPivot: { clientX?: number; clientY?: number } | null = null;
@@ -384,6 +386,7 @@ export class CanvasManager {
     this.dimensions = dimensions;
     this.guides = new CanvasGuides(dimensions, initialGuidesSettings);
     this.snapping = new CanvasSnapping(dimensions);
+    this.smartSpacingManager = new SmartSpacingManager(dimensions);
   }
 
   /**
@@ -530,6 +533,7 @@ export class CanvasManager {
     this.ensureUpperCanvasNonDraggable();
     this.guides.attach(canvas);
     this.snapping.attach(canvas);
+    this.smartSpacingManager.attach(canvas);
     this.bindEvents();
     canvas.calcOffset();
     this.syncArtworkBoundaryLines();
@@ -566,6 +570,7 @@ export class CanvasManager {
     this.dimensions = dims;
     this.guides.updateDimensions(dims);
     this.snapping.updateDimensions(dims);
+    this.smartSpacingManager.updateDimensions(dims);
 
     if (this.canvas) {
       const targetWidth = Math.round(dims.widthPx * this.zoom);
@@ -662,6 +667,7 @@ export class CanvasManager {
     this.dimensions = newDims;
     this.guides.updateDimensions(newDims);
     this.snapping.updateDimensions(newDims);
+    this.smartSpacingManager.updateDimensions(newDims);
 
     // Show only the supported artwork, safe-margin and outside-bleed lines.
     this.guides.updateSettings({
@@ -2187,6 +2193,7 @@ export class CanvasManager {
 
     this.guides.updateDimensions(this.dimensions);
     this.snapping.updateDimensions(this.dimensions);
+    this.smartSpacingManager.updateDimensions(this.dimensions);
 
     if (this.canvas) {
       this.canvas.requestRenderAll();
@@ -5839,7 +5846,7 @@ export class CanvasManager {
   }
 
   public applyEffect(
-    effectType: 'none' | 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon',
+    effectType: 'none' | 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon' | 'blur',
     customSettings?: any
   ): void {
     if (!this.canvas) return;
@@ -6007,9 +6014,41 @@ export class CanvasManager {
       (active as any)._activeEffect = 'neon';
       if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
       (active as any)._effectSettings.neon = { ...settings };
+    } else if (effectType === 'blur') {
+      const settings = {
+        blur: customSettings?.blur ?? 25,
+      };
+
+      for (const obj of targets) {
+        this.ensureOriginalStylesSaved(obj);
+        this.resetObjectEffectStyles(obj);
+
+        if (this.isImageObject(obj)) {
+          this.applyImageAdjustment({ blur: settings.blur });
+        } else {
+          obj.set({
+            shadow: new Shadow({
+              color: 'rgba(0, 0, 0, 0.4)',
+              blur: Math.round((settings.blur / 100) * 40),
+              offsetX: 0,
+              offsetY: 0,
+            }),
+          });
+        }
+        (obj as any)._activeEffect = 'blur';
+        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
+        (obj as any)._effectSettings.blur = { ...settings };
+        (obj as any).dirty = true;
+      }
+      (active as any)._activeEffect = 'blur';
+      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
+      (active as any)._effectSettings.blur = { ...settings };
     } else {
       // none
       for (const obj of targets) {
+        if (this.isImageObject(obj)) {
+          this.applyImageAdjustment({ blur: 0 });
+        }
         this.resetObjectEffectStyles(obj);
         (obj as any)._activeEffect = 'none';
         delete (obj as any)._shadowSettings;
@@ -6041,7 +6080,7 @@ export class CanvasManager {
   }
 
   public applyTextEffect(
-    effectType: 'none' | 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon',
+    effectType: 'none' | 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon' | 'blur',
     settings?: any
   ): void {
     this.applyEffect(effectType, settings);
@@ -6067,6 +6106,7 @@ export class CanvasManager {
       outline: { thickness: 2, color: '#000000' },
       hollow: { thickness: 2, color: '#000000' },
       neon: { intensity: 50, color: '#ec4899' },
+      blur: { blur: 25 },
     };
 
     if (!this.canvas) return { effect: 'none', settings: defaultSettings.shadow, allSettings: defaultSettings };
@@ -7480,6 +7520,7 @@ export class CanvasManager {
       if (opt.ctx) {
         this.guides.renderGuides(opt.ctx, this.zoom);
         this.snapping.renderGuides(opt.ctx, this.zoom);
+        this.smartSpacingManager.renderMeasurements(opt.ctx, this.zoom);
       }
     });
 
@@ -7583,6 +7624,7 @@ export class CanvasManager {
         }
       }
       this.snapping.clearGuides();
+      this.smartSpacingManager.clear();
 
       if (this.currentHoverFitTarget) {
         const active = this.canvas?.getActiveObject() || opt?.target;
@@ -7643,6 +7685,7 @@ export class CanvasManager {
     this.canvas.on('selection:cleared', () => {
       this.clearHoverFitHighlight();
       this.snapping.clearGuides();
+      this.smartSpacingManager.clear();
       this.canvas?.forEachObject((obj) => {
         if (this.isTextObject(obj) && (obj as any).isEditing) {
           (obj as any).exitEditing?.();
@@ -7706,6 +7749,7 @@ export class CanvasManager {
 
     this.canvas.on('object:modified', async (opt: any) => {
       this.snapping.clearGuides();
+      this.smartSpacingManager.clear();
       if (opt?.target) {
         // Keep the resize snapshot until normalizeFrameTransform() has consumed
         // it. Deleting it here caused the final crop/size to be rebuilt from
@@ -7754,6 +7798,7 @@ export class CanvasManager {
     this.canvas.on('object:moving', (opt) => {
       if (opt.target) {
         this.snapping.handleObjectMove(opt.target);
+        this.smartSpacingManager.handleObjectMove(opt.target);
         this.handleShapeImageHover(opt.target);
       }
     });
@@ -7824,10 +7869,19 @@ export class CanvasManager {
 
   public setSmartGuidesEnabled(enabled: boolean): void {
     this.snapping.setEnabled(enabled);
+    this.smartSpacingManager.setEnabled(enabled);
   }
 
   public getSmartGuidesEnabled(): boolean {
     return this.snapping.getEnabled();
+  }
+
+  public setSmartSpacingEnabled(enabled: boolean): void {
+    this.smartSpacingManager.setEnabled(enabled);
+  }
+
+  public getSmartSpacingEnabled(): boolean {
+    return this.smartSpacingManager.getEnabled();
   }
 
   public async addSvgFromUrl(
@@ -8344,6 +8398,7 @@ export class CanvasManager {
     }
     this.guides.detach();
     this.snapping.detach();
+    this.smartSpacingManager.detach();
     this.selectionListeners.clear();
     this.zoomListeners.clear();
     this.changeListeners.clear();

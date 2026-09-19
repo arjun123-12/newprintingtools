@@ -176,7 +176,7 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
             <span>Set image as background</span>
           </span>
           <span className="px-2 py-0.5 rounded-md bg-gray-100/90 text-[10px] font-mono text-gray-600 font-semibold">
-            Shift+B
+            Ctrl+Alt+G
           </span>
         </button>
       )}

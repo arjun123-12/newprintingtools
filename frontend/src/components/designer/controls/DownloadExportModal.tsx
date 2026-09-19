@@ -81,7 +81,7 @@ const inlineSvgRasterImages = async (
           if (el instanceof HTMLCanvasElement) {
             try {
               extractedDataUrl = el.toDataURL('image/png');
-            } catch {}
+            } catch { }
           } else if (el instanceof HTMLImageElement && el.complete && el.naturalWidth > 0) {
             try {
               const tempCanvas = document.createElement('canvas');
@@ -92,7 +92,7 @@ const inlineSvgRasterImages = async (
                 ctx.drawImage(el, 0, 0);
                 extractedDataUrl = tempCanvas.toDataURL('image/png');
               }
-            } catch {}
+            } catch { }
           }
         }
 
@@ -101,7 +101,7 @@ const inlineSvgRasterImages = async (
           try {
             const d = imgObj.toDataURL({ format: 'png' });
             if (d && d.startsWith('data:image/')) extractedDataUrl = d;
-          } catch {}
+          } catch { }
         }
 
         // Associate all known identifiers of this image with the extracted data URL
@@ -130,7 +130,7 @@ const inlineSvgRasterImages = async (
             try {
               canvasImageMap.set(decodeURIComponent(key), extractedDataUrl);
               canvasImageMap.set(encodeURIComponent(key), extractedDataUrl);
-            } catch {}
+            } catch { }
           }
         }
       };
@@ -163,7 +163,7 @@ const inlineSvgRasterImages = async (
         } else if (typeof obj.getObjects === 'function') {
           try {
             obj.getObjects().forEach(inspectCanvasObject);
-          } catch {}
+          } catch { }
         }
       };
 
@@ -211,12 +211,12 @@ const inlineSvgRasterImages = async (
         if (!safeDataUrl) {
           try {
             safeDataUrl = canvasImageMap.get(decodeURIComponent(rawHref)) || null;
-          } catch {}
+          } catch { }
         }
         if (!safeDataUrl) {
           try {
             safeDataUrl = canvasImageMap.get(encodeURIComponent(rawHref)) || null;
-          } catch {}
+          } catch { }
         }
       }
 
@@ -225,13 +225,13 @@ const inlineSvgRasterImages = async (
         let decodedRaw = rawHref;
         try {
           decodedRaw = decodeURIComponent(rawHref);
-        } catch {}
+        } catch { }
 
         for (const [key, val] of canvasImageMap.entries()) {
           let decodedKey = key;
           try {
             decodedKey = decodeURIComponent(key);
-          } catch {}
+          } catch { }
 
           if (
             decodedRaw === decodedKey ||
@@ -437,6 +437,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
   const [backgroundColor, setBackgroundColor] = useState<string>('#ffffff');
   const [transparentBackground, setTransparentBackground] = useState<boolean>(false);
   const [includeTrimMarks, setIncludeTrimMarks] = useState<boolean>(true);
+  const [bleedMm, setBleedMm] = useState<number>(3);
   const [includeNormal, setIncludeNormal] = useState<boolean>(false);
   const [includeEnhanced, setIncludeEnhanced] = useState<boolean>(true);
 
@@ -512,7 +513,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
   // Calculate estimated output dimensions and file size
   const calculatedSpecs = useMemo(() => {
-    const trimMarginMm = includeTrimMarks ? 6 : 0;
+    const trimMarginMm = includeTrimMarks ? bleedMm + 3 : 0;
     const mmW = (dimensions.widthMm || 90) + trimMarginMm * 2;
     const mmH = (dimensions.heightMm || 50) + trimMarginMm * 2;
 
@@ -549,7 +550,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
       isUltraLarge:
         format !== 'svg' && (targetDpi >= 600 || totalPixels > 30000000),
     };
-  }, [dimensions, targetDpi, format, jpegQuality, includeTrimMarks]);
+  }, [dimensions, targetDpi, format, jpegQuality, includeTrimMarks, bleedMm]);
 
   // Handle Export Execution
   const handleStartExport = useCallback(async () => {
@@ -674,7 +675,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
           // FIX: If includeTrimMarks is enabled for SVG/PDF, expand viewBox and draw 8 precision corner crop marks!
           if (includeTrimMarks) {
-            const marginMm = 6;
+            const marginMm = bleedMm + 3;
             const pxPerMm = canvasWidth / physicalWidthMm;
             const marginPx = Math.round(marginMm * pxPerMm);
             totalW = canvasWidth + marginPx * 2;
@@ -885,7 +886,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             tempCanvas,
             dimensions,
             targetDpi,
-            6,
+            bleedMm + 3,
             transparentBackground ? 'transparent' : '#ffffff'
           );
           renderedDataUrl = withMarksCanvas.toDataURL(
@@ -918,7 +919,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             throw new Error('Artwork could not be rendered for PDF export.');
           }
 
-          const marginMm = includeTrimMarks ? 6 : 0;
+          const marginMm = includeTrimMarks ? bleedMm + 3 : 0;
           const pdfWidthMm = Math.max((dimensions.widthMm || 90) + marginMm * 2, 1);
           const pdfHeightMm = Math.max((dimensions.heightMm || 50) + marginMm * 2, 1);
           const orientation: 'portrait' | 'landscape' =
@@ -992,8 +993,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
         quality: jpegQuality,
         background_color: effBgColor,
         dimensions: {
-          width_mm: (dimensions.widthMm || 90) + (includeTrimMarks ? 12 : 0),
-          height_mm: (dimensions.heightMm || 50) + (includeTrimMarks ? 12 : 0),
+          width_mm: (dimensions.widthMm || 90) + (includeTrimMarks ? (bleedMm + 3) * 2 : 0),
+          height_mm: (dimensions.heightMm || 50) + (includeTrimMarks ? (bleedMm + 3) * 2 : 0),
           width_px: calculatedSpecs.pxW,
           height_px: calculatedSpecs.pxH,
         },
@@ -1061,6 +1062,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
     includeEnhanced,
     jpegQuality,
     backgroundColor,
+    bleedMm,
   ]);
 
   if (!isOpen) return null;
@@ -1285,8 +1287,30 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-gray-600 mt-1 leading-relaxed">
-                  Adds standard 3mm bleed and precision corner trim marks for professional printing & cutting across {format.toUpperCase()} and all formats.
+                  Adds your selected bleed and precision corner trim marks for professional printing & cutting across {format.toUpperCase()} and all formats.
                 </p>
+                {includeTrimMarks && (
+                  <div className="mt-3 p-3 rounded-xl bg-white/80 border border-purple-200 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="export-bleed-mm" className="text-xs font-bold text-gray-800">Bleed</label>
+                      <div className="flex items-center gap-1.5">
+                        <input id="export-bleed-mm" type="number" min="0" max="25" step="0.5" value={bleedMm}
+                          onChange={(e) => {
+                            const value = Number(e.target.value);
+                            setBleedMm(Number.isFinite(value) ? Math.max(0, Math.min(25, value)) : 3);
+                          }}
+                          className="w-20 px-2 py-1.5 text-xs font-mono text-right border border-purple-200 rounded-lg bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none" />
+                        <span className="text-xs font-semibold text-gray-600">mm</span>
+                      </div>
+                    </div>
+                    <input type="range" min="0" max="10" step="0.5" value={Math.min(10, bleedMm)}
+                      onChange={(e) => setBleedMm(Number(e.target.value))}
+                      className="w-full h-1.5 bg-purple-100 rounded-lg appearance-none cursor-pointer accent-purple-600" />
+                    <div className="flex justify-between text-[10px] text-gray-500">
+                      <span>0 mm</span><span>Default: 3 mm</span><span>10 mm</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </label>
           </div>
@@ -1339,8 +1363,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                 {format === 'svg'
                   ? (includeTrimMarks ? 'Vector SVG with trim marks' : 'Resolution-independent vector SVG')
                   : format === 'pdf'
-                  ? (includeTrimMarks ? 'Vector PDF with trim marks' : 'Resolution-independent vector PDF')
-                  : `${calculatedSpecs.pxW} × ${calculatedSpecs.pxH} px`}
+                    ? (includeTrimMarks ? 'Vector PDF with trim marks' : 'Resolution-independent vector PDF')
+                    : `${calculatedSpecs.pxW} × ${calculatedSpecs.pxH} px`}
               </span>{' '}
               ({calculatedSpecs.mmW} × {calculatedSpecs.mmH} mm)
             </div>
@@ -1410,8 +1434,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                   {format === 'svg'
                     ? `Download True Vector SVG${includeTrimMarks ? ' (With Trim Marks)' : ''}`
                     : format === 'pdf'
-                    ? `Download True Vector PDF${includeTrimMarks ? ' (With Trim Marks)' : ''}`
-                    : `Download ${format.toUpperCase()} (${targetDpi} DPI)${includeTrimMarks ? ' + Trim Marks' : ''}`}
+                      ? `Download True Vector PDF${includeTrimMarks ? ' (With Trim Marks)' : ''}`
+                      : `Download ${format.toUpperCase()} (${targetDpi} DPI)${includeTrimMarks ? ' + Trim Marks' : ''}`}
                 </span>
               </>
             )}
