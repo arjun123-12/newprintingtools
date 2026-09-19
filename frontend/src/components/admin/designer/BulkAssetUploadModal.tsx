@@ -38,7 +38,7 @@ interface QueuedItem {
 }
 
 const SUPPORTED_EXTENSIONS: Record<AssetType, string[]> = {
-  frame: ['svg', 'png', 'jpg', 'jpeg', 'webp'],
+  frame: ['svg'],
   photo: ['jpg', 'jpeg', 'jfif', 'png', 'webp', 'avif', 'gif', 'tif', 'tiff'],
   element: [
     'svg',
@@ -109,7 +109,7 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
   const [overallProgress, setOverallProgress] = useState(0);
 
   // Frame specific batch defaults
-  const [frameMaskType, setFrameMaskType] = useState<string>('rounded_rectangle');
+  const [frameMaskType, setFrameMaskType] = useState<string>('svg_mask');
   const [framePhotoFit, setFramePhotoFit] = useState<'cover' | 'contain'>('cover');
 
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -284,23 +284,30 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
           payload.thumbnail = item.thumbnailFile;
         }
 
-        if (assetType === 'frame' || assetType === 'shape') {
-          if (item.maskFile) {
-            payload.mask_file = item.maskFile;
-          }
-
+        if (assetType === 'frame') {
+          // Bulk frames use exactly the same one-SVG contract as the working
+          // single-frame upload. The backend stores the uploaded SVG in file_url;
+          // FramesPanel/CanvasManager can use that root file_url as the mask source.
           payload.metadata = {
-            shape: frameMaskType === 'circle' ? 'circle' : 'rect',
+            isFrame: true,
+            isShape: true,
+            isPhotoShape: true,
+            isCanvaPlaceholder: true,
+            allowPhotoDrop: true,
+            frameShape: 'custom-svg',
+            shapeType: 'custom-svg',
+            clipType: 'svg',
+            maskType: 'svg_mask',
+            photoFit: framePhotoFit,
             frame: {
               version: 1,
               type: 'photo-frame',
-              maskType: item.maskFile ? 'svg_mask' : frameMaskType,
-              width: 500,
-              height: 500,
-              unit: 'px',
-              cornerRadius: 24,
-              circleRadius: 250,
+              frameShape: 'custom-svg',
+              shapeType: 'custom-svg',
+              clipType: 'svg',
+              maskType: 'svg_mask',
               photoFit: framePhotoFit,
+              allowPhotoDrop: true,
               allowPhotoMove: true,
               allowPhotoZoom: true,
               allowPhotoRotate: true,
@@ -310,12 +317,37 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
           };
 
           payload.fabric_json = {
+            version: 1,
             type: 'photo-frame',
-            maskType: item.maskFile ? 'svg_mask' : frameMaskType,
-            width: 500,
-            height: 500,
-            unit: 'px',
+            isFrame: true,
+            isShape: true,
+            isCanvaPlaceholder: true,
+            allowPhotoDrop: true,
+            sourceType: 'frame',
+            frameShape: 'custom-svg',
+            shapeType: 'custom-svg',
+            clipType: 'svg',
+            maskType: 'svg_mask',
             photoFit: framePhotoFit,
+          };
+        } else if (assetType === 'shape') {
+          // Shapes stay normal artwork and must never become photo-drop frames.
+          payload.metadata = {
+            isShape: true,
+            isFrame: false,
+            isCanvaPlaceholder: false,
+            allowPhotoDrop: false,
+            shapeType: 'custom-svg',
+            sourceType: 'shape',
+          };
+
+          payload.fabric_json = {
+            isShape: true,
+            isFrame: false,
+            isCanvaPlaceholder: false,
+            allowPhotoDrop: false,
+            sourceType: 'shape',
+            shapeType: 'custom-svg',
           };
         } else if (assetType === 'element') {
           payload.metadata = {

@@ -427,10 +427,11 @@ export class CanvasManager {
 
     // Red dashed bleed line: outside the artwork by the configured bleed.
     const showBleed = this.guides.getSettings().showBleed !== false;
-    wrapper.style.outline = showBleed && bleedMm > 0
-      ? '1px dashed #ef4444'
+    const bleedColor = this.guides.getSettings().bleedColor || '#ef4444';
+    wrapper.style.outline = showBleed
+      ? `2px dashed ${bleedColor}`
       : 'none';
-    wrapper.style.outlineOffset = `${Math.max(0, bleedScreenPx - 1)}px`;
+    wrapper.style.outlineOffset = `${Math.max(0, bleedScreenPx > 0 ? bleedScreenPx - 1 : 0)}px`;
     wrapper.style.overflow = 'visible';
   }
 
@@ -2624,8 +2625,12 @@ export class CanvasManager {
     ]);
     const photo = await FabricImage.fromURL(safePhotoUrl, { crossOrigin: 'anonymous' });
 
-    const naturalWidth = metadata.naturalWidth || photo.width || frameWidth;
-    const naturalHeight = metadata.naturalHeight || photo.height || frameHeight;
+    // IMPORTANT: cover/crop math must use the bitmap Fabric actually loaded.
+    // Freepik metadata can contain dimensions for the original/full rendition
+    // while `photo` may be a different downloaded/used rendition. Mixing those
+    // coordinate spaces makes the photo appear tiny or only partly fill the frame.
+    const naturalWidth = Math.max(Number(photo.width) || Number(metadata.naturalWidth) || frameWidth, 1);
+    const naturalHeight = Math.max(Number(photo.height) || Number(metadata.naturalHeight) || frameHeight, 1);
     const photoFit = metadata.photoFit === 'contain' ? 'contain' : 'cover';
     const minimumCoverScale = Math.max(
       frameWidth / naturalWidth,
@@ -2719,7 +2724,25 @@ export class CanvasManager {
     });
     overlay.set('frameRole' as any, 'overlay');
 
-    const group = new Group([photo, overlay], {
+    /*
+     * Shape-style admin frames can use ONE SVG for both the visible geometry
+     * and the clipping mask. In that case the SVG must NOT also be rendered
+     * above the photo as an overlay: a solid SVG overlay would cover the
+     * successfully-filled photo and make the frame look blank.
+     *
+     * Two-file decorative frames still keep their real overlay.
+     */
+    const normalizeFrameSource = (value: string) =>
+      String(value || '').trim().replace(/^https?:\/\/[^/]+/i, '');
+
+    const usesSameSvgForMaskAndOverlay =
+      normalizeFrameSource(overlayUrl) === normalizeFrameSource(maskUrl);
+
+    const frameChildren: FabricObject[] = usesSameSvgForMaskAndOverlay
+      ? [photo]
+      : [photo, overlay];
+
+    const group = new Group(frameChildren, {
       originX: 'center',
       originY: 'center',
       centeredScaling: false,
@@ -2740,8 +2763,11 @@ export class CanvasManager {
     const frameName = metadata.name || 'Custom Photo Frame';
     this.ensureObjectId(group, frameName);
     group.set('isFrame' as any, true);
+    // A frame is shape-based geometry, but unlike a normal Shape it is an
+    // explicit photo container.
     group.set('isShape' as any, true);
     group.set('isCustomFrame' as any, true);
+    group.set('allowPhotoDrop' as any, true);
     group.set('frameShape' as any, metadata.shape || 'custom-svg');
     group.set('shapeType' as any, metadata.shape || 'custom-svg');
     group.set('sourceType' as any, 'frame');
@@ -2755,9 +2781,13 @@ export class CanvasManager {
     group.set('fileSizeBytes' as any, metadata.fileSizeBytes || 0);
     group.set('frameOverlayUrl' as any, overlayUrl);
     group.set('frameMaskUrl' as any, maskUrl);
+    group.set('frameUsesSingleSvg' as any, usesSameSvgForMaskAndOverlay);
     group.set('frameMaskType' as any, metadata.maskType || 'svg_mask');
     group.set('frameWidth' as any, frameWidth);
     group.set('frameHeight' as any, frameHeight);
+    group.set('photoFit' as any, photoFit);
+    group.set('sourceWidth' as any, naturalWidth);
+    group.set('sourceHeight' as any, naturalHeight);
 
     return group;
   }
@@ -2876,6 +2906,7 @@ export class CanvasManager {
         frameGroup.set('isFrame' as any, true);
         frameGroup.set('isShape' as any, true);
         frameGroup.set('isPhotoShapeGroup' as any, true);
+        frameGroup.set('allowPhotoDrop' as any, true);
         frameGroup.set('frameShape' as any, shapeType);
         frameGroup.set('shapeType' as any, shapeType);
         frameGroup.set('sourceType' as any, 'shape');
@@ -3615,7 +3646,42 @@ export class CanvasManager {
     }
 
     photo.setCoords();
-    frameObj.set('dirty' as any, true);
+
+    // Live resize: Fabric group/clip caches otherwise make the frame appear to
+    // catch up a moment after the pointer. Keep the whole frame tree uncached
+    // during the active transform and paint it in the same pointer frame.
+    frameObj.set({
+      objectCaching: false,
+      noScaleCache: false,
+      dirty: true,
+    } as any);
+
+    if (frameObj instanceof Group) {
+      frameObj.getObjects().forEach((child: FabricObject) => {
+        child.set({
+          objectCaching: false,
+          noScaleCache: false,
+          dirty: true,
+        } as any);
+
+        const childClip = child.clipPath as FabricObject | undefined;
+        if (childClip) {
+          childClip.set({
+            objectCaching: false,
+            noScaleCache: false,
+            dirty: true,
+          } as any);
+          childClip.setCoords();
+        }
+      });
+    }
+
+    frameObj.setCoords();
+
+    // requestRenderAll() schedules a later RAF. During pointer scaling we want
+    // the new frame size visible immediately.
+    this.canvas?.cancelRequestedRender();
+    this.canvas?.renderAll();
   }
 
   /**
@@ -3786,22 +3852,32 @@ export class CanvasManager {
   public isImageObject(obj?: FabricObject | null): boolean {
     if (!obj) return false;
     if (obj.get('isGuide' as any) || (obj as any).excludeFromExport) return false;
-    if (obj.type === 'i-text' || obj.type === 'textbox' || obj.type === 'text') return false;
 
-    // Placeholder frames are shape containers waiting for photos
-    if (obj.get('isCanvaPlaceholder' as any)) return false;
+    const type = String(obj.type || '').toLowerCase();
+    const sourceType = String(obj.get('sourceType' as any) || '').toLowerCase();
 
-    const type = (obj.type || '').toLowerCase();
-    if (type === 'image' || obj instanceof FabricImage || obj.get('isImage' as any)) {
-      return true;
+    // HARD RULE: Frames accept only actual raster/photo FabricImage objects.
+    // SVG shapes/elements/groups/text/other frames are never valid frame content.
+    if (
+      this.isPhotoDropFrame(obj) ||
+      Boolean(obj.get('isShape' as any)) ||
+      sourceType === 'shape' ||
+      sourceType === 'element' ||
+      sourceType === 'frame' ||
+      type === 'group' ||
+      type === 'path' ||
+      type === 'rect' ||
+      type === 'circle' ||
+      type === 'triangle' ||
+      type === 'polygon' ||
+      type === 'i-text' ||
+      type === 'textbox' ||
+      type === 'text'
+    ) {
+      return false;
     }
 
-    const src = obj.get('originalSrc' as any) || (obj as any).getSrc?.() || (obj as any)._element?.src;
-    if (src && typeof src === 'string' && src.length > 0 && !obj.get('isFrame' as any)) {
-      return true;
-    }
-
-    return false;
+    return type === 'image' || obj instanceof FabricImage;
   }
 
   /**
@@ -3851,15 +3927,35 @@ export class CanvasManager {
   }
 
   /**
-   * Finds an overlapping candidate target (Image for a moving Shape, or Shape for a moving Image).
+   * Returns true only for real photo frames.
+   *
+   * IMPORTANT:
+   * Normal Shapes/Elements must NEVER absorb an image on hover/drop.
+   * The photo-fit interaction belongs only to FramesPanel-created frames.
+   */
+  private isPhotoDropFrame(obj?: FabricObject | null): boolean {
+    if (!obj) return false;
+    if (obj.get('isGuide' as any) || (obj as any).excludeFromExport) return false;
+
+    // Only real FramesPanel/admin frames can receive photos.
+    // Normal Shapes have isFrame=false and are therefore excluded.
+    const isFrame = Boolean(obj.get('isFrame' as any));
+    const allowPhotoDrop = obj.get('allowPhotoDrop' as any);
+
+    return isFrame && allowPhotoDrop !== false;
+  }
+
+  /**
+   * Finds an overlapping candidate only for FRAME <-> IMAGE fitting.
+   * Generic shapes/elements are intentionally excluded.
    */
   public findOverlappingTarget(movingObj: FabricObject): FabricObject | null {
     if (!this.canvas || !movingObj) return null;
 
-    const isMovingShape = this.isShapeObject(movingObj);
+    const isMovingFrame = this.isPhotoDropFrame(movingObj);
     const isMovingImage = this.isImageObject(movingObj);
 
-    if (!isMovingShape && !isMovingImage) return null;
+    if (!isMovingFrame && !isMovingImage) return null;
 
     const objects = this.canvas.getObjects().slice().reverse();
     const movingCenter = movingObj.getCenterPoint();
@@ -3869,8 +3965,10 @@ export class CanvasManager {
       if (other === movingObj) continue;
       if (other.visible === false || (other as any).excludeFromExport || other.get('isGuide' as any)) continue;
 
-      // Moving Shape searches for Images, Moving Image searches for Shapes
-      const otherIsTarget = isMovingShape ? this.isImageObject(other) : this.isShapeObject(other);
+      // Only Frames can receive photos. Normal shapes/elements are ignored.
+      const otherIsTarget = isMovingFrame
+        ? this.isImageObject(other)
+        : this.isPhotoDropFrame(other);
       if (!otherIsTarget) continue;
 
       const otherCenter = other.getCenterPoint();
@@ -3924,7 +4022,7 @@ export class CanvasManager {
   }
 
   /**
-   * Handles visual hover feedback when a shape is dragged over an image, or vice versa.
+   * Handles visual hover feedback only when a real photo frame is dragged over an image, or vice versa.
    */
   public handleShapeImageHover(movingObj: FabricObject): void {
     if (!this.canvas || this.isProcessingShapeFit) return;
@@ -3976,7 +4074,7 @@ export class CanvasManager {
   }
 
   /**
-   * Automatically fits an image into a shape when released on drop.
+   * Automatically fits an image only into a real photo frame when released on drop.
    */
   public async handleShapeImageDrop(movingObj: FabricObject): Promise<boolean> {
     if (this.isProcessingShapeFit || !this.canvas || !movingObj) {
@@ -3991,17 +4089,17 @@ export class CanvasManager {
 
     this.isProcessingShapeFit = true;
     try {
-      const isMovingShape = this.isShapeObject(movingObj);
+      const isMovingFrame = this.isPhotoDropFrame(movingObj);
       const isMovingImage = this.isImageObject(movingObj);
-      const isTargetShape = this.isShapeObject(target);
+      const isTargetFrame = this.isPhotoDropFrame(target);
       const isTargetImage = this.isImageObject(target);
 
-      if (isMovingShape && isTargetImage) {
-        // User dragged the shape over the image!
+      if (isMovingFrame && isTargetImage) {
+        // A real frame dragged over an image.
         await this.fitImageIntoShape(movingObj, target);
         return true;
-      } else if (isMovingImage && isTargetShape) {
-        // User dragged the image over the shape!
+      } else if (isMovingImage && isTargetFrame) {
+        // An image dropped over a real frame.
         await this.fitImageIntoShape(target, movingObj);
         return true;
       }
@@ -4025,6 +4123,12 @@ export class CanvasManager {
   ): Promise<FabricImage | null> {
     if (!this.canvas || !shapeObj) return null;
 
+    // A frame can contain ONLY an image. Never slot shapes/elements/text/groups.
+    if (!this.isPhotoDropFrame(shapeObj)) return null;
+    if (typeof imageObjOrUrl !== 'string' && !this.isImageObject(imageObjOrUrl)) {
+      return null;
+    }
+
     let imageUrl: string = '';
     let imageMetadata: ImageMetadata | undefined = metadata;
     let imageObjToRemove: FabricObject | null = null;
@@ -4033,11 +4137,15 @@ export class CanvasManager {
       imageUrl = imageObjOrUrl;
     } else if (imageObjOrUrl && typeof imageObjOrUrl === 'object') {
       imageObjToRemove = imageObjOrUrl;
+      // Prefer the source that Fabric has ALREADY loaded successfully.
+      // Freepik originalSrc can be a remote CDN URL that causes proxy-image
+      // to be called again (and can fail with 500). getSrc/currentSrc is the
+      // browser-safe/local source currently visible on the canvas.
       imageUrl =
-        imageObjOrUrl.get('originalSrc' as any) ||
         (imageObjOrUrl as any).getSrc?.() ||
         (imageObjOrUrl as any)._element?.currentSrc ||
         (imageObjOrUrl as any)._element?.src ||
+        imageObjOrUrl.get('originalSrc' as any) ||
         '';
       imageMetadata = {
         naturalWidth: Number(imageObjOrUrl.get('naturalWidth' as any)) || (imageObjOrUrl as any).width || undefined,
@@ -4074,7 +4182,7 @@ export class CanvasManager {
 
     const objects = this.canvas.getObjects().slice().reverse();
     for (const obj of objects) {
-      if ((obj.get('isFrame' as any) || this.isShapeObject(obj)) && obj.visible !== false) {
+      if (this.isPhotoDropFrame(obj) && obj.visible !== false) {
         if (obj.containsPoint(new Point(point.x, point.y))) {
           return obj;
         }
@@ -4107,7 +4215,7 @@ export class CanvasManager {
       const activeObj = this.canvas.getActiveObject();
       let targetFrame: FabricObject | null | undefined = null;
 
-      if (activeObj && (activeObj.get('isFrame' as any) || this.isShapeObject(activeObj))) {
+      if (activeObj && this.isPhotoDropFrame(activeObj)) {
         targetFrame = activeObj;
       } else {
         const objects = this.canvas.getObjects();
@@ -4118,10 +4226,7 @@ export class CanvasManager {
         );
       }
 
-      if (
-        targetFrame &&
-        (targetFrame.get('isFrame' as any) || this.isShapeObject(targetFrame))
-      ) {
+      if (targetFrame && this.isPhotoDropFrame(targetFrame)) {
         return this.fitImageIntoShape(targetFrame, url, metadata);
       }
     }
@@ -7556,8 +7661,9 @@ export class CanvasManager {
     this.canvas.on('object:modified', async (opt: any) => {
       this.snapping.clearGuides();
       if (opt?.target) {
-        this.frameResizeSnapshots.delete(opt.target);
-
+        // Keep the resize snapshot until normalizeFrameTransform() has consumed
+        // it. Deleting it here caused the final crop/size to be rebuilt from
+        // stale geometry after the drag ended.
         if (this.isTextObject(opt.target)) {
           const textObj = opt.target as Textbox | IText;
           const sX = Math.abs(textObj.scaleX || 1);
@@ -7620,9 +7726,12 @@ export class CanvasManager {
       const activeCorner =
         opt?.transform?.corner ||
         (target as any).__corner;
-      this.rememberFrameResizeState(target, activeCorner);
-      this.previewFrameCropDuringScale(target);
-      this.keepFrameResizeAnchor(target);
+
+      if (this.isPhotoDropFrame(target)) {
+        this.rememberFrameResizeState(target, activeCorner);
+        this.previewFrameCropDuringScale(target);
+        this.keepFrameResizeAnchor(target);
+      }
 
       /*
        * IMPORTANT:
@@ -7636,7 +7745,10 @@ export class CanvasManager {
         centeredScaling: false,
       });
       target.setCoords();
-      this.canvas?.requestRenderAll();
+
+      if (!this.isPhotoDropFrame(target)) {
+        this.canvas?.requestRenderAll();
+      }
     });
     this.canvas.on('object:rotating', () => {
     });
@@ -7974,17 +8086,21 @@ export class CanvasManager {
     if (!this.canvas) return;
 
     const overlayUrl = metadata.overlayUrl || url;
-    const maskUrl = metadata.maskUrl;
 
-    if (!maskUrl || (metadata.maskType && metadata.maskType !== 'svg_mask')) {
-      console.warn('This frame has no usable custom SVG mask. Adding its overlay as artwork only.');
-      const overlay = await this.addImageFromUrl(
-        overlayUrl,
-        { ...metadata, name: metadata.name || 'Frame Overlay' },
-        { skipFrameSlotting: true } as any
-      );
-      overlay?.set('sourceType' as any, 'frame-overlay');
-      this.canvas.requestRenderAll();
+    /*
+     * Admin frame = shape-style SVG photo container.
+     *
+     * A separate mask SVG is optional. When the form stores only one uploaded
+     * SVG (the common Shapes-style workflow), use that exact SVG as BOTH the
+     * visible frame geometry and its clipping mask. Previously a missing
+     * maskUrl made this method add a plain image overlay, so isFrame was never
+     * created and hover/drop could never work.
+     */
+    const maskUrl = metadata.maskUrl || overlayUrl;
+    const maskType = metadata.maskType || 'svg_mask';
+
+    if (!overlayUrl || maskType !== 'svg_mask') {
+      console.warn('This frame has no usable SVG source/mask.');
       return;
     }
 
@@ -8008,7 +8124,7 @@ export class CanvasManager {
           ...metadata,
           overlayUrl,
           maskUrl,
-          maskType: metadata.maskType || 'svg_mask',
+          maskType,
           photoFit: metadata.photoFit || 'cover',
           originalSrc: CANVA_FRAME_PLACEHOLDER_SVG,
         },

@@ -167,7 +167,7 @@ interface ShapeConfig {
 }
 
 const DEFAULT_FRAME_CONFIG: FrameConfig = {
-  maskType: 'rectangle',
+  maskType: 'svg_mask',
 
   width: 500,
   height: 500,
@@ -197,7 +197,7 @@ const DEFAULT_SHAPE_CONFIG: ShapeConfig = {
   stroke: 'transparent',
   strokeWidth: 0,
   recolourable: true,
-  allowPhotoDrop: true,
+  allowPhotoDrop: false,
   preserveAspectRatio: true,
 };
 
@@ -462,8 +462,8 @@ export function DesignAssetForm({
             Number(savedShape.strokeWidth) || 0,
           recolourable:
             savedShape.recolourable !== false,
-          allowPhotoDrop:
-            savedShape.allowPhotoDrop !== false,
+          // Photo drop belongs only to Frames.
+          allowPhotoDrop: false,
           preserveAspectRatio:
             savedShape.preserveAspectRatio !== false,
         });
@@ -775,22 +775,6 @@ export function DesignAssetForm({
       return;
     }
 
-    const usesUploadedMask =
-      formData.asset_type === 'frame' &&
-      (frameConfig.maskType === 'svg_mask' ||
-        frameConfig.maskType === 'alpha_mask');
-    const hasSavedOrSelectedMask = Boolean(
-      maskFile || currentMaskUrl
-    );
-
-    if (usesUploadedMask && !hasSavedOrSelectedMask) {
-      setError(
-        frameConfig.maskType === 'svg_mask'
-          ? 'Please upload an SVG mask file before saving this frame.'
-          : 'Please upload a transparent PNG or WebP alpha mask before saving this frame.'
-      );
-      return;
-    }
 
     setLoading(true);
 
@@ -892,25 +876,29 @@ export function DesignAssetForm({
           stroke: shapeConfig.stroke,
           strokeWidth: Number(shapeConfig.strokeWidth),
           recolourable: shapeConfig.recolourable,
-          allowPhotoDrop: shapeConfig.allowPhotoDrop,
+          allowPhotoDrop: false,
           preserveAspectRatio: shapeConfig.preserveAspectRatio,
         };
 
         finalMetadata = {
           ...finalMetadata,
-          isPhotoShape: true,
+          isPhotoShape: false,
+          isShape: true,
+          isFrame: false,
           shapeType: 'custom-svg',
           clipType: 'svg',
           photoFit: shapeConfig.photoFit,
           recolourable: shapeConfig.recolourable,
-          allowPhotoDrop: shapeConfig.allowPhotoDrop,
+          allowPhotoDrop: false,
           shape: shapeDefinition,
         };
 
         finalFabricJson = {
           ...shapeDefinition,
           isShape: true,
-          isFrame: true,
+          isFrame: false,
+          isCanvaPlaceholder: false,
+          allowPhotoDrop: false,
           sourceType: 'shape',
           assetId: asset?.id || null,
         };
@@ -923,204 +911,56 @@ export function DesignAssetForm({
       else if (
         formData.asset_type === 'frame'
       ) {
-        const preservedMaskUrl = removeMask
-          ? null
-          : existingFrameMaskUrl(finalMetadata);
-
-        /**
-         * IMPORTANT:
-         *
-         * Do not only save:
-         *
-         * shape: rect
-         *
-         * The Fabric editor needs complete frame
-         * information to create the photo mask.
+        /*
+         * Frames now use the same simple asset model as Shapes:
+         * ONE uploaded SVG is both the visible frame geometry and the
+         * clipping geometry. The only behavioural difference is that Frames
+         * accept photo hover/drop while Shapes do not.
          */
-
-        const frameMetadata = {
+        const frameDefinition = {
           version: 1,
-
           type: 'photo-frame',
-
-          // -------------------------------------------------
-          // Visual frame
-          // -------------------------------------------------
-
-          overlayUrl:
-            asset?.file_url || null,
-
-          thumbnailUrl:
-            asset?.thumbnail_url || null,
-
-          // -------------------------------------------------
-          // Mask
-          // -------------------------------------------------
-
-          maskType:
-            frameConfig.maskType,
-
-          width:
-            Number(frameConfig.width),
-
-          height:
-            Number(frameConfig.height),
-
-          unit:
-            frameConfig.unit,
-
-          cornerRadius:
-            Number(
-              frameConfig.cornerRadius
-            ),
-
-          circleRadius:
-            Number(
-              frameConfig.circleRadius
-            ),
-
-          polygonPoints:
-            frameConfig.polygonPoints,
-
-          svgPath:
-            frameConfig.svgPath,
-
-          /**
-           * Uploaded mask URL will be populated
-           * by backend if maskFile is uploaded.
-           *
-           * For a new frame we send maskFile separately.
-           */
-          maskUrl:
-            preservedMaskUrl,
-
-          // Keep snake_case for older API/frontend consumers.
-          mask_url:
-            preservedMaskUrl,
-
-          maskFileName:
-            maskFile?.name ||
-            toPlainObject(finalMetadata.frame).maskFileName ||
-            toPlainObject(finalMetadata.frame).mask_file_name ||
-            null,
-
-          hasCustomMask:
-            frameConfig.maskType === 'svg_mask' ||
-            frameConfig.maskType === 'alpha_mask',
-
-          // -------------------------------------------------
-          // Photo behaviour
-          // -------------------------------------------------
-
-          photoFit:
-            frameConfig.photoFit,
-
-          allowPhotoMove:
-            frameConfig.allowPhotoMove,
-
-          allowPhotoZoom:
-            frameConfig.allowPhotoZoom,
-
-          allowPhotoRotate:
-            frameConfig.allowPhotoRotate,
-
-          allowPhotoReplace:
-            frameConfig.allowPhotoReplace,
-
-          preserveAspectRatio:
-            frameConfig.preserveAspectRatio,
+          frameShape: 'custom-svg',
+          shapeType: 'custom-svg',
+          clipType: 'svg',
+          sourceUrl: asset?.file_url || null,
+          overlayUrl: asset?.file_url || null,
+          maskUrl: asset?.file_url || null,
+          mask_url: asset?.file_url || null,
+          maskType: 'svg_mask',
+          photoFit: frameConfig.photoFit,
+          allowPhotoDrop: true,
+          allowPhotoMove: frameConfig.allowPhotoMove,
+          allowPhotoZoom: frameConfig.allowPhotoZoom,
+          allowPhotoRotate: frameConfig.allowPhotoRotate,
+          allowPhotoReplace: frameConfig.allowPhotoReplace,
+          preserveAspectRatio: frameConfig.preserveAspectRatio,
         };
 
-        /**
-         * Keep a few legacy fields too so your existing
-         * frontend code does not immediately break if it
-         * still reads metadata.shape / metadata.clipType.
-         */
         finalMetadata = {
           ...finalMetadata,
-
-          shape:
-            getLegacyShape(
-              frameConfig.maskType
-            ),
-
-          clipType:
-            getLegacyClipType(
-              frameConfig.maskType
-            ),
-
-          maskUrl:
-            preservedMaskUrl,
-
-          mask_url:
-            preservedMaskUrl,
-
-          frame: frameMetadata,
+          isFrame: true,
+          isShape: true,
+          isPhotoShape: true,
+          isCanvaPlaceholder: true,
+          allowPhotoDrop: true,
+          frameShape: 'custom-svg',
+          shapeType: 'custom-svg',
+          clipType: 'svg',
+          maskType: 'svg_mask',
+          photoFit: frameConfig.photoFit,
+          frame: frameDefinition,
         };
 
-        /**
-         * Store the frame definition in fabric_json too.
-         *
-         * This makes the asset self-describing and gives
-         * the frontend another safe place to retrieve it.
-         */
         finalFabricJson = {
-          type: 'photo-frame',
-
-          frameId:
-            asset?.id || null,
-
-          maskType:
-            frameConfig.maskType,
-
-          width:
-            Number(frameConfig.width),
-
-          height:
-            Number(frameConfig.height),
-
-          unit:
-            frameConfig.unit,
-
-          cornerRadius:
-            Number(
-              frameConfig.cornerRadius
-            ),
-
-          circleRadius:
-            Number(
-              frameConfig.circleRadius
-            ),
-
-          polygonPoints:
-            frameConfig.polygonPoints,
-
-          svgPath:
-            frameConfig.svgPath,
-
-          maskUrl:
-            preservedMaskUrl,
-
-          mask_url:
-            preservedMaskUrl,
-
-          photoFit:
-            frameConfig.photoFit,
-
-          allowPhotoMove:
-            frameConfig.allowPhotoMove,
-
-          allowPhotoZoom:
-            frameConfig.allowPhotoZoom,
-
-          allowPhotoRotate:
-            frameConfig.allowPhotoRotate,
-
-          allowPhotoReplace:
-            frameConfig.allowPhotoReplace,
-
-          preserveAspectRatio:
-            frameConfig.preserveAspectRatio,
+          ...frameDefinition,
+          isFrame: true,
+          isShape: true,
+          isCanvaPlaceholder: true,
+          allowPhotoDrop: true,
+          sourceType: 'frame',
+          assetId: asset?.id || null,
+          frameId: asset?.id || null,
         };
       }
 
@@ -1680,7 +1520,7 @@ export function DesignAssetForm({
                       label={
                         formData.asset_type ===
                           'frame'
-                          ? 'Frame Overlay / Visual'
+                          ? 'Frame SVG / Clipping Shape'
                           : formData.asset_type === 'shape'
                             ? 'Shape SVG / Clipping Path'
                             : 'Main Asset File'
@@ -1688,13 +1528,13 @@ export function DesignAssetForm({
                       description={
                         formData.asset_type ===
                           'frame'
-                          ? 'Upload SVG or transparent PNG containing the decorative frame.'
+                          ? 'Upload one closed, solid SVG silhouette. This same SVG is used as the visible frame and the customer-photo clipping area.'
                           : formData.asset_type === 'shape'
                             ? 'Upload one closed, solid SVG silhouette. It becomes the clipping shape for customer photos.'
                             : 'Supported: SVG, PDF, TIFF, PNG, JPG, WebP'
                       }
                       accept={
-                        formData.asset_type === 'shape'
+                        formData.asset_type === 'shape' || formData.asset_type === 'frame'
                           ? ['svg']
                           : MAIN_ASSET_EXTENSIONS
                       }
@@ -1769,8 +1609,8 @@ export function DesignAssetForm({
                     Customer Photo Shape
                   </h3>
                   <p className="mt-1 text-[11px] leading-5 text-violet-700">
-                    Upload a closed, solid SVG silhouette. It appears in the frontend Shapes panel.
-                    When a customer drops or adds a photo onto it, the photo is clipped to this SVG shape.
+                    Upload a closed SVG shape. It is saved in the asset library and appears in the frontend Shapes panel.
+                    Customers can click it to add the exact uploaded SVG. Photo drop/fill is available only for Frames.
                   </p>
                 </div>
               </div>
@@ -1837,17 +1677,7 @@ export function DesignAssetForm({
                   Recolourable SVG
                 </label>
 
-                <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={shapeConfig.allowPhotoDrop}
-                    onChange={(e) =>
-                      updateShapeConfig('allowPhotoDrop', e.target.checked)
-                    }
-                    className="rounded text-violet-600 focus:ring-violet-500"
-                  />
-                  Allow photo drop
-                </label>
+
 
                 <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
                   <input
@@ -1897,686 +1727,72 @@ export function DesignAssetForm({
           {/* FRAME CONFIGURATION */}
           {/* ================================================= */}
 
-          {formData.asset_type ===
-            'frame' && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl">
-                  <div className="flex items-center gap-2">
-                    <FolderUp className="w-4 h-4 text-indigo-600" />
-                    <span className="text-xs font-semibold text-indigo-900">
-                      Have a folder of frame overlays and masks?
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsBulkModalOpen(true)}
-                    className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-2xs flex items-center gap-1.5"
-                  >
-                    <FolderUp className="w-3.5 h-3.5" />
-                    <span>Folder Upload Frames</span>
-                  </button>
-                </div>
-
-                {/* --------------------------------------------- */}
-                {/* FRAME ARCHITECTURE INFO */}
-                {/* --------------------------------------------- */}
-
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                  <div className="flex gap-2">
-                    <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-
-                    <div>
-                      <h3 className="text-xs font-bold text-blue-900">
-                        How Frame Assets Work
-                      </h3>
-
-                      <p className="text-[11px] text-blue-700 leading-5 mt-1">
-                        The frame visual is stored as
-                        an overlay. The customer photo
-                        is placed underneath it and
-                        clipped using the selected mask.
-                        This keeps the photo editable
-                        instead of flattening it into
-                        the frame.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* --------------------------------------------- */}
-                {/* VISUAL / OVERLAY */}
-                {/* --------------------------------------------- */}
-
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
-
-                  <div>
-                    <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                      1. Frame Visual
-                    </h3>
-
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Upload the decorative SVG/PNG
-                      that appears above the customer
-                      photo.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-
-                    <div className="rounded-xl border border-gray-200 bg-white p-3">
-                      <div className="text-[11px] font-semibold text-gray-700">
-                        Overlay
-                      </div>
-
-                      <div className="text-[10px] text-gray-500 mt-1">
-                        Example:
-                        floral-frame.svg
-                      </div>
-
-                      {asset?.file_url && (
-                        <div className="mt-2 text-[10px] text-emerald-600">
-                          Existing overlay saved
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="rounded-xl border border-gray-200 bg-white p-3">
-                      <div className="text-[11px] font-semibold text-gray-700">
-                        Layer order
-                      </div>
-
-                      <div className="text-[10px] text-gray-500 mt-1 leading-4">
-                        Frame Overlay
-                        <br />
-                        ↓
-                        <br />
-                        Customer Photo
-                        <br />
-                        ↓
-                        <br />
-                        Canvas Background
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* --------------------------------------------- */}
-                {/* MASK TYPE */}
-                {/* --------------------------------------------- */}
-
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-4">
-
-                  <div>
-                    <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                      2. Photo Mask
-                    </h3>
-
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Select the area where the
-                      customer image will appear.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                      Mask Type
-                    </label>
-
-                    <select
-                      value={
-                        frameConfig.maskType
-                      }
-                      onChange={(e) =>
-                        updateFrameConfig(
-                          'maskType',
-                          e.target
-                            .value as FrameMaskType
-                        )
-                      }
-                      className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    >
-                      <option value="rectangle">
-                        Rectangle
-                      </option>
-
-                      <option value="rounded_rectangle">
-                        Rounded Rectangle
-                      </option>
-
-                      <option value="circle">
-                        Circle
-                      </option>
-
-                      <option value="ellipse">
-                        Ellipse
-                      </option>
-
-                      <option value="polygon">
-                        Custom Polygon
-                      </option>
-
-                      <option value="svg_path">
-                        SVG Path
-                      </option>
-
-                      <option value="svg_mask">
-                        Custom SVG Mask
-                      </option>
-
-                      <option value="alpha_mask">
-                        Alpha Mask PNG/WebP
-                      </option>
-                    </select>
-
-                    <p className="text-[10px] text-gray-500 mt-1.5">
-                      {getMaskDescription()}
-                    </p>
-                  </div>
-
-                  {/* ------------------------------------------- */}
-                  {/* BASIC DIMENSIONS */}
-                  {/* ------------------------------------------- */}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-
-                    <div>
-                      <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                        Width
-                      </label>
-
-                      <input
-                        type="number"
-                        min="1"
-                        value={
-                          frameConfig.width
-                        }
-                        onChange={(e) =>
-                          updateFrameConfig(
-                            'width',
-                            Number(
-                              e.target.value
-                            )
-                          )
-                        }
-                        className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                        Height
-                      </label>
-
-                      <input
-                        type="number"
-                        min="1"
-                        value={
-                          frameConfig.height
-                        }
-                        onChange={(e) =>
-                          updateFrameConfig(
-                            'height',
-                            Number(
-                              e.target.value
-                            )
-                          )
-                        }
-                        className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                        Unit
-                      </label>
-
-                      <select
-                        value={
-                          frameConfig.unit
-                        }
-                        onChange={(e) =>
-                          updateFrameConfig(
-                            'unit',
-                            e.target.value as
-                            | 'px'
-                            | 'mm'
-                          )
-                        }
-                        className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
-                      >
-                        <option value="px">
-                          Pixels
-                        </option>
-
-                        <option value="mm">
-                          Millimeters
-                        </option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* ------------------------------------------- */}
-                  {/* ROUNDED RECTANGLE */}
-                  {/* ------------------------------------------- */}
-
-                  {frameConfig.maskType ===
-                    'rounded_rectangle' && (
-                      <div>
-                        <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                          Corner Radius
-                        </label>
-
-                        <input
-                          type="number"
-                          min="0"
-                          value={
-                            frameConfig.cornerRadius
-                          }
-                          onChange={(e) =>
-                            updateFrameConfig(
-                              'cornerRadius',
-                              Number(
-                                e.target.value
-                              )
-                            )
-                          }
-                          className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
-                        />
-                      </div>
-                    )}
-
-                  {/* ------------------------------------------- */}
-                  {/* CIRCLE */}
-                  {/* ------------------------------------------- */}
-
-                  {frameConfig.maskType ===
-                    'circle' && (
-                      <div>
-                        <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                          Radius
-                        </label>
-
-                        <input
-                          type="number"
-                          min="1"
-                          value={
-                            frameConfig.circleRadius
-                          }
-                          onChange={(e) =>
-                            updateFrameConfig(
-                              'circleRadius',
-                              Number(
-                                e.target.value
-                              )
-                            )
-                          }
-                          className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
-                        />
-                      </div>
-                    )}
-
-                  {/* ------------------------------------------- */}
-                  {/* POLYGON */}
-                  {/* ------------------------------------------- */}
-
-                  {frameConfig.maskType ===
-                    'polygon' && (
-                      <div>
-                        <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                          Polygon Points
-                        </label>
-
-                        <textarea
-                          rows={3}
-                          value={
-                            frameConfig.polygonPoints
-                          }
-                          onChange={(e) =>
-                            updateFrameConfig(
-                              'polygonPoints',
-                              e.target.value
-                            )
-                          }
-                          placeholder="0,0 500,0 500,500 0,500"
-                          className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg bg-white font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                        />
-
-                        <p className="text-[10px] text-gray-500 mt-1">
-                          Example:
-                          0,0 500,0 500,500 0,500
-                        </p>
-                      </div>
-                    )}
-
-                  {/* ------------------------------------------- */}
-                  {/* SVG PATH */}
-                  {/* ------------------------------------------- */}
-
-                  {frameConfig.maskType ===
-                    'svg_path' && (
-                      <div>
-                        <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                          SVG Path Data
-                        </label>
-
-                        <textarea
-                          rows={5}
-                          value={
-                            frameConfig.svgPath
-                          }
-                          onChange={(e) =>
-                            updateFrameConfig(
-                              'svgPath',
-                              e.target.value
-                            )
-                          }
-                          placeholder="M 0 0 L 500 0 L 500 500 L 0 500 Z"
-                          className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg bg-white font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                        />
-
-                        <p className="text-[10px] text-gray-500 mt-1">
-                          Paste only the SVG path
-                          `d` attribute value.
-                        </p>
-                      </div>
-                    )}
-
-                  {/* ------------------------------------------- */}
-                  {/* SVG MASK UPLOAD */}
-                  {/* ------------------------------------------- */}
-
-                  {frameConfig.maskType ===
-                    'svg_mask' && (
-                      <div className="p-3 bg-white border border-gray-200 rounded-xl">
-
-                        <div className="mb-2">
-                          <label className="block text-[11px] font-semibold text-gray-700">
-                            SVG Mask File
-                          </label>
-
-                          <p className="text-[10px] text-gray-500 mt-0.5">
-                            Upload an SVG containing
-                            the actual photo clipping
-                            shape.
-                          </p>
-                        </div>
-
-                        <ArtworkFileUpload
-                          label="Upload SVG Mask"
-                          description="SVG only. The mask defines the photo area."
-                          accept={['svg']}
-                          returnType="file"
-                          value={
-                            maskFile ||
-                            currentMaskUrl ||
-                            null
-                          }
-                          onFileChange={handleMaskFileChange}
-                          onRemove={() => {
-                            setMaskFile(null);
-                            setRemoveMask(true);
-                          }}
-                        />
-
-                        {currentMaskUrl && !maskFile && (
-                          <p className="mt-2 text-[10px] font-medium text-emerald-600">
-                            Existing SVG mask is saved. Upload another file only to replace it.
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                  {/* ------------------------------------------- */}
-                  {/* ALPHA MASK */}
-                  {/* ------------------------------------------- */}
-
-                  {frameConfig.maskType ===
-                    'alpha_mask' && (
-                      <div className="p-3 bg-white border border-gray-200 rounded-xl">
-
-                        <div className="mb-2">
-                          <label className="block text-[11px] font-semibold text-gray-700">
-                            Alpha Mask File
-                          </label>
-
-                          <p className="text-[10px] text-gray-500 mt-0.5">
-                            Transparent PNG/WebP. Transparent
-                            pixels become outside the photo
-                            area.
-                          </p>
-                        </div>
-
-                        <ArtworkFileUpload
-                          label="Upload Alpha Mask"
-                          description="PNG/WebP with transparency."
-                          accept={[
-                            'png',
-                            'webp',
-                          ]}
-                          returnType="file"
-                          value={
-                            maskFile ||
-                            currentMaskUrl ||
-                            null
-                          }
-                          onFileChange={handleMaskFileChange}
-                          onRemove={() => {
-                            setMaskFile(null);
-                            setRemoveMask(true);
-                          }}
-                        />
-
-                        {currentMaskUrl && !maskFile && (
-                          <p className="mt-2 text-[10px] font-medium text-emerald-600">
-                            Existing alpha mask is saved. Upload another file only to replace it.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                </div>
-
-                {/* --------------------------------------------- */}
-                {/* PHOTO BEHAVIOUR */}
-                {/* --------------------------------------------- */}
-
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-4">
-
-                  <div>
-                    <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                      3. Customer Photo Behaviour
-                    </h3>
-
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Control what customers can do
-                      with their uploaded photo.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-
-                    {/* Fit */}
-                    <div>
-                      <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                        Photo Fit
-                      </label>
-
-                      <select
-                        value={
-                          frameConfig.photoFit
-                        }
-                        onChange={(e) =>
-                          updateFrameConfig(
-                            'photoFit',
-                            e.target.value as
-                            FramePhotoFit
-                          )
-                        }
-                        className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
-                      >
-                        <option value="cover">
-                          Cover
-                        </option>
-
-                        <option value="contain">
-                          Contain
-                        </option>
-                      </select>
-                    </div>
-
-                    {/* Aspect */}
-                    <label className="flex items-center gap-2 p-2.5 rounded-lg border border-gray-200 bg-white cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={
-                          frameConfig.preserveAspectRatio
-                        }
-                        onChange={(e) =>
-                          updateFrameConfig(
-                            'preserveAspectRatio',
-                            e.target.checked
-                          )
-                        }
-                        className="rounded text-blue-600 focus:ring-blue-500"
-                      />
-
-                      <span className="text-[11px] font-medium text-gray-700">
-                        Preserve photo aspect ratio
-                      </span>
-                    </label>
-                  </div>
-
-                  {/* Controls */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-
-                    <label className="flex items-center gap-2 p-2.5 rounded-lg border border-gray-200 bg-white cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={
-                          frameConfig.allowPhotoMove
-                        }
-                        onChange={(e) =>
-                          updateFrameConfig(
-                            'allowPhotoMove',
-                            e.target.checked
-                          )
-                        }
-                        className="rounded text-blue-600 focus:ring-blue-500"
-                      />
-
-                      <span className="text-[11px] font-medium text-gray-700">
-                        Allow customer to move photo
-                      </span>
-                    </label>
-
-                    <label className="flex items-center gap-2 p-2.5 rounded-lg border border-gray-200 bg-white cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={
-                          frameConfig.allowPhotoZoom
-                        }
-                        onChange={(e) =>
-                          updateFrameConfig(
-                            'allowPhotoZoom',
-                            e.target.checked
-                          )
-                        }
-                        className="rounded text-blue-600 focus:ring-blue-500"
-                      />
-
-                      <span className="text-[11px] font-medium text-gray-700">
-                        Allow customer to zoom photo
-                      </span>
-                    </label>
-
-                    <label className="flex items-center gap-2 p-2.5 rounded-lg border border-gray-200 bg-white cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={
-                          frameConfig.allowPhotoRotate
-                        }
-                        onChange={(e) =>
-                          updateFrameConfig(
-                            'allowPhotoRotate',
-                            e.target.checked
-                          )
-                        }
-                        className="rounded text-blue-600 focus:ring-blue-500"
-                      />
-
-                      <span className="text-[11px] font-medium text-gray-700">
-                        Allow customer to rotate photo
-                      </span>
-                    </label>
-
-                    <label className="flex items-center gap-2 p-2.5 rounded-lg border border-gray-200 bg-white cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={
-                          frameConfig.allowPhotoReplace
-                        }
-                        onChange={(e) =>
-                          updateFrameConfig(
-                            'allowPhotoReplace',
-                            e.target.checked
-                          )
-                        }
-                        className="rounded text-blue-600 focus:ring-blue-500"
-                      />
-
-                      <span className="text-[11px] font-medium text-gray-700">
-                        Allow customer to replace photo
-                      </span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* --------------------------------------------- */}
-                {/* FRAME DATA PREVIEW */}
-                {/* --------------------------------------------- */}
-
-                <div className="p-4 bg-gray-900 rounded-xl">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-[11px] font-bold text-white uppercase tracking-wider">
-                      Frame Configuration Preview
-                    </h3>
-
-                    <span className="text-[9px] px-2 py-1 rounded bg-white/10 text-gray-300">
-                      Saved to metadata.frame
-                    </span>
-                  </div>
-
-                  <pre className="text-[9px] leading-4 text-gray-300 overflow-x-auto whitespace-pre-wrap">
-                    {JSON.stringify(
-                      {
-                        type: 'photo-frame',
-                        maskType:
-                          frameConfig.maskType,
-                        width:
-                          frameConfig.width,
-                        height:
-                          frameConfig.height,
-                        unit:
-                          frameConfig.unit,
-                        photoFit:
-                          frameConfig.photoFit,
-                        allowPhotoMove:
-                          frameConfig.allowPhotoMove,
-                        allowPhotoZoom:
-                          frameConfig.allowPhotoZoom,
-                        allowPhotoRotate:
-                          frameConfig.allowPhotoRotate,
-                        allowPhotoReplace:
-                          frameConfig.allowPhotoReplace,
-                      },
-                      null,
-                      2
-                    )}
-                  </pre>
+          {formData.asset_type === 'frame' && (
+            <div className="space-y-4 rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
+              <div className="flex gap-2">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-900">
+                    Customer Photo Frame
+                  </h3>
+                  <p className="mt-1 text-[11px] leading-5 text-indigo-700">
+                    Same workflow as Shapes: upload one closed SVG. The exact SVG is used as
+                    the frame geometry and clipping area. Unlike Shapes, Frames accept photo
+                    hover/drop and fill the dropped image inside the SVG.
+                  </p>
                 </div>
               </div>
-            )}
 
-          {/* ================================================= */}
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-gray-600">
+                  Photo Fit
+                </label>
+                <select
+                  value={frameConfig.photoFit}
+                  onChange={(e) =>
+                    updateFrameConfig('photoFit', e.target.value as FramePhotoFit)
+                  }
+                  className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-xs"
+                >
+                  <option value="cover">Cover frame</option>
+                  <option value="contain">Contain photo</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={frameConfig.allowPhotoMove}
+                    onChange={(e) => updateFrameConfig('allowPhotoMove', e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Move photo
+                </label>
+                <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={frameConfig.allowPhotoZoom}
+                    onChange={(e) => updateFrameConfig('allowPhotoZoom', e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Zoom photo
+                </label>
+                <label className="flex items-center gap-2 text-xs font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={frameConfig.preserveAspectRatio}
+                    onChange={(e) =>
+                      updateFrameConfig('preserveAspectRatio', e.target.checked)
+                    }
+                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Preserve aspect ratio
+                </label>
+              </div>
+            </div>
+          )}
+
           {/* BACKGROUND CONFIG */}
           {/* ================================================= */}
 

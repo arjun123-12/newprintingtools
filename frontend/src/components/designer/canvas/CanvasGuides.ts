@@ -153,6 +153,33 @@ export class CanvasGuides {
     ctx.save();
     ctx.scale(zoom, zoom);
 
+    // Red Bleed / Artwork Boundary Line (Red Line)
+    if (this.settings.showBleed !== false) {
+      const bleedPx = this.dimensions.bleedPx || 0;
+      ctx.save();
+      ctx.strokeStyle = this.settings.bleedColor || '#ef4444';
+      ctx.lineWidth = 1.5 / zoom;
+      ctx.setLineDash([6 / zoom, 4 / zoom]);
+
+      if (bleedPx > 0) {
+        ctx.strokeRect(
+          -bleedPx,
+          -bleedPx,
+          width + bleedPx * 2,
+          height + bleedPx * 2
+        );
+      } else {
+        const halfPixel = 0.5 / zoom;
+        ctx.strokeRect(
+          halfPixel,
+          halfPixel,
+          Math.max(width - 1 / zoom, 0),
+          Math.max(height - 1 / zoom, 0)
+        );
+      }
+      ctx.restore();
+    }
+
     if (this.settings.showTrim) {
       const halfPixel = 0.5 / zoom;
       ctx.save();
@@ -176,9 +203,9 @@ export class CanvasGuides {
     ) {
       ctx.save();
       ctx.strokeStyle =
-        this.settings.safeZoneColor || 'rgba(16, 185, 129, 0.85)';
-      ctx.lineWidth = 1 / zoom;
-      ctx.setLineDash([4 / zoom, 4 / zoom]);
+        this.settings.safeZoneColor || '#ef4444';
+      ctx.lineWidth = 1.2 / zoom;
+      ctx.setLineDash([5 / zoom, 4 / zoom]);
       ctx.strokeRect(
         safeInset,
         safeInset,
