@@ -135,6 +135,7 @@ export const TextControls: React.FC<TextControlsProps> = ({ selected, onUpdate, 
             canvasManager={canvasManager}
             onClose={() => setIsColorOpen(false)}
             allowGradient={true}
+            embedded={true}
           />
         </div>
       )}

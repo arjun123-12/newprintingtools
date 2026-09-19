@@ -377,6 +377,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                   onChange={handleFillChange}
                   canvasManager={canvasManager}
                   allowGradient={true}
+                  embedded={true}
                 />
                 <ColorPicker
                   label="Border / Stroke Color"
@@ -384,6 +385,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                   onChange={handleStrokeChange}
                   canvasManager={canvasManager}
                   allowGradient={false}
+                  embedded={true}
                 />
               </div>
             )}
@@ -399,6 +401,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                 onChange={handleCanvasBgChange}
                 canvasManager={canvasManager}
                 allowGradient={true}
+                embedded={true}
               />
             </div>
 

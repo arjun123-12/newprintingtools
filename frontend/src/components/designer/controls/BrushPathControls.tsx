@@ -104,6 +104,7 @@ export const BrushPathControls: React.FC<BrushPathControlsProps> = ({
           }}
           canvasManager={canvasManager}
           allowGradient={false}
+          embedded={true}
         />
       </div>
     </div>

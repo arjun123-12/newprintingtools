@@ -294,28 +294,35 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
               <div className="space-y-2.5 bg-white p-2.5 rounded-xl border border-purple-200">
                 <div className="flex items-center justify-between pt-1">
                   <span className="text-[11px] font-semibold text-gray-700">Border Color</span>
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setShowStrokePicker(!showStrokePicker)}
-                      className="w-7 h-7 rounded-lg border border-gray-300 shadow-2xs flex items-center justify-center transition hover:scale-105"
+                  <button
+                    type="button"
+                    onClick={() => setShowStrokePicker(!showStrokePicker)}
+                    className="flex items-center gap-2 px-2 py-1 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 transition shadow-2xs"
+                  >
+                    <div
+                      className="w-4 h-4 rounded-md border border-gray-300 shadow-2xs"
                       style={{ backgroundColor: currentStrokeColor }}
                     />
-                    {showStrokePicker && (
-                      <div className="absolute right-0 top-full mt-2 z-50 p-2 bg-white rounded-xl shadow-2xl border border-gray-200">
-                        <ColorPicker
-                          label="Border Colour"
-                          value={currentStrokeColor}
-                          onChange={(hex) => {
-                            if (typeof hex === 'string') handleUpdateProperty('stroke', hex);
-                          }}
-                          onClose={() => setShowStrokePicker(false)}
-                          allowGradient={false}
-                        />
-                      </div>
-                    )}
-                  </div>
+                    <span className="text-[10px] font-mono font-bold uppercase text-gray-700">
+                      {currentStrokeColor}
+                    </span>
+                  </button>
                 </div>
+                {showStrokePicker && (
+                  <div className="mt-2 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden">
+                    <ColorPicker
+                      label="Border Colour"
+                      value={currentStrokeColor}
+                      onChange={(hex) => {
+                        if (typeof hex === 'string') handleUpdateProperty('stroke', hex);
+                      }}
+                      onClose={() => setShowStrokePicker(false)}
+                      canvasManager={canvasManager}
+                      embedded={true}
+                      allowGradient={false}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
