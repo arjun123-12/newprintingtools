@@ -406,6 +406,25 @@ export function DesignerCanvas({
       }
 
       /*
+       * Canva-style Background shortcut: Shift + B or Alt + B
+       * Selected Image -> Set image as canvas background
+       * Canvas / Background -> Detach background into editable, movable layer
+       */
+      if (
+        (event.shiftKey || event.altKey) &&
+        event.key.toLowerCase() === 'b'
+      ) {
+        event.preventDefault();
+        const activeObj = canvas.getActiveObject();
+        if (activeObj && canvasManager.isImageObject(activeObj)) {
+          void canvasManager.setImageAsBackground(activeObj);
+        } else if (canvas.backgroundImage) {
+          canvasManager.convertBackgroundToLayer();
+        }
+        return;
+      }
+
+      /*
        * Group: Ctrl/Cmd + G
        */
       if (

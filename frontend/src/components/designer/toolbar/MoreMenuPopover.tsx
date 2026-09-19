@@ -21,6 +21,7 @@ import {
   AlignStartVertical,
   AlignCenterVertical,
   AlignEndVertical,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { SelectedObjectState, AlignmentType } from '@/types/designer';
@@ -157,6 +158,28 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
           DELETE
         </span>
       </button>
+
+      {/* Set image as background */}
+      {selected.type === 'image' && (
+        <button
+          type="button"
+          onClick={() =>
+            handleAction(() => {
+              if (!canvasManager) return;
+              void canvasManager.setImageAsBackground();
+            })
+          }
+          className="w-full px-3 py-2 flex items-center justify-between rounded-xl hover:bg-gray-100/80 text-gray-800 font-medium transition cursor-pointer"
+        >
+          <span className="flex items-center gap-2.5">
+            <ImageIcon className="w-4 h-4 text-gray-700" />
+            <span>Set image as background</span>
+          </span>
+          <span className="px-2 py-0.5 rounded-md bg-gray-100/90 text-[10px] font-mono text-gray-600 font-semibold">
+            Shift+B
+          </span>
+        </button>
+      )}
 
       <div className="my-1 border-t border-gray-100" />
 

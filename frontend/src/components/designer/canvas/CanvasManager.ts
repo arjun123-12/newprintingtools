@@ -938,6 +938,27 @@ export class CanvasManager {
     this.resetBackground();
   }
 
+  public async setImageAsBackground(targetObj?: FabricObject | null): Promise<void> {
+    if (!this.canvas) return;
+    const obj = targetObj || this.canvas.getActiveObject();
+    if (!obj || !this.isImageObject(obj)) return;
+
+    const imageUrl =
+      (obj as any).getSrc?.() ||
+      (obj as any)._element?.currentSrc ||
+      (obj as any)._element?.src ||
+      obj.get('originalSrc' as any) ||
+      '';
+
+    if (!imageUrl) return;
+
+    const name = (obj.get('name' as any) as string) || 'Background Image';
+
+    this.canvas.remove(obj);
+    await this.setBackgroundImage(imageUrl, { name, fit: 'cover' });
+    this.saveHistoryState();
+  }
+
   public convertBackgroundToLayer(): void {
     if (!this.canvas || !this.canvas.backgroundImage) return;
     const bgImg = this.canvas.backgroundImage as FabricImage;
@@ -960,8 +981,12 @@ export class CanvasManager {
       opacity: bgImg.opacity !== undefined ? bgImg.opacity : 1,
       selectable: true,
       evented: true,
+      hasControls: true,
+      hasBorders: true,
     });
     newImg.set('name' as any, this.backgroundSettings.image?.name || 'Background Layer');
+    newImg.set('isImage' as any, true);
+    newImg.set('sourceType' as any, 'image');
 
     this.canvas.backgroundImage = undefined;
     this.canvas.backgroundColor = '#ffffff';
@@ -973,10 +998,12 @@ export class CanvasManager {
       color: '#ffffff',
     };
 
+    this.syncArtworkBoundaryLines();
     this.canvas.requestRenderAll();
     this.notifyBackground();
     this.notifyLayers();
     this.notifyChange();
+    this.saveHistoryState();
   }
 
   // --- Print Guides Management ---
@@ -7581,6 +7608,9 @@ export class CanvasManager {
         this.canvas?.setCursor('text');
         this.canvas?.requestRenderAll();
         this.notifySelection();
+      } else if (!target && this.canvas?.backgroundImage) {
+        // Canva-style: Double-click empty canvas background to detach & edit background
+        this.convertBackgroundToLayer();
       }
     });
 
