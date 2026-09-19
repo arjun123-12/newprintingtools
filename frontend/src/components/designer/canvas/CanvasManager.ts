@@ -425,6 +425,13 @@ export class CanvasManager {
     wrapper.style.border = 'none';
     wrapper.style.boxShadow = 'none';
 
+    // Synchronize wrapper background with canvas background color so fill extends to the red line
+    if (typeof this.canvas.backgroundColor === 'string') {
+      wrapper.style.backgroundColor = this.canvas.backgroundColor;
+    } else if (this.backgroundSettings.type === 'color' && this.backgroundSettings.color) {
+      wrapper.style.backgroundColor = this.backgroundSettings.color;
+    }
+
     // Red dashed bleed line: outside the artwork by the configured bleed.
     const showBleed = this.guides.getSettings().showBleed !== false;
     const bleedColor = this.guides.getSettings().bleedColor || '#ef4444';
@@ -709,6 +716,7 @@ export class CanvasManager {
       type: 'color',
       color,
     };
+    this.syncArtworkBoundaryLines();
     this.canvas.requestRenderAll();
     this.notifyBackground();
     this.notifyChange();
@@ -751,8 +759,9 @@ export class CanvasManager {
     if (!this.canvas) return;
     this.canvas.backgroundImage = undefined;
 
-    const baseW = this.dimensions.widthPx || 1063;
-    const baseH = this.dimensions.heightPx || 591;
+    const bleedPx = Math.max(0, this.dimensions.bleedPx || 0);
+    const baseW = (this.dimensions.widthPx || 1063) + bleedPx * 2;
+    const baseH = (this.dimensions.heightPx || 591) + bleedPx * 2;
 
     let coords: any;
     if (gradientConfig.type === 'radial') {
@@ -789,6 +798,7 @@ export class CanvasManager {
       type: 'gradient',
       gradient: gradientConfig,
     };
+    this.syncArtworkBoundaryLines();
     this.canvas.requestRenderAll();
     this.notifyBackground();
     if (!isLivePreview) {
@@ -824,26 +834,30 @@ export class CanvasManager {
         throw new Error('The background image has invalid dimensions.');
       }
 
+      // Cover out to the full bleed boundary line area
+      const bleedPx = Math.max(0, this.dimensions.bleedPx || 0);
       const baseW = this.dimensions.widthPx || 1063;
       const baseH = this.dimensions.heightPx || 591;
+      const targetW = baseW + bleedPx * 2;
+      const targetH = baseH + bleedPx * 2;
 
-      const imgW = img.width || baseW;
-      const imgH = img.height || baseH;
+      const imgW = img.width || targetW;
+      const imgH = img.height || targetH;
 
       let finalScaleX = scaleFactor;
       let finalScaleY = scaleFactor;
 
       if (fit === 'cover') {
-        const baseScale = Math.max(baseW / imgW, baseH / imgH);
+        const baseScale = Math.max(targetW / imgW, targetH / imgH);
         finalScaleX = baseScale * scaleFactor;
         finalScaleY = baseScale * scaleFactor;
       } else if (fit === 'contain') {
-        const baseScale = Math.min(baseW / imgW, baseH / imgH);
+        const baseScale = Math.min(targetW / imgW, targetH / imgH);
         finalScaleX = baseScale * scaleFactor;
         finalScaleY = baseScale * scaleFactor;
       } else if (fit === 'stretch') {
-        finalScaleX = (baseW / imgW) * scaleFactor;
-        finalScaleY = (baseH / imgH) * scaleFactor;
+        finalScaleX = (targetW / imgW) * scaleFactor;
+        finalScaleY = (targetH / imgH) * scaleFactor;
       }
 
       img.set({
@@ -875,6 +889,7 @@ export class CanvasManager {
         },
       };
 
+      this.syncArtworkBoundaryLines();
       this.canvas.requestRenderAll();
       this.notifyBackground();
       this.notifyChange();
@@ -912,6 +927,7 @@ export class CanvasManager {
       type: 'color',
       color: '#ffffff',
     };
+    this.syncArtworkBoundaryLines();
     this.canvas.requestRenderAll();
     this.notifyBackground();
     this.notifyChange();
