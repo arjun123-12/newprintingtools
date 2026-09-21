@@ -22,7 +22,25 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
 }) => {
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
+  const [isHovered, setIsHovered] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
+  const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const startHideTimer = useCallback(() => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+    hideTimerRef.current = setTimeout(() => {
+      setIsVisible(false);
+    }, 1800);
+  }, []);
+
+  const resetHideTimer = useCallback(() => {
+    setIsVisible(true);
+    startHideTimer();
+  }, [startHideTimer]);
 
   // Close popover when clicked outside
   useEffect(() => {
@@ -34,6 +52,11 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Reset hide timer when selected element changes
+  useEffect(() => {
+    resetHideTimer();
+  }, [selected?.id, resetHideTimer]);
 
   // Update floating bar coordinates on selection change, zoom, or canvas events
   const updatePosition = useCallback(() => {
@@ -65,15 +88,17 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
   const animFrameRef = useRef<number | null>(null);
 
   const scheduleUpdatePosition = useCallback(() => {
+    resetHideTimer();
     if (animFrameRef.current !== null) return;
     animFrameRef.current = requestAnimationFrame(() => {
       animFrameRef.current = null;
       updatePosition();
     });
-  }, [updatePosition]);
+  }, [updatePosition, resetHideTimer]);
 
   useEffect(() => {
     updatePosition();
+    resetHideTimer();
     if (!canvasManager) return;
     const canvas = canvasManager.getCanvas();
     if (!canvas) return;
@@ -94,7 +119,16 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
       canvas.off('object:rotating', handleCanvasEvent);
       canvas.off('object:modified', handleCanvasEvent);
     };
-  }, [canvasManager, updatePosition, scheduleUpdatePosition]);
+  }, [canvasManager, updatePosition, scheduleUpdatePosition, resetHideTimer]);
+
+  useEffect(() => {
+    return () => {
+      if (hideTimerRef.current) {
+        clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = null;
+      }
+    };
+  }, []);
 
   if (!coords) return null;
 
@@ -102,12 +136,14 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
     e.stopPropagation();
     if (!canvasManager) return;
     canvasManager.updateSelectedProperty('isLocked', !selected.isLocked);
+    resetHideTimer();
   };
 
   const handleDuplicate = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!canvasManager) return;
     canvasManager.duplicateSelected();
+    resetHideTimer();
   };
 
   const handleDelete = (e: React.MouseEvent) => {
@@ -119,10 +155,13 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
   const handleMore = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsMoreOpen((prev) => !prev);
+    resetHideTimer();
     if (onOpenMore) {
       onOpenMore();
     }
   };
+
+  const shouldBeVisible = isVisible || isHovered || isMoreOpen;
 
   return (
     <div
@@ -132,16 +171,30 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
         top: `${coords.y}px`,
         transform: 'translateX(-50%)',
       }}
-      className="pointer-events-none z-10 select-none"
+      className={`z-10 select-none transition-opacity duration-200 ${
+        shouldBeVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+      }`}
     >
       <div
         ref={barRef}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
-        className="pointer-events-auto flex items-center gap-1 bg-white px-1.5 py-1 rounded-full shadow-lg border border-gray-200 text-gray-700 animate-in fade-in zoom-in-95 duration-100"
+        onMouseEnter={() => {
+          setIsHovered(true);
+          setIsVisible(true);
+          if (hideTimerRef.current) {
+            clearTimeout(hideTimerRef.current);
+            hideTimerRef.current = null;
+          }
+        }}
+        onMouseLeave={() => {
+          setIsHovered(false);
+          startHideTimer();
+        }}
+        className="flex items-center gap-1 bg-white px-1.5 py-1 rounded-full shadow-lg border border-gray-200 text-gray-700 animate-in fade-in zoom-in-95 duration-100"
       >
         {/* Image Quality Badge */}
-        {selected.type === 'image' && (
+        {/* {selected.type === 'image' && (
           <div className="flex items-center pl-1 pr-1.5 border-r border-gray-200">
             <QualityBadge
               effectiveDpi={selected.effectiveDpi || Math.round(selected.qualityInfo?.estimatedDpi || 300)}
@@ -153,87 +206,87 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
               isUpscaling={selected.upscaleStatus === 'processing' || selected.upscaleStatus === 'pending'}
             />
           </div>
-        )}
+        )} */}
 
         {/* Lock / Unlock */}
         <button
           type="button"
           onClick={handleToggleLock}
-        title={selected.isLocked ? 'Unlock (Ctrl+L)' : 'Lock (Ctrl+L)'}
-        className={`p-1.5 rounded-full hover:bg-gray-100 transition ${selected.isLocked ? 'text-amber-600 bg-amber-50' : 'text-gray-600 hover:text-gray-900'
-          }`}
-      >
-        {selected.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-      </button>
-
-      {/* Group */}
-      {canvasManager?.canGroup() && (
-        <button
-          type="button"
-          onClick={() => canvasManager?.groupSelected()}
-          title="Group (Ctrl+G)"
-          className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold transition shadow-2xs"
-        >
-          <GroupIcon className="w-3.5 h-3.5" />
-          <span>Group</span>
-        </button>
-      )}
-
-      {/* Ungroup */}
-      {canvasManager?.canUngroup() && (
-        <button
-          type="button"
-          onClick={() => canvasManager?.ungroupSelected()}
-          title="Ungroup (Ctrl+Shift+G)"
-          className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold transition shadow-2xs"
-        >
-          <Ungroup className="w-3.5 h-3.5" />
-          <span>Ungroup</span>
-        </button>
-      )}
-
-      {/* Duplicate */}
-      <button
-        type="button"
-        onClick={handleDuplicate}
-        title="Duplicate (Ctrl+D)"
-        className="p-1.5 rounded-full hover:bg-gray-100 text-gray-600 hover:text-gray-900 transition"
-      >
-        <Copy className="w-3.5 h-3.5" />
-      </button>
-
-      {/* Delete */}
-      <button
-        type="button"
-        onClick={handleDelete}
-        title="Delete (Del / Backspace)"
-        className="p-1.5 rounded-full hover:bg-red-50 text-gray-600 hover:text-red-600 transition"
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
-
-      {/* More actions */}
-      <div className="relative">
-        <button
-          type="button"
-          onClick={handleMore}
-          title="More actions"
-          className={`p-1.5 rounded-full hover:bg-gray-100 transition ${isMoreOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:text-gray-900'
+          title={selected.isLocked ? 'Unlock (Ctrl+L)' : 'Lock (Ctrl+L)'}
+          className={`p-1.5 rounded-full hover:bg-gray-100 transition ${selected.isLocked ? 'text-amber-600 bg-amber-50' : 'text-gray-600 hover:text-gray-900'
             }`}
         >
-          <MoreHorizontal className="w-3.5 h-3.5" />
+          {selected.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
         </button>
 
-        {isMoreOpen && (
-          <MoreMenuPopover
-            selected={selected}
-            canvasManager={canvasManager}
-            onClose={() => setIsMoreOpen(false)}
-            align="left"
-          />
+        {/* Group */}
+        {canvasManager?.canGroup() && (
+          <button
+            type="button"
+            onClick={() => canvasManager?.groupSelected()}
+            title="Group (Ctrl+G)"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold transition shadow-2xs"
+          >
+            <GroupIcon className="w-3.5 h-3.5" />
+            <span>Group</span>
+          </button>
         )}
+
+        {/* Ungroup */}
+        {canvasManager?.canUngroup() && (
+          <button
+            type="button"
+            onClick={() => canvasManager?.ungroupSelected()}
+            title="Ungroup (Ctrl+Shift+G)"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold transition shadow-2xs"
+          >
+            <Ungroup className="w-3.5 h-3.5" />
+            <span>Ungroup</span>
+          </button>
+        )}
+
+        {/* Duplicate */}
+        <button
+          type="button"
+          onClick={handleDuplicate}
+          title="Duplicate (Ctrl+D)"
+          className="p-1.5 rounded-full hover:bg-gray-100 text-gray-600 hover:text-gray-900 transition"
+        >
+          <Copy className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Delete */}
+        <button
+          type="button"
+          onClick={handleDelete}
+          title="Delete (Del / Backspace)"
+          className="p-1.5 rounded-full hover:bg-red-50 text-gray-600 hover:text-red-600 transition"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+
+        {/* More actions */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={handleMore}
+            title="More actions"
+            className={`p-1.5 rounded-full hover:bg-gray-100 transition ${isMoreOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:text-gray-900'
+              }`}
+          >
+            <MoreHorizontal className="w-3.5 h-3.5" />
+          </button>
+
+          {isMoreOpen && (
+            <MoreMenuPopover
+              selected={selected}
+              canvasManager={canvasManager}
+              onClose={() => setIsMoreOpen(false)}
+              align="left"
+            />
+          )}
+        </div>
       </div>
     </div>
-  </div>
   );
 };

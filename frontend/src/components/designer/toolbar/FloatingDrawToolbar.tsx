@@ -409,10 +409,14 @@ export const FloatingDrawToolbar: React.FC<FloatingDrawToolbarProps> = ({
                   label="Drawing Colour"
                   value={drawColor}
                   onChange={(val) => {
-                    if (typeof val === 'string') handleColorChange(val);
+                    if (typeof val === 'string') {
+                      handleColorChange(val);
+                    } else if (val && typeof val === 'object' && 'stops' in val && val.stops.length > 0) {
+                      handleColorChange(val.stops[0].color);
+                    }
                   }}
                   onClose={() => setIsColorPickerOpen(false)}
-                  allowGradient={false}
+                  allowGradient={true}
                   canvasManager={canvasManager}
                 />
               </div>

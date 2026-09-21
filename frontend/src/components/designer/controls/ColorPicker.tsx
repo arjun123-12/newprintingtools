@@ -14,6 +14,7 @@ import {
   Sliders,
   History,
   ArrowRightLeft,
+  ChevronDown,
 } from 'lucide-react';
 import type { CanvasManager } from '../canvas/CanvasManager';
 import { DesignerGradientValue, DesignerGradientStop } from '@/types/designer';
@@ -598,6 +599,8 @@ const GradientEditor: React.FC<GradientEditorProps> = ({
     emit(type, angle, nextStops);
   };
 
+  const [showCustomGradient, setShowCustomGradient] = useState(false);
+
   const reverseStops = () => {
     const nextStops = stops
       .map((stop) => ({ ...stop, offset: 1 - stop.offset }))
@@ -641,122 +644,154 @@ const GradientEditor: React.FC<GradientEditorProps> = ({
         </span>
       </div>
 
-      {/* 2. GRADIENT TYPE SELECTOR (Linear vs Radial) */}
-      <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
-        {(['linear', 'radial'] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => updateType(t)}
-            className={`rounded-lg py-1.5 text-xs font-bold capitalize transition ${
-              type === t ? 'bg-white text-purple-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'
-            }`}
+      {/* 2. CUSTOM GRADIENT TOGGLE BUTTON & BUILDER */}
+      <button
+        type="button"
+        onClick={() => setShowCustomGradient((prev) => !prev)}
+        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border transition shadow-2xs ${
+          showCustomGradient
+            ? 'border-purple-600 bg-purple-50/80 text-purple-700'
+            : 'border-gray-200 bg-gray-50/80 hover:bg-gray-100 text-gray-800'
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-6 h-6 rounded-lg border border-white shadow-2xs flex items-center justify-center shrink-0"
+            style={{
+              background: 'linear-gradient(135deg, #7d2ae8, #00c4cc)',
+            }}
           >
-            {t}
-          </button>
-        ))}
-      </div>
+            <Plus className="w-3.5 h-3.5 text-white drop-shadow-xs stroke-[3]" />
+          </div>
+          <span className="text-xs font-bold">Custom gradient</span>
+        </div>
+        <ChevronDown
+          className={`w-3.5 h-3.5 transition-transform duration-200 ${
+            showCustomGradient ? 'rotate-180 text-purple-600' : ''
+          }`}
+        />
+      </button>
 
-      {/* 3. LINEAR ANGLE SLIDER & INPUT */}
-      {type === 'linear' && (
-        <div className="space-y-1.5 pt-0.5">
-          <div className="flex items-center justify-between text-xs font-bold text-gray-700">
-            <span>Angle</span>
-            <div className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-md font-mono text-[11px]">
+      {showCustomGradient && (
+        <div className="space-y-3.5 rounded-2xl border border-gray-200 bg-gray-50/50 p-3 shadow-2xs animate-in fade-in duration-150">
+          {/* GRADIENT TYPE SELECTOR (Linear vs Radial) */}
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
+            {(['linear', 'radial'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => updateType(t)}
+                className={`rounded-lg py-1.5 text-xs font-bold capitalize transition ${
+                  type === t ? 'bg-white text-purple-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          {/* LINEAR ANGLE SLIDER & INPUT */}
+          {type === 'linear' && (
+            <div className="space-y-1.5 pt-0.5">
+              <div className="flex items-center justify-between text-xs font-bold text-gray-700">
+                <span>Angle</span>
+                <div className="flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded-md font-mono text-[11px]">
+                  <input
+                    type="number"
+                    min="0"
+                    max="360"
+                    value={angle}
+                    onChange={(e) => updateAngle(Number(e.target.value) % 361)}
+                    className="w-8 bg-transparent text-right font-bold text-gray-900 focus:outline-none"
+                  />
+                  <span>°</span>
+                </div>
+              </div>
               <input
-                type="number"
+                type="range"
                 min="0"
                 max="360"
+                step="1"
                 value={angle}
-                onChange={(e) => updateAngle(Number(e.target.value) % 361)}
-                className="w-8 bg-transparent text-right font-bold text-gray-900 focus:outline-none"
+                onChange={(e) => updateAngle(Number(e.target.value))}
+                className="w-full h-2 rounded-full accent-purple-600 cursor-pointer"
               />
-              <span>°</span>
             </div>
+          )}
+
+          {/* COLOUR STOPS BAR & CONTROLS */}
+          <div className="space-y-2.5 pt-1 border-t border-gray-100">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-gray-800">Colour Stops</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={addStop}
+                  disabled={stops.length >= 8}
+                  className="flex h-7 items-center gap-1 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition shadow-2xs"
+                >
+                  <Plus className="h-3 w-3" /> Add
+                </button>
+                <button
+                  type="button"
+                  onClick={removeStop}
+                  disabled={stops.length <= 2}
+                  className="h-7 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-700 hover:bg-red-50 hover:text-red-600 disabled:opacity-40 transition shadow-2xs"
+                >
+                  Remove
+                </button>
+                <button
+                  type="button"
+                  onClick={reverseStops}
+                  title="Reverse stop order"
+                  className="h-7 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-700 hover:bg-gray-50 transition shadow-2xs flex items-center gap-1"
+                >
+                  <ArrowRightLeft className="h-3 w-3" /> Reverse
+                </button>
+              </div>
+            </div>
+
+            {/* Swatches for each stop */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+              {stops.map((stop, index) => (
+                <button
+                  key={`${stop.offset}_${index}`}
+                  type="button"
+                  onClick={() => setActiveStop(index)}
+                  title={`Colour stop ${index + 1}: ${Math.round(stop.offset * 100)}%`}
+                  className={`h-9 min-w-9 flex-1 rounded-xl border transition shadow-2xs ${
+                    activeStop === index ? 'border-purple-600 ring-2 ring-purple-300 scale-105' : 'border-gray-200 hover:border-gray-400'
+                  }`}
+                  style={{ backgroundColor: stop.color }}
+                />
+              ))}
+            </div>
+
+            {/* Selected stop position slider */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[10px] font-semibold text-gray-500">
+                <span>Stop {activeStop + 1} Position</span>
+                <span>{Math.round((stops[activeStop]?.offset || 0) * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={Math.round((stops[activeStop]?.offset || 0) * 100)}
+                onChange={(e) => updateStopPosition(Number(e.target.value))}
+                className="w-full h-2 rounded-full accent-purple-600 cursor-pointer"
+              />
+            </div>
+
+            {/* Active stop color editor */}
+            <CanvaColorChart
+              color={stops[activeStop]?.color || '#7d2ae8'}
+              onChange={updateStopColor}
+            />
           </div>
-          <input
-            type="range"
-            min="0"
-            max="360"
-            step="1"
-            value={angle}
-            onChange={(e) => updateAngle(Number(e.target.value))}
-            className="w-full h-2 rounded-full accent-purple-600 cursor-pointer"
-          />
         </div>
       )}
-
-      {/* 4. COLOUR STOPS BAR & CONTROLS */}
-      <div className="space-y-2.5 pt-1 border-t border-gray-100">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-gray-800">Colour Stops</span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={addStop}
-              disabled={stops.length >= 8}
-              className="flex h-7 items-center gap-1 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition shadow-2xs"
-            >
-              <Plus className="h-3 w-3" /> Add
-            </button>
-            <button
-              type="button"
-              onClick={removeStop}
-              disabled={stops.length <= 2}
-              className="h-7 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-700 hover:bg-red-50 hover:text-red-600 disabled:opacity-40 transition shadow-2xs"
-            >
-              Remove
-            </button>
-            <button
-              type="button"
-              onClick={reverseStops}
-              title="Reverse stop order"
-              className="h-7 rounded-lg border border-gray-200 px-2 text-[10px] font-bold text-gray-700 hover:bg-gray-50 transition shadow-2xs flex items-center gap-1"
-            >
-              <ArrowRightLeft className="h-3 w-3" /> Reverse
-            </button>
-          </div>
-        </div>
-
-        {/* Swatches for each stop */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
-          {stops.map((stop, index) => (
-            <button
-              key={`${stop.offset}_${index}`}
-              type="button"
-              onClick={() => setActiveStop(index)}
-              title={`Colour stop ${index + 1}: ${Math.round(stop.offset * 100)}%`}
-              className={`h-9 min-w-9 flex-1 rounded-xl border transition shadow-2xs ${
-                activeStop === index ? 'border-purple-600 ring-2 ring-purple-300 scale-105' : 'border-gray-200 hover:border-gray-400'
-              }`}
-              style={{ backgroundColor: stop.color }}
-            />
-          ))}
-        </div>
-
-        {/* Selected stop position slider */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-[10px] font-semibold text-gray-500">
-            <span>Stop {activeStop + 1} Position</span>
-            <span>{Math.round((stops[activeStop]?.offset || 0) * 100)}%</span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            step="1"
-            value={Math.round((stops[activeStop]?.offset || 0) * 100)}
-            onChange={(e) => updateStopPosition(Number(e.target.value))}
-            className="w-full h-2 rounded-full accent-purple-600 cursor-pointer"
-          />
-        </div>
-
-        {/* Active stop color editor */}
-        <CanvaColorChart
-          color={stops[activeStop]?.color || '#7d2ae8'}
-          onChange={updateStopColor}
-        />
-      </div>
 
       {/* 5. USEFUL GRADIENT PRESETS */}
       <div className="space-y-2 border-t border-gray-100 pt-2">
@@ -811,7 +846,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
   value = '#2563eb',
   onChange,
   onClose,
-  allowGradient = false,
+  allowGradient = true,
   allowAlpha = false,
   showAlpha = false,
   recentColors: propRecentColors,
@@ -826,6 +861,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     allowGradient && isInitialGradient ? 'gradient' : 'solid'
   );
   const [searchQuery, setSearchQuery] = useState('');
+  const [showCustomChart, setShowCustomChart] = useState(false);
   const [showAllSolid, setShowAllSolid] = useState(false);
   const [showAllGradients, setShowAllGradients] = useState(false);
   const [recentList, setRecentList] = useState<string[]>(() => {
@@ -877,6 +913,26 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     },
     [onChange, onClose]
   );
+
+  const handlePipette = useCallback(async () => {
+    if (typeof window !== 'undefined' && 'EyeDropper' in window) {
+      try {
+        const eyeDropper = new (window as any).EyeDropper();
+        const result = await eyeDropper.open();
+        if (result?.sRGBHex) {
+          handleSelectSolid(result.sRGBHex);
+        }
+      } catch (e) {
+        console.warn('EyeDropper cancelled or unsupported', e);
+      }
+    } else {
+      setShowCustomChart((prev) => !prev);
+    }
+  }, [handleSelectSolid]);
+
+  const handleNoColor = useCallback(() => {
+    handleSelectSolid('transparent');
+  }, [handleSelectSolid]);
 
   // Helper for selecting a preset gradient directly from the panel
   const handleSelectPresetGradient = useCallback(
@@ -1030,7 +1086,84 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
         ) : (
           /* SOLID TAB CONTENT */
           <>
-            {/* 1. SEARCH BAR */}
+            {/* CANVA TOP QUICK ACTION GRID: +, Pipette, No Color, Current Selection */}
+            <div className="grid grid-cols-7 gap-2 pb-2 border-b border-gray-100 items-center">
+              {/* 1. Add Custom Color (+) button */}
+              <button
+                type="button"
+                onClick={() => setShowCustomChart((prev) => !prev)}
+                title="Add a new colour"
+                className={`w-8 h-8 rounded-lg border flex items-center justify-center justify-self-center transition shadow-2xs ${
+                  showCustomChart
+                    ? 'border-purple-600 ring-2 ring-purple-600 bg-purple-50'
+                    : 'border-gray-200 bg-white hover:bg-gray-50'
+                }`}
+              >
+                <div
+                  className="w-5 h-5 rounded-md flex items-center justify-center"
+                  style={{
+                    background:
+                      'conic-gradient(from 180deg at 50% 50%, #FF0000 0deg, #FFFF00 60deg, #00FF00 120deg, #00FFFF 180deg, #0000FF 240deg, #FF00FF 300deg, #FF0000 360deg)',
+                  }}
+                >
+                  <Plus className="w-3.5 h-3.5 text-white drop-shadow-xs stroke-[3]" />
+                </div>
+              </button>
+
+              {/* 2. Pick a colour (Pipette / Eyedropper) */}
+              <button
+                type="button"
+                onClick={handlePipette}
+                title="Pick a colour"
+                className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center justify-center justify-self-center transition shadow-2xs"
+              >
+                <Pipette className="w-4 h-4 text-purple-600" />
+              </button>
+
+              {/* 3. No colour button */}
+              <button
+                type="button"
+                onClick={handleNoColor}
+                title="No colour"
+                className="w-8 h-8 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center justify-self-center transition shadow-2xs relative overflow-hidden"
+              >
+                <div className="w-full h-full relative flex items-center justify-center">
+                  <div className="w-full h-0.5 bg-red-500 rotate-45 absolute" />
+                </div>
+              </button>
+
+              {/* 4. Active Selected Color / Gradient Swatch */}
+              <div className="relative justify-self-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isInitialGradient) setMode('gradient');
+                  }}
+                  title={`Current: ${isInitialGradient ? 'Gradient' : currentSolidHex}`}
+                  className="w-8 h-8 rounded-lg border border-gray-300 ring-2 ring-purple-600 ring-offset-2 flex items-center justify-center shadow-2xs relative overflow-hidden"
+                  style={{
+                    background: isInitialGradient
+                      ? colorOrGradientToCss(value as DesignerGradientValue)
+                      : currentSolidHex,
+                  }}
+                >
+                  {isInitialGradient ? (
+                    <div className="absolute bottom-0.5 right-0.5 w-3 h-3 rounded-full bg-white/90 flex items-center justify-center shadow-2xs">
+                      <Sliders className="w-2 h-2 text-purple-700" />
+                    </div>
+                  ) : (
+                    <Check
+                      className={`w-3.5 h-3.5 ${
+                        currentSolidHex.toLowerCase() === '#ffffff' ? 'text-gray-900' : 'text-white'
+                      }`}
+                      strokeWidth={3}
+                    />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* SEARCH BAR */}
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
               <input
@@ -1051,46 +1184,28 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
               )}
             </div>
 
-            {/* 2. RECENT COLORS */}
-            {recentList.length > 0 && (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
-                  <History className="w-3.5 h-3.5 text-purple-600" />
-                  <span>Recent colours</span>
-                </div>
-                <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
-                  {recentList.filter((hex) => matchesSearch(hex, hex)).map((hex) => {
-                    const isSelected = currentSolidHex.toLowerCase() === hex.toLowerCase();
-                    const isWhite = hex.toLowerCase() === '#ffffff';
-                    return (
-                      <button
-                        key={hex}
-                        type="button"
-                        onClick={() => handleSelectSolid(hex)}
-                        title={hex}
-                        className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
-                          isWhite ? 'border border-gray-300' : ''
-                        } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
-                        style={{ backgroundColor: hex }}
-                      >
-                        {isSelected && (
-                          <Check
-                            className={`w-3.5 h-3.5 ${isWhite ? 'text-gray-900' : 'text-white'}`}
-                            strokeWidth={3}
-                          />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+            {/* CUSTOM COLOR POPUP CHART */}
+            {showCustomChart && (
+              <div className="animate-in fade-in slide-in-from-top-1 duration-150 pt-1 border-b border-gray-100 pb-2">
+                <CanvaColorChart
+                  color={currentSolidHex}
+                  onChange={(hex) => {
+                    onChange(hex);
+                  }}
+                  onSelectAndClose={handleSelectSolid}
+                  allowAlpha={allowAlpha || showAlpha}
+                />
               </div>
             )}
 
-            {/* 3. DOCUMENT / DESIGN COLORS */}
+            {/* 1. DOCUMENT / DESIGN COLORS */}
             {designColors.length > 0 && (
-              <div className="space-y-1.5 pt-1 border-t border-gray-100">
-                <span className="text-xs font-bold text-gray-900 block">Document colours</span>
-                <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-gray-900">
+                  <span>Colours in this design</span>
+                  <span className="text-[10px] text-gray-400 font-normal">In active design</span>
+                </div>
+                <div className="grid grid-cols-7 gap-2">
                   {designColors.filter((hex) => matchesSearch(hex, hex)).map((hex) => {
                     const isSelected = currentSolidHex.toLowerCase() === hex.toLowerCase();
                     const isWhite = hex.toLowerCase() === '#ffffff';
@@ -1100,7 +1215,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                         type="button"
                         onClick={() => handleSelectSolid(hex)}
                         title={hex}
-                        className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
+                        className={`relative w-8 h-8 rounded-lg transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
                           isWhite ? 'border border-gray-300' : ''
                         } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
                         style={{ backgroundColor: hex }}
@@ -1118,26 +1233,16 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
               </div>
             )}
 
-            {/* 4. CUSTOM COLOR PICKER CHART */}
-            <div className="space-y-1.5 pt-1 border-t border-gray-100">
-              <span className="text-xs font-bold text-gray-900 block">Custom colour</span>
-              <CanvaColorChart
-                color={currentSolidHex}
-                onChange={(hex) => {
-                  onChange(hex);
-                }}
-                onSelectAndClose={handleSelectSolid}
-                allowAlpha={allowAlpha || showAlpha}
-              />
-            </div>
-
-            {/* 5. BRAND KIT SECTION */}
+            {/* 2. BRAND KIT */}
             <div className="space-y-2 pt-1 border-t border-gray-100">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                <span>Brand Kit</span>
+              <div className="flex items-center justify-between text-xs font-bold text-gray-900">
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Brand Kit</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+              <p className="text-[10px] text-gray-400 font-medium">Colors from active design logo</p>
+              <div className="grid grid-cols-7 gap-2">
                 {BRAND_KIT_COLORS.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
                   const isSelected = currentSolidHex.toLowerCase() === item.hex.toLowerCase();
                   const isWhite = item.hex.toLowerCase() === '#ffffff';
@@ -1147,7 +1252,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                       type="button"
                       onClick={() => handleSelectSolid(item.hex)}
                       title={`${item.name} (${item.hex})`}
-                      className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
+                      className={`relative w-8 h-8 rounded-lg transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
                         isWhite ? 'border border-gray-200' : ''
                       } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
                       style={{ backgroundColor: item.hex }}
@@ -1164,13 +1269,13 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
               </div>
             </div>
 
-            {/* 6. PHOTO COLOURS SECTION */}
+            {/* 3. PHOTO COLOURS */}
             <div className="space-y-2 pt-1 border-t border-gray-100">
               <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
                 <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Photo colours</span>
               </div>
-              <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+              <div className="grid grid-cols-7 gap-2">
                 {PHOTO_COLORS.filter((c) => matchesSearch(c.name, c.hex)).map((item) => {
                   const isSelected = currentSolidHex.toLowerCase() === item.hex.toLowerCase();
                   return (
@@ -1179,7 +1284,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                       type="button"
                       onClick={() => handleSelectSolid(item.hex)}
                       title={`${item.name} (${item.hex})`}
-                      className={`relative w-8 h-8 rounded-full transition hover:scale-110 shrink-0 shadow-2xs flex items-center justify-center ${
+                      className={`relative w-8 h-8 rounded-lg transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
                         isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
                       }`}
                       style={{ backgroundColor: item.hex }}
@@ -1191,11 +1296,11 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
               </div>
             </div>
 
-            {/* 7. DEFAULT SOLID COLOURS */}
+            {/* 4. DEFAULT SOLID COLOURS */}
             <div className="space-y-2 pt-1 border-t border-gray-100">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
-                  <Palette className="w-3.5 h-3.5 text-gray-700" />
+                  <Palette className="w-3.5 h-3.5 text-purple-600" />
                   <span>Default solid colours</span>
                 </div>
                 <button
@@ -1218,7 +1323,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                       type="button"
                       onClick={() => handleSelectSolid(item.hex)}
                       title={`${item.name} (${item.hex})`}
-                      className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
+                      className={`relative w-8 h-8 rounded-lg transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
                         isWhite ? 'border border-gray-300' : ''
                       } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
                       style={{ backgroundColor: item.hex }}
@@ -1244,7 +1349,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                       type="button"
                       onClick={() => handleSelectSolid(item.hex)}
                       title={`${item.name} (${item.hex})`}
-                      className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
+                      className={`relative w-8 h-8 rounded-lg transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
                         isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
                       }`}
                       style={{ backgroundColor: item.hex }}
@@ -1267,7 +1372,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                         type="button"
                         onClick={() => handleSelectSolid(item.hex)}
                         title={`${item.name} (${item.hex})`}
-                        className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
+                        className={`relative w-8 h-8 rounded-lg transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
                           isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
                         }`}
                         style={{ backgroundColor: item.hex }}
@@ -1285,20 +1390,20 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
               )}
             </div>
 
-            {/* 8. DEFAULT GRADIENTS (Canva Style) */}
+            {/* 5. DEFAULT GRADIENT COLOURS */}
             {allowGradient && (
               <div className="space-y-2 pt-1 border-t border-gray-100">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
                     <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Gradients</span>
+                    <span>Default gradient colours</span>
                   </div>
                   <button
                     type="button"
-                    onClick={() => setMode('gradient')}
+                    onClick={() => setShowAllGradients((prev) => !prev)}
                     className="text-[11px] font-semibold text-purple-600 hover:text-purple-700 hover:underline"
                   >
-                    Customise
+                    {showAllGradients ? 'Show less' : 'See all'}
                   </button>
                 </div>
 
@@ -1329,7 +1434,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                         type="button"
                         onClick={() => handleSelectPresetGradient(gradVal)}
                         title={preset.name}
-                        className={`relative w-8 h-8 rounded-full transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center border border-black/10 ${
+                        className={`relative w-8 h-8 rounded-lg transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center border border-black/10 ${
                           isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''
                         }`}
                         style={{ background: cssBg }}
@@ -1339,18 +1444,41 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                     );
                   })}
                 </div>
+              </div>
+            )}
 
-                {GRADIENT_PRESETS.length > 14 && (
-                  <div className="flex justify-end pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setShowAllGradients((prev) => !prev)}
-                      className="text-[11px] font-semibold text-purple-600 hover:text-purple-700 hover:underline"
-                    >
-                      {showAllGradients ? 'Show less' : 'See all gradients'}
-                    </button>
-                  </div>
-                )}
+            {/* 6. RECENTLY USED COLOURS */}
+            {recentList.length > 0 && (
+              <div className="space-y-1.5 pt-1 border-t border-gray-100">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
+                  <History className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Recently used colours</span>
+                </div>
+                <div className="grid grid-cols-7 gap-2">
+                  {recentList.filter((hex) => matchesSearch(hex, hex)).map((hex) => {
+                    const isSelected = currentSolidHex.toLowerCase() === hex.toLowerCase();
+                    const isWhite = hex.toLowerCase() === '#ffffff';
+                    return (
+                      <button
+                        key={hex}
+                        type="button"
+                        onClick={() => handleSelectSolid(hex)}
+                        title={hex}
+                        className={`relative w-8 h-8 rounded-lg transition hover:scale-110 shadow-2xs flex items-center justify-center justify-self-center ${
+                          isWhite ? 'border border-gray-300' : ''
+                        } ${isSelected ? 'ring-2 ring-purple-600 ring-offset-2 scale-105' : ''}`}
+                        style={{ backgroundColor: hex }}
+                      >
+                        {isSelected && (
+                          <Check
+                            className={`w-3.5 h-3.5 ${isWhite ? 'text-gray-900' : 'text-white'}`}
+                            strokeWidth={3}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </>

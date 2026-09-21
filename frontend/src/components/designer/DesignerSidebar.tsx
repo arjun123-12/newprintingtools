@@ -155,7 +155,7 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
       </aside>
 
       {activeTab && activeTab !== 'draw' && (
-        <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full overflow-hidden shadow-xl relative animate-in slide-in-from-left duration-200">
+        <div className="w-80 bg-white border-r border-gray-200 flex flex-col overflow-hidden shadow-xl relative animate-in slide-in-from-left duration-200">
           <div className="h-12 border-b border-gray-200 px-4 flex items-center justify-between bg-gray-50/50">
             <span className="font-bold text-sm text-gray-800 capitalize">
               {getPanelTitle()}

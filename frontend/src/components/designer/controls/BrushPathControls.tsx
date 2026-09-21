@@ -100,10 +100,14 @@ export const BrushPathControls: React.FC<BrushPathControlsProps> = ({
           label="Stroke Color"
           value={strokeColor}
           onChange={(hex) => {
-            if (typeof hex === 'string') onUpdate('stroke', hex);
+            if (typeof hex === 'string') {
+              onUpdate('stroke', hex);
+            } else if (canvasManager) {
+              canvasManager.setSelectedGradient(hex, true);
+            }
           }}
           canvasManager={canvasManager}
-          allowGradient={false}
+          allowGradient={true}
           embedded={true}
         />
       </div>

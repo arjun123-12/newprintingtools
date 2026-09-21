@@ -736,29 +736,6 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             setIsExporting(false);
             return;
           }
-
-          if (format === 'pdf') {
-            setProgressMessage('Compiling true vector PDF...');
-            setExportProgress(85);
-            const pdfFilename = `${sanitizedDocName}-vector${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`;
-
-            try {
-              await exportVectorPdf(
-                [selfContainedSvg],
-                documentSettings,
-                totalW,
-                totalH,
-                { filename: pdfFilename }
-              );
-              setExportProgress(100);
-              setProgressMessage('True Vector PDF ready.');
-              setIsExporting(false);
-              return;
-            } catch (vectorPdfError) {
-              console.warn('Vector PDF export failed, falling back to high-res raster PDF:', vectorPdfError);
-              // Fall through to raster PDF fallback below
-            }
-          }
         } finally {
           canvasManager.setZoom(previousZoom);
           canvasManager.setGuidesVisible(guidesWereVisible);

@@ -488,12 +488,22 @@ export async function exportHighResolutionImage(
  *
  * SVG-to-PDFKit does not render every SVG filter primitive (notably Fabric
  * drop-shadows / Gaussian blur) consistently. To keep the artwork vector,
- * only the FILTER EFFECT is rasterized at high resolution. The original
- * text/path/shape is then drawn again as normal PDF vector artwork.
+ * filtered Fabric objects are rasterized on a transparent high-resolution
+ * effect layer so their blur/drop-shadow survives PDF conversion. The original
+ * text/path/shape is then drawn again as normal PDF vector artwork above it.
+ */
+/**
+ * Builds a PDF-safe hybrid representation for SVG filter shadows.
+ *
+ * SVG-to-PDFKit does not render every SVG filter primitive (notably Fabric
+ * drop-shadows / Gaussian blur) consistently. To keep the artwork vector,
+ * filtered Fabric objects are rasterized on a transparent high-resolution
+ * effect layer so their blur/drop-shadow survives PDF conversion. The original
+ * text/path/shape is then drawn again as normal PDF vector artwork above it.
  */
 async function prepareSvgFiltersForVectorPdf(
   svg: string,
-  rasterScale: number = 4
+  rasterScale: number = 6
 ): Promise<{ vectorSvg: string; shadowDataUrl: string | null }> {
   if (
     typeof window === 'undefined' ||
@@ -509,98 +519,606 @@ async function prepareSvgFiltersForVectorPdf(
     return { vectorSvg: svg, shadowDataUrl: null };
   }
 
-  const filtered = Array.from(sourceDoc.querySelectorAll('[filter]'));
+  const filtered = Array.from(
+    sourceDoc.querySelectorAll('[filter], [style*="filter"]')
+  );
+
+  const removeFilterFromNode = (node: Element) => {
+    node.removeAttribute('filter');
+    const styleAttr = node.getAttribute('style');
+    if (styleAttr && styleAttr.includes('filter')) {
+      const newStyle = styleAttr
+        .replace(/filter\s*:[^;]+(;|\s*$)/gi, '')
+        .trim();
+      if (newStyle) {
+        node.setAttribute('style', newStyle);
+      } else {
+        node.removeAttribute('style');
+      }
+    }
+  };
+
+  // Main PDF layer remains true vector. svg-to-pdfkit cannot reliably render
+  // Fabric blur/drop-shadow filters, so remove only those filter references.
+  const vectorDoc = sourceDoc.cloneNode(true) as Document;
+  vectorDoc.querySelectorAll('[filter], [style*="filter"]').forEach((node) => {
+    removeFilterFromNode(node as Element);
+  });
+
   if (filtered.length === 0) {
-    return { vectorSvg: svg, shadowDataUrl: null };
+    return {
+      vectorSvg: new XMLSerializer().serializeToString(
+        vectorDoc.documentElement
+      ),
+      shadowDataUrl: null,
+    };
   }
 
-  // Main PDF layer: keep all artwork vector, but remove unsupported filters.
-  const vectorDoc = sourceDoc.cloneNode(true) as Document;
-  vectorDoc.querySelectorAll('[filter]').forEach((node) => {
-    node.removeAttribute('filter');
-  });
+  const drawableSelector =
+    'path,rect,circle,ellipse,line,polyline,polygon,text,image,use';
 
-  // Shadow layer: retain only objects that use filters. The source graphic
-  // inside Fabric's feMerge is removed so this bitmap contains the effect,
-  // not a second raster copy of the vector object.
-  const shadowDoc = sourceDoc.cloneNode(true) as Document;
-  const shadowRoot = shadowDoc.documentElement;
+  /**
+   * Build a transparent SVG containing ONLY objects that originally owned a
+   * Fabric filter. We create two versions:
+   *  1) filtered version   -> object + browser-rendered Fabric shadow
+   *  2) source-only       -> same object with filter removed
+   *
+   * After rasterizing both, source pixels are removed from the filtered image.
+   * The result is a real transparent shadow-only PNG.
+   */
+  const buildEffectDocument = (keepFilters: boolean): Document => {
+    const doc = sourceDoc.cloneNode(true) as Document;
 
-  shadowDoc.querySelectorAll('filter').forEach((filter) => {
-    filter.querySelectorAll('feMerge').forEach((merge) => {
-      merge.querySelectorAll('feMergeNode').forEach((node) => {
-        const input = (node.getAttribute('in') || '').toLowerCase();
-        if (input === 'sourcegraphic') {
-          node.remove();
-        }
+    // Mark the drawable elements that participate in a filtered object before
+    // changing any filter attributes.
+    const keep = new Set<Element>();
+    doc.querySelectorAll('[filter], [style*="filter"]').forEach((owner) => {
+      if (owner.matches(drawableSelector)) {
+        keep.add(owner as Element);
+      }
+      owner.querySelectorAll(drawableSelector).forEach((child) => {
+        keep.add(child as Element);
       });
     });
-  });
 
-  // Hide normal drawable nodes that do not participate in a filter. Keep
-  // structural containers, defs, clipPaths and masks intact.
-  const drawableSelector = 'path,rect,circle,ellipse,line,polyline,polygon,text,image,use';
-  shadowDoc.querySelectorAll(drawableSelector).forEach((node) => {
-    const element = node as Element;
-    const ownsFilter = element.hasAttribute('filter');
-    const insideFilteredParent = Boolean(element.parentElement?.closest('[filter]'));
-    const insideDefs = Boolean(element.closest('defs,clipPath,mask,filter,pattern,linearGradient,radialGradient'));
-    if (!ownsFilter && !insideFilteredParent && !insideDefs) {
-      element.setAttribute('visibility', 'hidden');
+    // Keep defs/clip/mask/filter structures, but hide every normal drawable
+    // that is not part of a filtered object. This also removes page/background
+    // rectangles from the effect raster.
+    doc.querySelectorAll(drawableSelector).forEach((node) => {
+      const element = node as Element;
+      const structural = Boolean(
+        element.closest(
+          'defs,clipPath,mask,filter,pattern,linearGradient,radialGradient'
+        )
+      );
+
+      if (!structural && !keep.has(element)) {
+        element.setAttribute('visibility', 'hidden');
+      }
+    });
+
+    if (!keepFilters) {
+      doc.querySelectorAll('[filter], [style*="filter"]').forEach((node) => {
+        removeFilterFromNode(node as Element);
+      });
+    } else {
+      // Prevent blur/offset pixels from being clipped by Fabric's default
+      // filter region when the browser rasterizes the effect.
+      doc.querySelectorAll('filter').forEach((filter) => {
+        filter.setAttribute('x', '-200%');
+        filter.setAttribute('y', '-200%');
+        filter.setAttribute('width', '500%');
+        filter.setAttribute('height', '500%');
+      });
     }
-  });
 
-  const serializedShadow = new XMLSerializer().serializeToString(shadowRoot);
+    return doc;
+  };
 
-  const viewBox = shadowRoot.getAttribute('viewBox')?.trim().split(/\s+/).map(Number);
+  const filteredDoc = buildEffectDocument(true);
+  const sourceOnlyDoc = buildEffectDocument(false);
+  const root = sourceDoc.documentElement;
+
+  const viewBox = root
+    .getAttribute('viewBox')
+    ?.trim()
+    .split(/\s+/)
+    .map(Number);
+
   let logicalWidth = viewBox && viewBox.length === 4 ? viewBox[2] : 0;
   let logicalHeight = viewBox && viewBox.length === 4 ? viewBox[3] : 0;
 
   if (!logicalWidth || !logicalHeight) {
-    logicalWidth = parseFloat(shadowRoot.getAttribute('width') || '0') || 1;
-    logicalHeight = parseFloat(shadowRoot.getAttribute('height') || '0') || 1;
+    logicalWidth = parseFloat(root.getAttribute('width') || '0') || 1;
+    logicalHeight = parseFloat(root.getAttribute('height') || '0') || 1;
   }
 
-  const blob = new Blob([serializedShadow], { type: 'image/svg+xml;charset=utf-8' });
-  const objectUrl = URL.createObjectURL(blob);
+  const scale = Math.max(2, Math.min(8, rasterScale));
+  const pixelWidth = Math.max(1, Math.ceil(logicalWidth * scale));
+  const pixelHeight = Math.max(1, Math.ceil(logicalHeight * scale));
 
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('Failed to render SVG shadow layer'));
-      img.src = objectUrl;
+  const renderSvgDocument = async (
+    doc: Document
+  ): Promise<HTMLCanvasElement> => {
+    // Strip external network @import lines from <style> blocks before serializing
+    // for HTMLImageElement, preventing browser CORS/security blocking of SVG blob.
+    const docCopy = doc.cloneNode(true) as Document;
+    docCopy.querySelectorAll('style').forEach((styleEl) => {
+      if (styleEl.textContent && styleEl.textContent.includes('@import')) {
+        styleEl.textContent = styleEl.textContent.replace(
+          /@import\s+url\([^)]+\);?/gi,
+          ''
+        );
+      }
     });
 
-    const scale = Math.max(2, Math.min(8, rasterScale));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.ceil(logicalWidth * scale));
-    canvas.height = Math.max(1, Math.ceil(logicalHeight * scale));
+    const markup = new XMLSerializer().serializeToString(
+      docCopy.documentElement
+    );
+    const blob = new Blob([markup], {
+      type: 'image/svg+xml;charset=utf-8',
+    });
+    const objectUrl = URL.createObjectURL(blob);
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      return {
-        vectorSvg: new XMLSerializer().serializeToString(vectorDoc.documentElement),
-        shadowDataUrl: null,
-      };
+    try {
+      const image = await new Promise<HTMLImageElement>(
+        (resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () =>
+            reject(
+              new Error('Failed to render Fabric PDF effect layer')
+            );
+          img.src = objectUrl;
+        }
+      );
+
+      const canvas = document.createElement('canvas');
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) {
+        throw new Error('Canvas 2D context unavailable for PDF shadow');
+      }
+
+      ctx.clearRect(0, 0, pixelWidth, pixelHeight);
+      ctx.drawImage(image, 0, 0, pixelWidth, pixelHeight);
+      return canvas;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
+
+  try {
+    const [filteredCanvas, sourceCanvas] = await Promise.all([
+      renderSvgDocument(filteredDoc),
+      renderSvgDocument(sourceOnlyDoc),
+    ]);
+
+    const filteredCtx = filteredCanvas.getContext('2d', {
+      willReadFrequently: true,
+    });
+    const sourceCtx = sourceCanvas.getContext('2d', {
+      willReadFrequently: true,
+    });
+
+    if (!filteredCtx || !sourceCtx) {
+      throw new Error('Unable to read PDF shadow raster');
     }
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const filteredPixels = filteredCtx.getImageData(
+      0,
+      0,
+      pixelWidth,
+      pixelHeight
+    );
+    const sourcePixels = sourceCtx.getImageData(
+      0,
+      0,
+      pixelWidth,
+      pixelHeight
+    );
+
+    const out = filteredPixels.data;
+    const src = sourcePixels.data;
+
+    for (let i = 0; i < out.length; i += 4) {
+      const sourceAlpha = src[i + 3] / 255;
+
+      if (sourceAlpha >= 0.98) {
+        out[i] = 0;
+        out[i + 1] = 0;
+        out[i + 2] = 0;
+        out[i + 3] = 0;
+        continue;
+      }
+
+      if (sourceAlpha > 0) {
+        const remaining = 1 - sourceAlpha;
+        out[i + 3] = Math.round(out[i + 3] * remaining);
+      }
+    }
+
+    filteredCtx.putImageData(filteredPixels, 0, 0);
 
     return {
-      vectorSvg: new XMLSerializer().serializeToString(vectorDoc.documentElement),
-      shadowDataUrl: canvas.toDataURL('image/png'),
+      vectorSvg: new XMLSerializer().serializeToString(
+        vectorDoc.documentElement
+      ),
+      shadowDataUrl: filteredCanvas.toDataURL('image/png'),
     };
   } catch (error) {
-    console.warn('Could not create PDF shadow-effect layer; exporting vectors without filter:', error);
+    console.warn(
+      'Could not create Fabric PDF shadow layer; exporting vectors without shadow:',
+      error
+    );
+
     return {
-      vectorSvg: new XMLSerializer().serializeToString(vectorDoc.documentElement),
+      vectorSvg: new XMLSerializer().serializeToString(
+        vectorDoc.documentElement
+      ),
       shadowDataUrl: null,
     };
-  } finally {
-    URL.revokeObjectURL(objectUrl);
   }
+}
+
+
+
+type PdfFontFace = {
+  family: string;
+  weight: number;
+  italic: boolean;
+  pdfName: string;
+  data: Uint8Array;
+};
+
+const normalizePdfFontFamily = (family: string): string =>
+  (family || '')
+    .split(',')[0]
+    .trim()
+    .replace(/^['"]|['"]$/g, '');
+
+const normalizePdfFontWeight = (
+  value: string | number | null | undefined
+): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(100, Math.min(900, Math.round(value / 100) * 100));
+  }
+
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'bold' || raw === 'bolder') return 700;
+  if (raw === 'lighter') return 300;
+
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isFinite(parsed)) {
+    return Math.max(100, Math.min(900, Math.round(parsed / 100) * 100));
+  }
+
+  return 400;
+};
+
+const escapeCssFamilyForGoogle = (family: string): string =>
+  encodeURIComponent(family.trim()).replace(/%20/g, '+');
+
+function collectSvgFontRequests(
+  svgs: string[]
+): Array<{ family: string; weight: number; italic: boolean }> {
+  if (typeof DOMParser === 'undefined') return [];
+
+  const requests = new Map<
+    string,
+    { family: string; weight: number; italic: boolean }
+  >();
+
+  for (const svg of svgs) {
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    if (doc.querySelector('parsererror')) continue;
+
+    const textNodes = Array.from(doc.querySelectorAll('text, tspan'));
+
+    for (const node of textNodes) {
+      let familyRaw = node.getAttribute('font-family');
+      let weightRaw = node.getAttribute('font-weight');
+      let styleRaw = node.getAttribute('font-style');
+
+      const styleAttr = node.getAttribute('style') || '';
+      if (styleAttr) {
+        const parts = styleAttr.split(';').map((p) => p.trim());
+        for (const part of parts) {
+          const idx = part.indexOf(':');
+          if (idx > -1) {
+            const k = part.slice(0, idx).trim().toLowerCase();
+            const v = part.slice(idx + 1).trim();
+            if (k === 'font-family' && !familyRaw) familyRaw = v;
+            if (k === 'font-weight' && !weightRaw) weightRaw = v;
+            if (k === 'font-style' && !styleRaw) styleRaw = v;
+          }
+        }
+      }
+
+      let parent = node.parentElement;
+      while (parent && (!familyRaw || !weightRaw || !styleRaw)) {
+        const pStyle = parent.getAttribute('style') || '';
+        if (!familyRaw)
+          familyRaw = parent.getAttribute('font-family');
+        if (!weightRaw)
+          weightRaw = parent.getAttribute('font-weight');
+        if (!styleRaw)
+          styleRaw = parent.getAttribute('font-style');
+        if (pStyle) {
+          const parts = pStyle.split(';').map((p) => p.trim());
+          for (const part of parts) {
+            const idx = part.indexOf(':');
+            if (idx > -1) {
+              const k = part.slice(0, idx).trim().toLowerCase();
+              const v = part.slice(idx + 1).trim();
+              if (k === 'font-family' && !familyRaw) familyRaw = v;
+              if (k === 'font-weight' && !weightRaw) weightRaw = v;
+              if (k === 'font-style' && !styleRaw) styleRaw = v;
+            }
+          }
+        }
+        parent = parent.parentElement;
+      }
+
+      const family = normalizePdfFontFamily(familyRaw || 'Helvetica');
+      if (!family) continue;
+
+      const weight = normalizePdfFontWeight(weightRaw || '400');
+      const fontStyle = (styleRaw || 'normal').toLowerCase();
+      const italic = fontStyle === 'italic' || fontStyle === 'oblique';
+
+      const key = `${family.toLowerCase()}|${weight}|${italic ? 1 : 0}`;
+      requests.set(key, { family, weight, italic });
+    }
+  }
+
+  return Array.from(requests.values());
+}
+
+function isPdfStandardFamily(family: string): boolean {
+  const normalized = family.toLowerCase().trim();
+
+  return (
+    normalized === 'helvetica' ||
+    normalized === 'arial' ||
+    normalized === 'courier' ||
+    normalized === 'monospace' ||
+    normalized === 'times' ||
+    normalized === 'times new roman' ||
+    normalized === 'serif' ||
+    normalized === 'sans-serif' ||
+    normalized === 'symbol' ||
+    normalized === 'zapfdingbats'
+  );
+}
+
+function getStandardPdfFontName(
+  family: string,
+  bold: boolean,
+  italic: boolean
+): string {
+  const normalizedFamily = (family || '').toLowerCase();
+
+  if (
+    normalizedFamily.includes('courier') ||
+    normalizedFamily.includes('mono') ||
+    normalizedFamily.includes('code')
+  ) {
+    if (bold && italic) return 'Courier-BoldOblique';
+    if (bold) return 'Courier-Bold';
+    if (italic) return 'Courier-Oblique';
+    return 'Courier';
+  }
+
+  if (
+    normalizedFamily.includes('times') ||
+    normalizedFamily === 'serif' ||
+    normalizedFamily.includes('georgia') ||
+    normalizedFamily.includes('garamond')
+  ) {
+    if (bold && italic) return 'Times-BoldItalic';
+    if (bold) return 'Times-Bold';
+    if (italic) return 'Times-Italic';
+    return 'Times-Roman';
+  }
+
+  if (normalizedFamily.includes('symbol')) return 'Symbol';
+  if (normalizedFamily.includes('dingbat')) return 'ZapfDingbats';
+
+  if (bold && italic) return 'Helvetica-BoldOblique';
+  if (bold) return 'Helvetica-Bold';
+  if (italic) return 'Helvetica-Oblique';
+  return 'Helvetica';
+}
+
+function parseGoogleFontCssUrls(
+  css: string
+): Array<{ weight: number; italic: boolean; url: string }> {
+  const faces: Array<{ weight: number; italic: boolean; url: string }> = [];
+  const blocks = css.match(/@font-face\s*{[\s\S]*?}/gi) || [];
+
+  for (const block of blocks) {
+    const styleMatch = block.match(/font-style\s*:\s*([^;]+);/i);
+    const weightMatch = block.match(/font-weight\s*:\s*([^;]+);/i);
+    const urlMatch = block.match(
+      /src\s*:[^;]*url\((['"]?)(https?:\/\/[^)'"]+)\1\)[^;]*;/i
+    );
+
+    if (!urlMatch?.[2]) continue;
+
+    const weightRaw = (weightMatch?.[1] || '400').trim();
+    const firstWeight = weightRaw.includes(' ')
+      ? weightRaw.split(/\s+/)[0]
+      : weightRaw;
+
+    faces.push({
+      weight: normalizePdfFontWeight(firstWeight),
+      italic:
+        (styleMatch?.[1] || 'normal').trim().toLowerCase() !== 'normal',
+      url: urlMatch[2],
+    });
+  }
+
+  return faces;
+}
+
+/**
+ * Fetches TrueType (.ttf) font binary data for embedding in PDFKit.
+ * Uses Google Fonts v1 API which returns TTF files supported by PDFKit.
+ */
+async function fetchGoogleFontFace(
+  family: string,
+  weight: number,
+  italic: boolean
+): Promise<Uint8Array | null> {
+  if (typeof fetch === 'undefined') return null;
+
+  const familyQuery = escapeCssFamilyForGoogle(family);
+  const spec = italic ? `${weight}italic` : `${weight}`;
+  const v1Url = `https://fonts.googleapis.com/css?family=${familyQuery}:${spec}`;
+
+  try {
+    const cssResponse = await fetch(v1Url, {
+      mode: 'cors',
+      cache: 'force-cache',
+    });
+
+    if (cssResponse.ok) {
+      const css = await cssResponse.text();
+      const urlMatch = css.match(
+        /src\s*:\s*[^;]*url\((['"]?)(https?:\/\/[^)'"]+)\1\)/i
+      );
+
+      if (urlMatch?.[2]) {
+        const fontResponse = await fetch(urlMatch[2], {
+          mode: 'cors',
+          cache: 'force-cache',
+        });
+
+        if (fontResponse.ok) {
+          const buffer = new Uint8Array(await fontResponse.arrayBuffer());
+          if (buffer.length > 4) {
+            return buffer;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`V1 Google font fetch failed for ${family}:`, err);
+  }
+
+  // Fallback to v2 API if v1 API didn't return a match
+  const v2Url = italic
+    ? `https://fonts.googleapis.com/css2?family=${familyQuery}:ital,wght@1,${weight}&display=swap`
+    : `https://fonts.googleapis.com/css2?family=${familyQuery}:wght@${weight}&display=swap`;
+
+  try {
+    const cssResponse = await fetch(v2Url, {
+      mode: 'cors',
+      cache: 'force-cache',
+    });
+
+    if (!cssResponse.ok) {
+      throw new Error(`Google Fonts CSS returned ${cssResponse.status}`);
+    }
+
+    const css = await cssResponse.text();
+    const availableFaces = parseGoogleFontCssUrls(css);
+
+    const exact =
+      availableFaces.find(
+        (face) => face.weight === weight && face.italic === italic
+      ) ||
+      availableFaces.find((face) => face.italic === italic) ||
+      availableFaces[0];
+
+    if (!exact?.url) return null;
+
+    const fontResponse = await fetch(exact.url, {
+      mode: 'cors',
+      cache: 'force-cache',
+    });
+
+    if (!fontResponse.ok) {
+      throw new Error(`Font file returned ${fontResponse.status}`);
+    }
+
+    return new Uint8Array(await fontResponse.arrayBuffer());
+  } catch (error) {
+    console.warn(
+      `Could not load PDF font "${family}" ${weight}${italic ? ' italic' : ''}:`,
+      error
+    );
+    return null;
+  }
+}
+
+async function registerSvgFontsForPdf(
+  pdf: InstanceType<typeof PDFDocument>,
+  svgs: string[]
+): Promise<PdfFontFace[]> {
+  const requests = collectSvgFontRequests(svgs);
+  const registered: PdfFontFace[] = [];
+
+  for (const request of requests) {
+    if (isPdfStandardFamily(request.family)) continue;
+
+    const data = await fetchGoogleFontFace(
+      request.family,
+      request.weight,
+      request.italic
+    );
+
+    if (!data || data.byteLength === 0) continue;
+
+    const safeFamily = request.family.replace(/[^a-z0-9]+/gi, '_');
+    const pdfName = `Custom_${safeFamily}_${request.weight}_${request.italic ? 'Italic' : 'Normal'}`;
+
+    try {
+      pdf.registerFont(pdfName, data);
+      registered.push({
+        ...request,
+        pdfName,
+        data,
+      });
+    } catch (error) {
+      console.warn(
+        `PDFKit could not register font "${request.family}":`,
+        error
+      );
+    }
+  }
+
+  return registered;
+}
+
+function resolveRegisteredPdfFont(
+  registered: PdfFontFace[],
+  family: string,
+  bold: boolean,
+  italic: boolean
+): string | null {
+  const normalizedFamily = normalizePdfFontFamily(family).toLowerCase();
+  const requestedWeight = bold ? 700 : 400;
+
+  const familyFaces = registered.filter(
+    (face) => face.family.toLowerCase() === normalizedFamily
+  );
+
+  if (familyFaces.length === 0) return null;
+
+  const sameStyle = familyFaces.filter((face) => face.italic === italic);
+  const candidates = sameStyle.length > 0 ? sameStyle : familyFaces;
+
+  candidates.sort(
+    (a, b) =>
+      Math.abs(a.weight - requestedWeight) -
+      Math.abs(b.weight - requestedWeight)
+  );
+
+  return candidates[0]?.pdfName || null;
 }
 
 /**
@@ -640,6 +1158,10 @@ export async function exportVectorPdf(
 
     const chunks: Uint8Array[] = [];
 
+    // Register the exact custom fonts used by SVG text before SVG-to-PDFKit renders it.
+    // This prevents Poppins/Montserrat/Roboto/etc. from silently becoming Helvetica.
+    const registeredCustomFonts = await registerSvgFontsForPdf(pdf, svgs);
+
     pdf.on('data', (chunk: Uint8Array) => {
       chunks.push(chunk);
     });
@@ -666,11 +1188,44 @@ export async function exportVectorPdf(
       // Preserve the original artwork as vectors while rendering only
       // unsupported SVG filter effects (Fabric shadows/blur) as a transparent
       // high-resolution bitmap underneath.
-      const preparedPdfSvg = await prepareSvgFiltersForVectorPdf(embeddedSvg, 4);
+      const preparedPdfSvg = await prepareSvgFiltersForVectorPdf(
+        embeddedSvg,
+        6
+      );
 
       pdf.addPage({
         size: [width, height],
         margin: 0,
+      });
+
+
+
+      SVGtoPDF(pdf, preparedPdfSvg.vectorSvg, 0, 0, {
+        width,
+        height,
+        assumePt: true,
+        imageCallback: (link: string) => (link ? link.trim() : ''),
+        fontCallback: (
+          family: string,
+          bold: boolean,
+          italic: boolean
+        ): string => {
+          const embeddedFont = resolveRegisteredPdfFont(
+            registeredCustomFonts,
+            family,
+            bold,
+            italic
+          );
+
+          if (embeddedFont) {
+            return embeddedFont;
+          }
+
+          return getStandardPdfFontName(family, bold, italic);
+        },
+        warningCallback: (warning: string) => {
+          console.warn('SVG-to-PDFKit warning:', warning);
+        },
       });
 
       if (preparedPdfSvg.shadowDataUrl) {
@@ -679,90 +1234,6 @@ export async function exportVectorPdf(
           height,
         });
       }
-
-      SVGtoPDF(pdf, preparedPdfSvg.vectorSvg, 0, 0, {
-        width,
-        height,
-        assumePt: true,
-        imageCallback: (link: string) => (link ? link.trim() : ''),
-
-        fontCallback: (
-          family: string,
-          bold: boolean,
-          italic: boolean
-        ): string => {
-          const normalizedFamily = (family || '').toLowerCase();
-
-          if (
-            normalizedFamily.includes('courier') ||
-            normalizedFamily.includes('mono') ||
-            normalizedFamily.includes('code')
-          ) {
-            if (bold && italic) {
-              return 'Courier-BoldOblique';
-            }
-
-            if (bold) {
-              return 'Courier-Bold';
-            }
-
-            if (italic) {
-              return 'Courier-Oblique';
-            }
-
-            return 'Courier';
-          }
-
-          if (
-            normalizedFamily.includes('times') ||
-            normalizedFamily.includes('serif') ||
-            normalizedFamily.includes('georgia') ||
-            normalizedFamily.includes('garamond') ||
-            normalizedFamily.includes('playfair') ||
-            normalizedFamily.includes('merriweather')
-          ) {
-            if (bold && italic) {
-              return 'Times-BoldItalic';
-            }
-
-            if (bold) {
-              return 'Times-Bold';
-            }
-
-            if (italic) {
-              return 'Times-Italic';
-            }
-
-            return 'Times-Roman';
-          }
-
-          if (normalizedFamily.includes('symbol')) {
-            return 'Symbol';
-          }
-
-          if (normalizedFamily.includes('dingbat')) {
-            return 'ZapfDingbats';
-          }
-
-          if (bold && italic) {
-            return 'Helvetica-BoldOblique';
-          }
-
-          if (bold) {
-            return 'Helvetica-Bold';
-          }
-
-          if (italic) {
-            return 'Helvetica-Oblique';
-          }
-
-          return 'Helvetica';
-        },
-
-        warningCallback: (warning: string) => {
-          console.warn('SVG-to-PDFKit warning:', warning);
-        },
-      });
     }
 
     pdf.end();

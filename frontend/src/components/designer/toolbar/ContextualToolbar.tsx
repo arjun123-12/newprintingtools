@@ -320,6 +320,19 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   const textAlign = selected?.textAlign || 'left';
   const fontSize = selected?.fontSize || 32;
 
+  const artworkDpi = Math.max(72, Number(canvasManager?.getDimensions().dpi) || 96);
+  const currentFontSizePt = Math.max(
+    1,
+    Math.round(((Number(selected?.fontSize) || 32) * 72) / artworkDpi * 10) / 10
+  );
+
+  const handleFontSizePtChange = (newPt: number) => {
+    if (!canvasManager) return;
+    const clampedPt = Math.max(1, Math.min(newPt, 500));
+    const px = (clampedPt * artworkDpi) / 72;
+    canvasManager.updateSelectedProperty('fontSize', px);
+  };
+
   /*
    * Canva-style rounding uses the selected element's size instead of a small
    * fixed slider maximum. Shapes store rx/ry in their unscaled local space,
@@ -650,7 +663,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           <div className="flex items-center h-8 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
             <button
               type="button"
-              onClick={() => handleUpdate('fontSize', Math.max(fontSize - 2, 6))}
+              onClick={() => handleFontSizePtChange(Math.max(1, Math.round(currentFontSizePt - 1)))}
               title="Decrease Font Size"
               className="px-2 h-full hover:bg-gray-100 text-gray-600 transition"
             >
@@ -658,15 +671,16 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </button>
             <input
               type="number"
-              value={fontSize}
-              min={6}
-              max={400}
-              onChange={(e) => handleUpdate('fontSize', Number(e.target.value))}
+              value={currentFontSizePt}
+              min={1}
+              max={500}
+              step={1}
+              onChange={(e) => handleFontSizePtChange(Number(e.target.value))}
               className="w-10 text-center text-xs font-bold text-gray-800 focus:outline-none py-1"
             />
             <button
               type="button"
-              onClick={() => handleUpdate('fontSize', Math.min(fontSize + 2, 400))}
+              onClick={() => handleFontSizePtChange(Math.min(500, Math.round(currentFontSizePt + 1)))}
               title="Increase Font Size"
               className="px-2 h-full hover:bg-gray-100 text-gray-600 transition"
             >

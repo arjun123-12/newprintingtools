@@ -221,12 +221,16 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
                   label="Border Colour"
                   value={stroke || '#000000'}
                   onChange={(color) => {
-                    if (typeof color === 'string') handleColorChange(color);
+                    if (typeof color === 'string') {
+                      handleColorChange(color);
+                    } else if (canvasManager) {
+                      canvasManager.setSelectedGradient(color, true);
+                    }
                   }}
                   onClose={() => setShowColorPicker(false)}
                   canvasManager={canvasManager}
                   embedded={true}
-                  allowGradient={false}
+                  allowGradient={true}
                 />
               </div>
             )}

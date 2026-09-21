@@ -126,7 +126,7 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-white select-none">
+    <div className="flex flex-col overflow-hidden bg-white select-none">
       <ColorPicker
         label={label}
         value={currentValue}

@@ -32,6 +32,8 @@ export class SmartSpacingManager {
   private isEnabled: boolean = true;
   private activeMeasurements: DistanceMeasurement[] = [];
 
+  private fadeTimeout: any = null;
+
   constructor(dimensions: CanvasDimensions) {
     this.dimensions = dimensions;
   }
@@ -42,7 +44,7 @@ export class SmartSpacingManager {
 
   public detach(): void {
     this.canvas = null;
-    this.activeMeasurements = [];
+    this.clear();
   }
 
   public updateDimensions(dims: CanvasDimensions): void {
@@ -61,6 +63,10 @@ export class SmartSpacingManager {
   }
 
   public clear(): void {
+    if (this.fadeTimeout) {
+      clearTimeout(this.fadeTimeout);
+      this.fadeTimeout = null;
+    }
     if (this.activeMeasurements.length > 0) {
       this.activeMeasurements = [];
       this.canvas?.requestRenderAll();
@@ -68,14 +74,26 @@ export class SmartSpacingManager {
   }
 
   /**
-   * Main calculation handler triggered during object:moving or selection transforms.
+   * Called during object:moving. Keeps measurements cleared while dragging.
    */
-  public handleObjectMove(target: FabricObject): void {
+  public handleObjectMove(_target: FabricObject): void {
+    // Distance parameter is hidden while moving
+    if (this.activeMeasurements.length > 0) {
+      this.clear();
+    }
+  }
+
+  /**
+   * Triggered when an object's position is fixed (e.g. object:modified / mouse:up).
+   * Calculates distance measurements and displays them for 1.8 seconds before hiding.
+   */
+  public handleObjectFixed(target: FabricObject): void {
     if (!this.isEnabled || !this.canvas || !target) return;
+
+    this.clear();
 
     const collected = this.collectCandidates(target);
     if (!collected || collected.candidates.length === 0) {
-      this.clear();
       return;
     }
 
@@ -96,14 +114,14 @@ export class SmartSpacingManager {
         Math.max(c.height, targetBox.height) / 2 + 60;
 
       if (verticalOverlap || verticalNearAlign) {
-        // Candidate is to the left of the moving target
+        // Candidate is to the left of the target
         if (c.right <= targetBox.left) {
           const gap = targetBox.left - c.right;
           if (gap >= 0.5 && (!nearestLeft || gap < nearestLeft.gap)) {
             nearestLeft = { box: c, gap };
           }
         }
-        // Candidate is to the right of the moving target
+        // Candidate is to the right of the target
         else if (c.left >= targetBox.right) {
           const gap = c.left - targetBox.right;
           if (gap >= 0.5 && (!nearestRight || gap < nearestRight.gap)) {
@@ -120,14 +138,14 @@ export class SmartSpacingManager {
         Math.max(c.width, targetBox.width) / 2 + 60;
 
       if (horizontalOverlap || horizontalNearAlign) {
-        // Candidate is above the moving target
+        // Candidate is above the target
         if (c.bottom <= targetBox.top) {
           const gap = targetBox.top - c.bottom;
           if (gap >= 0.5 && (!nearestTop || gap < nearestTop.gap)) {
             nearestTop = { box: c, gap };
           }
         }
-        // Candidate is below the moving target
+        // Candidate is below the target
         else if (c.top >= targetBox.bottom) {
           const gap = c.top - targetBox.bottom;
           if (gap >= 0.5 && (!nearestBottom || gap < nearestBottom.gap)) {
@@ -140,7 +158,7 @@ export class SmartSpacingManager {
     const zoom = Math.max(this.canvas.getZoom() || 1, 0.01);
     const equalTolerance = 4 / zoom;
 
-    // Detect equal spacing between 3 elements (Canva Smart Spacing)
+    // Detect equal spacing between 3 elements
     const horizEqual =
       Boolean(nearestLeft && nearestRight) &&
       Math.abs((nearestLeft?.gap || 0) - (nearestRight?.gap || 0)) <= equalTolerance;
@@ -248,6 +266,13 @@ export class SmartSpacingManager {
     this.activeMeasurements = measurements;
     if (measurements.length > 0) {
       this.canvas.requestRenderAll();
+
+      // Automatically hide distance measurements after 1.8 seconds
+      this.fadeTimeout = setTimeout(() => {
+        this.activeMeasurements = [];
+        this.canvas?.requestRenderAll();
+        this.fadeTimeout = null;
+      }, 1800);
     }
   }
 
@@ -294,11 +319,6 @@ export class SmartSpacingManager {
     fallbackZoom = 1
   ): void {
     if (!this.canvas || this.activeMeasurements.length === 0) return;
-
-    if (!(this.canvas as any)._currentTransform) {
-      this.activeMeasurements = [];
-      return;
-    }
 
     const viewportZoom = Math.max(this.canvas.getZoom() || 1, 0.01);
     const displayZoom = this.getDisplayZoom(fallbackZoom);

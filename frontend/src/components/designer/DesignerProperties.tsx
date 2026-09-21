@@ -384,7 +384,7 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                   value={selected.stroke || '#000000'}
                   onChange={handleStrokeChange}
                   canvasManager={canvasManager}
-                  allowGradient={false}
+                  allowGradient={true}
                   embedded={true}
                 />
               </div>

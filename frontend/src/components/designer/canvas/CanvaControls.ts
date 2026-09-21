@@ -153,134 +153,40 @@ function cropDirectImageDuringSideResize(
   state: LiveFrameResizeState,
   axis: 'x' | 'y'
 ): void {
-  const corner = state.corner;
+  const sourceWidth = Math.max(state.sourceWidth, 1);
+  const sourceHeight = Math.max(state.sourceHeight, 1);
+  const requestedWidth = Math.max((Number(image.width) || 1) * Math.abs(Number(image.scaleX) || 1), 10);
+  const requestedHeight = Math.max((Number(image.height) || 1) * Math.abs(Number(image.scaleY) || 1), 10);
+  const initialDisplayWidth = state.initialWidth * Math.max(state.renderedPhotoScaleX, 0.0001);
+  const initialDisplayHeight = state.initialHeight * Math.max(state.renderedPhotoScaleY, 0.0001);
+  const viewportWidth = axis === 'x' ? requestedWidth : initialDisplayWidth;
+  const viewportHeight = axis === 'y' ? requestedHeight : initialDisplayHeight;
+  const coverScale = Math.max(viewportWidth / sourceWidth, viewportHeight / sourceHeight, 0.0001);
+  const visibleSourceWidth = Math.min(sourceWidth, viewportWidth / coverScale);
+  const visibleSourceHeight = Math.min(sourceHeight, viewportHeight / coverScale);
+  const oldCenterX = state.initialCropX + state.initialWidth / 2;
+  const oldCenterY = state.initialCropY + state.initialHeight / 2;
+  const cropX = Math.max(0, Math.min(oldCenterX - visibleSourceWidth / 2, sourceWidth - visibleSourceWidth));
+  const cropY = Math.max(0, Math.min(oldCenterY - visibleSourceHeight / 2, sourceHeight - visibleSourceHeight));
 
-  if (axis === 'x') {
-    const requestedDisplayWidth = Math.max(
-      (Number(image.width) || 1) * Math.abs(Number(image.scaleX) || 1),
-      10
-    );
+  image.set({
+    width: visibleSourceWidth,
+    height: visibleSourceHeight,
+    cropX,
+    cropY,
+    scaleX: coverScale,
+    scaleY: coverScale,
+    objectCaching: false,
+  });
 
-    if (corner === 'mr') {
-      const initialCropX = state.initialCropX;
-      const availableSourceWidth = Math.max(1, state.sourceWidth - initialCropX);
-      const maxUncroppedDisplayWidth = availableSourceWidth * state.renderedPhotoScaleX;
-
-      if (requestedDisplayWidth <= maxUncroppedDisplayWidth) {
-        const visibleSourceWidth = Math.max(1, requestedDisplayWidth / state.renderedPhotoScaleX);
-        image.set({
-          width: visibleSourceWidth,
-          cropX: initialCropX,
-          scaleX: state.renderedPhotoScaleX,
-          objectCaching: false,
-        });
-      } else {
-        // Dragging outward beyond uncropped right edge: increase scaleX so width expands
-        const visibleSourceWidth = availableSourceWidth;
-        const scaleX = requestedDisplayWidth / visibleSourceWidth;
-        image.set({
-          width: visibleSourceWidth,
-          cropX: initialCropX,
-          scaleX,
-          objectCaching: false,
-        });
-      }
-      image.setPositionByOrigin(state.anchorPoint as any, 'left', 'center');
-    } else if (corner === 'ml') {
-      const sourceRight = Math.min(state.sourceWidth, state.initialCropX + state.initialWidth);
-      const maxUncroppedDisplayWidth = sourceRight * state.renderedPhotoScaleX;
-
-      if (requestedDisplayWidth <= maxUncroppedDisplayWidth) {
-        const visibleSourceWidth = Math.max(1, requestedDisplayWidth / state.renderedPhotoScaleX);
-        const cropX = Math.max(0, sourceRight - visibleSourceWidth);
-        image.set({
-          width: visibleSourceWidth,
-          cropX,
-          scaleX: state.renderedPhotoScaleX,
-          objectCaching: false,
-        });
-      } else {
-        // Dragging outward beyond uncropped left edge: increase scaleX so width expands
-        const visibleSourceWidth = Math.max(1, sourceRight);
-        const scaleX = requestedDisplayWidth / visibleSourceWidth;
-        image.set({
-          width: visibleSourceWidth,
-          cropX: 0,
-          scaleX,
-          objectCaching: false,
-        });
-      }
-      image.setPositionByOrigin(state.anchorPoint as any, 'right', 'center');
-    } else {
-      const scaleX = requestedDisplayWidth / Math.max(Number(image.width) || 1, 1);
-      image.set({ scaleX, objectCaching: false });
-      image.setPositionByOrigin(state.anchorPoint as any, state.anchorOriginX, state.anchorOriginY);
-    }
-  } else {
-    const requestedDisplayHeight = Math.max(
-      (Number(image.height) || 1) * Math.abs(Number(image.scaleY) || 1),
-      10
-    );
-
-    if (corner === 'mb') {
-      const initialCropY = state.initialCropY;
-      const availableSourceHeight = Math.max(1, state.sourceHeight - initialCropY);
-      const maxUncroppedDisplayHeight = availableSourceHeight * state.renderedPhotoScaleY;
-
-      if (requestedDisplayHeight <= maxUncroppedDisplayHeight) {
-        const visibleSourceHeight = Math.max(1, requestedDisplayHeight / state.renderedPhotoScaleY);
-        image.set({
-          height: visibleSourceHeight,
-          cropY: initialCropY,
-          scaleY: state.renderedPhotoScaleY,
-          objectCaching: false,
-        });
-      } else {
-        // Dragging outward beyond uncropped bottom edge: increase scaleY so height expands
-        const visibleSourceHeight = availableSourceHeight;
-        const scaleY = requestedDisplayHeight / visibleSourceHeight;
-        image.set({
-          height: visibleSourceHeight,
-          cropY: initialCropY,
-          scaleY,
-          objectCaching: false,
-        });
-      }
-      image.setPositionByOrigin(state.anchorPoint as any, 'center', 'top');
-    } else if (corner === 'mt') {
-      const sourceBottom = Math.min(state.sourceHeight, state.initialCropY + state.initialHeight);
-      const maxUncroppedDisplayHeight = sourceBottom * state.renderedPhotoScaleY;
-
-      if (requestedDisplayHeight <= maxUncroppedDisplayHeight) {
-        const visibleSourceHeight = Math.max(1, requestedDisplayHeight / state.renderedPhotoScaleY);
-        const cropY = Math.max(0, sourceBottom - visibleSourceHeight);
-        image.set({
-          height: visibleSourceHeight,
-          cropY,
-          scaleY: state.renderedPhotoScaleY,
-          objectCaching: false,
-        });
-      } else {
-        // Dragging outward beyond uncropped top edge: increase scaleY so height expands
-        const visibleSourceHeight = Math.max(1, sourceBottom);
-        const scaleY = requestedDisplayHeight / visibleSourceHeight;
-        image.set({
-          height: visibleSourceHeight,
-          cropY: 0,
-          scaleY,
-          objectCaching: false,
-        });
-      }
-      image.setPositionByOrigin(state.anchorPoint as any, 'center', 'bottom');
-    } else {
-      const scaleY = requestedDisplayHeight / Math.max(Number(image.height) || 1, 1);
-      image.set({ scaleY, objectCaching: false });
-      image.setPositionByOrigin(state.anchorPoint as any, state.anchorOriginX, state.anchorOriginY);
-    }
-  }
-
+  image.setPositionByOrigin(
+    state.anchorPoint as any,
+    state.anchorOriginX,
+    state.anchorOriginY
+  );
   image.set('dirty' as any, true);
   image.setCoords();
+  image.canvas?.requestRenderAll();
 }
 
 function preserveFramePhotoDuringSideResize(
@@ -304,44 +210,70 @@ function preserveFramePhotoDuringSideResize(
     cropDirectImageDuringSideResize(directImage, state, axis);
     return;
   }
-
   if (!isFrameGroup(target)) return;
 
   const groupScaleX = Math.max(Math.abs(Number(target.scaleX) || 1), 0.0001);
   const groupScaleY = Math.max(Math.abs(Number(target.scaleY) || 1), 0.0001);
   const viewportWidth = Math.max(target.getScaledWidth(), 1);
   const viewportHeight = Math.max(target.getScaledHeight(), 1);
+  const sourceWidth = Math.max(
+    state.sourceWidth,
+    Number(photo.get('naturalWidth' as any)) || 0,
+    Number((photo as any)?._element?.naturalWidth) || 0,
+    1
+  );
+  const sourceHeight = Math.max(
+    state.sourceHeight,
+    Number(photo.get('naturalHeight' as any)) || 0,
+    Number((photo as any)?._element?.naturalHeight) || 0,
+    1
+  );
+
+  const requiredRenderedScale = Math.max(
+    viewportWidth / sourceWidth,
+    viewportHeight / sourceHeight,
+    0.0001
+  );
+  const initialUniformRenderedScale = Math.max(
+    state.renderedPhotoScaleX,
+    state.renderedPhotoScaleY,
+    0.0001
+  );
+  const renderedScale = Math.max(requiredRenderedScale, initialUniformRenderedScale);
+  const visibleSourceWidth = Math.min(sourceWidth, viewportWidth / renderedScale);
+  const visibleSourceHeight = Math.min(sourceHeight, viewportHeight / renderedScale);
+  const initialCenterX = state.initialCropX + state.initialWidth / 2;
+  const initialCenterY = state.initialCropY + state.initialHeight / 2;
+  const cropX = Math.max(0, Math.min(initialCenterX - visibleSourceWidth / 2, sourceWidth - visibleSourceWidth));
+  const cropY = Math.max(0, Math.min(initialCenterY - visibleSourceHeight / 2, sourceHeight - visibleSourceHeight));
 
   photo.set({
-    scaleX: state.renderedPhotoScaleX / groupScaleX,
-    scaleY: state.renderedPhotoScaleY / groupScaleY,
+    width: visibleSourceWidth,
+    height: visibleSourceHeight,
+    cropX,
+    cropY,
+    scaleX: renderedScale / groupScaleX,
+    scaleY: renderedScale / groupScaleY,
     objectCaching: false,
   });
 
   const clipPath = photo.clipPath as FabricObject | undefined;
   if (clipPath) {
     clipPath.set({
-      scaleX:
-        viewportWidth /
-        state.renderedPhotoScaleX /
-        Math.max(Number(clipPath.width) || 1, 1),
-      scaleY:
-        viewportHeight /
-        state.renderedPhotoScaleY /
-        Math.max(Number(clipPath.height) || 1, 1),
+      scaleX: (viewportWidth / renderedScale) / Math.max(Number(clipPath.width) || 1, 1),
+      scaleY: (viewportHeight / renderedScale) / Math.max(Number(clipPath.height) || 1, 1),
       objectCaching: false,
     });
     clipPath.setCoords();
+    clipPath.set('dirty' as any, true);
   }
 
+  photo.set('dirty' as any, true);
   photo.setCoords();
-  target.setPositionByOrigin(
-    state.anchorPoint as any,
-    state.anchorOriginX,
-    state.anchorOriginY
-  );
+  target.setPositionByOrigin(state.anchorPoint as any, state.anchorOriginX, state.anchorOriginY);
   target.setCoords();
   target.set('dirty' as any, true);
+  target.canvas?.requestRenderAll();
 }
 
 function frameAwareScalingX(
@@ -356,12 +288,10 @@ function frameAwareScalingX(
     preserveFramePhotoDuringSideResize(transform, 'x');
     const target = transform?.target as FabricObject | undefined;
     if (target && state?.anchorPoint) {
-      target.setPositionByOrigin(
-        state.anchorPoint as any,
-        state.anchorOriginX,
-        state.anchorOriginY
-      );
+      target.setPositionByOrigin(state.anchorPoint as any, state.anchorOriginX, state.anchorOriginY);
       target.setCoords();
+      target.set('dirty' as any, true);
+      target.canvas?.requestRenderAll();
     }
   }
   return changed;
@@ -379,12 +309,10 @@ function frameAwareScalingY(
     preserveFramePhotoDuringSideResize(transform, 'y');
     const target = transform?.target as FabricObject | undefined;
     if (target && state?.anchorPoint) {
-      target.setPositionByOrigin(
-        state.anchorPoint as any,
-        state.anchorOriginX,
-        state.anchorOriginY
-      );
+      target.setPositionByOrigin(state.anchorPoint as any, state.anchorOriginX, state.anchorOriginY);
       target.setCoords();
+      target.set('dirty' as any, true);
+      target.canvas?.requestRenderAll();
     }
   }
   return changed;
@@ -724,109 +652,15 @@ function createSideScaleControls(): Record<string, Control> {
 /**
  * Canva-style move handle with 4-way arrow icon.
  */
-export function renderCanvaMoveHandle(
-  ctx: CanvasRenderingContext2D,
-  left: number,
-  top: number,
-  _styleOverride: any,
-  fabricObject: FabricObject
-): void {
-  const size = 26;
-  const radius = size / 2;
-  const angle = fabricObject.angle || 0;
-  const radians = (angle * Math.PI) / 180;
-  const stemLength = 21;
-
-  ctx.save();
-
-  // Connecting line to bottom edge
-  ctx.save();
-  ctx.translate(left, top);
-  ctx.rotate(radians);
-
-  ctx.beginPath();
-  ctx.moveTo(0, -radius);
-  ctx.lineTo(0, -radius - stemLength);
-  ctx.strokeStyle = CANVA_PURPLE;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  ctx.restore();
-
-  // Circular button
-  ctx.beginPath();
-  ctx.arc(left, top, radius, 0, Math.PI * 2);
-
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.20)';
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 1.5;
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-
-  ctx.shadowColor = 'transparent';
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = '#cbd5e1';
-  ctx.stroke();
-
-  // 4-way move arrow icon
-  ctx.save();
-  ctx.translate(left, top);
-  ctx.rotate(radians);
-
-  ctx.strokeStyle = '#1e293b';
-  ctx.fillStyle = '#1e293b';
-  ctx.lineWidth = 1.4;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-
-  const arm = 5.5;
-  ctx.beginPath();
-  ctx.moveTo(-arm, 0);
-  ctx.lineTo(arm, 0);
-  ctx.moveTo(0, -arm);
-  ctx.lineTo(0, arm);
-  ctx.stroke();
-
-  const arr = 2.4;
-  // Left arrow
-  ctx.beginPath();
-  ctx.moveTo(-arm + arr, -arr);
-  ctx.lineTo(-arm, 0);
-  ctx.lineTo(-arm + arr, arr);
-  ctx.stroke();
-
-  // Right arrow
-  ctx.beginPath();
-  ctx.moveTo(arm - arr, -arr);
-  ctx.lineTo(arm, 0);
-  ctx.lineTo(arm - arr, arr);
-  ctx.stroke();
-
-  // Top arrow
-  ctx.beginPath();
-  ctx.moveTo(-arr, -arm + arr);
-  ctx.lineTo(0, -arm);
-  ctx.lineTo(arr, -arm + arr);
-  ctx.stroke();
-
-  // Bottom arrow
-  ctx.beginPath();
-  ctx.moveTo(-arr, arm - arr);
-  ctx.lineTo(0, arm);
-  ctx.lineTo(arr, arm - arr);
-  ctx.stroke();
-
-  ctx.restore();
-  ctx.restore();
+export function renderCanvaMoveHandle(): void {
+  // Move handle icon removed everywhere per user request
 }
 
 function createMoveControl(): Control {
   return new Control({
     x: 0,
     y: 0.5,
-    offsetX: -16,
+    offsetX: 0,
     offsetY: 34,
     cursorStyleHandler: () => 'move',
     actionHandler: (eventData, transform, x, y) => {
@@ -847,7 +681,7 @@ function createRotationControl(): Control {
   return new Control({
     x: 0,
     y: 0.5,
-    offsetX: 16,
+    offsetX: 0,
     offsetY: 34,
     cursorStyleHandler: controlsUtils.rotationStyleHandler,
     actionHandler: (eventData, transform, x, y) => {
@@ -874,7 +708,6 @@ export function createCanvaControls(): Record<
   return {
     ...createCornerControls(),
     ...createSideScaleControls(),
-    mb_move: createMoveControl(),
     mbr: createRotationControl(),
   };
 }
@@ -920,7 +753,6 @@ export function createTextboxCanvaControls(): Record<
       render: renderCanvaSideHandle(true),
     }),
 
-    mb_move: createMoveControl(),
     mbr: createRotationControl(),
   };
 }
@@ -938,7 +770,6 @@ export function createImageCanvaControls(): Record<
   return {
     ...createCornerControls(),
     ...createSideScaleControls(),
-    mb_move: createMoveControl(),
     mbr: createRotationControl(),
   };
 }

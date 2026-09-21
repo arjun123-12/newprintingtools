@@ -183,9 +183,19 @@ export class CanvasGuides {
     if (this.settings.showTrim) {
       const halfPixel = 0.5 / zoom;
       ctx.save();
-      ctx.strokeStyle = this.settings.trimColor || '#000000';
-      ctx.lineWidth = 1 / zoom;
+      // Subtle white contrast casing so black trim cut line is 100% visible on all background colors
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.lineWidth = 2.5 / zoom;
       ctx.setLineDash([]);
+      ctx.strokeRect(
+        halfPixel,
+        halfPixel,
+        Math.max(width - 1 / zoom, 0),
+        Math.max(height - 1 / zoom, 0)
+      );
+      // Sharp solid Black Trim Cut Line
+      ctx.strokeStyle = this.settings.trimColor || '#000000';
+      ctx.lineWidth = 1.5 / zoom;
       ctx.strokeRect(
         halfPixel,
         halfPixel,

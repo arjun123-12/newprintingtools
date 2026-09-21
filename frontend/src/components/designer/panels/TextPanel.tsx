@@ -314,12 +314,16 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
                       label="Border Colour"
                       value={currentStrokeColor}
                       onChange={(hex) => {
-                        if (typeof hex === 'string') handleUpdateProperty('stroke', hex);
+                        if (typeof hex === 'string') {
+                          handleUpdateProperty('stroke', hex);
+                        } else if (canvasManager) {
+                          canvasManager.setSelectedGradient(hex, true);
+                        }
                       }}
                       onClose={() => setShowStrokePicker(false)}
                       canvasManager={canvasManager}
                       embedded={true}
-                      allowGradient={false}
+                      allowGradient={true}
                     />
                   </div>
                 )}

@@ -38,7 +38,7 @@ import {
   UnitType,
   DesignerGradientValue,
 } from '@/types/designer';
-import { fabricGradientToDesignerGradient } from '@/utils/colorUtils';
+import { fabricGradientToDesignerGradient, colorOrGradientToCss } from '@/utils/colorUtils';
 import { calculateCanvasDimensions } from '../utils/dimensions';
 import { CanvasGuides } from './CanvasGuides';
 import { CanvasSnapping } from './CanvasSnapping';
@@ -206,6 +206,12 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   'upscaledSrc',
   'sourceWidth',
   'sourceHeight',
+  'naturalWidth',
+  'naturalHeight',
+  'fileSizeBytes',
+  'framePhotoScale',
+  'frameCropCenterX',
+  'frameCropCenterY',
   'effectiveDpi',
   'upscaleFactor',
   'upscaleStatus',
@@ -420,28 +426,48 @@ export class CanvasManager {
 
     const bleedMm = Math.max(0, Number(this.dimensions.bleedMm) || 0);
     const dpi = Math.max(1, Number(this.dimensions.dpi) || 300);
-    const bleedScreenPx = bleedMm * (dpi / 25.4) * this.zoom;
+    const bleedScreenPx = Math.round(bleedMm * (dpi / 25.4) * this.zoom);
 
-    // Trim and safe-margin lines are canvas overlays. Never use a CSS border:
-    // borders change the wrapper box and cause hit-testing jumps.
     wrapper.style.boxSizing = 'content-box';
     wrapper.style.border = 'none';
-    wrapper.style.boxShadow = 'none';
 
-    // Synchronize wrapper background with canvas background color so fill extends to the red line
-    if (typeof this.canvas.backgroundColor === 'string') {
-      wrapper.style.backgroundColor = this.canvas.backgroundColor;
-    } else if (this.backgroundSettings.type === 'color' && this.backgroundSettings.color) {
-      wrapper.style.backgroundColor = this.backgroundSettings.color;
+    // Synchronize wrapper background so background extends out to the red bleed line
+    let effectiveBg = '#ffffff';
+    if (this.backgroundSettings.type === 'gradient' && this.backgroundSettings.gradient) {
+      effectiveBg = colorOrGradientToCss(this.backgroundSettings.gradient, '#ffffff');
+    } else if (typeof this.canvas.backgroundColor === 'string' && this.canvas.backgroundColor !== 'transparent' && this.canvas.backgroundColor !== '') {
+      effectiveBg = this.canvas.backgroundColor;
+    } else if (this.backgroundSettings.type === 'color' && this.backgroundSettings.color && this.backgroundSettings.color !== 'transparent' && this.backgroundSettings.color !== '') {
+      effectiveBg = this.backgroundSettings.color;
+    } else if ((this.dimensions as any).backgroundColor) {
+      effectiveBg = (this.dimensions as any).backgroundColor;
+    }
+
+    if (effectiveBg.includes('gradient')) {
+      wrapper.style.backgroundImage = effectiveBg;
+      wrapper.style.backgroundColor = 'transparent';
+    } else {
+      wrapper.style.backgroundImage = 'none';
+      wrapper.style.backgroundColor = effectiveBg;
     }
 
     // Red dashed bleed line: outside the artwork by the configured bleed.
     const showBleed = this.guides.getSettings().showBleed !== false;
     const bleedColor = this.guides.getSettings().bleedColor || '#ef4444';
-    wrapper.style.outline = showBleed
-      ? `2px dashed ${bleedColor}`
-      : 'none';
-    wrapper.style.outlineOffset = `${Math.max(0, bleedScreenPx > 0 ? bleedScreenPx - 1 : 0)}px`;
+
+    if (showBleed && bleedScreenPx > 0) {
+      wrapper.style.outline = `2px dashed ${bleedColor}`;
+      wrapper.style.outlineOffset = `${bleedScreenPx}px`;
+      if (!effectiveBg.includes('gradient')) {
+        wrapper.style.boxShadow = `0 0 0 ${bleedScreenPx}px ${effectiveBg}`;
+      } else {
+        wrapper.style.boxShadow = `0 0 0 ${bleedScreenPx}px rgba(0, 0, 0, 0.05)`;
+      }
+    } else {
+      wrapper.style.outline = 'none';
+      wrapper.style.outlineOffset = '0px';
+      wrapper.style.boxShadow = '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)';
+    }
     wrapper.style.overflow = 'visible';
   }
 
@@ -3831,21 +3857,75 @@ export class CanvasManager {
     const isPlaceholder = Boolean(frame.get('isCanvaPlaceholder' as any));
     const currentSrc = (frame.get('originalSrc' as any) as string) || (frame as any).getSrc?.();
 
-    // If there is an actual user image in the frame, extract it as an independent image layer
     if (!isPlaceholder && currentSrc && currentSrc !== CANVA_FRAME_PLACEHOLDER_SVG) {
-      const left = (frame.left || 100) + 30;
-      const top = (frame.top || 100) + 30;
-      await this.addImageFromUrl(currentSrc, undefined, { left, top });
-    }
+      // Record exact visual dimensions, position, and scale of the frame before resetting
+      const frameWidth = Math.max(frame.getScaledWidth(), 1);
+      const frameHeight = Math.max(frame.getScaledHeight(), 1);
+      const frameLeft = frame.left ?? 100;
+      const frameTop = frame.top ?? 100;
 
-    // Reset frame back to Canva landscape placeholder
-    await this.slotImageIntoFrame(frame, CANVA_FRAME_PLACEHOLDER_SVG);
-    const active = this.canvas.getActiveObject();
-    if (active) {
-      active.set('isCanvaPlaceholder' as any, true);
+      const wasProcessingHistory = this.isProcessingHistory;
+      this.isProcessingHistory = true;
+
+      try {
+        // 1. Reset frame back to Canva landscape placeholder first so frame remains intact at exact same position/size
+        const placeholderFrame = await this.slotImageIntoFrame(frame, CANVA_FRAME_PLACEHOLDER_SVG);
+        if (placeholderFrame) {
+          placeholderFrame.set('isCanvaPlaceholder' as any, true);
+        }
+
+        // 2. Extract detached image with skipFrameSlotting: true, offset slightly (+30px, +30px)
+        const detachedLeft = frameLeft + 30;
+        const detachedTop = frameTop + 30;
+
+        const newImg = await this.addImageFromUrl(
+          currentSrc,
+          undefined,
+          {
+            left: detachedLeft,
+            top: detachedTop,
+            skipFrameSlotting: true, // Prevents re-slotting into the frame or any placeholder frame
+            preserveOriginalSize: false,
+          }
+        );
+
+        if (newImg) {
+          // Set extracted image scale so its visual size matches the frame's previous width & height
+          const natW = Math.max(newImg.width || 1, 1);
+          const natH = Math.max(newImg.height || 1, 1);
+          const scale = Math.min(frameWidth / natW, frameHeight / natH);
+
+          newImg.set({
+            scaleX: scale,
+            scaleY: scale,
+            left: detachedLeft,
+            top: detachedTop,
+          });
+          newImg.setCoords();
+
+          // Make the detached image active so the user can easily drag, transform, or move it
+          this.canvas.setActiveObject(newImg);
+        }
+      } finally {
+        this.isProcessingHistory = wasProcessingHistory;
+      }
+
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
+      this.notifyLayers();
+      this.saveHistoryState();
+    } else {
+      await this.slotImageIntoFrame(frame, CANVA_FRAME_PLACEHOLDER_SVG);
+      const active = this.canvas.getActiveObject();
+      if (active) {
+        active.set('isCanvaPlaceholder' as any, true);
+        this.canvas.requestRenderAll();
+        this.notifyChange();
+        this.notifySelection();
+        this.notifyLayers();
+        this.saveHistoryState();
+      }
     }
   }
 
@@ -5613,15 +5693,29 @@ export class CanvasManager {
     else if (prop === 'stroke') {
       active.set('stroke', value as string);
       active.set('strokeUniform', true);
-      const pos = (active.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
-      active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+      if (isText) {
+        active.set('paintFirst', 'stroke');
+        active.set('strokeLineJoin', 'round');
+        active.set('strokeLineCap', 'round');
+      } else {
+        const pos = (active.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
+        active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+      }
     } else if (prop === 'strokeWidth') {
       const baseW = Math.max(0, Number(value) || 0);
-      const pos = (active.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
-      active.set('baseStrokeWidth' as any, baseW);
-      active.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
       active.set('strokeUniform', true);
-      active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+      if (isText) {
+        active.set('paintFirst', 'stroke');
+        active.set('strokeLineJoin', 'round');
+        active.set('strokeLineCap', 'round');
+        active.set('baseStrokeWidth' as any, baseW);
+        active.set('strokeWidth', baseW > 0 ? baseW * 2 : 0);
+      } else {
+        const pos = (active.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
+        active.set('baseStrokeWidth' as any, baseW);
+        active.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
+        active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+      }
     } else if (prop === 'strokePosition') {
       const pos = value === 'outside' ? 'outside' : 'inside';
       active.set('strokePosition' as any, pos);
@@ -5629,9 +5723,16 @@ export class CanvasManager {
         ? (active.get('baseStrokeWidth' as any) as number)
         : (active.paintFirst === 'stroke' && active.strokeWidth ? Math.round(active.strokeWidth / 2) : (active.strokeWidth || 0));
       active.set('baseStrokeWidth' as any, baseW);
-      active.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
-      active.set('strokeUniform', true);
-      active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+      if (isText) {
+        active.set('paintFirst', 'stroke');
+        active.set('strokeLineJoin', 'round');
+        active.set('strokeLineCap', 'round');
+        active.set('strokeWidth', baseW > 0 ? baseW * 2 : 0);
+      } else {
+        active.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
+        active.set('strokeUniform', true);
+        active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+      }
     } else if (prop === 'strokeLineCap') active.set('strokeLineCap', value as 'round' | 'square' | 'butt');
     else if (prop === 'strokeLineJoin') active.set('strokeLineJoin', value as 'round' | 'bevel' | 'miter');
     else if (prop === 'flipX') active.set('flipX', value as boolean);
@@ -5721,13 +5822,25 @@ export class CanvasManager {
       (active as Textbox | IText).set('text', String(value));
     } else if (isText && prop === 'fontSize') {
       const textObject = active as Textbox | IText;
-      const nextFontSize = Math.max(1, Number(value) || 1);
-      textObject.set({ fontSize: nextFontSize, dirty: true });
+      const nextFontSize = Math.max(1, Math.round(Number(value)) || 1);
+      const prevWidth = textObject.width;
+      const prevScaleX = Math.abs(textObject.scaleX || 1);
+      textObject.set({
+        fontSize: nextFontSize,
+        scaleX: 1,
+        scaleY: 1,
+        dirty: true,
+      });
+      if (textObject instanceof Textbox && prevWidth && prevScaleX > 1.001) {
+        textObject.set('width', Math.round(prevWidth * prevScaleX));
+      }
       textObject.set(
         'fontSizePt' as any,
         (nextFontSize * 72) /
         Math.max(72, Number(this.dimensions.dpi) || 96)
       );
+      textObject.initDimensions?.();
+      textObject.setCoords();
     } else if (isText && prop === 'fontFamily') {
       const fontName = String(value);
       const fontItem = POPULAR_FONTS.find((f) => f.family === fontName || f.name === fontName);
@@ -6876,6 +6989,9 @@ export class CanvasManager {
       objectCaching: false,
       noScaleCache: false,
       strokeUniform: true,
+      paintFirst: 'stroke',
+      strokeLineJoin: 'round',
+      strokeLineCap: 'round',
       lockScalingFlip: true,
       lockUniScaling: false,
       centeredScaling: false,
@@ -7156,6 +7272,66 @@ export class CanvasManager {
     }, 250);
   }
 
+  public restoreFramesAfterLoad(): void {
+    if (!this.canvas) return;
+
+    this.canvas.forEachObject((obj) => {
+      const isFrameObj =
+        Boolean(obj.get('isFrame' as any)) ||
+        Boolean(obj.get('isPhotoShapeGroup' as any)) ||
+        Boolean(obj.get('isCustomFrame' as any));
+
+      if (isFrameObj || obj.clipPath) {
+        obj.set({
+          objectCaching: false,
+          noScaleCache: false,
+          dirty: true,
+        });
+
+        if (obj instanceof Group) {
+          obj.getObjects().forEach((child) => {
+            child.set({
+              objectCaching: false,
+              noScaleCache: false,
+              dirty: true,
+            });
+
+            const childClip = child.clipPath as FabricObject | undefined;
+            if (childClip) {
+              childClip.set({
+                originX: 'center',
+                originY: 'center',
+                absolutePositioned: false,
+                objectCaching: false,
+                dirty: true,
+              } as any);
+              childClip.setPositionByOrigin(new Point(0, 0), 'center', 'center');
+              childClip.setCoords();
+            }
+            child.setCoords();
+          });
+        }
+
+        const clipPath = obj.clipPath as FabricObject | undefined;
+        if (clipPath) {
+          clipPath.set({
+            originX: 'center',
+            originY: 'center',
+            absolutePositioned: false,
+            objectCaching: false,
+            dirty: true,
+          } as any);
+          clipPath.setPositionByOrigin(new Point(0, 0), 'center', 'center');
+          clipPath.setCoords();
+        }
+
+        obj.setCoords();
+      }
+    });
+
+    this.canvas.requestRenderAll();
+  }
+
   public async undo(): Promise<void> {
     if (!this.canvas || this.undoStack.length <= 1 || this.isProcessingHistory) return;
     try {
@@ -7168,6 +7344,7 @@ export class CanvasManager {
       const previousState = this.undoStack[this.undoStack.length - 1];
       if (previousState) {
         await this.canvas.loadFromJSON(JSON.parse(previousState));
+        this.restoreFramesAfterLoad();
         this.refreshCanvasInteractivity();
         this.canvas.requestRenderAll();
         this.notifySelection();
@@ -7191,6 +7368,7 @@ export class CanvasManager {
       if (nextState) {
         this.undoStack.push(nextState);
         await this.canvas.loadFromJSON(JSON.parse(nextState));
+        this.restoreFramesAfterLoad();
         this.refreshCanvasInteractivity();
         this.canvas.requestRenderAll();
         this.notifySelection();
@@ -7400,7 +7578,9 @@ export class CanvasManager {
       paintFirst: (active.paintFirst as 'fill' | 'stroke') || 'fill',
       // Text
       text: textObj ? textObj.text : undefined,
-      fontSize: textObj ? textObj.fontSize : undefined,
+      fontSize: textObj
+        ? Math.round((textObj.fontSize || 16) * Math.abs(textObj.scaleX || 1))
+        : undefined,
       fontFamily: textObj ? textObj.fontFamily : undefined,
       textAlign: textObj ? (textObj.textAlign as 'left' | 'center' | 'right' | 'justify') : undefined,
       fontWeight: textObj ? textObj.fontWeight : undefined,
@@ -7624,7 +7804,12 @@ export class CanvasManager {
         }
       }
       this.snapping.clearGuides();
-      this.smartSpacingManager.clear();
+      const activeObj = this.canvas?.getActiveObject();
+      if (activeObj && !this.isPanMode && !this.isDrawing) {
+        this.smartSpacingManager.handleObjectFixed(activeObj);
+      } else {
+        this.smartSpacingManager.clear();
+      }
 
       if (this.currentHoverFitTarget) {
         const active = this.canvas?.getActiveObject() || opt?.target;
@@ -7749,7 +7934,11 @@ export class CanvasManager {
 
     this.canvas.on('object:modified', async (opt: any) => {
       this.snapping.clearGuides();
-      this.smartSpacingManager.clear();
+      if (opt?.target) {
+        this.smartSpacingManager.handleObjectFixed(opt.target);
+      } else {
+        this.smartSpacingManager.clear();
+      }
       if (opt?.target) {
         // Keep the resize snapshot until normalizeFrameTransform() has consumed
         // it. Deleting it here caused the final crop/size to be rebuilt from
