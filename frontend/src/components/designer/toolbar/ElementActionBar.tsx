@@ -14,7 +14,11 @@ interface ElementActionBarProps {
   onOpenMore?: () => void;
 }
 
-export const ElementActionBar: React.FC<ElementActionBarProps> = ({
+export const ElementActionBar: React.FC<ElementActionBarProps> = () => {
+  return null;
+};
+
+const ElementActionBarDisabled: React.FC<ElementActionBarProps> = ({
   selected,
   canvasManager,
   zoom,
