@@ -435,9 +435,20 @@ export class CanvasManager {
     let effectiveBg = '#ffffff';
     if (this.backgroundSettings.type === 'gradient' && this.backgroundSettings.gradient) {
       effectiveBg = colorOrGradientToCss(this.backgroundSettings.gradient, '#ffffff');
-    } else if (typeof this.canvas.backgroundColor === 'string' && this.canvas.backgroundColor !== 'transparent' && this.canvas.backgroundColor !== '') {
+    } else if (
+      typeof this.canvas.backgroundColor === 'string' &&
+      this.canvas.backgroundColor !== 'transparent' &&
+      this.canvas.backgroundColor !== '' &&
+      this.canvas.backgroundColor !== '#000000'
+    ) {
       effectiveBg = this.canvas.backgroundColor;
-    } else if (this.backgroundSettings.type === 'color' && this.backgroundSettings.color && this.backgroundSettings.color !== 'transparent' && this.backgroundSettings.color !== '') {
+    } else if (
+      this.backgroundSettings.type === 'color' &&
+      this.backgroundSettings.color &&
+      this.backgroundSettings.color !== 'transparent' &&
+      this.backgroundSettings.color !== '' &&
+      this.backgroundSettings.color !== '#000000'
+    ) {
       effectiveBg = this.backgroundSettings.color;
     } else if ((this.dimensions as any).backgroundColor) {
       effectiveBg = (this.dimensions as any).backgroundColor;
@@ -904,7 +915,7 @@ export class CanvasManager {
         evented: false,
       });
 
-      this.canvas.backgroundColor = '#000000';
+      this.canvas.backgroundColor = 'transparent';
       this.canvas.backgroundImage = img;
 
       this.backgroundSettings = {
