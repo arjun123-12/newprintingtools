@@ -408,13 +408,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Canvas Background Colour (Open in Sidebar)"
-            className={`h-8 px-2.5 rounded-xl border flex items-center gap-2 text-xs font-semibold transition ${activeSidebarTab === 'color'
+            className={`h-8 px-2.5 rounded-lg border flex items-center gap-2 text-xs font-semibold transition ${activeSidebarTab === 'color'
               ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-2xs font-bold'
               : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
               }`}
           >
             <div
-              className="w-4 h-4 rounded-md border border-gray-300 shadow-2xs flex-shrink-0"
+              className="w-4 h-4 rounded-lg border border-gray-300 shadow-2xs flex-shrink-0"
               style={{ backgroundColor: currentCanvasBg }}
             />
             <span className="text-xs font-bold text-gray-800">Background Colour</span>
@@ -537,13 +537,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Brush Ink Colour (Open in Sidebar)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
+            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
               ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
               : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <div
-              className="w-5 h-5 rounded-full border border-gray-300 shadow-2xs flex-shrink-0"
+              className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs flex-shrink-0"
               style={{ backgroundColor: brushSettings.color || '#2563eb' }}
             />
           </button>
@@ -697,14 +697,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Text Colour (Open in Sidebar)"
-            className={`h-8 px-2 rounded-xl border flex flex-col items-center justify-center transition ${activeSidebarTab === 'color'
+            className={`h-8 px-2 rounded-lg border flex flex-col items-center justify-center transition ${activeSidebarTab === 'color'
               ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
               : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <span className="text-xs font-black text-gray-900 leading-none">A</span>
             <span
-              className="w-4 h-1 rounded-full mt-0.5"
+              className="w-4 h-1 rounded-lg mt-0.5"
               style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#0f172a') }}
             />
           </button>
@@ -1075,13 +1075,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Shape Colour (Open in Sidebar)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
+            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
               ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
               : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <div
-              className="w-5 h-5 rounded-md border border-gray-300 shadow-2xs"
+              className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs"
               style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#2563eb') }}
             />
           </button>
@@ -1165,13 +1165,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Group colour (applies to compatible elements)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
+            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
               ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
               : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <div
-              className="w-5 h-5 rounded-md border border-gray-300 shadow-2xs"
+              className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs"
               style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#2563eb') }}
             />
           </button>
@@ -1319,13 +1319,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Stroke Colour (Open in Sidebar)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
+            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
               ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
               : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <div
-              className="w-5 h-5 rounded-full border border-gray-300 shadow-2xs"
+              className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs"
               style={{ background: colorOrGradientToCss(selected.stroke || selected.fillGradient || selected.fill, '#2563eb') }}
             />
           </button>

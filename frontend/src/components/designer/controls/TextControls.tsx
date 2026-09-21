@@ -115,7 +115,7 @@ export const TextControls: React.FC<TextControlsProps> = ({ selected, onUpdate, 
             className="w-full flex items-center justify-between px-2.5 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition shadow-2xs"
           >
             <div
-              className="w-5 h-5 rounded-md border border-black/10 shadow-2xs"
+              className="w-5 h-5 rounded-lg border border-black/10 shadow-2xs"
               style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#0f172a') }}
             />
             <span className="text-[10px] font-mono font-bold text-gray-700 uppercase">

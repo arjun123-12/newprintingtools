@@ -2,8 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .rounded-lg {
+    border-radius: 1rem !important;
+  }
+}
+
+.rounded-lg {
+  border-radius: 1rem !important;
+}
+
 @layer base {
   body {
     @apply bg-slate-50 text-slate-900 antialiased;
   }
 }
+

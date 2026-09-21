@@ -93,6 +93,13 @@ export function DesignerCanvas({
    */
   const canvasHostRef = useRef<HTMLDivElement | null>(null);
 
+  /*
+   * Exact Fabric canvas screen bounds used by the ruler.
+   * paperRef can include React overlays/shadows; canvasHostRef is the real
+   * bleed-inclusive Fabric drawing area, so ruler/guide math must use it.
+   */
+  const rulerCanvasRef = canvasHostRef;
+
   const canvasManagerRef = useRef<CanvasManager | null | undefined>(
     canvasManager
   );
@@ -1163,7 +1170,7 @@ export function DesignerCanvas({
           zoom={zoom}
           dimensions={dimensions}
           canvasManager={canvasManager ?? null}
-          paperRef={paperRef}
+          paperRef={rulerCanvasRef}
           containerRef={containerRef}
           viewportRef={scrollViewportRef}
           selected={selected}

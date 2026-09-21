@@ -118,9 +118,13 @@ export function runPreflightCheck(
       (obj as any).excludeFromExport
     );
   });
-  const canvasW = dimensions.widthPx || 1063;
-  const canvasH = dimensions.heightPx || 591;
-  const bleedPx = Math.max(0, dimensions.bleedPx || 0);
+  // widthPx / heightPx are the TRIM size.
+  // The real Fabric canvas now includes bleed on all four sides.
+  const trimWidth = dimensions.widthPx || 1063;
+  const trimHeight = dimensions.heightPx || 591;
+  const bleedPx = Math.max(0, Number(dimensions.bleedPx) || 0);
+  const canvasW = trimWidth + bleedPx * 2;
+  const canvasH = trimHeight + bleedPx * 2;
   // Keep validation on the exact same inset used by CanvasGuides. Without
   // this, the visible margin can be in one position while preflight checks a
   // different invisible line and reports an apparently false warning.
@@ -132,31 +136,27 @@ export function runPreflightCheck(
         : 0;
 
   // =========================================================================
-  // ZONE BOUNDARIES (in canvas pixel coordinates)
+  // ZONE BOUNDARIES (same coordinate model as CanvasGuides / CanvasManager)
   // =========================================================================
-  // Fabric canvas coordinates represent the trimmed artwork itself.
-  // CanvasGuides draws the black trim line at 0..width / 0..height and draws
-  // the green safe line exactly safeZonePx inside it. CanvasManager renders
-  // the red bleed boundary outside the Fabric canvas. Preflight must use the
-  // same coordinate model or the invisible safe boundary is shifted inward
-  // by bleedPx and creates false warnings.
+  // RED bleed/artwork edge: 0 .. canvasW / canvasH
+  // BLACK trim edge:       bleedPx .. bleedPx + trimWidth/trimHeight
+  // GREEN safe edge:       trim edge + safeZonePx
   // =========================================================================
 
-  const trimMinX = 0;
-  const trimMinY = 0;
-  const trimMaxX = canvasW;
-  const trimMaxY = canvasH;
+  const bleedMinX = 0;
+  const bleedMinY = 0;
+  const bleedMaxX = canvasW;
+  const bleedMaxY = canvasH;
+
+  const trimMinX = bleedPx;
+  const trimMinY = bleedPx;
+  const trimMaxX = bleedPx + trimWidth;
+  const trimMaxY = bleedPx + trimHeight;
 
   const safeMinX = trimMinX + safeZonePx;
   const safeMinY = trimMinY + safeZonePx;
   const safeMaxX = trimMaxX - safeZonePx;
   const safeMaxY = trimMaxY - safeZonePx;
-
-  // The permitted bleed area extends outside the trimmed artwork.
-  const bleedMinX = -bleedPx;
-  const bleedMinY = -bleedPx;
-  const bleedMaxX = canvasW + bleedPx;
-  const bleedMaxY = canvasH + bleedPx;
 
   const safeMarginViolations: string[] = [];
   const safeMarginDetails: ZoneViolationDetail[] = [];

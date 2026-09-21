@@ -300,7 +300,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
                     className="flex items-center gap-2 px-2 py-1 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 transition shadow-2xs"
                   >
                     <div
-                      className="w-4 h-4 rounded-md border border-gray-300 shadow-2xs"
+                      className="w-4 h-4 rounded-lg border border-gray-300 shadow-2xs"
                       style={{ backgroundColor: currentStrokeColor }}
                     />
                     <span className="text-[10px] font-mono font-bold uppercase text-gray-700">

@@ -759,7 +759,7 @@ const GradientEditor: React.FC<GradientEditorProps> = ({
                   type="button"
                   onClick={() => setActiveStop(index)}
                   title={`Colour stop ${index + 1}: ${Math.round(stop.offset * 100)}%`}
-                  className={`h-9 min-w-9 flex-1 rounded-xl border transition shadow-2xs ${
+                  className={`h-9 min-w-9 flex-1 rounded-lg border transition shadow-2xs ${
                     activeStop === index ? 'border-purple-600 ring-2 ring-purple-300 scale-105' : 'border-gray-200 hover:border-gray-400'
                   }`}
                   style={{ backgroundColor: stop.color }}
@@ -1100,7 +1100,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
                 }`}
               >
                 <div
-                  className="w-5 h-5 rounded-md flex items-center justify-center"
+                  className="w-5 h-5 rounded-lg flex items-center justify-center"
                   style={{
                     background:
                       'conic-gradient(from 180deg at 50% 50%, #FF0000 0deg, #FFFF00 60deg, #00FF00 120deg, #00FFFF 180deg, #0000FF 240deg, #FF00FF 300deg, #FF0000 360deg)',

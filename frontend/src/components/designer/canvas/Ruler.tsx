@@ -145,6 +145,12 @@ export const Ruler: React.FC<RulerProps> = ({
   const widthPx = Math.max(dimensions.widthPx || 1, 1);
   const heightPx = Math.max(dimensions.heightPx || 1, 1);
 
+  // User ruler guides live in Fabric/artwork coordinates, and the artwork
+  // includes bleed on all four sides. widthPx/heightPx are trim-only.
+  const bleedPx = Math.max(0, Number(dimensions.bleedPx) || 0);
+  const artworkWidthPx = widthPx + bleedPx * 2;
+  const artworkHeightPx = heightPx + bleedPx * 2;
+
   const readGeometry = useCallback(() => {
     const paper = paperRef.current;
     const viewport =
@@ -383,13 +389,38 @@ export const Ruler: React.FC<RulerProps> = ({
   }, [canvasManager]);
 
   /**
-   * Pixels per millimeter.
+   * RULER COORDINATE MODEL
+   *
+   * paperWidth/paperHeight are bleed-inclusive, while widthMm/heightMm are
+   * trim dimensions. Ruler 0 must sit on the BLACK trim line, not on the
+   * outer RED bleed edge.
    */
+  const dpi = dimensions.dpi || 300;
+  const bleedMm = (bleedPx / dpi) * 25.4;
+  const artworkWidthMm = widthMm + bleedMm * 2;
+  const artworkHeightMm = heightMm + bleedMm * 2;
+
   const xPxPerMm =
-    geometry.paperWidth / widthMm;
+    geometry.paperWidth / Math.max(artworkWidthMm, 0.0001);
 
   const yPxPerMm =
-    geometry.paperHeight / heightMm;
+    geometry.paperHeight / Math.max(artworkHeightMm, 0.0001);
+
+  const trimOriginX =
+    geometry.originX + bleedMm * xPxPerMm;
+
+  const trimOriginY =
+    geometry.originY + bleedMm * yPxPerMm;
+
+  /**
+   * Convert a Fabric/artwork coordinate to the ruler value.
+   * Fabric 0 is the outer RED bleed edge; ruler 0 is the BLACK trim edge.
+   */
+  const canvasPxToRulerMm = useCallback(
+    (canvasPx: number): number =>
+      Number((((canvasPx - bleedPx) / dpi) * 25.4).toFixed(1)),
+    [bleedPx, dpi]
+  );
 
   /**
    * Pixels per centimeter.
@@ -571,7 +602,7 @@ export const Ruler: React.FC<RulerProps> = ({
       if (selectedBounds) {
         const scale =
           geometry.paperWidth /
-          widthPx;
+          Math.max(artworkWidthPx, 1);
 
         const start =
           geometry.originX +
@@ -687,7 +718,7 @@ export const Ruler: React.FC<RulerProps> = ({
 
           const x =
             Math.round(
-              geometry.originX +
+              trimOriginX +
               mm * xPxPerMm
             ) + 0.5;
 
@@ -751,7 +782,7 @@ export const Ruler: React.FC<RulerProps> = ({
 
           const x =
             Math.round(
-              geometry.originX +
+              trimOriginX +
               mm * xPxPerMm
             ) + 0.5;
 
@@ -811,7 +842,7 @@ export const Ruler: React.FC<RulerProps> = ({
 
         const x =
           Math.round(
-            geometry.originX +
+            trimOriginX +
             mm * xPxPerMm
           ) + 0.5;
 
@@ -862,7 +893,7 @@ export const Ruler: React.FC<RulerProps> = ({
 
         const x =
           Math.round(
-            geometry.originX +
+            trimOriginX +
             mm * xPxPerMm
           ) + 0.5;
 
@@ -953,7 +984,7 @@ export const Ruler: React.FC<RulerProps> = ({
           i * majorStepMm;
 
         const x =
-          geometry.originX +
+          trimOriginX +
           mm * xPxPerMm;
 
         if (
@@ -1001,8 +1032,10 @@ export const Ruler: React.FC<RulerProps> = ({
         pxPerCmX,
         selectedBounds,
         widthMm,
-        widthPx,
+        artworkWidthPx,
+        trimOriginX,
         xPxPerMm,
+        canvasPxToRulerMm,
       ]
     );
 
@@ -1064,7 +1097,7 @@ export const Ruler: React.FC<RulerProps> = ({
       if (selectedBounds) {
         const scale =
           geometry.paperHeight /
-          heightPx;
+          Math.max(artworkHeightPx, 1);
 
         const start =
           geometry.originY +
@@ -1180,7 +1213,7 @@ export const Ruler: React.FC<RulerProps> = ({
 
           const y =
             Math.round(
-              geometry.originY +
+              trimOriginY +
               mm * yPxPerMm
             ) + 0.5;
 
@@ -1242,7 +1275,7 @@ export const Ruler: React.FC<RulerProps> = ({
 
           const y =
             Math.round(
-              geometry.originY +
+              trimOriginY +
               mm * yPxPerMm
             ) + 0.5;
 
@@ -1300,7 +1333,7 @@ export const Ruler: React.FC<RulerProps> = ({
 
         const y =
           Math.round(
-            geometry.originY +
+            trimOriginY +
             mm * yPxPerMm
           ) + 0.5;
 
@@ -1349,7 +1382,7 @@ export const Ruler: React.FC<RulerProps> = ({
 
         const y =
           Math.round(
-            geometry.originY +
+            trimOriginY +
             mm * yPxPerMm
           ) + 0.5;
 
@@ -1440,7 +1473,7 @@ export const Ruler: React.FC<RulerProps> = ({
           i * majorStepMm;
 
         const y =
-          geometry.originY +
+          trimOriginY +
           mm * yPxPerMm;
 
         if (
@@ -1498,11 +1531,13 @@ export const Ruler: React.FC<RulerProps> = ({
         cursor,
         geometry,
         heightMm,
-        heightPx,
+        artworkHeightPx,
+        trimOriginY,
         prepareCanvas,
         pxPerCmY,
         selectedBounds,
         yPxPerMm,
+        canvasPxToRulerMm,
       ]
     );
 
@@ -1666,20 +1701,16 @@ export const Ruler: React.FC<RulerProps> = ({
           : clientX -
           paperRect.left;
 
-      // IMPORTANT:
-      // Calculate guide position directly in MM.
-      const mm =
+      // Convert the pointer into the exact Fabric/artwork coordinate first,
+      // then use the same ruler conversion used by existing guides.
+      const canvasPosition =
         orientation === 'horizontal'
-          ? paperPosition /
-          Math.max(
-            yPxPerMm,
-            0.0001
-          )
-          : paperPosition /
-          Math.max(
-            xPxPerMm,
-            0.0001
-          );
+          ? paperPosition *
+          (artworkHeightPx / Math.max(paperRect.height, 1))
+          : paperPosition *
+          (artworkWidthPx / Math.max(paperRect.width, 1));
+
+      const mm = canvasPxToRulerMm(canvasPosition);
 
       setDraggingGuide({
         orientation,
@@ -1725,25 +1756,21 @@ export const Ruler: React.FC<RulerProps> = ({
           : upEvent.clientX -
           paperRect.left;
 
+      // FIRST-CREATE FIX:
+      // Convert pointer against the complete bleed-inclusive artwork.
+      // Previously this used trim-only widthPx/heightPx, so the temporary
+      // line looked correct but jumped to a different position on release.
       const canvasPosition =
         orientation === 'horizontal'
           ? screenPosition *
-          (heightPx /
-            Math.max(
-              paperRect.height,
-              1
-            ))
+          (artworkHeightPx / Math.max(paperRect.height, 1))
           : screenPosition *
-          (widthPx /
-            Math.max(
-              paperRect.width,
-              1
-            ));
+          (artworkWidthPx / Math.max(paperRect.width, 1));
 
       const maximum =
         orientation === 'horizontal'
-          ? heightPx
-          : widthPx;
+          ? artworkHeightPx
+          : artworkWidthPx;
 
       if (
         canvasPosition >= 0 &&
@@ -1790,8 +1817,11 @@ export const Ruler: React.FC<RulerProps> = ({
     if (!viewport || !paper) return;
 
     const originalPosPx = guide.posPx;
+    const startClientX = event.clientX;
+    const startClientY = event.clientY;
     let latestCanvasPosition = originalPosPx;
     let isInsideArtwork = true;
+    let hasDragged = false;
 
     const update = (clientX: number, clientY: number) => {
       const viewportRect = viewport.getBoundingClientRect();
@@ -1804,18 +1834,21 @@ export const Ruler: React.FC<RulerProps> = ({
 
       latestCanvasPosition =
         guide.orientation === 'horizontal'
-          ? screenPosition * (heightPx / Math.max(paperRect.height, 1))
-          : screenPosition * (widthPx / Math.max(paperRect.width, 1));
+          ? screenPosition *
+          (artworkHeightPx / Math.max(paperRect.height, 1))
+          : screenPosition *
+          (artworkWidthPx / Math.max(paperRect.width, 1));
 
       const maximum =
-        guide.orientation === 'horizontal' ? heightPx : widthPx;
-      isInsideArtwork =
-        latestCanvasPosition >= 0 && latestCanvasPosition <= maximum;
+        guide.orientation === 'horizontal'
+          ? artworkHeightPx
+          : artworkWidthPx;
 
-      const dpi = dimensions.dpi || 300;
-      const valueMm = Number(
-        ((latestCanvasPosition / dpi) * 25.4).toFixed(1)
-      );
+      isInsideArtwork =
+        latestCanvasPosition >= 0 &&
+        latestCanvasPosition <= maximum;
+
+      const valueMm = canvasPxToRulerMm(latestCanvasPosition);
 
       setDraggingGuide({
         orientation: guide.orientation,
@@ -1836,6 +1869,16 @@ export const Ruler: React.FC<RulerProps> = ({
 
     function handleMove(moveEvent: PointerEvent) {
       moveEvent.preventDefault();
+
+      // Do not start a drag on an ordinary click/double-click.
+      // This keeps the guide stable and lets onDoubleClick delete it reliably.
+      if (!hasDragged) {
+        const dx = moveEvent.clientX - startClientX;
+        const dy = moveEvent.clientY - startClientY;
+        if (Math.hypot(dx, dy) < 3) return;
+        hasDragged = true;
+      }
+
       update(moveEvent.clientX, moveEvent.clientY);
     }
 
@@ -1844,30 +1887,35 @@ export const Ruler: React.FC<RulerProps> = ({
       window.removeEventListener('pointerup', handleUp);
       window.removeEventListener('pointercancel', handleCancel);
       setDraggingGuide(null);
-      setGuideRevision((value) => value + 1);
+      if (hasDragged) {
+        setGuideRevision((value) => value + 1);
+      }
     }
 
     function handleUp(upEvent: PointerEvent) {
-      update(upEvent.clientX, upEvent.clientY);
+      if (hasDragged) {
+        update(upEvent.clientX, upEvent.clientY);
 
-      if (isInsideArtwork) {
-        canvasManager?.updateUserGuide(
-          guide.id,
-          Number(latestCanvasPosition.toFixed(2))
-        );
-      } else {
-        canvasManager?.removeUserGuide(guide.id);
+        if (isInsideArtwork) {
+          canvasManager?.updateUserGuide(
+            guide.id,
+            Number(latestCanvasPosition.toFixed(2))
+          );
+        } else {
+          canvasManager?.removeUserGuide(guide.id);
+        }
       }
 
       cleanup();
     }
 
     function handleCancel() {
-      canvasManager?.updateUserGuide(guide.id, originalPosPx);
+      if (hasDragged) {
+        canvasManager?.updateUserGuide(guide.id, originalPosPx);
+      }
       cleanup();
     }
 
-    update(event.clientX, event.clientY);
     window.addEventListener('pointermove', handleMove, { passive: false });
     window.addEventListener('pointerup', handleUp, { once: true });
     window.addEventListener('pointercancel', handleCancel, { once: true });
@@ -1946,7 +1994,7 @@ export const Ruler: React.FC<RulerProps> = ({
             style={{
               left: `${geometry.originX}px`,
               top: `${geometry.originY +
-                guide.posPx * (geometry.paperHeight / Math.max(heightPx, 1))
+                guide.posPx * (geometry.paperHeight / Math.max(artworkHeightPx, 1))
                 }px`,
               width: `${geometry.paperWidth}px`,
             }}
@@ -1957,9 +2005,10 @@ export const Ruler: React.FC<RulerProps> = ({
               canvasManager?.removeUserGuide(guide.id);
               setGuideRevision((value) => value + 1);
             }}
-            title={`${guide.posMm} mm — drag to move, double-click to delete`}
+            title={`${canvasPxToRulerMm(guide.posPx)} mm — drag to move, double-click to delete`}
           >
-            <span className="pointer-events-none absolute left-0 right-0 top-1/2 border-t border-solid border-[#7d2ae8] opacity-100" />
+            {/* Visible guide is rendered once by CanvasGuides.
+                This div is only the invisible drag/delete hit area. */}
           </div>
         ) : (
           <div
@@ -1967,7 +2016,7 @@ export const Ruler: React.FC<RulerProps> = ({
             className="group pointer-events-auto absolute z-30 w-3 -translate-x-1/2 cursor-col-resize touch-none"
             style={{
               left: `${geometry.originX +
-                guide.posPx * (geometry.paperWidth / Math.max(widthPx, 1))
+                guide.posPx * (geometry.paperWidth / Math.max(artworkWidthPx, 1))
                 }px`,
               top: `${geometry.originY}px`,
               height: `${geometry.paperHeight}px`,
@@ -1979,9 +2028,10 @@ export const Ruler: React.FC<RulerProps> = ({
               canvasManager?.removeUserGuide(guide.id);
               setGuideRevision((value) => value + 1);
             }}
-            title={`${guide.posMm} mm — drag to move, double-click to delete`}
+            title={`${canvasPxToRulerMm(guide.posPx)} mm — drag to move, double-click to delete`}
           >
-            <span className="pointer-events-none absolute bottom-0 left-1/2 top-0 border-l border-solid border-[#7d2ae8] opacity-100" />
+            {/* Visible guide is rendered once by CanvasGuides.
+                This div is only the invisible drag/delete hit area. */}
           </div>
         )
       )}

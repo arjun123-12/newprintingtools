@@ -763,7 +763,7 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                       type="color"
                       value={stop.color}
                       onChange={(e) => handleUpdateStopColor(idx, e.target.value)}
-                      className="w-7 h-7 rounded-md border border-gray-300 cursor-pointer bg-white p-0.5 shrink-0"
+                      className="w-7 h-7 rounded-lg border border-gray-300 cursor-pointer bg-white p-0.5 shrink-0"
                     />
                     <input
                       type="text"
@@ -887,7 +887,7 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
                 <div className="flex items-center gap-2 pt-1">
                   <div
                     style={{ backgroundColor: bgSettings.color || '#ffffff' }}
-                    className="w-8 h-8 rounded-md border border-gray-300 shadow-xs"
+                    className="w-8 h-8 rounded-lg border border-gray-300 shadow-xs"
                   />
                   <span className="font-mono text-gray-800 uppercase font-semibold">
                     {bgSettings.color || '#ffffff'}

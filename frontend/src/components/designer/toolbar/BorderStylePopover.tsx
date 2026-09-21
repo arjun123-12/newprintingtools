@@ -323,7 +323,7 @@ export const BorderStylePopover: React.FC<BorderStylePopoverProps> = ({
             {/* Custom Hex + Color Wheel Picker */}
             <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-lg shadow-2xs">
               <span className="text-[10px] font-mono font-bold text-gray-700">{currentHex}</span>
-              <div className="relative w-4 h-4 rounded-full overflow-hidden border border-gray-300 cursor-pointer shadow-2xs hover:scale-110 transition">
+              <div className="relative w-4 h-4 rounded-lg overflow-hidden border border-gray-300 cursor-pointer shadow-2xs hover:scale-110 transition">
                 <input
                   type="color"
                   value={stroke || '#000000'}

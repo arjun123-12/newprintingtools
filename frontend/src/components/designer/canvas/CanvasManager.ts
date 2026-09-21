@@ -352,6 +352,19 @@ export class CanvasManager {
     type: 'color',
     color: '#ffffff',
   };
+  // Canva-Style Frame Image Crop Engine
+  private activeCropFrame: FabricObject | null = null;
+  private cropUnclippedPhoto: FabricImage | null = null;
+  private cropSnapshot: {
+    frameObj: FabricObject;
+    photoObj: FabricImage;
+    originalSrc: string;
+    naturalWidth: number;
+    naturalHeight: number;
+    initialCropCenterX: number;
+    initialCropCenterY: number;
+    initialPhotoScale: number;
+  } | null = null;
 
   // Event Listeners
   private selectionListeners: Set<SelectionEventCallback> = new Set();
@@ -388,6 +401,11 @@ export class CanvasManager {
   private isNormalizingFrameTransform: boolean = false;
   private frameResizeSnapshots = new WeakMap<FabricObject, FrameResizeSnapshot>();
 
+  // Print-boundary warning state.
+  // Warnings are evaluated after the user finishes moving/resizing an object,
+  // so dragging stays smooth and browser alerts do not fire on every pointer move.
+  private lastBoundaryWarningKey: string | null = null;
+
   constructor(dimensions: CanvasDimensions, initialGuidesSettings?: Partial<PrintGuidesSettings>) {
     this.dimensions = dimensions;
     this.guides = new CanvasGuides(dimensions, initialGuidesSettings);
@@ -407,79 +425,28 @@ export class CanvasManager {
     const wrapper = (this.canvas as any).wrapperEl as HTMLElement | undefined;
     if (!wrapper) return;
 
-    const visible = this.guides.getVisible();
-
-    // Clean up guide elements created by older CanvasManager versions. A DOM
-    // element above Fabric's upper canvas can steal hover transitions and make
-    // switching between the safe and trim lines flicker.
+    // Bleed is now part of the real Fabric canvas. CanvasGuides draws:
+    //   RED   = outer Fabric/artwork edge
+    //   BLACK = trim edge inset by bleedPx
+    // Do not create another outline outside the canvas.
     wrapper
       .querySelector<HTMLElement>('[data-print-safe-margin="true"]')
       ?.remove();
 
-    if (!visible) {
-      wrapper.style.border = 'none';
-      wrapper.style.boxShadow = 'none';
-      wrapper.style.outline = 'none';
-      wrapper.style.outlineOffset = '0px';
-      return;
-    }
-
-    const bleedMm = Math.max(0, Number(this.dimensions.bleedMm) || 0);
-    const dpi = Math.max(1, Number(this.dimensions.dpi) || 300);
-    const bleedScreenPx = Math.round(bleedMm * (dpi / 25.4) * this.zoom);
-
     wrapper.style.boxSizing = 'content-box';
     wrapper.style.border = 'none';
-
-    // Synchronize wrapper background so background extends out to the red bleed line
-    let effectiveBg = '#ffffff';
-    if (this.backgroundSettings.type === 'gradient' && this.backgroundSettings.gradient) {
-      effectiveBg = colorOrGradientToCss(this.backgroundSettings.gradient, '#ffffff');
-    } else if (
-      typeof this.canvas.backgroundColor === 'string' &&
-      this.canvas.backgroundColor !== 'transparent' &&
-      this.canvas.backgroundColor !== '' &&
-      this.canvas.backgroundColor !== '#000000'
-    ) {
-      effectiveBg = this.canvas.backgroundColor;
-    } else if (
-      this.backgroundSettings.type === 'color' &&
-      this.backgroundSettings.color &&
-      this.backgroundSettings.color !== 'transparent' &&
-      this.backgroundSettings.color !== '' &&
-      this.backgroundSettings.color !== '#000000'
-    ) {
-      effectiveBg = this.backgroundSettings.color;
-    } else if ((this.dimensions as any).backgroundColor) {
-      effectiveBg = (this.dimensions as any).backgroundColor;
-    }
-
-    if (effectiveBg.includes('gradient')) {
-      wrapper.style.backgroundImage = effectiveBg;
-      wrapper.style.backgroundColor = 'transparent';
-    } else {
-      wrapper.style.backgroundImage = 'none';
-      wrapper.style.backgroundColor = effectiveBg;
-    }
-
-    // Red dashed bleed line: outside the artwork by the configured bleed.
-    const showBleed = this.guides.getSettings().showBleed !== false;
-    const bleedColor = this.guides.getSettings().bleedColor || '#ef4444';
-
-    if (showBleed && bleedScreenPx > 0) {
-      wrapper.style.outline = `2px dashed ${bleedColor}`;
-      wrapper.style.outlineOffset = `${bleedScreenPx}px`;
-      if (!effectiveBg.includes('gradient')) {
-        wrapper.style.boxShadow = `0 0 0 ${bleedScreenPx}px ${effectiveBg}`;
-      } else {
-        wrapper.style.boxShadow = `0 0 0 ${bleedScreenPx}px rgba(0, 0, 0, 0.05)`;
-      }
-    } else {
-      wrapper.style.outline = 'none';
-      wrapper.style.outlineOffset = '0px';
-      wrapper.style.boxShadow = '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)';
-    }
+    wrapper.style.outline = 'none';
+    wrapper.style.outlineOffset = '0px';
     wrapper.style.overflow = 'visible';
+
+    // Keep only the normal paper shadow. Never paint an opaque bleed band here,
+    // otherwise objects visible between black trim and red bleed can be covered.
+    wrapper.style.boxShadow =
+      '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)';
+
+    // Fabric owns the actual artwork background, including bleed.
+    wrapper.style.backgroundImage = 'none';
+    wrapper.style.backgroundColor = 'transparent';
   }
 
   /**
@@ -531,8 +498,11 @@ export class CanvasManager {
       this.canvas = null;
     }
 
-    const baseWidth = this.dimensions.widthPx || 1063;
-    const baseHeight = this.dimensions.heightPx || 591;
+    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+    const trimWidth = this.dimensions.widthPx || 1063;
+    const trimHeight = this.dimensions.heightPx || 591;
+    const baseWidth = trimWidth + bleedPx * 2;
+    const baseHeight = trimHeight + bleedPx * 2;
 
     this.zoom = this.zoom || 1.0;
     const targetWidth = Math.round(baseWidth * this.zoom);
@@ -610,8 +580,11 @@ export class CanvasManager {
     this.smartSpacingManager.updateDimensions(dims);
 
     if (this.canvas) {
-      const targetWidth = Math.round(dims.widthPx * this.zoom);
-      const targetHeight = Math.round(dims.heightPx * this.zoom);
+      const bleedPx = Math.max(0, Number(dims.bleedPx) || 0);
+      const artworkWidth = dims.widthPx + bleedPx * 2;
+      const artworkHeight = dims.heightPx + bleedPx * 2;
+      const targetWidth = Math.round(artworkWidth * this.zoom);
+      const targetHeight = Math.round(artworkHeight * this.zoom);
 
       this.canvas.setDimensions({
         width: targetWidth,
@@ -719,8 +692,11 @@ export class CanvasManager {
     }
 
     if (this.canvas) {
-      const targetWidth = Math.round(newDims.widthPx * this.zoom);
-      const targetHeight = Math.round(newDims.heightPx * this.zoom);
+      const bleedPx = Math.max(0, Number(newDims.bleedPx) || 0);
+      const artworkWidth = newDims.widthPx + bleedPx * 2;
+      const artworkHeight = newDims.heightPx + bleedPx * 2;
+      const targetWidth = Math.round(artworkWidth * this.zoom);
+      const targetHeight = Math.round(artworkHeight * this.zoom);
 
       this.canvas.setDimensions({
         width: targetWidth,
@@ -906,8 +882,8 @@ export class CanvasManager {
       img.set({
         originX: 'center',
         originY: 'center',
-        left: baseW / 2 + offsetX,
-        top: baseH / 2 + offsetY,
+        left: targetW / 2 + offsetX,
+        top: targetH / 2 + offsetY,
         scaleX: finalScaleX,
         scaleY: finalScaleY,
         opacity,
@@ -1181,8 +1157,12 @@ export class CanvasManager {
       this.pendingZoomPivot = null;
 
       const oldZoom = this.zoom;
-      const baseWidth = this.dimensions.widthPx || 1063;
-      const baseHeight = this.dimensions.heightPx || 591;
+
+      // IMPORTANT: zoom the complete bleed-inclusive artwork.
+      // Using trim-only dimensions here clips the right/bottom bleed edges after zoom.
+      const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+      const baseWidth = (this.dimensions.widthPx || 1063) + bleedPx * 2;
+      const baseHeight = (this.dimensions.heightPx || 591) + bleedPx * 2;
 
       const targetWidth = Math.round(baseWidth * zoomToApply);
       const targetHeight = Math.round(baseHeight * zoomToApply);
@@ -1294,8 +1274,9 @@ export class CanvasManager {
     const availableW = Math.max(containerWidth - padding * 2 - rulerOffset, 80);
     const availableH = Math.max(containerHeight - padding * 2 - rulerOffset, 80);
 
-    const baseWidth = this.dimensions.widthPx || 1063;
-    const baseHeight = this.dimensions.heightPx || 591;
+    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+    const baseWidth = (this.dimensions.widthPx || 1063) + bleedPx * 2;
+    const baseHeight = (this.dimensions.heightPx || 591) + bleedPx * 2;
 
     const scaleX = availableW / baseWidth;
     const scaleY = availableH / baseHeight;
@@ -1388,11 +1369,14 @@ export class CanvasManager {
     const isLocked = getValue('isLocked') === true;
     const isText = this.isTextObject(fabricObject);
 
+    fabricObject.set({
+      strokeUniform: true,
+    });
+
     if (isText) {
       fabricObject.set({
         objectCaching: false,
         noScaleCache: false,
-        strokeUniform: true,
       });
     }
 
@@ -2200,12 +2184,24 @@ export class CanvasManager {
   }
 
   public updateMargin(marginMm: number): void {
+    const dpi = this.dimensions.dpi || 300;
+
+    // Prefer physical trim dimensions when available, but derive them from
+    // pixels as a safe fallback. This keeps margin adjustment working for
+    // templates/documents that only supplied widthPx/heightPx.
+    const trimWidthMm =
+      Number(this.dimensions.widthMm) > 0
+        ? Number(this.dimensions.widthMm)
+        : ((Number(this.dimensions.widthPx) || 1063) / dpi) * 25.4;
+
+    const trimHeightMm =
+      Number(this.dimensions.heightMm) > 0
+        ? Number(this.dimensions.heightMm)
+        : ((Number(this.dimensions.heightPx) || 591) / dpi) * 25.4;
+
     const maximumMarginMm = Math.max(
       0,
-      Math.min(
-        Number(this.dimensions.widthMm) || 0,
-        Number(this.dimensions.heightMm) || 0
-      ) / 2 - 0.1
+      Math.min(trimWidthMm, trimHeightMm) / 2 - 0.1
     );
 
     const normalizedMarginMm = Number(
@@ -2215,11 +2211,10 @@ export class CanvasManager {
       ).toFixed(1)
     );
 
-    const dpi = this.dimensions.dpi || 300;
-    const marginPx = Math.round(
-      normalizedMarginMm * (dpi / 25.4)
-    );
+    const marginPx = (normalizedMarginMm / 25.4) * dpi;
 
+    // Keep the manager dimensions in sync because preflight/snapping and
+    // serialization read margin from CanvasDimensions.
     this.dimensions = {
       ...this.dimensions,
       marginMm: normalizedMarginMm,
@@ -2228,7 +2223,11 @@ export class CanvasManager {
       safeZonePx: marginPx,
     };
 
+    // CanvasGuides now owns the live editable margin. Calling setMarginMm()
+    // makes the green margin line move immediately without recreating canvas.
     this.guides.updateDimensions(this.dimensions);
+    this.guides.setMarginMm(normalizedMarginMm);
+
     this.snapping.updateDimensions(this.dimensions);
     this.smartSpacingManager.updateDimensions(this.dimensions);
 
@@ -2236,6 +2235,9 @@ export class CanvasManager {
       this.canvas.requestRenderAll();
     }
 
+    // Refresh the existing Print Warnings / PreflightBadge as soon as margin
+    // changes, so safe-area violations match the newly positioned line.
+    this.notifyPreflight();
     this.notifyChange();
   }
 
@@ -3693,8 +3695,13 @@ export class CanvasManager {
    * The Group may have different X/Y scales during Fabric's transform, so the
    * photo receives the inverse scale and its clipPath follows the new viewport.
    */
+  /**
+   * Keep the photo visually undistorted while a Group or Frame side handle is moving.
+   * Dynamically adjusts photo scale and clipPath when reducing or enlarging frame dimensions
+   * so live scaling previews fluently in real-time during drag.
+   */
   private previewFrameCropDuringScale(frameObj: FabricObject): void {
-    if (!(frameObj instanceof Group)) return;
+    if (!frameObj) return;
 
     if (!this.frameResizeSnapshots.has(frameObj)) {
       this.rememberFrameResizeState(frameObj);
@@ -3709,41 +3716,47 @@ export class CanvasManager {
     const desiredWidth = Math.max(frameObj.getScaledWidth(), 1);
     const desiredHeight = Math.max(frameObj.getScaledHeight(), 1);
 
-    // Cancel the Group's non-uniform scale only for the photo content.
-    photo.set({
-      scaleX: snapshot.photoScale / groupScaleX,
-      scaleY: snapshot.photoScale / groupScaleY,
-      objectCaching: false,
-    });
+    const natW = Math.max(snapshot.naturalWidth || Number(photo.width) || 1, 1);
+    const natH = Math.max(snapshot.naturalHeight || Number(photo.height) || 1, 1);
+    const minCoverScale = Math.max(desiredWidth / natW, desiredHeight / natH);
 
-    const clipPath = photo.clipPath as FabricObject | undefined;
-    if (clipPath) {
-      clipPath.set({
-        scaleX:
-          desiredWidth /
-          snapshot.photoScale /
-          Math.max(Number(clipPath.width) || 1, 1),
-        scaleY:
-          desiredHeight /
-          snapshot.photoScale /
-          Math.max(Number(clipPath.height) || 1, 1),
-        objectCaching: false,
-      });
-      clipPath.setCoords();
-    }
-
-    photo.setCoords();
-
-    // Live resize: Fabric group/clip caches otherwise make the frame appear to
-    // catch up a moment after the pointer. Keep the whole frame tree uncached
-    // during the active transform and paint it in the same pointer frame.
-    frameObj.set({
-      objectCaching: false,
-      noScaleCache: false,
-      dirty: true,
-    } as any);
+    // If enlarging the frame beyond initial snapshot scale, scale up the photo in real-time
+    // so the image expands fluently during drag without getting cut off or frozen.
+    const effectivePhotoScale = Math.max(snapshot.photoScale, minCoverScale);
 
     if (frameObj instanceof Group) {
+      photo.set({
+        scaleX: effectivePhotoScale / groupScaleX,
+        scaleY: effectivePhotoScale / groupScaleY,
+        objectCaching: false,
+      });
+
+      const clipPath = photo.clipPath as FabricObject | undefined;
+      if (clipPath) {
+        const baseClipW = Math.max(Number(clipPath.width) || 1, 1);
+        const baseClipH = Math.max(Number(clipPath.height) || 1, 1);
+        clipPath.set({
+          scaleX: desiredWidth / effectivePhotoScale / baseClipW,
+          scaleY: desiredHeight / effectivePhotoScale / baseClipH,
+          objectCaching: false,
+        });
+        clipPath.setCoords();
+      }
+
+      const shapeOutline = frameObj.getObjects().find(
+        (child: FabricObject) => child.get('frameRole' as any) === 'shape-outline'
+      );
+      if (shapeOutline) {
+        const outlineBaseW = Math.max(Number(shapeOutline.width) || 1, 1);
+        const outlineBaseH = Math.max(Number(shapeOutline.height) || 1, 1);
+        shapeOutline.set({
+          scaleX: desiredWidth / groupScaleX / outlineBaseW,
+          scaleY: desiredHeight / groupScaleY / outlineBaseH,
+          objectCaching: false,
+        });
+        shapeOutline.setCoords();
+      }
+
       frameObj.getObjects().forEach((child: FabricObject) => {
         child.set({
           objectCaching: false,
@@ -3761,12 +3774,29 @@ export class CanvasManager {
           childClip.setCoords();
         }
       });
+    } else {
+      const clipPath = photo.clipPath as FabricObject | undefined;
+      if (clipPath) {
+        const baseClipW = Math.max(Number(clipPath.width) || 1, 1);
+        const baseClipH = Math.max(Number(clipPath.height) || 1, 1);
+        clipPath.set({
+          scaleX: desiredWidth / (photo.scaleX || 1) / baseClipW,
+          scaleY: desiredHeight / (photo.scaleY || 1) / baseClipH,
+          objectCaching: false,
+        });
+        clipPath.setCoords();
+      }
     }
 
+    photo.setCoords();
+    frameObj.set({
+      objectCaching: false,
+      noScaleCache: false,
+      dirty: true,
+    } as any);
     frameObj.setCoords();
 
-    // requestRenderAll() schedules a later RAF. During pointer scaling we want
-    // the new frame size visible immediately.
+    // Live resize: cancel queued RAF and re-render immediately for seamless real-time drag preview
     this.canvas?.cancelRequestedRender();
     this.canvas?.renderAll();
   }
@@ -3854,6 +3884,248 @@ export class CanvasManager {
       naturalWidth: Number(frame.get('naturalWidth' as any)) || undefined,
       naturalHeight: Number(frame.get('naturalHeight' as any)) || undefined,
     });
+  }
+
+  // --- Canva-Style Double-Click Frame Crop / Adjustment Engine ---
+
+  public isFrameCropping(): boolean {
+    return this.activeCropFrame !== null;
+  }
+
+  public async enterFrameCropMode(targetFrame?: FabricObject): Promise<void> {
+    if (!this.canvas) return;
+
+    const frameObj = targetFrame || this.canvas.getActiveObject();
+    if (!frameObj) return;
+
+    const isFrameObj =
+      Boolean(frameObj.get('isFrame' as any)) ||
+      Boolean(frameObj.get('isPhotoShapeGroup' as any)) ||
+      Boolean(frameObj.get('isCustomFrame' as any));
+
+    if (!isFrameObj) return;
+
+    const isPlaceholder = Boolean(frameObj.get('isCanvaPlaceholder' as any));
+    if (isPlaceholder) return;
+
+    const photoObj = this.getFramePhotoObject(frameObj);
+    if (!photoObj) return;
+
+    const originalSrc =
+      (photoObj.get('originalSrc' as any) as string) ||
+      (frameObj.get('originalSrc' as any) as string) ||
+      (photoObj.getSrc ? photoObj.getSrc() : '');
+
+    if (!originalSrc || originalSrc.includes('canva-frame-placeholder')) return;
+
+    if (this.activeCropFrame) {
+      await this.exitFrameCropMode(true);
+    }
+
+    try {
+      const safeUrl = await urlToSafeDataUrl(originalSrc);
+      const unclippedImg = await FabricImage.fromURL(safeUrl, { crossOrigin: 'anonymous' });
+
+      const natW = Math.max(
+        (photoObj.get('naturalWidth' as any) as number) ||
+        Number(unclippedImg.width) ||
+        1,
+        1
+      );
+      const natH = Math.max(
+        (photoObj.get('naturalHeight' as any) as number) ||
+        Number(unclippedImg.height) ||
+        1,
+        1
+      );
+
+      const frameW = Math.max(frameObj.getScaledWidth(), 1);
+      const frameH = Math.max(frameObj.getScaledHeight(), 1);
+
+      // Compute visible source window dimensions (cover fit)
+      const targetAspect = frameW / Math.max(frameH, 0.000001);
+      const imageAspect = natW / Math.max(natH, 0.000001);
+
+      let visibleSourceW = natW;
+      let visibleSourceH = natH;
+
+      if (imageAspect > targetAspect) {
+        visibleSourceH = natH;
+        visibleSourceW = natH * targetAspect;
+      } else {
+        visibleSourceW = natW;
+        visibleSourceH = natW / Math.max(targetAspect, 0.000001);
+      }
+
+      const photoScale = Math.max(
+        frameW / Math.max(visibleSourceW, 0.000001),
+        frameH / Math.max(visibleSourceH, 0.000001)
+      );
+
+      const initialCropCenterX =
+        (photoObj.get('frameCropCenterX' as any) as number) ??
+        (frameObj.get('frameCropCenterX' as any) as number) ??
+        natW / 2;
+
+      const initialCropCenterY =
+        (photoObj.get('frameCropCenterY' as any) as number) ??
+        (frameObj.get('frameCropCenterY' as any) as number) ??
+        natH / 2;
+
+      this.activeCropFrame = frameObj;
+      this.cropSnapshot = {
+        frameObj,
+        photoObj,
+        originalSrc,
+        naturalWidth: natW,
+        naturalHeight: natH,
+        initialCropCenterX,
+        initialCropCenterY,
+        initialPhotoScale: photoScale,
+      };
+
+      const fullRenderedW = natW * photoScale;
+      const fullRenderedH = natH * photoScale;
+
+      const frameCenter = frameObj.getCenterPoint();
+      const frameAngle = frameObj.angle || 0;
+      const frameRad = (frameAngle * Math.PI) / 180;
+
+      const dx = (natW / 2 - initialCropCenterX) * photoScale;
+      const dy = (natH / 2 - initialCropCenterY) * photoScale;
+
+      const unclippedCenterX = frameCenter.x + (dx * Math.cos(frameRad) - dy * Math.sin(frameRad));
+      const unclippedCenterY = frameCenter.y + (dx * Math.sin(frameRad) + dy * Math.cos(frameRad));
+
+      unclippedImg.set({
+        originX: 'center',
+        originY: 'center',
+        left: unclippedCenterX,
+        top: unclippedCenterY,
+        scaleX: fullRenderedW / Math.max(Number(unclippedImg.width) || 1, 1),
+        scaleY: fullRenderedH / Math.max(Number(unclippedImg.height) || 1, 1),
+        angle: frameAngle,
+        opacity: 0.45,
+        selectable: true,
+        evented: true,
+        hasBorders: true,
+        hasControls: true,
+        cornerColor: '#8b5cf6',
+        cornerStrokeColor: '#ffffff',
+        borderColor: '#8b5cf6',
+        cornerStyle: 'circle',
+        cornerSize: 10,
+        transparentCorners: false,
+      });
+
+      unclippedImg.set('isCropOverlayPhoto' as any, true);
+      this.cropUnclippedPhoto = unclippedImg;
+
+      frameObj.set({ selectable: false, evented: false });
+
+      this.canvas.add(unclippedImg);
+      this.canvas.setActiveObject(unclippedImg);
+      this.canvas.requestRenderAll();
+
+      unclippedImg.on('moving', () => this.updateLiveFrameCrop());
+      unclippedImg.on('scaling', () => this.updateLiveFrameCrop());
+    } catch (err) {
+      console.warn('Failed to enter frame crop mode:', err);
+      this.activeCropFrame = null;
+      this.cropSnapshot = null;
+    }
+  }
+
+  private updateLiveFrameCrop(): void {
+    if (!this.cropSnapshot || !this.cropUnclippedPhoto || !this.canvas) return;
+
+    const { frameObj, originalSrc, naturalWidth, naturalHeight } = this.cropSnapshot;
+    const frameCenter = frameObj.getCenterPoint();
+    const photoCenter = this.cropUnclippedPhoto.getCenterPoint();
+    const frameAngle = frameObj.angle || 0;
+    const frameRad = (frameAngle * Math.PI) / 180;
+
+    const renderedW = Math.max(this.cropUnclippedPhoto.getScaledWidth(), 1);
+    const renderedH = Math.max(this.cropUnclippedPhoto.getScaledHeight(), 1);
+
+    const photoScale = renderedW / Math.max(naturalWidth, 1);
+
+    const deltaX = frameCenter.x - photoCenter.x;
+    const deltaY = frameCenter.y - photoCenter.y;
+
+    const unrotatedDeltaX = deltaX * Math.cos(frameRad) + deltaY * Math.sin(frameRad);
+    const unrotatedDeltaY = -deltaX * Math.sin(frameRad) + deltaY * Math.cos(frameRad);
+
+    const frameW = Math.max(frameObj.getScaledWidth(), 1);
+    const frameH = Math.max(frameObj.getScaledHeight(), 1);
+
+    const targetAspect = frameW / Math.max(frameH, 0.000001);
+    const imageAspect = naturalWidth / Math.max(naturalHeight, 0.000001);
+
+    let visibleSourceW = naturalWidth;
+    let visibleSourceH = naturalHeight;
+
+    if (imageAspect > targetAspect) {
+      visibleSourceH = naturalHeight;
+      visibleSourceW = naturalHeight * targetAspect;
+    } else {
+      visibleSourceW = naturalWidth;
+      visibleSourceH = naturalWidth / Math.max(targetAspect, 0.000001);
+    }
+
+    const minCropX = visibleSourceW / 2;
+    const maxCropX = naturalWidth - visibleSourceW / 2;
+    const minCropY = visibleSourceH / 2;
+    const maxCropY = naturalHeight - visibleSourceH / 2;
+
+    const rawCropCenterX = naturalWidth / 2 - unrotatedDeltaX / Math.max(photoScale, 0.000001);
+    const rawCropCenterY = naturalHeight / 2 - unrotatedDeltaY / Math.max(photoScale, 0.000001);
+
+    const cropCenterX = Math.max(minCropX, Math.min(maxCropX, rawCropCenterX));
+    const cropCenterY = Math.max(minCropY, Math.min(maxCropY, rawCropCenterY));
+
+    this.slotImageIntoFrame(frameObj, originalSrc, {
+      naturalWidth,
+      naturalHeight,
+      originalSrc,
+      photoFit: 'cover',
+      framePhotoScale: photoScale,
+      frameCropCenterX: cropCenterX,
+      frameCropCenterY: cropCenterY,
+    });
+  }
+
+  public async exitFrameCropMode(confirm = true): Promise<void> {
+    if (!this.canvas || !this.activeCropFrame || !this.cropSnapshot) return;
+
+    const { frameObj, originalSrc, naturalWidth, naturalHeight, initialCropCenterX, initialCropCenterY, initialPhotoScale } = this.cropSnapshot;
+
+    if (this.cropUnclippedPhoto) {
+      this.canvas.remove(this.cropUnclippedPhoto);
+      this.cropUnclippedPhoto = null;
+    }
+
+    frameObj.set({ selectable: true, evented: true });
+
+    if (confirm) {
+      this.saveHistoryState();
+    } else {
+      await this.slotImageIntoFrame(frameObj, originalSrc, {
+        naturalWidth,
+        naturalHeight,
+        originalSrc,
+        photoFit: 'cover',
+        framePhotoScale: initialPhotoScale,
+        frameCropCenterX: initialCropCenterX,
+        frameCropCenterY: initialCropCenterY,
+      });
+    }
+
+    this.activeCropFrame = null;
+    this.cropSnapshot = null;
+    this.canvas.setActiveObject(frameObj);
+    this.canvas.requestRenderAll();
+    this.notifySelection();
   }
 
   /**
@@ -4584,8 +4856,9 @@ export class CanvasManager {
       });
     }
 
-    const canvasW = this.dimensions.widthPx || 1000;
-    const canvasH = this.dimensions.heightPx || 1000;
+    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+    const canvasW = (this.dimensions.widthPx || 1000) + bleedPx * 2;
+    const canvasH = (this.dimensions.heightPx || 1000) + bleedPx * 2;
     const psdW = Math.max(1, document.width || 1000);
     const psdH = Math.max(1, document.height || 1000);
 
@@ -5383,34 +5656,36 @@ export class CanvasManager {
           }
         }
       } else if (prop === 'stroke') {
-        const pos = (obj.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
         obj.set({
           stroke: value as string,
           strokeUniform: true,
-          paintFirst: pos === 'outside' ? 'stroke' : 'fill',
+          paintFirst: 'fill',
           dirty: true,
         });
       } else if (prop === 'strokeWidth') {
         const baseW = Math.max(0, Number(value) || 0);
-        const pos = (obj.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
         obj.set('baseStrokeWidth' as any, baseW);
-        obj.set({
-          strokeWidth: pos === 'outside' && baseW > 0 ? baseW * 2 : baseW,
+        const strokeUpdates: any = {
+          strokeWidth: baseW,
           strokeUniform: true,
-          paintFirst: pos === 'outside' ? 'stroke' : 'fill',
+          paintFirst: 'fill',
           dirty: true,
-        });
+        };
+        if (baseW > 0 && (!obj.stroke || obj.stroke === 'transparent' || obj.stroke === 'none')) {
+          strokeUpdates.stroke = '#000000';
+        }
+        obj.set(strokeUpdates);
       } else if (prop === 'strokePosition') {
         const pos = value === 'outside' ? 'outside' : 'inside';
         obj.set('strokePosition' as any, pos);
         const baseW = typeof obj.get('baseStrokeWidth' as any) === 'number'
           ? (obj.get('baseStrokeWidth' as any) as number)
-          : (obj.paintFirst === 'stroke' && obj.strokeWidth ? Math.round(obj.strokeWidth / 2) : (obj.strokeWidth || 0));
+          : (obj.strokeWidth || 0);
         obj.set('baseStrokeWidth' as any, baseW);
         obj.set({
-          strokeWidth: pos === 'outside' && baseW > 0 ? baseW * 2 : baseW,
+          strokeWidth: baseW,
           strokeUniform: true,
-          paintFirst: pos === 'outside' ? 'stroke' : 'fill',
+          paintFirst: 'fill',
           dirty: true,
         });
       } else if (prop === 'strokeDashArray') {
@@ -5709,41 +5984,32 @@ export class CanvasManager {
         active.set('strokeLineJoin', 'round');
         active.set('strokeLineCap', 'round');
       } else {
-        const pos = (active.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
-        active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+        active.set('paintFirst', 'fill');
       }
     } else if (prop === 'strokeWidth') {
       const baseW = Math.max(0, Number(value) || 0);
       active.set('strokeUniform', true);
+      active.set('baseStrokeWidth' as any, baseW);
+      active.set('strokeWidth', baseW);
+      if (baseW > 0 && (!active.stroke || active.stroke === 'transparent' || active.stroke === 'none')) {
+        active.set('stroke', '#000000');
+      }
       if (isText) {
         active.set('paintFirst', 'stroke');
         active.set('strokeLineJoin', 'round');
         active.set('strokeLineCap', 'round');
-        active.set('baseStrokeWidth' as any, baseW);
-        active.set('strokeWidth', baseW > 0 ? baseW * 2 : 0);
       } else {
-        const pos = (active.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
-        active.set('baseStrokeWidth' as any, baseW);
-        active.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
-        active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+        active.set('paintFirst', 'fill');
       }
     } else if (prop === 'strokePosition') {
       const pos = value === 'outside' ? 'outside' : 'inside';
       active.set('strokePosition' as any, pos);
       const baseW = typeof active.get('baseStrokeWidth' as any) === 'number'
         ? (active.get('baseStrokeWidth' as any) as number)
-        : (active.paintFirst === 'stroke' && active.strokeWidth ? Math.round(active.strokeWidth / 2) : (active.strokeWidth || 0));
+        : (active.strokeWidth || 0);
       active.set('baseStrokeWidth' as any, baseW);
-      if (isText) {
-        active.set('paintFirst', 'stroke');
-        active.set('strokeLineJoin', 'round');
-        active.set('strokeLineCap', 'round');
-        active.set('strokeWidth', baseW > 0 ? baseW * 2 : 0);
-      } else {
-        active.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
-        active.set('strokeUniform', true);
-        active.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
-      }
+      active.set('strokeWidth', baseW);
+      active.set('strokeUniform', true);
     } else if (prop === 'strokeLineCap') active.set('strokeLineCap', value as 'round' | 'square' | 'butt');
     else if (prop === 'strokeLineJoin') active.set('strokeLineJoin', value as 'round' | 'bevel' | 'miter');
     else if (prop === 'flipX') active.set('flipX', value as boolean);
@@ -7344,6 +7610,9 @@ export class CanvasManager {
   }
 
   public async undo(): Promise<void> {
+    if (this.isFrameCropping()) {
+      await this.exitFrameCropMode(false);
+    }
     if (!this.canvas || this.undoStack.length <= 1 || this.isProcessingHistory) return;
     try {
       this.isProcessingHistory = true;
@@ -7372,6 +7641,9 @@ export class CanvasManager {
   }
 
   public async redo(): Promise<void> {
+    if (this.isFrameCropping()) {
+      await this.exitFrameCropMode(false);
+    }
     if (!this.canvas || this.redoStack.length === 0 || this.isProcessingHistory) return;
     try {
       this.isProcessingHistory = true;
@@ -7627,12 +7899,141 @@ export class CanvasManager {
 
   // --- Internal Event Handlers ---
 
+  /**
+   * Checks the selected object's visible bounding box against the print areas.
+   *
+   * Coordinate model:
+   *   RED outer edge  = 0 .. artworkWidth / artworkHeight
+   *   BLACK trim edge = bleedPx .. bleedPx + trimWidth/trimHeight
+   *   SAFE area       = black trim + safeInset
+   *
+   * Returns:
+   *   outsideArtwork -> crossed the RED bleed/artwork edge
+   *   outsideTrim    -> crossed the BLACK trim/cut line
+   *   outsideSafe    -> crossed the SAFE line
+   */
+  private getObjectPrintBoundaryStatus(target: FabricObject): {
+    outsideArtwork: boolean;
+    outsideTrim: boolean;
+    outsideSafe: boolean;
+  } {
+    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+    const trimWidth = this.dimensions.widthPx || 1063;
+    const trimHeight = this.dimensions.heightPx || 591;
+    const artworkWidth = trimWidth + bleedPx * 2;
+    const artworkHeight = trimHeight + bleedPx * 2;
+
+    // marginPx === 0 is valid. Never fall back to safeZonePx just because
+    // the user intentionally set the editable margin to zero.
+    const configuredMargin =
+      this.dimensions.marginPx !== undefined
+        ? this.dimensions.marginPx
+        : this.dimensions.safeZonePx ?? 0;
+    const safeInset = Math.max(0, Number(configuredMargin) || 0);
+
+    target.setCoords();
+
+    // Fabric 7 returns the object bounds in canvas/scene coordinates.
+    const rect = target.getBoundingRect();
+
+    const left = rect.left;
+    const top = rect.top;
+    const right = rect.left + rect.width;
+    const bottom = rect.top + rect.height;
+
+    const outsideArtwork =
+      left < 0 ||
+      top < 0 ||
+      right > artworkWidth ||
+      bottom > artworkHeight;
+
+    const trimLeft = bleedPx;
+    const trimTop = bleedPx;
+    const trimRight = bleedPx + trimWidth;
+    const trimBottom = bleedPx + trimHeight;
+
+    const outsideTrim =
+      left < trimLeft ||
+      top < trimTop ||
+      right > trimRight ||
+      bottom > trimBottom;
+
+    const safeLeft = trimLeft + safeInset;
+    const safeTop = trimTop + safeInset;
+    const safeRight = trimRight - safeInset;
+    const safeBottom = trimBottom - safeInset;
+
+    const outsideSafe =
+      safeInset > 0 &&
+      (left < safeLeft ||
+        top < safeTop ||
+        right > safeRight ||
+        bottom > safeBottom);
+
+    return {
+      outsideArtwork,
+      outsideTrim,
+      outsideSafe,
+    };
+  }
+
+  /**
+   * Shows one clear warning after a move/resize finishes.
+   *
+   * Priority:
+   * 1. RED artwork/bleed edge
+   * 2. BLACK trim/cut line
+   * 3. SAFE area
+   *
+   * Crossing the black trim line is allowed because that is exactly how bleed
+   * artwork is created; this is a warning only and never moves/clamps the object.
+   */
+  private warnIfObjectCrossesPrintBoundary(target: FabricObject): void {
+    if (this.isNonInteractiveObject(target)) return;
+
+    const status = this.getObjectPrintBoundaryStatus(target);
+    const objectId =
+      String(target.get('id' as any) || target.get('name' as any) || target.type || 'object');
+
+    let warningKey: string | null = null;
+    let message: string | null = null;
+
+    if (status.outsideArtwork) {
+      warningKey = `${objectId}:bleed`;
+      message =
+        'Artwork warning: this element is outside the RED bleed/artwork boundary. Move it back inside the red line so it is included in the final artwork.';
+    } else if (status.outsideTrim) {
+      warningKey = `${objectId}:trim`;
+      message =
+        'Print warning: this element crosses the BLACK trim/cut line into the bleed area. This is okay for background artwork, but important text/logos should stay inside the safe area.';
+    } else if (status.outsideSafe) {
+      warningKey = `${objectId}:safe`;
+      message =
+        'Safe area warning: this element crosses the SAFE AREA line. Important text, logos and critical content should stay inside the safe area.';
+    }
+
+    if (!warningKey || !message) {
+      this.lastBoundaryWarningKey = null;
+      return;
+    }
+
+    // Avoid immediately repeating the exact same warning.
+    if (this.lastBoundaryWarningKey === warningKey) return;
+    this.lastBoundaryWarningKey = warningKey;
+
+    // Native browser alert intentionally removed.
+    // Existing PreflightBadge / Print Warnings UI handles these issues.
+  }
+
   private bindEvents(): void {
     if (!this.canvas) return;
 
     this.canvas.on('mouse:down:before', (opt: any) => {
       if (!this.canvas) return;
       this.canvas.calcOffset();
+
+      // New interaction: allow a fresh boundary warning when the transform ends.
+      this.lastBoundaryWarningKey = null;
 
       // Clear stale movement flags before Fabric creates its drag transform.
       // Explicitly locked objects remain locked.
@@ -7738,6 +8139,12 @@ export class CanvasManager {
     });
 
     this.canvas.on('mouse:down', (opt: any) => {
+      if (this.isFrameCropping()) {
+        const clickedTarget = opt?.target;
+        if (clickedTarget !== this.cropUnclippedPhoto) {
+          this.exitFrameCropMode(true);
+        }
+      }
       if (this.isDrawing && this.brushSettings.tool === 'eraser') {
         const pointer = opt.scenePoint || (this.canvas && opt.e ? (this.canvas as any).getScenePoint?.(opt.e) : null);
         if (pointer) {
@@ -7846,6 +8253,13 @@ export class CanvasManager {
         this.canvas?.setCursor('text');
         this.canvas?.requestRenderAll();
         this.notifySelection();
+      } else if (
+        target &&
+        (Boolean(target.get('isFrame' as any)) ||
+          Boolean(target.get('isPhotoShapeGroup' as any)) ||
+          Boolean(target.get('isCustomFrame' as any)))
+      ) {
+        this.enterFrameCropMode(target);
       } else if (!target && this.canvas?.backgroundImage) {
         // Canva-style: Double-click empty canvas background to detach & edit background
         this.convertBackgroundToLayer();
@@ -7990,6 +8404,10 @@ export class CanvasManager {
           opt.target.setCoords();
         }
       }
+      if (opt?.target) {
+        this.warnIfObjectCrossesPrintBoundary(opt.target);
+      }
+
       this.notifyChange();
       this.notifySelection();
       this.notifyLayers();

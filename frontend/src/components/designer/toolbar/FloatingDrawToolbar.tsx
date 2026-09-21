@@ -397,7 +397,7 @@ export const FloatingDrawToolbar: React.FC<FloatingDrawToolbarProps> = ({
                 setIsColorPickerOpen((prev) => !prev);
                 setIsWeightSliderOpen(false);
               }}
-              className="w-8 h-8 rounded-full border-2 border-white shadow-md hover:scale-110 transition-transform ring-1 ring-black/10"
+              className="w-8 h-8 rounded-lg border-2 border-white shadow-md hover:scale-110 transition-transform ring-1 ring-black/10"
               style={{ backgroundColor: drawColor }}
               title="Change Drawing Color"
             />
