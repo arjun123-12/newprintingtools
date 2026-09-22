@@ -7,6 +7,7 @@ export interface CornerRoundingPopoverProps {
   rx: number;
   maxRadius?: number;
   onChange: (radius: number) => void;
+  onCommit?: () => void;
   onClose: () => void;
 }
 
@@ -14,6 +15,7 @@ export const CornerRoundingPopover: React.FC<CornerRoundingPopoverProps> = ({
   rx,
   maxRadius = 200,
   onChange,
+  onCommit,
   onClose,
 }) => {
   const safeMax = useMemo(
@@ -54,6 +56,7 @@ export const CornerRoundingPopover: React.FC<CornerRoundingPopoverProps> = ({
 
   const finishInteraction = () => {
     isInteractingRef.current = false;
+    onCommit?.();
   };
 
   const setPercentage = (value: number) => {

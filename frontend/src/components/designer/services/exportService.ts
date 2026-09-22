@@ -1,6 +1,7 @@
 import { DocumentSettings, CanvasDimensions } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { urlToSafeDataUrl } from '@/utils/imageUrl';
+import { getArtworkExportGeometry } from '../utils/exportGeometry';
 
 import PDFDocument from 'pdfkit';
 import * as PDFKitModule from 'pdfkit';
@@ -425,14 +426,7 @@ export async function exportHighResolutionImage(
         ? selectedDpi
         : 300;
 
-    /*
-     * Fabric canvas uses CSS/browser pixels.
-     * The multiplier increases the exported pixel dimensions.
-     *
-     * Note: this increases export dimensions but does not reconstruct
-     * missing image detail. Real AI enhancement must happen separately.
-     */
-    const multiplier = Math.max(1, dpi / 72);
+    const geometry = getArtworkExportGeometry(dimensions, dpi);
 
     const mimeFormat: 'png' | 'jpeg' | 'webp' =
       format === 'jpeg'
@@ -444,7 +438,12 @@ export async function exportHighResolutionImage(
     const dataUrl = canvas.toDataURL({
       format: mimeFormat,
       quality: normalizedQuality,
-      multiplier,
+      multiplier: geometry.exportMultiplier,
+      left: 0,
+      top: 0,
+      width: geometry.artworkWidthPx,
+      height: geometry.artworkHeightPx,
+      enableRetinaScaling: false,
     });
 
     if (!dataUrl || !dataUrl.startsWith('data:image/')) {

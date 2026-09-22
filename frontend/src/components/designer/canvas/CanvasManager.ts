@@ -45,6 +45,16 @@ import { CanvasSnapping } from './CanvasSnapping';
 import { SmartSpacingManager } from './SmartSpacingManager';
 import { applyCanvaControlsGlobal, applyCanvaControlsToObject } from './CanvaControls';
 import { createFrameClipPath } from './frameHelpers';
+import {
+  getEffectiveCornerRadius,
+  syncObjectCornerGeometry,
+  syncVisualEffectsGeometry,
+  installShadowSilhouetteHook,
+  applyCornerRadiusToObject,
+  getTrianglePoints,
+  getHexagonPoints,
+  STAR_POINTS,
+} from './visualGeometry';
 import { CANVA_FRAME_PLACEHOLDER_SVG, FRAME_PRESETS } from '../data/framesData';
 import { POPULAR_FONTS, loadFont } from '../utils/fonts';
 import { calculateImageQuality, calculateFabricImageEffectiveDpi } from '../utils/imageQuality';
@@ -57,8 +67,9 @@ import {
   PsdImportOptions,
 } from '../services/psdImportService';
 
-// Apply Canva-style selection frame and handles globally
+// Apply Canva-style selection frame, handles and silhouette shadow hook globally
 applyCanvaControlsGlobal();
+installShadowSilhouetteHook();
 
 // Ensure all Fabric text objects render directly from vector glyphs (no blurry bitmap caching)
 (Textbox as any).ownDefaults = {
@@ -122,6 +133,12 @@ export interface ImageMetadata {
   framePhotoScale?: number;
   frameCropCenterX?: number;
   frameCropCenterY?: number;
+}
+
+export interface FrameCropState {
+  scale: number;
+  centerX: number;
+  centerY: number;
 }
 
 interface FrameResizeSnapshot {
@@ -238,6 +255,16 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   'customShapeUrl',
   'allowPhotoDrop',
   'isPhotoShapeGroup',
+  '_activeFilterPreset',
+  '_filterIntensity',
+  '_adjustments',
+  '_requestedRadius',
+  'cornerRadius',
+  'originalShapePoints',
+  'originalShapeType',
+  '_shadowSettings',
+  '_activeEffect',
+  '_effectSettings',
   'cropX',
   'cropY',
   'cropWidth',
@@ -355,6 +382,7 @@ export class CanvasManager {
   // Canva-Style Frame Image Crop Engine
   private activeCropFrame: FabricObject | null = null;
   private cropUnclippedPhoto: FabricImage | null = null;
+  private isCommittingCrop: boolean = false;
   private cropSnapshot: {
     frameObj: FabricObject;
     photoObj: FabricImage;
@@ -364,6 +392,7 @@ export class CanvasManager {
     initialCropCenterX: number;
     initialCropCenterY: number;
     initialPhotoScale: number;
+    currentCropState?: FrameCropState;
   } | null = null;
 
   // Event Listeners
@@ -2388,6 +2417,7 @@ export class CanvasManager {
           });
           this.canvas.requestRenderAll();
           await this.waitForAllImagesToLoad();
+          this.syncAllVisualEffects();
 
           this.finishTemplateLoading();
           return;
@@ -2796,6 +2826,9 @@ export class CanvasManager {
     });
     photo.set('clipPath', mask);
     photo.set('frameRole' as any, 'photo');
+    photo.set('framePhotoScale' as any, photoScale);
+    photo.set('frameCropCenterX' as any, cropX + visibleSourceWidth / 2);
+    photo.set('frameCropCenterY' as any, cropY + visibleSourceHeight / 2);
 
     overlay.set({
       originX: 'center',
@@ -2868,6 +2901,9 @@ export class CanvasManager {
     group.set('naturalWidth' as any, naturalWidth);
     group.set('naturalHeight' as any, naturalHeight);
     group.set('fileSizeBytes' as any, metadata.fileSizeBytes || 0);
+    group.set('framePhotoScale' as any, photoScale);
+    group.set('frameCropCenterX' as any, cropX + visibleSourceWidth / 2);
+    group.set('frameCropCenterY' as any, cropY + visibleSourceHeight / 2);
     group.set('frameOverlayUrl' as any, overlayUrl);
     group.set('frameMaskUrl' as any, maskUrl);
     group.set('frameUsesSingleSvg' as any, usesSameSvgForMaskAndOverlay);
@@ -3104,24 +3140,44 @@ export class CanvasManager {
           const targetAspect = targetScaledW / Math.max(targetScaledH, 0.000001);
           const imageAspect = natW / Math.max(natH, 0.000001);
 
-          if (imageAspect > targetAspect) {
-            // Source is wider than the shape: crop equal amounts from left/right.
-            visibleSourceHeight = natH;
-            visibleSourceWidth = natH * targetAspect;
-            cropX = Math.max(0, (natW - visibleSourceWidth) / 2);
-            cropY = 0;
-          } else {
-            // Source is taller than the shape: crop equal amounts from top/bottom.
-            visibleSourceWidth = natW;
-            visibleSourceHeight = natW / Math.max(targetAspect, 0.000001);
-            cropX = 0;
-            cropY = Math.max(0, (natH - visibleSourceHeight) / 2);
-          }
+          const minimumCoverScale = Math.max(
+            targetScaledW / Math.max(natW, 0.000001),
+            targetScaledH / Math.max(natH, 0.000001)
+          );
+          const storedScale =
+            typeof metadata?.framePhotoScale === 'number' &&
+              Number.isFinite(metadata.framePhotoScale)
+              ? metadata.framePhotoScale
+              : 0;
+          scaleFit = Math.max(minimumCoverScale, storedScale);
 
-          // Cropped photo window becomes EXACTLY the target shape dimensions.
-          scaleFit = Math.max(
-            targetScaledW / Math.max(visibleSourceWidth, 0.000001),
-            targetScaledH / Math.max(visibleSourceHeight, 0.000001)
+          visibleSourceWidth = Math.min(
+            natW,
+            targetScaledW / Math.max(scaleFit, 0.000001)
+          );
+          visibleSourceHeight = Math.min(
+            natH,
+            targetScaledH / Math.max(scaleFit, 0.000001)
+          );
+
+          const cropCenterX =
+            typeof metadata?.frameCropCenterX === 'number' &&
+              Number.isFinite(metadata.frameCropCenterX)
+              ? metadata.frameCropCenterX
+              : natW / 2;
+          const cropCenterY =
+            typeof metadata?.frameCropCenterY === 'number' &&
+              Number.isFinite(metadata.frameCropCenterY)
+              ? metadata.frameCropCenterY
+              : natH / 2;
+
+          cropX = Math.min(
+            Math.max(0, cropCenterX - visibleSourceWidth / 2),
+            Math.max(0, natW - visibleSourceWidth)
+          );
+          cropY = Math.min(
+            Math.max(0, cropCenterY - visibleSourceHeight / 2),
+            Math.max(0, natH - visibleSourceHeight)
           );
         }
 
@@ -3205,6 +3261,9 @@ export class CanvasManager {
         newImg.set('naturalHeight' as any, natH);
         newImg.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
         newImg.set('frameRole' as any, 'photo');
+        newImg.set('framePhotoScale' as any, scaleFit);
+        newImg.set('frameCropCenterX' as any, cropX + visibleSourceWidth / 2);
+        newImg.set('frameCropCenterY' as any, cropY + visibleSourceHeight / 2);
 
         // Scale the outline RELATIVE to its current rendered SVG bounds.
         // SVG paths may already carry transforms; replacing scaleX/scaleY from
@@ -3279,9 +3338,25 @@ export class CanvasManager {
         photoShapeGroup.set('naturalWidth' as any, natW);
         photoShapeGroup.set('naturalHeight' as any, natH);
         photoShapeGroup.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
+        photoShapeGroup.set('framePhotoScale' as any, scaleFit);
+        photoShapeGroup.set('frameCropCenterX' as any, cropX + visibleSourceWidth / 2);
+        photoShapeGroup.set('frameCropCenterY' as any, cropY + visibleSourceHeight / 2);
         photoShapeGroup.set('stroke' as any, frameObj.get('stroke' as any) || 'transparent');
         photoShapeGroup.set('strokeWidth' as any, Number(frameObj.get('strokeWidth' as any)) || 0);
         photoShapeGroup.set('strokeDashArray' as any, existingDash || null);
+
+        if (frameObj.shadow) {
+          photoShapeGroup.set('shadow', frameObj.shadow);
+        }
+        if ((frameObj as any)._shadowSettings) {
+          (photoShapeGroup as any)._shadowSettings = { ...(frameObj as any)._shadowSettings };
+        }
+        if ((frameObj as any)._activeEffect) {
+          (photoShapeGroup as any)._activeEffect = (frameObj as any)._activeEffect;
+        }
+        if ((frameObj as any)._effectSettings) {
+          (photoShapeGroup as any)._effectSettings = { ...(frameObj as any)._effectSettings };
+        }
 
         this.canvas.remove(frameObj);
         this.canvas.insertAt(
@@ -3348,6 +3423,18 @@ export class CanvasManager {
           visible: frameObj.visible,
         });
         replacement.set('id' as any, frameObj.get('id' as any));
+        if (frameObj.shadow) {
+          replacement.set('shadow', frameObj.shadow);
+        }
+        if ((frameObj as any)._shadowSettings) {
+          (replacement as any)._shadowSettings = { ...(frameObj as any)._shadowSettings };
+        }
+        if ((frameObj as any)._activeEffect) {
+          (replacement as any)._activeEffect = (frameObj as any)._activeEffect;
+        }
+        if ((frameObj as any)._effectSettings) {
+          (replacement as any)._effectSettings = { ...(frameObj as any)._effectSettings };
+        }
         replacement.setCoords();
 
         this.canvas.remove(frameObj);
@@ -3466,6 +3553,9 @@ export class CanvasManager {
       newImg.set('naturalHeight' as any, natH);
       newImg.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
       newImg.set('frameRole' as any, 'photo');
+      newImg.set('framePhotoScale' as any, scaleFit);
+      newImg.set('frameCropCenterX' as any, cropX + visibleSourceWidth / 2);
+      newImg.set('frameCropCenterY' as any, cropY + visibleSourceHeight / 2);
 
       const shapeOutline = createFrameClipPath(shapeType, targetScaledW, targetScaledH);
       shapeOutline.set({
@@ -3528,9 +3618,25 @@ export class CanvasManager {
       photoShapeGroup.set('naturalWidth' as any, natW);
       photoShapeGroup.set('naturalHeight' as any, natH);
       photoShapeGroup.set('fileSizeBytes' as any, metadata?.fileSizeBytes || 0);
+      photoShapeGroup.set('framePhotoScale' as any, scaleFit);
+      photoShapeGroup.set('frameCropCenterX' as any, cropX + visibleSourceWidth / 2);
+      photoShapeGroup.set('frameCropCenterY' as any, cropY + visibleSourceHeight / 2);
       photoShapeGroup.set('stroke' as any, frameObj.get('stroke' as any) || 'transparent');
       photoShapeGroup.set('strokeWidth' as any, Number(frameObj.get('strokeWidth' as any)) || 0);
       photoShapeGroup.set('strokeDashArray' as any, existingDash || null);
+
+      if (frameObj.shadow) {
+        photoShapeGroup.set('shadow', frameObj.shadow);
+      }
+      if ((frameObj as any)._shadowSettings) {
+        (photoShapeGroup as any)._shadowSettings = { ...(frameObj as any)._shadowSettings };
+      }
+      if ((frameObj as any)._activeEffect) {
+        (photoShapeGroup as any)._activeEffect = (frameObj as any)._activeEffect;
+      }
+      if ((frameObj as any)._effectSettings) {
+        (photoShapeGroup as any)._effectSettings = { ...(frameObj as any)._effectSettings };
+      }
 
       // Replace old frame object in canvas
       this.canvas.remove(frameObj);
@@ -3724,12 +3830,41 @@ export class CanvasManager {
     // so the image expands fluently during drag without getting cut off or frozen.
     const effectivePhotoScale = Math.max(snapshot.photoScale, minCoverScale);
 
+    // Recalculate the source window on EVERY scaling event. This makes both
+    // enlargement and shrinking visible immediately instead of waiting for
+    // normalizeFrameTransform() after mouse-up.
+    const visibleSourceW = Math.min(
+      natW,
+      desiredWidth / Math.max(effectivePhotoScale, 0.000001)
+    );
+    const visibleSourceH = Math.min(
+      natH,
+      desiredHeight / Math.max(effectivePhotoScale, 0.000001)
+    );
+    const cropX = Math.min(
+      Math.max(0, snapshot.cropCenterX - visibleSourceW / 2),
+      Math.max(0, natW - visibleSourceW)
+    );
+    const cropY = Math.min(
+      Math.max(0, snapshot.cropCenterY - visibleSourceH / 2),
+      Math.max(0, natH - visibleSourceH)
+    );
+
     if (frameObj instanceof Group) {
       photo.set({
+        width: visibleSourceW,
+        height: visibleSourceH,
+        cropX,
+        cropY,
         scaleX: effectivePhotoScale / groupScaleX,
         scaleY: effectivePhotoScale / groupScaleY,
         objectCaching: false,
-      });
+        noScaleCache: false,
+        dirty: true,
+      } as any);
+      photo.set('framePhotoScale' as any, effectivePhotoScale);
+      photo.set('frameCropCenterX' as any, cropX + visibleSourceW / 2);
+      photo.set('frameCropCenterY' as any, cropY + visibleSourceH / 2);
 
       const clipPath = photo.clipPath as FabricObject | undefined;
       if (clipPath) {
@@ -3775,6 +3910,21 @@ export class CanvasManager {
         }
       });
     } else {
+      photo.set({
+        width: visibleSourceW,
+        height: visibleSourceH,
+        cropX,
+        cropY,
+        scaleX: effectivePhotoScale,
+        scaleY: effectivePhotoScale,
+        objectCaching: false,
+        noScaleCache: false,
+        dirty: true,
+      } as any);
+      photo.set('framePhotoScale' as any, effectivePhotoScale);
+      photo.set('frameCropCenterX' as any, cropX + visibleSourceW / 2);
+      photo.set('frameCropCenterY' as any, cropY + visibleSourceH / 2);
+
       const clipPath = photo.clipPath as FabricObject | undefined;
       if (clipPath) {
         const baseClipW = Math.max(Number(clipPath.width) || 1, 1);
@@ -3888,10 +4038,109 @@ export class CanvasManager {
 
   // --- Canva-Style Double-Click Frame Crop / Adjustment Engine ---
 
+  private getEditorTransformFromFrameCropState(
+    cropState: FrameCropState,
+    frameObj: FabricObject,
+    naturalWidth: number,
+    naturalHeight: number
+  ): { left: number; top: number; scaleX: number; scaleY: number } {
+    const frameCenter = frameObj.getCenterPoint();
+    const frameAngle = frameObj.angle || 0;
+    const frameRad = (frameAngle * Math.PI) / 180;
+
+    const signX = frameObj.flipX ? -1 : 1;
+    const signY = frameObj.flipY ? -1 : 1;
+
+    const localOffsetX =
+      (naturalWidth / 2 - cropState.centerX) * cropState.scale * signX;
+    const localOffsetY =
+      (naturalHeight / 2 - cropState.centerY) * cropState.scale * signY;
+
+    const left =
+      frameCenter.x +
+      localOffsetX * Math.cos(frameRad) -
+      localOffsetY * Math.sin(frameRad);
+    const top =
+      frameCenter.y +
+      localOffsetX * Math.sin(frameRad) +
+      localOffsetY * Math.cos(frameRad);
+
+    return {
+      left,
+      top,
+      scaleX: cropState.scale,
+      scaleY: cropState.scale,
+    };
+  }
+
+  private getFrameCropStateFromEditor(
+    editorPhoto: FabricObject,
+    frameObj: FabricObject,
+    naturalWidth: number,
+    naturalHeight: number
+  ): FrameCropState {
+    const frameCenter = frameObj.getCenterPoint();
+    const photoCenter = editorPhoto.getCenterPoint();
+    const frameAngle = frameObj.angle || 0;
+    const frameRad = (frameAngle * Math.PI) / 180;
+
+    const frameW = Math.max(frameObj.getScaledWidth(), 1);
+    const frameH = Math.max(frameObj.getScaledHeight(), 1);
+
+    const rawScaleX = Math.abs(Number(editorPhoto.scaleX) || 1);
+    const rawScaleY = Math.abs(Number(editorPhoto.scaleY) || rawScaleX);
+
+    const minimumCoverScale = Math.max(
+      frameW / naturalWidth,
+      frameH / naturalHeight
+    );
+    const scale = Math.max(minimumCoverScale, rawScaleX, rawScaleY);
+
+    const visibleSourceW = Math.min(
+      naturalWidth,
+      frameW / Math.max(scale, 0.000001)
+    );
+    const visibleSourceH = Math.min(
+      naturalHeight,
+      frameH / Math.max(scale, 0.000001)
+    );
+
+    const signX = frameObj.flipX ? -1 : 1;
+    const signY = frameObj.flipY ? -1 : 1;
+
+    const dx = photoCenter.x - frameCenter.x;
+    const dy = photoCenter.y - frameCenter.y;
+
+    const localOffsetX = dx * Math.cos(frameRad) + dy * Math.sin(frameRad);
+    const localOffsetY = -dx * Math.sin(frameRad) + dy * Math.cos(frameRad);
+
+    const rawCenterX =
+      naturalWidth / 2 - (localOffsetX * signX) / Math.max(scale, 0.000001);
+    const rawCenterY =
+      naturalHeight / 2 - (localOffsetY * signY) / Math.max(scale, 0.000001);
+
+    const minCenterX = visibleSourceW / 2;
+    const maxCenterX = naturalWidth - visibleSourceW / 2;
+    const minCenterY = visibleSourceH / 2;
+    const maxCenterY = naturalHeight - visibleSourceH / 2;
+
+    const centerX = Math.max(minCenterX, Math.min(maxCenterX, rawCenterX));
+    const centerY = Math.max(minCenterY, Math.min(maxCenterY, rawCenterY));
+
+    return { scale, centerX, centerY };
+  }
+
   public isFrameCropping(): boolean {
     return this.activeCropFrame !== null;
   }
 
+  /**
+   * Opens Canva-style image adjustment for a filled frame.
+   *
+   * The FRAME remains fixed. A temporary full source photo is placed above it.
+   * The user moves/scales that temporary photo. Only the source window covered
+   * by the frame is written back to the real clipped frame photo.
+   */
   public async enterFrameCropMode(targetFrame?: FabricObject): Promise<void> {
     if (!this.canvas) return;
 
@@ -3904,9 +4153,7 @@ export class CanvasManager {
       Boolean(frameObj.get('isCustomFrame' as any));
 
     if (!isFrameObj) return;
-
-    const isPlaceholder = Boolean(frameObj.get('isCanvaPlaceholder' as any));
-    if (isPlaceholder) return;
+    if (Boolean(frameObj.get('isCanvaPlaceholder' as any))) return;
 
     const photoObj = this.getFramePhotoObject(frameObj);
     if (!photoObj) return;
@@ -3924,17 +4171,23 @@ export class CanvasManager {
 
     try {
       const safeUrl = await urlToSafeDataUrl(originalSrc);
-      const unclippedImg = await FabricImage.fromURL(safeUrl, { crossOrigin: 'anonymous' });
+      const unclippedImg = await FabricImage.fromURL(safeUrl, {
+        crossOrigin: 'anonymous',
+      });
 
-      const natW = Math.max(
-        (photoObj.get('naturalWidth' as any) as number) ||
+      // Use the bitmap that Fabric actually decoded. This keeps crop coordinates
+      // in exactly the same source-pixel space used by slotImageIntoFrame().
+      const naturalWidth = Math.max(
         Number(unclippedImg.width) ||
+        Number(photoObj.get('naturalWidth' as any)) ||
+        Number(frameObj.get('naturalWidth' as any)) ||
         1,
         1
       );
-      const natH = Math.max(
-        (photoObj.get('naturalHeight' as any) as number) ||
+      const naturalHeight = Math.max(
         Number(unclippedImg.height) ||
+        Number(photoObj.get('naturalHeight' as any)) ||
+        Number(frameObj.get('naturalHeight' as any)) ||
         1,
         1
       );
@@ -3942,190 +4195,377 @@ export class CanvasManager {
       const frameW = Math.max(frameObj.getScaledWidth(), 1);
       const frameH = Math.max(frameObj.getScaledHeight(), 1);
 
-      // Compute visible source window dimensions (cover fit)
-      const targetAspect = frameW / Math.max(frameH, 0.000001);
-      const imageAspect = natW / Math.max(natH, 0.000001);
-
-      let visibleSourceW = natW;
-      let visibleSourceH = natH;
-
-      if (imageAspect > targetAspect) {
-        visibleSourceH = natH;
-        visibleSourceW = natH * targetAspect;
-      } else {
-        visibleSourceW = natW;
-        visibleSourceH = natW / Math.max(targetAspect, 0.000001);
-      }
-
-      const photoScale = Math.max(
-        frameW / Math.max(visibleSourceW, 0.000001),
-        frameH / Math.max(visibleSourceH, 0.000001)
+      // Minimum scale required so the image always COVERs the frame.
+      const minimumCoverScale = Math.max(
+        frameW / naturalWidth,
+        frameH / naturalHeight
       );
 
-      const initialCropCenterX =
-        (photoObj.get('frameCropCenterX' as any) as number) ??
-        (frameObj.get('frameCropCenterX' as any) as number) ??
-        natW / 2;
+      const storedScale = Math.max(
+        Number(photoObj.get('framePhotoScale' as any)) ||
+        Number(frameObj.get('framePhotoScale' as any)) ||
+        0,
+        0
+      );
 
-      const initialCropCenterY =
-        (photoObj.get('frameCropCenterY' as any) as number) ??
-        (frameObj.get('frameCropCenterY' as any) as number) ??
-        natH / 2;
+      const photoScale = Math.max(minimumCoverScale, storedScale);
 
-      this.activeCropFrame = frameObj;
-      this.cropSnapshot = {
-        frameObj,
-        photoObj,
-        originalSrc,
-        naturalWidth: natW,
-        naturalHeight: natH,
-        initialCropCenterX,
-        initialCropCenterY,
-        initialPhotoScale: photoScale,
+      // The visible source window depends on CURRENT zoom of the photo.
+      const visibleSourceW = Math.min(
+        naturalWidth,
+        frameW / Math.max(photoScale, 0.000001)
+      );
+      const visibleSourceH = Math.min(
+        naturalHeight,
+        frameH / Math.max(photoScale, 0.000001)
+      );
+
+      const storedCenterX =
+        Number(photoObj.get('frameCropCenterX' as any)) ||
+        Number(frameObj.get('frameCropCenterX' as any)) ||
+        naturalWidth / 2;
+      const storedCenterY =
+        Number(photoObj.get('frameCropCenterY' as any)) ||
+        Number(frameObj.get('frameCropCenterY' as any)) ||
+        naturalHeight / 2;
+
+      const initialCropState: FrameCropState = {
+        scale: photoScale,
+        centerX: Math.max(
+          visibleSourceW / 2,
+          Math.min(naturalWidth - visibleSourceW / 2, storedCenterX)
+        ),
+        centerY: Math.max(
+          visibleSourceH / 2,
+          Math.min(naturalHeight - visibleSourceH / 2, storedCenterY)
+        ),
       };
 
-      const fullRenderedW = natW * photoScale;
-      const fullRenderedH = natH * photoScale;
-
-      const frameCenter = frameObj.getCenterPoint();
-      const frameAngle = frameObj.angle || 0;
-      const frameRad = (frameAngle * Math.PI) / 180;
-
-      const dx = (natW / 2 - initialCropCenterX) * photoScale;
-      const dy = (natH / 2 - initialCropCenterY) * photoScale;
-
-      const unclippedCenterX = frameCenter.x + (dx * Math.cos(frameRad) - dy * Math.sin(frameRad));
-      const unclippedCenterY = frameCenter.y + (dx * Math.sin(frameRad) + dy * Math.cos(frameRad));
+      const initialTransform = this.getEditorTransformFromFrameCropState(
+        initialCropState,
+        frameObj,
+        naturalWidth,
+        naturalHeight
+      );
 
       unclippedImg.set({
         originX: 'center',
         originY: 'center',
-        left: unclippedCenterX,
-        top: unclippedCenterY,
-        scaleX: fullRenderedW / Math.max(Number(unclippedImg.width) || 1, 1),
-        scaleY: fullRenderedH / Math.max(Number(unclippedImg.height) || 1, 1),
-        angle: frameAngle,
-        opacity: 0.45,
+        left: initialTransform.left,
+        top: initialTransform.top,
+        scaleX: initialTransform.scaleX,
+        scaleY: initialTransform.scaleY,
+        angle: frameObj.angle || 0,
+        flipX: !!frameObj.flipX,
+        flipY: !!frameObj.flipY,
+
+        // Canva-like adjust preview: show the complete source photo faintly.
+        opacity: 0.48,
         selectable: true,
         evented: true,
         hasBorders: true,
         hasControls: true,
+        lockRotation: true,
+        lockUniScaling: true,
+        centeredScaling: true,
         cornerColor: '#8b5cf6',
         cornerStrokeColor: '#ffffff',
         borderColor: '#8b5cf6',
         cornerStyle: 'circle',
         cornerSize: 10,
         transparentCorners: false,
-      });
+        objectCaching: false,
+      } as any);
 
       unclippedImg.set('isCropOverlayPhoto' as any, true);
+      unclippedImg.set('excludeFromExport' as any, true);
+      unclippedImg.set('excludeFromLayers' as any, true);
+      unclippedImg.set('name' as any, 'Frame image adjustment');
+
+      this.activeCropFrame = frameObj;
+      this.cropSnapshot = {
+        frameObj,
+        photoObj,
+        originalSrc,
+        naturalWidth,
+        naturalHeight,
+        initialCropCenterX: initialCropState.centerX,
+        initialCropCenterY: initialCropState.centerY,
+        initialPhotoScale: photoScale,
+        currentCropState: initialCropState,
+      };
       this.cropUnclippedPhoto = unclippedImg;
 
-      frameObj.set({ selectable: false, evented: false });
+      // The frame itself never moves while its photo is being adjusted.
+      frameObj.set({
+        selectable: false,
+        evented: false,
+        hasControls: false,
+      });
 
       this.canvas.add(unclippedImg);
       this.canvas.setActiveObject(unclippedImg);
-      this.canvas.requestRenderAll();
 
-      unclippedImg.on('moving', () => this.updateLiveFrameCrop());
-      unclippedImg.on('scaling', () => this.updateLiveFrameCrop());
+      // Keep the temporary full photo above the frame only while editing.
+      this.canvas.bringObjectToFront(unclippedImg);
+      unclippedImg.setCoords();
+
+      const syncCrop = () => {
+        this.updateLiveFrameCrop();
+      };
+
+      unclippedImg.on('moving', syncCrop);
+      unclippedImg.on('scaling', syncCrop);
+      unclippedImg.on('modified', syncCrop);
+
+      this.canvas.requestRenderAll();
+      this.notifySelection();
     } catch (err) {
       console.warn('Failed to enter frame crop mode:', err);
       this.activeCropFrame = null;
       this.cropSnapshot = null;
+      this.cropUnclippedPhoto = null;
     }
   }
 
+  /**
+   * Convert the temporary full-photo transform into source-pixel crop
+   * coordinates, clamp them so the frame can never reveal empty space, and
+   * update only the clipped photo inside the frame.
+   */
   private updateLiveFrameCrop(): void {
     if (!this.cropSnapshot || !this.cropUnclippedPhoto || !this.canvas) return;
 
-    const { frameObj, originalSrc, naturalWidth, naturalHeight } = this.cropSnapshot;
-    const frameCenter = frameObj.getCenterPoint();
-    const photoCenter = this.cropUnclippedPhoto.getCenterPoint();
-    const frameAngle = frameObj.angle || 0;
-    const frameRad = (frameAngle * Math.PI) / 180;
-
-    const renderedW = Math.max(this.cropUnclippedPhoto.getScaledWidth(), 1);
-    const renderedH = Math.max(this.cropUnclippedPhoto.getScaledHeight(), 1);
-
-    const photoScale = renderedW / Math.max(naturalWidth, 1);
-
-    const deltaX = frameCenter.x - photoCenter.x;
-    const deltaY = frameCenter.y - photoCenter.y;
-
-    const unrotatedDeltaX = deltaX * Math.cos(frameRad) + deltaY * Math.sin(frameRad);
-    const unrotatedDeltaY = -deltaX * Math.sin(frameRad) + deltaY * Math.cos(frameRad);
-
-    const frameW = Math.max(frameObj.getScaledWidth(), 1);
-    const frameH = Math.max(frameObj.getScaledHeight(), 1);
-
-    const targetAspect = frameW / Math.max(frameH, 0.000001);
-    const imageAspect = naturalWidth / Math.max(naturalHeight, 0.000001);
-
-    let visibleSourceW = naturalWidth;
-    let visibleSourceH = naturalHeight;
-
-    if (imageAspect > targetAspect) {
-      visibleSourceH = naturalHeight;
-      visibleSourceW = naturalHeight * targetAspect;
-    } else {
-      visibleSourceW = naturalWidth;
-      visibleSourceH = naturalWidth / Math.max(targetAspect, 0.000001);
-    }
-
-    const minCropX = visibleSourceW / 2;
-    const maxCropX = naturalWidth - visibleSourceW / 2;
-    const minCropY = visibleSourceH / 2;
-    const maxCropY = naturalHeight - visibleSourceH / 2;
-
-    const rawCropCenterX = naturalWidth / 2 - unrotatedDeltaX / Math.max(photoScale, 0.000001);
-    const rawCropCenterY = naturalHeight / 2 - unrotatedDeltaY / Math.max(photoScale, 0.000001);
-
-    const cropCenterX = Math.max(minCropX, Math.min(maxCropX, rawCropCenterX));
-    const cropCenterY = Math.max(minCropY, Math.min(maxCropY, rawCropCenterY));
-
-    this.slotImageIntoFrame(frameObj, originalSrc, {
+    const {
+      frameObj,
       naturalWidth,
       naturalHeight,
       originalSrc,
-      photoFit: 'cover',
-      framePhotoScale: photoScale,
-      frameCropCenterX: cropCenterX,
-      frameCropCenterY: cropCenterY,
+      photoObj,
+    } = this.cropSnapshot;
+
+    const cropState = this.getFrameCropStateFromEditor(
+      this.cropUnclippedPhoto,
+      frameObj,
+      naturalWidth,
+      naturalHeight
+    );
+
+    const clampedTransform = this.getEditorTransformFromFrameCropState(
+      cropState,
+      frameObj,
+      naturalWidth,
+      naturalHeight
+    );
+
+    // Keep the editor image clamped so empty pixels can never enter the frame.
+    this.cropUnclippedPhoto.set({
+      left: clampedTransform.left,
+      top: clampedTransform.top,
+      scaleX: clampedTransform.scaleX,
+      scaleY: clampedTransform.scaleY,
     });
+    this.cropUnclippedPhoto.setCoords();
+
+    this.cropSnapshot.currentCropState = cropState;
+
+    frameObj.set('framePhotoScale' as any, cropState.scale);
+    frameObj.set('frameCropCenterX' as any, cropState.centerX);
+    frameObj.set('frameCropCenterY' as any, cropState.centerY);
+    frameObj.set('photoFit' as any, 'cover');
+    frameObj.set('originalSrc' as any, originalSrc);
+
+    /*
+     * REAL-TIME CANVA PREVIEW
+     * -----------------------
+     * Previously only crop metadata changed here. The real masked photo was
+     * rebuilt in exitFrameCropMode(), so the user did not see the selected
+     * portion inside the frame until clicking outside.
+     *
+     * Update the existing photo child's source window immediately. Its rendered
+     * width/height remain exactly the frame viewport size:
+     *
+     *   sourceWindow * cropState.scale === frame viewport
+     *
+     * Therefore the Group/frame bounds do NOT change and heart/custom SVG masks
+     * remain intact.
+     */
+    const livePhoto = this.getFramePhotoObject(frameObj) || photoObj;
+    if (livePhoto) {
+      const frameW = Math.max(frameObj.getScaledWidth(), 1);
+      const frameH = Math.max(frameObj.getScaledHeight(), 1);
+
+      const visibleSourceW = Math.min(
+        naturalWidth,
+        frameW / Math.max(cropState.scale, 0.000001)
+      );
+      const visibleSourceH = Math.min(
+        naturalHeight,
+        frameH / Math.max(cropState.scale, 0.000001)
+      );
+
+      const cropX = Math.min(
+        Math.max(0, cropState.centerX - visibleSourceW / 2),
+        Math.max(0, naturalWidth - visibleSourceW)
+      );
+      const cropY = Math.min(
+        Math.max(0, cropState.centerY - visibleSourceH / 2),
+        Math.max(0, naturalHeight - visibleSourceH)
+      );
+
+      // For Group frames compensate for the wrapper scale so the rendered photo
+      // continues to match the fixed viewport exactly.
+      const groupScaleX =
+        livePhoto === frameObj
+          ? 1
+          : Math.max(Math.abs(Number(frameObj.scaleX) || 1), 0.000001);
+      const groupScaleY =
+        livePhoto === frameObj
+          ? 1
+          : Math.max(Math.abs(Number(frameObj.scaleY) || 1), 0.000001);
+
+      livePhoto.set({
+        width: visibleSourceW,
+        height: visibleSourceH,
+        cropX,
+        cropY,
+        scaleX: cropState.scale / groupScaleX,
+        scaleY: cropState.scale / groupScaleY,
+        objectCaching: false,
+        noScaleCache: false,
+        dirty: true,
+      } as any);
+
+      livePhoto.set('framePhotoScale' as any, cropState.scale);
+      livePhoto.set('frameCropCenterX' as any, cropState.centerX);
+      livePhoto.set('frameCropCenterY' as any, cropState.centerY);
+      livePhoto.set('photoFit' as any, 'cover');
+      livePhoto.set('originalSrc' as any, originalSrc);
+
+      // Keep the existing SVG/custom mask; only resize its local viewport.
+      const clipPath = livePhoto.clipPath as FabricObject | undefined;
+      if (clipPath) {
+        clipPath.set({
+          objectCaching: false,
+          noScaleCache: false,
+          dirty: true,
+        } as any);
+        clipPath.setCoords();
+      }
+
+      livePhoto.setCoords();
+    }
+
+    if (frameObj instanceof Group) {
+      frameObj.getObjects().forEach((child: FabricObject) => {
+        child.set({ objectCaching: false, dirty: true } as any);
+        child.clipPath?.set?.({ objectCaching: false, dirty: true } as any);
+      });
+    }
+
+    frameObj.set({
+      objectCaching: false,
+      noScaleCache: false,
+      dirty: true,
+    } as any);
+    frameObj.setCoords();
+
+    // Immediate render is intentional here: this is direct-manipulation UI and
+    // must visually follow every pointer event, not the later outside click.
+    this.canvas.cancelRequestedRender();
+    this.canvas.renderAll();
   }
 
   public async exitFrameCropMode(confirm = true): Promise<void> {
-    if (!this.canvas || !this.activeCropFrame || !this.cropSnapshot) return;
+    if (
+      !this.canvas ||
+      !this.activeCropFrame ||
+      !this.cropSnapshot ||
+      this.isCommittingCrop
+    )
+      return;
 
-    const { frameObj, originalSrc, naturalWidth, naturalHeight, initialCropCenterX, initialCropCenterY, initialPhotoScale } = this.cropSnapshot;
+    this.isCommittingCrop = true;
 
-    if (this.cropUnclippedPhoto) {
-      this.canvas.remove(this.cropUnclippedPhoto);
-      this.cropUnclippedPhoto = null;
-    }
+    try {
+      const {
+        frameObj,
+        originalSrc,
+        naturalWidth,
+        naturalHeight,
+        initialCropCenterX,
+        initialCropCenterY,
+        initialPhotoScale,
+      } = this.cropSnapshot;
 
-    frameObj.set({ selectable: true, evented: true });
+      if (confirm && this.cropUnclippedPhoto) {
+        this.cropUnclippedPhoto.setCoords();
+        this.updateLiveFrameCrop();
+      }
 
-    if (confirm) {
-      this.saveHistoryState();
-    } else {
-      await this.slotImageIntoFrame(frameObj, originalSrc, {
+      const currentCropState = this.cropSnapshot.currentCropState;
+
+      const finalScale = confirm
+        ? currentCropState
+          ? currentCropState.scale
+          : Math.max(
+            Number(frameObj.get('framePhotoScale' as any)) || initialPhotoScale,
+            0.000001
+          )
+        : initialPhotoScale;
+      const finalCenterX = confirm
+        ? currentCropState
+          ? currentCropState.centerX
+          : Number(frameObj.get('frameCropCenterX' as any)) || initialCropCenterX
+        : initialCropCenterX;
+      const finalCenterY = confirm
+        ? currentCropState
+          ? currentCropState.centerY
+          : Number(frameObj.get('frameCropCenterY' as any)) || initialCropCenterY
+        : initialCropCenterY;
+
+      if (this.cropUnclippedPhoto) {
+        this.canvas.remove(this.cropUnclippedPhoto);
+        this.cropUnclippedPhoto = null;
+      }
+
+      frameObj.set({ selectable: true, evented: true, hasControls: true });
+      this.activeCropFrame = null;
+      this.cropSnapshot = null;
+
+      // Rebuild exactly once. slotImageIntoFrame preserves customShapeUrl for
+      // heart/custom SVG frames and frameMaskUrl/frameOverlayUrl for admin frames.
+      const replacement = await this.slotImageIntoFrame(frameObj, originalSrc, {
         naturalWidth,
         naturalHeight,
         originalSrc,
         photoFit: 'cover',
-        framePhotoScale: initialPhotoScale,
-        frameCropCenterX: initialCropCenterX,
-        frameCropCenterY: initialCropCenterY,
+        framePhotoScale: finalScale,
+        frameCropCenterX: finalCenterX,
+        frameCropCenterY: finalCenterY,
       });
-    }
 
-    this.activeCropFrame = null;
-    this.cropSnapshot = null;
-    this.canvas.setActiveObject(frameObj);
-    this.canvas.requestRenderAll();
-    this.notifySelection();
+      const finalFrame = (replacement as unknown as FabricObject | null) || frameObj;
+      const finalPhoto = this.getFramePhotoObject(finalFrame);
+
+      for (const obj of [finalFrame, finalPhoto].filter(Boolean) as FabricObject[]) {
+        obj.set('framePhotoScale' as any, finalScale);
+        obj.set('frameCropCenterX' as any, finalCenterX);
+        obj.set('frameCropCenterY' as any, finalCenterY);
+        obj.set('photoFit' as any, 'cover');
+        obj.set('originalSrc' as any, originalSrc);
+        obj.setCoords();
+      }
+
+      this.canvas.setActiveObject(finalFrame);
+      this.canvas.requestRenderAll();
+      this.notifySelection();
+      this.notifyLayers();
+      this.notifyChange();
+      // slotImageIntoFrame already records the committed frame in history.
+    } finally {
+      this.isCommittingCrop = false;
+    }
   }
 
   /**
@@ -5450,16 +5890,32 @@ export class CanvasManager {
     if (!this.canvas) return;
     const obj = this.canvas.getObjects().find((o) => o.get('id' as any) === id);
     if (obj) {
-      obj.clone().then((cloned: FabricObject) => {
+      obj.clone(CUSTOM_CANVAS_PROPERTIES).then((cloned: FabricObject) => {
         if (!this.canvas) return;
         this.ensureObjectId(cloned, `${obj.get('name' as any) || 'Object'} (Copy)`);
+
+        // Deep clone originalShapePoints so duplicated objects don't share mutable references
+        if ((obj as any).originalShapePoints && Array.isArray((obj as any).originalShapePoints)) {
+          (cloned as any).originalShapePoints = (obj as any).originalShapePoints.map((pt: any) => ({
+            x: pt.x,
+            y: pt.y,
+          }));
+        }
+        (cloned as any).originalShapeType = (obj as any).originalShapeType;
+        (cloned as any).cornerRadius = (obj as any).cornerRadius;
+        (cloned as any)._requestedRadius = (obj as any)._requestedRadius;
+        (cloned as any).rx = (obj as any).rx;
+        (cloned as any).ry = (obj as any).ry;
+
         cloned.set({
           left: (cloned.left || 0) + 20,
           top: (cloned.top || 0) + 20,
           evented: true,
         });
+        applyCanvaControlsToObject(cloned);
         this.canvas.add(cloned);
         this.canvas.setActiveObject(cloned);
+        this.syncVisualEffectsGeometry(cloned);
         this.canvas.requestRenderAll();
         this.notifyChange();
         this.notifySelection();
@@ -5662,6 +6118,8 @@ export class CanvasManager {
           paintFirst: 'fill',
           dirty: true,
         });
+        syncObjectCornerGeometry(obj);
+        syncVisualEffectsGeometry(obj);
       } else if (prop === 'strokeWidth') {
         const baseW = Math.max(0, Number(value) || 0);
         obj.set('baseStrokeWidth' as any, baseW);
@@ -5675,6 +6133,8 @@ export class CanvasManager {
           strokeUpdates.stroke = '#000000';
         }
         obj.set(strokeUpdates);
+        syncObjectCornerGeometry(obj);
+        syncVisualEffectsGeometry(obj);
       } else if (prop === 'strokePosition') {
         const pos = value === 'outside' ? 'outside' : 'inside';
         obj.set('strokePosition' as any, pos);
@@ -5688,43 +6148,17 @@ export class CanvasManager {
           paintFirst: 'fill',
           dirty: true,
         });
+        syncObjectCornerGeometry(obj);
+        syncVisualEffectsGeometry(obj);
       } else if (prop === 'strokeDashArray') {
         obj.set('strokeDashArray', value ? (value as number[]) : null);
       } else if (prop === 'strokeLineCap') {
         obj.set('strokeLineCap', value as 'round' | 'square' | 'butt');
       } else if (prop === 'strokeLineJoin') {
         obj.set('strokeLineJoin', value as 'round' | 'bevel' | 'miter');
-      } else if (prop === 'rx' || prop === 'ry') {
+      } else if (prop === 'rx' || prop === 'ry' || (prop as string) === 'cornerRadius') {
         const requestedRadius = Math.max(0, Number(value) || 0);
-
-        if (isImage) {
-          const width = Math.max(obj.width || 1, 1);
-          const height = Math.max(obj.height || 1, 1);
-          const objectScale = typeof (obj as any).getObjectScaling === 'function'
-            ? (obj as any).getObjectScaling()
-            : { x: obj.scaleX || 1, y: obj.scaleY || 1 };
-          const scaleX = Math.max(Math.abs(objectScale.x || 1), 0.001);
-          const scaleY = Math.max(Math.abs(objectScale.y || 1), 0.001);
-          const maxRenderedRadius = Math.min(width * scaleX, height * scaleY) / 2;
-          const renderedRadius = Math.min(requestedRadius, maxRenderedRadius);
-
-          (obj as any).rx = renderedRadius;
-          (obj as any).ry = renderedRadius;
-          obj.clipPath = renderedRadius > 0
-            ? new Rect({
-              width,
-              height,
-              rx: renderedRadius / scaleX,
-              ry: renderedRadius / scaleY,
-              originX: 'center',
-              originY: 'center',
-            })
-            : undefined;
-        } else if (obj instanceof Rect || obj.type === 'rect') {
-          const maxRadius = Math.min(obj.width || 1, obj.height || 1) / 2;
-          const radius = Math.min(requestedRadius, maxRadius);
-          obj.set({ rx: radius, ry: radius } as any);
-        }
+        applyCornerRadiusToObject(obj, requestedRadius, this.canvas);
       } else if (isText && prop === 'fontFamily') {
         (obj as Textbox | IText).set('fontFamily', String(value));
       } else if (isText && prop === 'fontSize') {
@@ -5789,25 +6223,24 @@ export class CanvasManager {
         continue;
       }
 
-      object.set({ fill: 'transparent', paintFirst: 'stroke', strokeUniform: true });
+      object.set({ fill: 'transparent', paintFirst: 'fill', strokePosition: 'inside' as any, strokeUniform: true });
 
       if (prop === 'stroke') {
         object.set('stroke', String(value || 'transparent'));
       } else if (prop === 'strokeWidth') {
         const baseW = Math.max(0, Number(value) || 0);
-        const pos = (object.get('strokePosition' as any) as 'inside' | 'outside') || 'inside';
         object.set('baseStrokeWidth' as any, baseW);
-        object.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
-        object.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+        object.set('strokeWidth', baseW);
+        object.set('strokePosition' as any, 'inside');
+        object.set('paintFirst', 'fill');
       } else if (prop === 'strokePosition') {
-        const pos = value === 'outside' ? 'outside' : 'inside';
-        object.set('strokePosition' as any, pos);
+        object.set('strokePosition' as any, 'inside');
         const baseW = typeof object.get('baseStrokeWidth' as any) === 'number'
           ? (object.get('baseStrokeWidth' as any) as number)
           : (object.strokeWidth || 0);
         object.set('baseStrokeWidth' as any, baseW);
-        object.set('strokeWidth', pos === 'outside' && baseW > 0 ? baseW * 2 : baseW);
-        object.set('paintFirst', pos === 'outside' ? 'stroke' : 'fill');
+        object.set('strokeWidth', baseW);
+        object.set('paintFirst', 'fill');
       } else if (prop === 'strokeDashArray') {
         object.set('strokeDashArray', value ? (value as number[]) : null);
       } else if (prop === 'strokeLineCap') {
@@ -5818,9 +6251,12 @@ export class CanvasManager {
 
       object.set('dirty', true);
       object.setCoords();
+      syncObjectCornerGeometry(object);
+      syncVisualEffectsGeometry(object);
     }
 
     root.set('dirty', true);
+    syncVisualEffectsGeometry(root);
   }
 
   /**
@@ -5936,8 +6372,8 @@ export class CanvasManager {
 
       // Summary properties keep toolbar controls synchronized with the group.
       active.set(prop as any, value as any);
-      if (prop === 'rx' || prop === 'ry') {
-        active.set({ rx: Number(value) || 0, ry: Number(value) || 0 } as any);
+      if (prop === 'rx' || prop === 'ry' || (prop as string) === 'cornerRadius') {
+        active.set({ rx: Number(value) || 0, ry: Number(value) || 0, cornerRadius: Number(value) || 0 } as any);
       }
 
       active.set('dirty', true);
@@ -5979,78 +6415,47 @@ export class CanvasManager {
     else if (prop === 'stroke') {
       active.set('stroke', value as string);
       active.set('strokeUniform', true);
+      active.set('paintFirst', 'fill');
+      active.set('strokePosition' as any, 'inside');
       if (isText) {
-        active.set('paintFirst', 'stroke');
         active.set('strokeLineJoin', 'round');
         active.set('strokeLineCap', 'round');
-      } else {
-        active.set('paintFirst', 'fill');
       }
+      syncObjectCornerGeometry(active);
+      syncVisualEffectsGeometry(active);
     } else if (prop === 'strokeWidth') {
       const baseW = Math.max(0, Number(value) || 0);
       active.set('strokeUniform', true);
       active.set('baseStrokeWidth' as any, baseW);
       active.set('strokeWidth', baseW);
+      active.set('paintFirst', 'fill');
+      active.set('strokePosition' as any, 'inside');
       if (baseW > 0 && (!active.stroke || active.stroke === 'transparent' || active.stroke === 'none')) {
         active.set('stroke', '#000000');
       }
       if (isText) {
-        active.set('paintFirst', 'stroke');
         active.set('strokeLineJoin', 'round');
         active.set('strokeLineCap', 'round');
-      } else {
-        active.set('paintFirst', 'fill');
       }
+      syncObjectCornerGeometry(active);
+      syncVisualEffectsGeometry(active);
     } else if (prop === 'strokePosition') {
-      const pos = value === 'outside' ? 'outside' : 'inside';
-      active.set('strokePosition' as any, pos);
+      active.set('strokePosition' as any, 'inside');
       const baseW = typeof active.get('baseStrokeWidth' as any) === 'number'
         ? (active.get('baseStrokeWidth' as any) as number)
         : (active.strokeWidth || 0);
       active.set('baseStrokeWidth' as any, baseW);
       active.set('strokeWidth', baseW);
+      active.set('paintFirst', 'fill');
       active.set('strokeUniform', true);
+      syncObjectCornerGeometry(active);
+      syncVisualEffectsGeometry(active);
     } else if (prop === 'strokeLineCap') active.set('strokeLineCap', value as 'round' | 'square' | 'butt');
     else if (prop === 'strokeLineJoin') active.set('strokeLineJoin', value as 'round' | 'bevel' | 'miter');
     else if (prop === 'flipX') active.set('flipX', value as boolean);
     else if (prop === 'flipY') active.set('flipY', value as boolean);
-    else if (prop === 'rx' || prop === 'ry') {
-      const radius = Number(value);
-      (active as any).rx = radius;
-      (active as any).ry = radius;
-      if (isImage) {
-        if (radius > 0) {
-          const w = active.width || 400;
-          const h = active.height || 300;
-          const scaleX = active.scaleX || 1;
-          const scaleY = active.scaleY || 1;
-          const unscaledRx = radius / Math.max(scaleX, 0.001);
-          const unscaledRy = radius / Math.max(scaleY, 0.001);
-          const roundedClipPath = new Rect({
-            width: w,
-            height: h,
-            rx: unscaledRx,
-            ry: unscaledRy,
-            originX: 'center',
-            originY: 'center',
-            objectCaching: false,
-          });
-          roundedClipPath.set('dirty', true);
-          roundedClipPath.setCoords();
-          active.clipPath = roundedClipPath;
-        } else {
-          active.clipPath = undefined;
-        }
-      } else {
-        active.set({ rx: radius, ry: radius } as any);
-      }
-
-      // Fabric caches images and their clip paths. Replacing the clip path is
-      // not always enough to invalidate the cached bitmap, especially while
-      // reducing the radius. Mark both the object and its parent group dirty
-      // so every slider input is visible immediately instead of after Save.
-      active.set('dirty', true);
-      active.group?.set('dirty', true);
+    else if (prop === 'rx' || prop === 'ry' || (prop as string) === 'cornerRadius') {
+      this.setSelectedCornerRadius(Math.max(0, Number(value) || 0), false);
     } else if (prop === 'curve') {
       const curveVal = Number(value) || 0;
       (active as any).curve = curveVal;
@@ -6451,12 +6856,71 @@ export class CanvasManager {
       delete (active as any)._shadowSettings;
     }
 
+    for (const obj of targets) {
+      this.syncVisualEffectsGeometry(obj);
+    }
+    this.syncVisualEffectsGeometry(active);
+
     (active as any).dirty = true;
     active.setCoords();
     this.canvas.requestRenderAll();
     this.notifyChange();
     this.notifySelection();
     this.notifyLayers();
+  }
+
+  public syncVisualEffectsGeometry(object: FabricObject): void {
+    if (!object) return;
+    syncVisualEffectsGeometry(object);
+  }
+
+  public syncAllVisualEffects(): void {
+    if (!this.canvas) return;
+    const objects = this.canvas.getObjects();
+    for (const obj of objects) {
+      syncVisualEffectsGeometry(obj);
+    }
+    this.canvas.requestRenderAll();
+  }
+
+  /**
+   * Sets corner radius for the active selection or object.
+   * Dispatches automatically across Rects, Images, Polygons, Triangles,
+   * Hexagons, Stars, SVGs, Frames, and Groups.
+   * Real-time continuous rendering during interaction; single history entry on commit.
+   */
+  public setSelectedCornerRadius(radius: number, isLivePreview: boolean = true): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+
+    const clampedRadius = Math.max(0, Number(radius) || 0);
+
+    const resultingObj = applyCornerRadiusToObject(active, clampedRadius, this.canvas);
+
+    if (resultingObj && resultingObj !== active) {
+      this.ensureObjectId(resultingObj, active.get('name' as any) || 'Shape');
+      applyCanvaControlsToObject(resultingObj);
+      this.canvas.setActiveObject(resultingObj);
+    }
+
+    this.canvas.requestRenderAll();
+    this.notifySelection();
+
+    if (!isLivePreview) {
+      this.notifyLayers();
+      this.notifyChange();
+      this.saveHistoryState();
+    } else {
+      this.scheduleHistorySave();
+    }
+  }
+
+  public commitCornerRadius(): void {
+    if (!this.canvas) return;
+    this.notifyLayers();
+    this.notifyChange();
+    this.saveHistoryState();
   }
 
   public applyShadow(settings: Partial<{
@@ -6588,6 +7052,198 @@ export class CanvasManager {
     return images;
   }
 
+  private buildFilterListForImage(
+    presetId: string,
+    intensity: number,
+    adjustments: {
+      brightness?: number;
+      contrast?: number;
+      saturation?: number;
+      vibrance?: number;
+      hue?: number;
+      warmth?: number;
+    }
+  ): any[] {
+    const filterList: any[] = [];
+
+    // 1. Add preset filter
+    switch (presetId) {
+      case 'grayscale':
+      case 'mono':
+        filterList.push(new filters.Grayscale());
+        break;
+      case 'sepia':
+        filterList.push(new filters.Sepia());
+        break;
+      case 'blackwhite':
+      case 'noir':
+        filterList.push(new filters.BlackWhite());
+        filterList.push(new filters.Contrast({ contrast: 0.3 * intensity }));
+        break;
+      case 'vintage':
+        filterList.push(new filters.Vintage());
+        break;
+      case 'kodachrome':
+      case 'vivid':
+        filterList.push(new filters.Kodachrome());
+        filterList.push(new filters.Saturation({ saturation: 0.4 * intensity }));
+        break;
+      case 'polaroid':
+      case 'warm':
+        filterList.push(new filters.Polaroid());
+        filterList.push(new filters.Gamma({ gamma: [1 + 0.1 * intensity, 1.0, 1 - 0.1 * intensity] }));
+        break;
+      case 'technicolor':
+      case 'solar':
+        filterList.push(new filters.Technicolor());
+        filterList.push(new filters.Brightness({ brightness: 0.1 * intensity }));
+        break;
+      case 'brownie':
+        filterList.push(new filters.Brownie());
+        break;
+      case 'invert':
+        filterList.push(new filters.Invert());
+        break;
+      case 'cool':
+        filterList.push(new filters.Gamma({ gamma: [1 - 0.1 * intensity, 1.0, 1 + 0.15 * intensity] }));
+        filterList.push(new filters.Saturation({ saturation: 0.15 * intensity }));
+        break;
+      case 'soft':
+        filterList.push(new filters.Brightness({ brightness: 0.12 * intensity }));
+        filterList.push(new filters.Contrast({ contrast: -0.15 * intensity }));
+        break;
+      case 'drama':
+        filterList.push(new filters.Contrast({ contrast: 0.4 * intensity }));
+        filterList.push(new filters.Saturation({ saturation: 0.25 * intensity }));
+        break;
+      case 'pixelate':
+        filterList.push(new filters.Pixelate({ blocksize: Math.max(2, Math.round(6 * intensity)) }));
+        break;
+      case 'custom':
+      case 'none':
+      default:
+        break;
+    }
+
+    // 2. Add custom tuning adjustments
+    if (adjustments.brightness && adjustments.brightness !== 0) {
+      filterList.push(new filters.Brightness({ brightness: adjustments.brightness / 100 }));
+    }
+    if (adjustments.contrast && adjustments.contrast !== 0) {
+      filterList.push(new filters.Contrast({ contrast: adjustments.contrast / 100 }));
+    }
+    if (adjustments.saturation && adjustments.saturation !== 0) {
+      filterList.push(new filters.Saturation({ saturation: adjustments.saturation / 100 }));
+    }
+    if (adjustments.vibrance && adjustments.vibrance !== 0) {
+      if ((filters as any).Vibrance) {
+        filterList.push(new (filters as any).Vibrance({ vibrance: adjustments.vibrance / 100 }));
+      } else {
+        filterList.push(new filters.Saturation({ saturation: (adjustments.vibrance / 100) * 0.7 }));
+      }
+    }
+    if (adjustments.hue && adjustments.hue !== 0) {
+      if ((filters as any).HueRotation) {
+        filterList.push(new (filters as any).HueRotation({ rotation: (adjustments.hue / 180) * Math.PI }));
+      }
+    }
+    if (adjustments.warmth && adjustments.warmth !== 0) {
+      const factor = adjustments.warmth / 100;
+      filterList.push(new filters.Gamma({ gamma: [1 + factor * 0.2, 1, 1 - factor * 0.2] }));
+    }
+
+    return filterList;
+  }
+
+  private reapplyCombinedImageFilters(targetImage: FabricImage): void {
+    const presetId = (targetImage as any)._activeFilterPreset || 'none';
+    const intensity = typeof (targetImage as any)._filterIntensity === 'number'
+      ? (targetImage as any)._filterIntensity
+      : 1;
+    const adjustments = (targetImage as any)._adjustments || {};
+
+    /*
+     * IMPORTANT: Fabric's applyFilters() replaces/rebuilds the image's rendered
+     * element. For a normal photo that is harmless, but a photo inside one of
+     * our frames can already have a precise source crop (cropX/cropY +
+     * width/height), local scale and clipPath. Never let a visual filter become
+     * a geometry/crop operation.
+     *
+     * Snapshot ALL placement/crop properties before filtering and restore them
+     * immediately afterwards. Solar/Warm/etc. must change pixels only.
+     */
+    const geometrySnapshot = {
+      left: targetImage.left,
+      top: targetImage.top,
+      width: targetImage.width,
+      height: targetImage.height,
+      scaleX: targetImage.scaleX,
+      scaleY: targetImage.scaleY,
+      angle: targetImage.angle,
+      flipX: targetImage.flipX,
+      flipY: targetImage.flipY,
+      skewX: targetImage.skewX,
+      skewY: targetImage.skewY,
+      originX: targetImage.originX,
+      originY: targetImage.originY,
+      cropX: Number((targetImage as any).cropX) || 0,
+      cropY: Number((targetImage as any).cropY) || 0,
+      clipPath: targetImage.clipPath,
+      framePhotoScale: (targetImage as any).framePhotoScale,
+      frameCropCenterX: (targetImage as any).frameCropCenterX,
+      frameCropCenterY: (targetImage as any).frameCropCenterY,
+      photoFit: (targetImage as any).photoFit,
+      originalSrc: (targetImage as any).originalSrc,
+    };
+
+    targetImage.filters = this.buildFilterListForImage(presetId, intensity, adjustments);
+
+    try {
+      targetImage.applyFilters();
+    } catch (err) {
+      console.warn('Failed to apply filters to image:', err);
+    }
+
+    // Pixel filters are not allowed to modify frame/image geometry.
+    targetImage.set({
+      left: geometrySnapshot.left,
+      top: geometrySnapshot.top,
+      width: geometrySnapshot.width,
+      height: geometrySnapshot.height,
+      scaleX: geometrySnapshot.scaleX,
+      scaleY: geometrySnapshot.scaleY,
+      angle: geometrySnapshot.angle,
+      flipX: geometrySnapshot.flipX,
+      flipY: geometrySnapshot.flipY,
+      skewX: geometrySnapshot.skewX,
+      skewY: geometrySnapshot.skewY,
+      originX: geometrySnapshot.originX,
+      originY: geometrySnapshot.originY,
+      cropX: geometrySnapshot.cropX,
+      cropY: geometrySnapshot.cropY,
+      clipPath: geometrySnapshot.clipPath,
+      objectCaching: false,
+      noScaleCache: false,
+      dirty: true,
+    } as any);
+
+    targetImage.set('framePhotoScale' as any, geometrySnapshot.framePhotoScale);
+    targetImage.set('frameCropCenterX' as any, geometrySnapshot.frameCropCenterX);
+    targetImage.set('frameCropCenterY' as any, geometrySnapshot.frameCropCenterY);
+    targetImage.set('photoFit' as any, geometrySnapshot.photoFit);
+    targetImage.set('originalSrc' as any, geometrySnapshot.originalSrc);
+
+    targetImage.setCoords();
+
+    let cachedObject: FabricObject | null = targetImage;
+    while (cachedObject) {
+      (cachedObject as any).dirty = true;
+      (cachedObject as any).objectCaching = false;
+      (cachedObject as any).noScaleCache = false;
+      cachedObject = ((cachedObject as any).group as FabricObject | undefined) || null;
+    }
+  }
+
   public applyImageFilter(presetId: string, intensity: number = 1): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
@@ -6597,78 +7253,9 @@ export class CanvasManager {
 
     if (targetImages.length > 0) {
       for (const targetImage of targetImages) {
-        targetImage.filters = [];
-
-        switch (presetId) {
-          case 'grayscale':
-          case 'mono':
-            targetImage.filters.push(new filters.Grayscale());
-            break;
-          case 'sepia':
-            targetImage.filters.push(new filters.Sepia());
-            break;
-          case 'blackwhite':
-          case 'noir':
-            targetImage.filters.push(new filters.BlackWhite());
-            targetImage.filters.push(new filters.Contrast({ contrast: 0.3 * intensity }));
-            break;
-          case 'vintage':
-            targetImage.filters.push(new filters.Vintage());
-            break;
-          case 'kodachrome':
-          case 'vivid':
-            targetImage.filters.push(new filters.Kodachrome());
-            targetImage.filters.push(new filters.Saturation({ saturation: 0.4 * intensity }));
-            break;
-          case 'polaroid':
-          case 'warm':
-            targetImage.filters.push(new filters.Polaroid());
-            targetImage.filters.push(new filters.Gamma({ gamma: [1.1, 1.0, 0.9] }));
-            break;
-          case 'technicolor':
-          case 'solar':
-            targetImage.filters.push(new filters.Technicolor());
-            targetImage.filters.push(new filters.Brightness({ brightness: 0.1 * intensity }));
-            break;
-          case 'brownie':
-            targetImage.filters.push(new filters.Brownie());
-            break;
-          case 'invert':
-            targetImage.filters.push(new filters.Invert());
-            break;
-          case 'cool':
-            targetImage.filters.push(new filters.Gamma({ gamma: [0.9, 1.0, 1.15] }));
-            targetImage.filters.push(new filters.Saturation({ saturation: 0.15 * intensity }));
-            break;
-          case 'soft':
-            targetImage.filters.push(new filters.Brightness({ brightness: 0.12 * intensity }));
-            targetImage.filters.push(new filters.Contrast({ contrast: -0.15 * intensity }));
-            break;
-          case 'drama':
-            targetImage.filters.push(new filters.Contrast({ contrast: 0.4 * intensity }));
-            targetImage.filters.push(new filters.Saturation({ saturation: 0.25 * intensity }));
-            break;
-          case 'pixelate':
-            targetImage.filters.push(new filters.Pixelate({ blocksize: 6 }));
-            break;
-          case 'custom':
-            // 'custom' preset utilizes the fine-tune adjustment filter stack
-            break;
-          case 'none':
-          default:
-            break;
-        }
-
         (targetImage as any)._activeFilterPreset = presetId;
         (targetImage as any)._filterIntensity = intensity;
-
-        targetImage.applyFilters();
-        let cachedObject: FabricObject | null = targetImage;
-        while (cachedObject) {
-          (cachedObject as any).dirty = true;
-          if (cachedObject === active) break;
-          cachedObject = ((cachedObject as any).group as FabricObject | undefined) || null;
-        }
+        this.reapplyCombinedImageFilters(targetImage);
       }
 
       (active as any)._activeFilterPreset = presetId;
@@ -6753,46 +7340,13 @@ export class CanvasManager {
           contrast: 0,
           saturation: 0,
           vibrance: 0,
-          blur: 0,
           hue: 0,
           warmth: 0,
         };
 
         const updated = { ...stored, ...adjustments };
         (targetImage as any)._adjustments = updated;
-
-        targetImage.filters = [];
-
-        if (updated.brightness !== 0) {
-          targetImage.filters.push(new filters.Brightness({ brightness: updated.brightness / 100 }));
-        }
-        if (updated.contrast !== 0) {
-          targetImage.filters.push(new filters.Contrast({ contrast: updated.contrast / 100 }));
-        }
-        if (updated.saturation !== 0) {
-          targetImage.filters.push(new filters.Saturation({ saturation: updated.saturation / 100 }));
-        }
-        if (updated.vibrance !== 0) {
-          targetImage.filters.push(new filters.Vibrance({ vibrance: updated.vibrance / 100 }));
-        }
-        if (updated.blur > 0) {
-          targetImage.filters.push(new filters.Blur({ blur: updated.blur / 100 }));
-        }
-        if (updated.hue !== 0) {
-          targetImage.filters.push(new filters.HueRotation({ rotation: (updated.hue / 180) * Math.PI }));
-        }
-        if (updated.warmth !== 0) {
-          const factor = updated.warmth / 100;
-          targetImage.filters.push(new filters.Gamma({ gamma: [1 + factor * 0.2, 1, 1 - factor * 0.2] }));
-        }
-
-        targetImage.applyFilters();
-        let cachedObject: FabricObject | null = targetImage;
-        while (cachedObject) {
-          (cachedObject as any).dirty = true;
-          if (cachedObject === active) break;
-          cachedObject = ((cachedObject as any).group as FabricObject | undefined) || null;
-        }
+        this.reapplyCombinedImageFilters(targetImage);
       }
 
       (active as any)._adjustments = { ...((active as any)._adjustments || {}), ...adjustments };
@@ -6807,7 +7361,6 @@ export class CanvasManager {
         contrast: 0,
         saturation: 0,
         vibrance: 0,
-        blur: 0,
         hue: 0,
         warmth: 0,
       };
@@ -6820,15 +7373,6 @@ export class CanvasManager {
       const baseOpacity = (active as any)._originalOpacity ?? 1;
       const opacityDelta = (updated.brightness || 0) / 200;
       active.set('opacity', Math.max(0.05, Math.min(1, baseOpacity + opacityDelta)));
-
-      if (updated.blur > 0) {
-        active.set('shadow', new Shadow({
-          color: typeof active.fill === 'string' ? active.fill : '#000000',
-          blur: updated.blur,
-          offsetX: 0,
-          offsetY: 0,
-        }));
-      }
 
       (active as any).dirty = true;
       active.setCoords();
@@ -6843,44 +7387,28 @@ export class CanvasManager {
     contrast: number;
     saturation: number;
     vibrance: number;
-    blur: number;
     hue: number;
     warmth: number;
     activeFilter: string;
     intensity: number;
   } {
-    if (!this.canvas) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, blur: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
+    if (!this.canvas) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
     const active = this.canvas.getActiveObject();
-    if (!active) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, blur: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
+    if (!active) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
 
     const targetImage = this.getImagesFromObject(active)[0] || null;
+    const refObj = targetImage || active;
 
-    if (targetImage) {
-      const adj = (targetImage as any)._adjustments || {};
-      return {
-        brightness: adj.brightness ?? 0,
-        contrast: adj.contrast ?? 0,
-        saturation: adj.saturation ?? 0,
-        vibrance: adj.vibrance ?? 0,
-        blur: adj.blur ?? 0,
-        hue: adj.hue ?? 0,
-        warmth: adj.warmth ?? 0,
-        activeFilter: (targetImage as any)._activeFilterPreset || 'none',
-        intensity: Math.round(((targetImage as any)._filterIntensity ?? 1) * 100),
-      };
-    }
-
-    const adj = (active as any)._adjustments || {};
+    const adj = (refObj as any)._adjustments || {};
     return {
       brightness: adj.brightness ?? 0,
       contrast: adj.contrast ?? 0,
       saturation: adj.saturation ?? 0,
       vibrance: adj.vibrance ?? 0,
-      blur: adj.blur ?? 0,
       hue: adj.hue ?? 0,
       warmth: adj.warmth ?? 0,
-      activeFilter: (active as any)._activeFilterPreset || 'none',
-      intensity: Math.round(((active as any)._filterIntensity ?? 1) * 100),
+      activeFilter: (refObj as any)._activeFilterPreset || (active as any)._activeFilterPreset || 'none',
+      intensity: Math.round(((refObj as any)._filterIntensity ?? (active as any)._filterIntensity ?? 1) * 100),
     };
   }
 
@@ -7265,8 +7793,10 @@ export class CanvasManager {
       // Render directly from vector glyphs so text stays sharp across zooms and retina displays
       objectCaching: false,
       noScaleCache: false,
+      stroke: null,
+      strokeWidth: 0,
       strokeUniform: true,
-      paintFirst: 'stroke',
+      paintFirst: 'fill',
       strokeLineJoin: 'round',
       strokeLineCap: 'round',
       lockScalingFlip: true,
@@ -7278,6 +7808,8 @@ export class CanvasManager {
       'fontSizePt' as any,
       options?.fontSizePt || (fontSize * 72) / artworkDpi
     );
+    text.set('strokePosition' as any, 'inside');
+    text.set('baseStrokeWidth' as any, 0);
     text.set('sourceType' as any, 'vector-text');
 
     this.ensureObjectId(text, options?.name || 'Text Layer');
@@ -7337,6 +7869,10 @@ export class CanvasManager {
       shapeObj = new Circle({
         radius: 90,
         fill: color,
+        stroke: null,
+        strokeWidth: 0,
+        paintFirst: 'fill',
+        strokeUniform: true,
         cornerColor: '#ffffff',
         cornerStrokeColor: '#8b3dff',
         borderColor: '#8b3dff',
@@ -7347,12 +7883,18 @@ export class CanvasManager {
       shapeObj.set('isShape' as any, true);
       shapeObj.set('shapeType' as any, 'circle');
       shapeObj.set('frameShape' as any, 'circle');
+      shapeObj.set('strokePosition' as any, 'inside');
+      shapeObj.set('baseStrokeWidth' as any, 0);
       this.ensureObjectId(shapeObj, 'Circle Shape');
     } else if (shapeType === 'triangle') {
       shapeObj = new Triangle({
         width: 180,
         height: 160,
         fill: color,
+        stroke: null,
+        strokeWidth: 0,
+        paintFirst: 'fill',
+        strokeUniform: true,
         cornerColor: '#ffffff',
         cornerStrokeColor: '#8b3dff',
         borderColor: '#8b3dff',
@@ -7363,23 +7905,22 @@ export class CanvasManager {
       shapeObj.set('isShape' as any, true);
       shapeObj.set('shapeType' as any, 'triangle');
       shapeObj.set('frameShape' as any, 'triangle');
+      shapeObj.set('strokePosition' as any, 'inside');
+      shapeObj.set('baseStrokeWidth' as any, 0);
+      shapeObj.set('originalShapePoints' as any, getTrianglePoints(180, 160));
+      shapeObj.set('originalShapeType' as any, 'triangle');
+      shapeObj.set('cornerRadius' as any, 0);
+      shapeObj.set('_requestedRadius' as any, 0);
       this.ensureObjectId(shapeObj, 'Triangle Shape');
     } else if (shapeType === 'star') {
       shapeObj = new Polygon(
-        [
-          new Point(0, -90),
-          new Point(26, -26),
-          new Point(95, -26),
-          new Point(38, 15),
-          new Point(60, 83),
-          new Point(0, 41),
-          new Point(-60, 83),
-          new Point(-38, 15),
-          new Point(-95, -26),
-          new Point(-26, -26),
-        ],
+        STAR_POINTS.map((p) => new Point(p.x, p.y)),
         {
           fill: color,
+          stroke: null,
+          strokeWidth: 0,
+          paintFirst: 'fill',
+          strokeUniform: true,
           cornerColor: '#ffffff',
           cornerStrokeColor: '#8b3dff',
           borderColor: '#8b3dff',
@@ -7391,7 +7932,41 @@ export class CanvasManager {
       shapeObj.set('isShape' as any, true);
       shapeObj.set('shapeType' as any, 'star');
       shapeObj.set('frameShape' as any, 'star');
+      shapeObj.set('strokePosition' as any, 'inside');
+      shapeObj.set('baseStrokeWidth' as any, 0);
+      shapeObj.set('originalShapePoints' as any, STAR_POINTS.map((p) => ({ ...p })));
+      shapeObj.set('originalShapeType' as any, 'star');
+      shapeObj.set('cornerRadius' as any, 0);
+      shapeObj.set('_requestedRadius' as any, 0);
       this.ensureObjectId(shapeObj, 'Star Shape');
+    } else if (shapeType === 'hexagon') {
+      const hexPoints = getHexagonPoints(90);
+      shapeObj = new Polygon(
+        hexPoints.map((p) => new Point(p.x, p.y)),
+        {
+          fill: color,
+          stroke: null,
+          strokeWidth: 0,
+          paintFirst: 'fill',
+          strokeUniform: true,
+          cornerColor: '#ffffff',
+          cornerStrokeColor: '#8b3dff',
+          borderColor: '#8b3dff',
+          cornerStyle: 'circle',
+          cornerSize: 12,
+          transparentCorners: false,
+        }
+      );
+      shapeObj.set('isShape' as any, true);
+      shapeObj.set('shapeType' as any, 'hexagon');
+      shapeObj.set('frameShape' as any, 'hexagon');
+      shapeObj.set('strokePosition' as any, 'inside');
+      shapeObj.set('baseStrokeWidth' as any, 0);
+      shapeObj.set('originalShapePoints' as any, hexPoints);
+      shapeObj.set('originalShapeType' as any, 'hexagon');
+      shapeObj.set('cornerRadius' as any, 0);
+      shapeObj.set('_requestedRadius' as any, 0);
+      this.ensureObjectId(shapeObj, 'Hexagon Shape');
     } else {
       // Rectangle / Square
       shapeObj = new Rect({
@@ -7400,6 +7975,10 @@ export class CanvasManager {
         fill: color,
         rx: 6,
         ry: 6,
+        stroke: null,
+        strokeWidth: 0,
+        paintFirst: 'fill',
+        strokeUniform: true,
         cornerColor: '#ffffff',
         cornerStrokeColor: '#8b3dff',
         borderColor: '#8b3dff',
@@ -7410,6 +7989,10 @@ export class CanvasManager {
       shapeObj.set('isShape' as any, true);
       shapeObj.set('shapeType' as any, 'rect');
       shapeObj.set('frameShape' as any, 'rect');
+      shapeObj.set('strokePosition' as any, 'inside');
+      shapeObj.set('baseStrokeWidth' as any, 0);
+      shapeObj.set('cornerRadius' as any, 6);
+      shapeObj.set('_requestedRadius' as any, 6);
       this.ensureObjectId(shapeObj, 'Rectangle Shape');
     }
 
@@ -7625,6 +8208,7 @@ export class CanvasManager {
       if (previousState) {
         await this.canvas.loadFromJSON(JSON.parse(previousState));
         this.restoreFramesAfterLoad();
+        this.syncAllVisualEffects();
         this.refreshCanvasInteractivity();
         this.canvas.requestRenderAll();
         this.notifySelection();
@@ -7652,6 +8236,7 @@ export class CanvasManager {
         this.undoStack.push(nextState);
         await this.canvas.loadFromJSON(JSON.parse(nextState));
         this.restoreFramesAfterLoad();
+        this.syncAllVisualEffects();
         this.refreshCanvasInteractivity();
         this.canvas.requestRenderAll();
         this.notifySelection();
@@ -7756,14 +8341,18 @@ export class CanvasManager {
 
     const imageDpiCalc = imageObj ? this.calculateImageDpi(imageObj) : null;
 
-    const isPath = active instanceof Path || Boolean(active.get('isBrushPath' as any));
+    const isBrushPath =
+      Boolean(active.get('isBrushPath' as any)) ||
+      Boolean(active.get('isPencilStroke' as any)) ||
+      (active instanceof Path && Boolean(active.get('brushType' as any)));
     const brushType = (active.get('brushType' as any) as BrushType) || undefined;
-    const isBrushPath = isPath || Boolean(active.get('isBrushPath' as any));
     const sourceType = active.get('sourceType' as any) as string | undefined;
     // Classify vector shapes and empty/placeholder frames as colourable shapes.
     const isShapeObject =
-      sourceType === 'shape' ||
-      (this.isShapeObject(active) && (!imageObj || Boolean(active.get('isCanvaPlaceholder' as any))));
+      !isBrushPath &&
+      (sourceType === 'shape' ||
+        Boolean(active.get('isShape' as any)) ||
+        (this.isShapeObject(active) && (!imageObj || Boolean(active.get('isCanvaPlaceholder' as any)))));
     const isCanvaPlaceholder = Boolean(active.get('isCanvaPlaceholder' as any)) ||
       Boolean(imageObj?.get('isCanvaPlaceholder' as any));
 
@@ -7778,8 +8367,8 @@ export class CanvasManager {
             ? 'shape'
             : isImage || isFrameObject
               ? 'image'
-              : isPath
-                ? 'path'
+              : isBrushPath
+                ? 'brush'
                 : (active.type || 'object').toLowerCase(),
       isMultiple,
       count,
@@ -7818,12 +8407,7 @@ export class CanvasManager {
         if (storedPos === 'outside' && rawW > 0) return Math.round(rawW / 2);
         return rawW;
       })(),
-      strokePosition: (() => {
-        const storedPos = (active.get('strokePosition' as any) ||
-          styleSource.get('strokePosition' as any)) as 'inside' | 'outside' | undefined;
-        if (storedPos) return storedPos;
-        return (active.paintFirst === 'stroke' || styleSource.paintFirst === 'stroke') ? 'outside' : 'inside';
-      })(),
+      strokePosition: 'inside',
       baseStrokeWidth: (() => {
         const storedBaseW = (active.get('baseStrokeWidth' as any) ||
           styleSource.get('baseStrokeWidth' as any)) as number | undefined;
@@ -7831,8 +8415,7 @@ export class CanvasManager {
         const rawW = usesChildStyles
           ? styleSource.strokeWidth || active.strokeWidth || 0
           : active.strokeWidth || 0;
-        const isOut = active.paintFirst === 'stroke' || styleSource.paintFirst === 'stroke';
-        return isOut && rawW > 0 ? Math.round(rawW / 2) : rawW;
+        return rawW;
       })(),
       strokeLineCap:
         (active.strokeLineCap as 'round' | 'square' | 'butt') ||
@@ -7854,7 +8437,12 @@ export class CanvasManager {
       isCanvaPlaceholder,
       isBrushPath,
       brushType,
-      rx: (active as any).rx || (styleSource as any).rx || 0,
+      rx:
+        typeof (active as any).cornerRadius === 'number'
+          ? (active as any).cornerRadius
+          : typeof (active as any)._requestedRadius === 'number'
+            ? (active as any)._requestedRadius
+            : (active as any).rx || (styleSource as any).rx || 0,
       ry: (active as any).ry || (styleSource as any).ry || 0,
       curve: (active as any).curve || 0,
       strokeDashArray: active.strokeDashArray || styleSource.strokeDashArray || undefined,
@@ -8405,6 +8993,7 @@ export class CanvasManager {
         }
       }
       if (opt?.target) {
+        this.syncVisualEffectsGeometry(opt.target);
         this.warnIfObjectCrossesPrintBoundary(opt.target);
       }
 
@@ -8454,12 +9043,16 @@ export class CanvasManager {
         centeredScaling: false,
       });
       target.setCoords();
+      this.syncVisualEffectsGeometry(target);
 
       if (!this.isPhotoDropFrame(target)) {
         this.canvas?.requestRenderAll();
       }
     });
-    this.canvas.on('object:rotating', () => {
+    this.canvas.on('object:rotating', (opt: any) => {
+      const target = opt?.target;
+      if (!target || this.isNonInteractiveObject(target)) return;
+      this.syncVisualEffectsGeometry(target);
     });
 
     if (process.env.NODE_ENV !== 'production') {

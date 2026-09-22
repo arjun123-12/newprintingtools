@@ -2,6 +2,7 @@ import { type FabricObject } from 'fabric';
 import { CanvasDimensions, DocumentSettings } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { downloadFile } from './exportService';
+import { getArtworkExportGeometry } from '../utils/exportGeometry';
 
 type AgPsdLayer = import('ag-psd').Layer;
 type AgPsdPsd = import('ag-psd').Psd;
@@ -254,8 +255,11 @@ export async function exportLayeredPsd(
   const fabricCanvas = canvasManager.getCanvas();
   if (!fabricCanvas) throw new Error('Canvas is not initialized');
 
-  const width = Math.max(1, Math.round(dimensions.widthPx || 1063));
-  const height = Math.max(1, Math.round(dimensions.heightPx || 591));
+  const targetDpi = Math.max(1, documentSettings.dpi || dimensions.dpi || 300);
+  const geometry = getArtworkExportGeometry(dimensions, targetDpi, 6);
+  const width = includeTrimMarks ? geometry.totalTrimMarksWidthPx : geometry.artworkWidthPx;
+  const height = includeTrimMarks ? geometry.totalTrimMarksHeightPx : geometry.artworkHeightPx;
+  const layerOffset = includeTrimMarks ? geometry.slugMarginPx : 0;
 
   if (width > 30000 || height > 30000) {
     throw new Error(
@@ -308,14 +312,14 @@ export async function exportLayeredPsd(
   if (fabricCanvas.backgroundImage) {
     const renderedBackground = renderFabricObjectLayer(
       fabricCanvas.backgroundImage,
-      width,
-      height
+      geometry.artworkWidthPx,
+      geometry.artworkHeightPx
     );
     if (renderedBackground) {
       backgroundContext.drawImage(
         renderedBackground.canvas,
-        renderedBackground.left,
-        renderedBackground.top
+        renderedBackground.left + layerOffset,
+        renderedBackground.top + layerOffset
       );
     }
   }
@@ -332,8 +336,17 @@ export async function exportLayeredPsd(
   for (let index = 0; index < objects.length; index++) {
     const obj = objects[index];
     try {
-      const layer = convertFabricObjectToPsdLayer(obj, index, width, height);
+      const layer = convertFabricObjectToPsdLayer(
+        obj,
+        index,
+        geometry.artworkWidthPx,
+        geometry.artworkHeightPx
+      );
       if (layer) {
+        if (layerOffset > 0) {
+          layer.left = (layer.left || 0) + layerOffset;
+          layer.top = (layer.top || 0) + layerOffset;
+        }
         layers.push(layer);
       }
     } catch (error) {
@@ -345,15 +358,16 @@ export async function exportLayeredPsd(
     const marksCanvas = createCanvas(width, height);
     const marksCtx = marksCanvas.getContext('2d');
     if (marksCtx) {
-      const pxPerMm = (dimensions.dpi || 300) / 25.4;
-      const marginPx = Math.round(6 * pxPerMm);
+      const pxPerMm = targetDpi / 25.4;
+      const slugMarginPx = geometry.slugMarginPx;
       const markLen = Math.round(4 * pxPerMm);
       const markGap = Math.round(1.5 * pxPerMm);
 
-      const x1 = marginPx;
-      const y1 = marginPx;
-      const x2 = Math.max(x1, width - marginPx);
-      const y2 = Math.max(y1, height - marginPx);
+      // Crop marks target the inner black cut line:
+      const trimLeft = slugMarginPx + geometry.targetBleedPx;
+      const trimTop = slugMarginPx + geometry.targetBleedPx;
+      const trimRight = trimLeft + geometry.targetTrimWidthPx;
+      const trimBottom = trimTop + geometry.targetTrimHeightPx;
 
       marksCtx.strokeStyle = '#000000';
       marksCtx.lineWidth = Math.max(1, Math.round(pxPerMm * 0.25));
@@ -361,28 +375,28 @@ export async function exportLayeredPsd(
       marksCtx.beginPath();
 
       // Top-Left
-      marksCtx.moveTo(x1, y1 - markGap);
-      marksCtx.lineTo(x1, Math.max(0, y1 - markGap - markLen));
-      marksCtx.moveTo(x1 - markGap, y1);
-      marksCtx.lineTo(Math.max(0, x1 - markGap - markLen), y1);
+      marksCtx.moveTo(trimLeft, trimTop - markGap);
+      marksCtx.lineTo(trimLeft, Math.max(0, trimTop - markGap - markLen));
+      marksCtx.moveTo(trimLeft - markGap, trimTop);
+      marksCtx.lineTo(Math.max(0, trimLeft - markGap - markLen), trimTop);
 
       // Top-Right
-      marksCtx.moveTo(x2, y1 - markGap);
-      marksCtx.lineTo(x2, Math.max(0, y1 - markGap - markLen));
-      marksCtx.moveTo(x2 + markGap, y1);
-      marksCtx.lineTo(Math.min(width, x2 + markGap + markLen), y1);
+      marksCtx.moveTo(trimRight, trimTop - markGap);
+      marksCtx.lineTo(trimRight, Math.max(0, trimTop - markGap - markLen));
+      marksCtx.moveTo(trimRight + markGap, trimTop);
+      marksCtx.lineTo(Math.min(width, trimRight + markGap + markLen), trimTop);
 
       // Bottom-Left
-      marksCtx.moveTo(x1, y2 + markGap);
-      marksCtx.lineTo(x1, Math.min(height, y2 + markGap + markLen));
-      marksCtx.moveTo(x1 - markGap, y2);
-      marksCtx.lineTo(Math.max(0, x1 - markGap - markLen), y2);
+      marksCtx.moveTo(trimLeft, trimBottom + markGap);
+      marksCtx.lineTo(trimLeft, Math.min(height, trimBottom + markGap + markLen));
+      marksCtx.moveTo(trimLeft - markGap, trimBottom);
+      marksCtx.lineTo(Math.max(0, trimLeft - markGap - markLen), trimBottom);
 
       // Bottom-Right
-      marksCtx.moveTo(x2, y2 + markGap);
-      marksCtx.lineTo(x2, Math.min(height, y2 + markGap + markLen));
-      marksCtx.moveTo(x2 + markGap, y2);
-      marksCtx.lineTo(Math.min(width, x2 + markGap + markLen), y2);
+      marksCtx.moveTo(trimRight, trimBottom + markGap);
+      marksCtx.lineTo(trimRight, Math.min(height, trimBottom + markGap + markLen));
+      marksCtx.moveTo(trimRight + markGap, trimBottom);
+      marksCtx.lineTo(Math.min(width, trimRight + markGap + markLen), trimBottom);
 
       marksCtx.stroke();
 
@@ -413,7 +427,6 @@ export async function exportLayeredPsd(
   }
   compositeContext.drawImage(compositeImage, 0, 0, width, height);
 
-  const targetDpi = Math.max(1, documentSettings.dpi || dimensions.dpi || 300);
   const psd: AgPsdPsd = {
     width,
     height,

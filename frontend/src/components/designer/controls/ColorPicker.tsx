@@ -1063,7 +1063,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
       )}
 
       {/* TAB CONTENT */}
-      <div className="p-3.5 space-y-4 overflow-y-auto max-h-[520px] custom-scrollbar">
+      <div className="p-3.5 space-y-4 overflow-y-auto custom-scrollbar">
         {mode === 'gradient' && allowGradient ? (
           /* GRADIENT TAB CONTENT */
           <GradientEditor

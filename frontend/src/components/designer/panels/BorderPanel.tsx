@@ -90,7 +90,11 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
 
   const handleStepRadius = (delta: number) => {
     const newR = Math.max(0, Math.min(100, rx + delta));
-    handleUpdate('rx', newR);
+    if (canvasManager) {
+      canvasManager.setSelectedCornerRadius(newR, false);
+    } else {
+      handleUpdate('rx', newR);
+    }
   };
 
   const handleStyleChange = (style: StrokeStyle) => {
@@ -122,11 +126,19 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
   };
 
   const canRoundCorners =
+    Boolean(selected.isShape) ||
+    Boolean(selected.isMultiple) ||
     selected.type === 'rect' ||
     selected.type === 'shape' ||
+    selected.type === 'triangle' ||
+    selected.type === 'polygon' ||
+    selected.type === 'path' ||
     selected.type === 'image' ||
     selected.type === 'fabricImage' ||
-    Boolean(selected.src);
+    selected.type === 'group' ||
+    selected.type === 'activeSelection' ||
+    Boolean(selected.src) ||
+    (Boolean(selected.isFrame) && (!selected.frameShape || selected.frameShape === 'rect'));
 
   const styles: { key: StrokeStyle; label: string; preview: React.ReactNode }[] = [
     {
@@ -303,7 +315,11 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
                     value={rx}
                     onChange={(e) => {
                       const val = Math.max(0, Number(e.target.value));
-                      handleUpdate('rx', val);
+                      if (canvasManager) {
+                        canvasManager.setSelectedCornerRadius(val, false);
+                      } else {
+                        handleUpdate('rx', val);
+                      }
                     }}
                     className="w-7 bg-transparent text-xs font-mono font-bold text-gray-800 focus:outline-none text-right"
                   />
@@ -327,7 +343,11 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
               value={rx}
               onChange={(e) => {
                 const val = Number(e.target.value);
-                handleUpdate('rx', val);
+                if (canvasManager) {
+                  canvasManager.setSelectedCornerRadius(val, false);
+                } else {
+                  handleUpdate('rx', val);
+                }
               }}
               className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#7c3aed]"
             />

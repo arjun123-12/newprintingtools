@@ -11,7 +11,13 @@ import {
   Polygon,
   Path,
   Group,
+  Point,
 } from 'fabric';
+import {
+  installShadowSilhouetteHook,
+  drawRoundedRectPath,
+  getEffectiveCornerRadius,
+} from './visualGeometry';
 
 export const CANVA_PURPLE = '#8b3dff';
 
@@ -850,6 +856,82 @@ export function applyCanvaControlsToObject(
   });
 }
 
+/**
+ * Sets up a rounded rectangle path on ctx for an image that has corner rounding or a Rect clipPath.
+ * Returns true if a rounded path was configured, false if it should fall back to a default rectangular stroke.
+ */
+export function setupImageStrokePath(
+  img: FabricImage,
+  ctx: CanvasRenderingContext2D
+): boolean {
+  if (!img) return false;
+  const w = img.width || 1;
+  const h = img.height || 1;
+
+  let rx = 0;
+  let ry = 0;
+  if (
+    img.clipPath &&
+    img.clipPath instanceof Rect &&
+    typeof (img.clipPath as any).rx === 'number'
+  ) {
+    rx = (img.clipPath as any).rx || 0;
+    ry = (img.clipPath as any).ry || 0;
+  } else if (
+    typeof (img as any).cornerRadius === 'number' ||
+    typeof (img as any)._requestedRadius === 'number'
+  ) {
+    const rawR =
+      (img as any).cornerRadius ?? (img as any)._requestedRadius ?? 0;
+    const geom = getEffectiveCornerRadius(img, rawR);
+    rx = geom.rx;
+    ry = geom.ry;
+  } else if (typeof (img as any).rx === 'number' && (img as any).rx > 0) {
+    rx = (img as any).rx;
+    ry = typeof (img as any).ry === 'number' ? (img as any).ry : rx;
+  }
+
+  if (rx > 0 || ry > 0) {
+    drawRoundedRectPath(ctx, -w / 2, -h / 2, w, h, rx, ry);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Ensures that ctx has the proper rounded path established before stroke/clip
+ * for images and rects with corner rounding.
+ */
+export function ensureObjectStrokePath(
+  obj: FabricObject,
+  ctx: CanvasRenderingContext2D
+): boolean {
+  if (!obj) return false;
+
+  const isImg =
+    obj instanceof FabricImage ||
+    (obj as any).type === 'image' ||
+    (obj as any).type === 'FabricImage';
+
+  if (isImg) {
+    return setupImageStrokePath(obj as FabricImage, ctx);
+  }
+
+  const isRect = obj instanceof Rect || (obj as any).type === 'rect';
+  if (isRect) {
+    const w = obj.width || 1;
+    const h = obj.height || 1;
+    let rx = (obj as any).rx || 0;
+    let ry = (obj as any).ry || 0;
+    if (rx > 0 || ry > 0) {
+      drawRoundedRectPath(ctx, -w / 2, -h / 2, w, h, rx, ry);
+      return true;
+    }
+  }
+
+  return false;
+}
+
 let isGlobalCanvaControlsApplied = false;
 
 /**
@@ -1034,4 +1116,56 @@ export function applyCanvaControlsGlobal(): void {
   if ((FabricObject as any).ownDefaults) {
     applyDefaults((FabricObject as any).ownDefaults);
   }
+
+  // Canva behavior: object bounding box width & height are fixed and do NOT expand when strokeWidth increases
+  FabricObject.prototype._getNonTransformedDimensions = function () {
+    return new Point(this.width, this.height);
+  };
+
+  const origGetTransformedDimensions = FabricObject.prototype._getTransformedDimensions;
+  FabricObject.prototype._getTransformedDimensions = function (options: any = {}) {
+    const isInside = ((this as any).strokePosition || (typeof this.get === 'function' ? this.get('strokePosition' as any) : null)) !== 'outside';
+    if (isInside) {
+      return origGetTransformedDimensions.call(this, {
+        ...options,
+        strokeWidth: 0,
+      });
+    }
+    return origGetTransformedDimensions.call(this, options);
+  };
+
+  // Canva behavior: FabricImage stroke must respect corner rounding and clipPath
+  const origImageStroke = FabricImage.prototype._stroke;
+  FabricImage.prototype._stroke = function (ctx: CanvasRenderingContext2D) {
+    if (!this.stroke || this.strokeWidth === 0) return;
+    const hasCustom = setupImageStrokePath(this, ctx);
+    if (!hasCustom) {
+      origImageStroke.call(this, ctx);
+    }
+  };
+
+  // Canva behavior: render inside stroke strictly within object path boundary
+  const origRenderStroke = FabricObject.prototype._renderStroke;
+  FabricObject.prototype._renderStroke = function (ctx: CanvasRenderingContext2D) {
+    if (!this.stroke || this.strokeWidth === 0) return;
+    const isInside = ((this as any).strokePosition || (typeof this.get === 'function' ? this.get('strokePosition' as any) : null)) !== 'outside';
+
+    ensureObjectStrokePath(this, ctx);
+
+    if (isInside && typeof ctx.clip === 'function') {
+      ctx.save();
+      ctx.clip();
+      const origWidth = this.strokeWidth;
+      this.strokeWidth = origWidth * 2;
+      ensureObjectStrokePath(this, ctx);
+      origRenderStroke.call(this, ctx);
+      this.strokeWidth = origWidth;
+      ctx.restore();
+    } else {
+      ensureObjectStrokePath(this, ctx);
+      origRenderStroke.call(this, ctx);
+    }
+  };
+
+  installShadowSilhouetteHook();
 }

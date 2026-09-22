@@ -195,7 +195,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
       </div>
 
       {/* ACTIVE SELECTED TEXT QUICK CONTROLS */}
-      {isTextSelected && (
+      {/* {isTextSelected && (
         <div className="bg-purple-50/80 border border-purple-200 rounded-2xl p-3.5 space-y-3 shadow-2xs animate-in fade-in duration-150">
           <div className="flex items-center justify-between">
             <span className="text-xs font-extrabold text-purple-900 flex items-center gap-1.5">
@@ -331,7 +331,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
             )}
           </div>
         </div>
-      )}
+      )} */}
 
       {/* Quick Add Cards */}
       <div className="space-y-2.5">

@@ -207,7 +207,6 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     contrast: 0,
     saturation: 0,
     vibrance: 0,
-    blur: 0,
     hue: 0,
     warmth: 0,
   });
@@ -254,7 +253,6 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       contrast: current.contrast || 0,
       saturation: current.saturation || 0,
       vibrance: current.vibrance || 0,
-      blur: current.blur || 0,
       hue: current.hue || 0,
       warmth: current.warmth || 0,
     });
@@ -420,7 +418,6 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       contrast: 0,
       saturation: 0,
       vibrance: 0,
-      blur: 0,
       hue: 0,
       warmth: 0,
     };
@@ -1312,17 +1309,17 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-[11px] text-gray-700 font-semibold">
                     <span className="flex items-center gap-1">
-                      <Snowflake className="w-3 h-3 text-sky-500" />
-                      <span>Blur</span>
+                      <SlidersHorizontal className="w-3 h-3 text-indigo-500" />
+                      <span>Hue / Tint</span>
                     </span>
-                    <span className="font-mono text-[10px]">{adjustments.blur}</span>
+                    <span className="font-mono text-[10px]">{adjustments.hue}°</span>
                   </div>
                   <input
                     type="range"
-                    min="0"
-                    max="100"
-                    value={adjustments.blur}
-                    onChange={(e) => handleAdjustmentChange('blur', Number(e.target.value))}
+                    min="-180"
+                    max="180"
+                    value={adjustments.hue}
+                    onChange={(e) => handleAdjustmentChange('hue', Number(e.target.value))}
                     className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
                   />
                 </div>
@@ -1461,25 +1458,6 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                 max="180"
                 value={adjustments.hue}
                 onChange={(e) => handleAdjustmentChange('hue', Number(e.target.value))}
-                className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-              />
-            </div>
-
-            {/* Blur */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs text-gray-700 font-semibold">
-                <span className="flex items-center gap-1.5">
-                  <Snowflake className="w-3.5 h-3.5 text-sky-500" />
-                  <span>Blur</span>
-                </span>
-                <span className="font-mono text-[11px]">{adjustments.blur}</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={adjustments.blur}
-                onChange={(e) => handleAdjustmentChange('blur', Number(e.target.value))}
                 className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
               />
             </div>

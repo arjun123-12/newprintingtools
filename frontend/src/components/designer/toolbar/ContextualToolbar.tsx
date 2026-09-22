@@ -256,11 +256,15 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Reset popover when selection changes
+  // Reset popover only when a different object is selected
+  const previousSelectedIdRef = useRef<string | undefined>(selected?.id);
   useEffect(() => {
-    setActivePopover(null);
-    setRemoveBgError(null);
-  }, [selected?.id, selected?.type]);
+    if (selected?.id !== previousSelectedIdRef.current) {
+      previousSelectedIdRef.current = selected?.id;
+      setActivePopover(null);
+      setRemoveBgError(null);
+    }
+  }, [selected?.id]);
 
   const isCanvasBackgroundActive = !selected && !isDrawing;
 
@@ -271,19 +275,20 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       selected.type === 'text' ||
       selected.text !== undefined);
 
-  const isPath =
+  const isBrush =
     selected &&
-    (selected.type === 'path' ||
-      selected.type === 'brush' ||
-      Boolean(selected.isBrushPath));
+    !selected.isShape &&
+    (selected.type === 'brush' ||
+      Boolean(selected.isBrushPath) ||
+      selected.brushType !== undefined);
 
   // Shape identity must take priority over Fabric's underlying object type.
-  // Custom SVG/photo shapes can be represented by a Group or FabricImage and
+  // Custom SVG/photo shapes can be represented by a Path, Group or FabricImage and
   // may also expose src/isFrame, but they still need shape colour controls.
   const isShape =
     selected &&
     !isText &&
-    !isPath &&
+    !isBrush &&
     !selected.isMultiple &&
     (Boolean(selected.isShape) ||
       selected.type === 'rect' ||
@@ -291,7 +296,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       selected.type === 'triangle' ||
       selected.type === 'polygon' ||
       selected.type === 'line' ||
-      selected.type === 'shape');
+      selected.type === 'shape' ||
+      (selected.type === 'path' && !selected.isBrushPath));
 
   const isImage =
     selected &&
@@ -822,37 +828,26 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             )}
           </div>
 
-          {/* Text Border / Outline Button (Canva Popover) */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => togglePopover('border')}
-              title="Text Border & Stroke"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'border' || (selected.strokeWidth || 0) > 0
-                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
-                <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
-                <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
-              </svg>
-            </button>
-
-            {activePopover === 'border' && (
-              <BorderStylePopover
-                strokeWidth={selected.strokeWidth || 0}
-                stroke={selected.stroke || '#000000'}
-                strokeDashArray={selected.strokeDashArray}
-                showCornerRadius={false}
-                onStrokeWidthChange={(width) => handleUpdate('strokeWidth', width)}
-                onStrokeDashArrayChange={(dash) => handleUpdate('strokeDashArray', dash as any)}
-                onStrokeColorChange={(color) => handleUpdate('stroke', color)}
-                onClose={() => setActivePopover(null)}
-              />
-            )}
-          </div>
+          {/* Text Border / Outline Button (Open in Sidebar) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
+              }
+            }}
+            title="Text Border & Stroke (Open in Sidebar)"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
+              ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
+              <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
+              <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
+            </svg>
+          </button>
         </>
       )}
 
@@ -1032,12 +1027,16 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </svg>
           </button>
 
-          {!selected.isFrame && (
+          {(!selected.isFrame || selected.frameShape === 'rect') && (
             /* Canva Corner Rounding Icon Button */
             <div className="relative">
               <button
                 type="button"
-                onClick={() => togglePopover('cornerRounding')}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePopover('cornerRounding');
+                }}
                 title="Corner Rounding"
                 className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
                   ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
@@ -1052,7 +1051,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 <CornerRoundingPopover
                   rx={selected.rx || 0}
                   maxRadius={cornerMaxRadius}
-                  onChange={(rx) => handleUpdate('rx', rx)}
+                  onChange={(rx) => canvasManager?.setSelectedCornerRadius(rx, true)}
+                  onCommit={() => canvasManager?.commitCornerRadius()}
                   onClose={() => setActivePopover(null)}
                 />
               )}
@@ -1122,12 +1122,18 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             <span>Fit Image</span>
           </button>
 
-          {/* Canva Corner Rounding Icon Button (for Rect / Shapes) */}
-          {(selected.type === 'rect' || selected.type === 'shape') && (
+          {/* Canva Corner Rounding Icon Button (for Rect / Shapes / Polygons / Triangles / Stars / SVGs) */}
+          {(isShape || selected.type === 'rect' || selected.type === 'shape' || selected.type === 'triangle' || selected.type === 'polygon' || selected.type === 'path') &&
+            selected.type !== 'circle' &&
+            selected.shapeType !== 'circle' && (
             <div className="relative">
               <button
                 type="button"
-                onClick={() => togglePopover('cornerRounding')}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePopover('cornerRounding');
+                }}
                 title="Corner Rounding"
                 className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
                   ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
@@ -1142,7 +1148,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 <CornerRoundingPopover
                   rx={selected.rx || 0}
                   maxRadius={cornerMaxRadius}
-                  onChange={(rx) => handleUpdate('rx', rx)}
+                  onChange={(rx) => canvasManager?.setSelectedCornerRadius(rx, true)}
+                  onCommit={() => canvasManager?.commitCornerRadius()}
                   onClose={() => setActivePopover(null)}
                 />
               )}
@@ -1176,43 +1183,36 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             />
           </button>
 
-          {/* Group border: colour, width and dash style */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => togglePopover('border')}
-              title="Group border and stroke"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'border' || (selected.strokeWidth || 0) > 0
-                ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
-                <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
-                <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
-              </svg>
-            </button>
-
-            {activePopover === 'border' && (
-              <BorderStylePopover
-                strokeWidth={selected.strokeWidth || 0}
-                stroke={selected.stroke || '#000000'}
-                strokeDashArray={selected.strokeDashArray}
-                showCornerRadius={false}
-                onStrokeWidthChange={(width) => handleUpdate('strokeWidth', width)}
-                onStrokeDashArrayChange={(dash) => handleUpdate('strokeDashArray', dash as any)}
-                onStrokeColorChange={(color) => handleUpdate('stroke', color)}
-                onClose={() => setActivePopover(null)}
-              />
-            )}
-          </div>
+          {/* Group border: colour, width and dash style (Open in Sidebar) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onSelectSidebarTab) {
+                onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
+              }
+            }}
+            title="Group border and stroke (Open in Sidebar)"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
+              ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
+              <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
+              <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
+            </svg>
+          </button>
 
           {/* Round compatible rectangles and images inside the group */}
           <div className="relative">
             <button
               type="button"
-              onClick={() => togglePopover('cornerRounding')}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePopover('cornerRounding');
+              }}
               title="Round compatible elements in group"
               className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
                 ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
@@ -1228,7 +1228,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               <CornerRoundingPopover
                 rx={selected.rx || 0}
                 maxRadius={cornerMaxRadius}
-                onChange={(rx) => handleUpdate('rx', rx)}
+                onChange={(rx) => canvasManager?.setSelectedCornerRadius(rx, true)}
+                onCommit={() => canvasManager?.commitCornerRadius()}
                 onClose={() => setActivePopover(null)}
               />
             )}
@@ -1263,7 +1264,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       {/* ================================================================ */}
       {/* 4. BRUSH / DRAWING PATH OBJECT SELECTED                          */}
       {/* ================================================================ */}
-      {!isDrawing && isPath && selected && (
+      {!isDrawing && isBrush && selected && (
         <>
           {/* Stroke Size Stepper & Popover */}
           <div className="relative flex items-center">
