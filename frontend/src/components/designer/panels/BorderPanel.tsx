@@ -99,7 +99,12 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
 
   const handleStyleChange = (style: StrokeStyle) => {
     if (style === 'none') {
+      // Explicitly remove the editable Fabric border.
+      // Keeping only strokeWidth=0 can leave a stored SVG/object stroke behind
+      // and make the next selection look like it has a default border again.
+      handleUpdate('stroke', 'transparent');
       handleUpdate('strokeWidth', 0);
+      handleUpdate('baseStrokeWidth', 0);
       handleUpdate('strokeDashArray', null);
       return;
     }
@@ -176,11 +181,10 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
             <button
               type="button"
               onClick={() => setShowColorPicker(!showColorPicker)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition ${
-                showColorPicker
-                  ? 'border-[#8b5cf6] bg-[#f0ebff]/50 shadow-sm'
-                  : 'border-gray-200 bg-gray-50/50 hover:bg-gray-100/70'
-              }`}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition ${showColorPicker
+                ? 'border-[#8b5cf6] bg-[#f0ebff]/50 shadow-sm'
+                : 'border-gray-200 bg-gray-50/50 hover:bg-gray-100/70'
+                }`}
             >
               <div
                 className="w-7 h-7 rounded-lg border-2 border-white shadow-md flex-shrink-0 ring-1 ring-gray-200"
@@ -278,11 +282,10 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
                 type="button"
                 onClick={() => handleStyleChange(key)}
                 title={label}
-                className={`flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-xl border transition ${
-                  currentStyle === key
-                    ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-2xs'
-                    : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
-                }`}
+                className={`flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-xl border transition ${currentStyle === key
+                  ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-2xs'
+                  : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
+                  }`}
               >
                 <div className="w-6 flex items-center justify-center h-3">{preview}</div>
                 <span className="text-[9px] font-bold uppercase tracking-wide">{label}</span>

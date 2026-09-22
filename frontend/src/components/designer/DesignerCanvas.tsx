@@ -381,6 +381,112 @@ export function DesignerCanvas({
         ? event.metaKey
         : event.ctrlKey;
 
+      /*
+       * Editing shortcuts. These intentionally run only when the user is not
+       * typing in an input/textbox/contentEditable and not editing Fabric text.
+       */
+      if (isCtrlOrCmd && !event.altKey && event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        void canvasManager.copySelected();
+        return;
+      }
+
+      if (isCtrlOrCmd && !event.altKey && event.key.toLowerCase() === 'v') {
+        event.preventDefault();
+        void canvasManager.pasteClipboard();
+        return;
+      }
+
+      if (isCtrlOrCmd && !event.altKey && event.key.toLowerCase() === 'x') {
+        event.preventDefault();
+        void canvasManager.cutSelected();
+        return;
+      }
+
+      if (isCtrlOrCmd && !event.altKey && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          canvasManager.redo();
+        } else {
+          canvasManager.undo();
+        }
+        return;
+      }
+
+      /*
+       * Filled frame -> detach its photo while keeping the frame.
+       * Ctrl/Cmd + Shift + D is checked before normal duplicate.
+       */
+      if (
+        isCtrlOrCmd &&
+        event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === 'd'
+      ) {
+        event.preventDefault();
+        const selectedObject = canvas.getActiveObject();
+        if (selectedObject?.get?.('isFrame' as any)) {
+          void canvasManager.detachImageFromFrame(selectedObject);
+        }
+        return;
+      }
+
+      /* Lock / unlock selected object: Ctrl/Cmd + L */
+      if (
+        isCtrlOrCmd &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === 'l'
+      ) {
+        event.preventDefault();
+        const selectedObject = canvas.getActiveObject();
+        if (selectedObject) {
+          const locked = selectedObject.get?.('isLocked' as any) === true;
+          canvasManager.updateSelectedProperty('isLocked', !locked);
+        }
+        return;
+      }
+
+      /* Layer ordering: Photoshop/Canva-style square-bracket shortcuts. */
+      if (isCtrlOrCmd && !event.altKey && event.key === ']') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          canvasManager.bringToFront();
+        } else {
+          canvasManager.bringForward();
+        }
+        return;
+      }
+
+      if (isCtrlOrCmd && !event.altKey && event.key === '[') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          canvasManager.sendToBack();
+        } else {
+          canvasManager.sendBackward();
+        }
+        return;
+      }
+
+      /* Flip selected object without changing its geometry. */
+      if (!isCtrlOrCmd && event.altKey && event.key.toLowerCase() === 'h') {
+        event.preventDefault();
+        const selectedObject = canvas.getActiveObject();
+        if (selectedObject) {
+          canvasManager.updateSelectedProperty('flipX', !Boolean(selectedObject.flipX));
+        }
+        return;
+      }
+
+      if (!isCtrlOrCmd && event.altKey && event.key.toLowerCase() === 'v') {
+        event.preventDefault();
+        const selectedObject = canvas.getActiveObject();
+        if (selectedObject) {
+          canvasManager.updateSelectedProperty('flipY', !Boolean(selectedObject.flipY));
+        }
+        return;
+      }
+
       /* Canva-style zoom keyboard shortcuts. */
       if (
         isCtrlOrCmd &&
@@ -476,6 +582,8 @@ export function DesignerCanvas({
        */
       if (
         isCtrlOrCmd &&
+        !event.shiftKey &&
+        !event.altKey &&
         event.key.toLowerCase() === 'd'
       ) {
         event.preventDefault();

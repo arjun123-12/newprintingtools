@@ -265,6 +265,7 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   '_shadowSettings',
   '_activeEffect',
   '_effectSettings',
+  '_userStrokeEnabled',
   'cropX',
   'cropY',
   'cropWidth',
@@ -418,6 +419,7 @@ export class CanvasManager {
   private maxHistoryLength: number = 25;
   private historyDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private preventNativeDragHandler: ((e: DragEvent) => void) | null = null;
+  private clipboardObject: FabricObject | null = null;
 
   // Shape-to-Image / Image-to-Shape Hover & Fit State
   private currentHoverFitTarget: FabricObject | null = null;
@@ -2035,6 +2037,82 @@ export class CanvasManager {
 
   public disableDrawingMode(): void {
     this.enableSelectionMode();
+  }
+
+  /**
+   * Canva/Photoshop-style internal canvas clipboard.
+   * Uses Fabric cloning so frame metadata, clip paths, custom properties and groups
+   * remain editable after paste.
+   */
+  public async copySelected(): Promise<void> {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+
+    try {
+      this.clipboardObject = await active.clone();
+    } catch (error) {
+      console.error('Could not copy selected object:', error);
+    }
+  }
+
+  public async pasteClipboard(): Promise<void> {
+    if (!this.canvas || !this.clipboardObject) return;
+
+    try {
+      const cloned = await this.clipboardObject.clone();
+      if (!this.canvas) return;
+
+      this.canvas.discardActiveObject();
+
+      cloned.set({
+        left: (cloned.left || 0) + 20,
+        top: (cloned.top || 0) + 20,
+        evented: true,
+        selectable: true,
+      });
+
+      if (cloned instanceof ActiveSelection) {
+        cloned.canvas = this.canvas;
+        cloned.forEachObject((obj) => {
+          this.ensureObjectId(obj, `${obj.get('name' as any) || 'Object'} (Copy)`);
+          obj.set({
+            left: (obj.left || 0) + 20,
+            top: (obj.top || 0) + 20,
+            evented: true,
+            selectable: true,
+          });
+          obj.setCoords();
+          this.canvas?.add(obj);
+        });
+        cloned.setCoords();
+      } else {
+        this.ensureObjectId(cloned, `${cloned.get('name' as any) || 'Object'} (Copy)`);
+        cloned.setCoords();
+        this.canvas.add(cloned);
+      }
+
+      this.canvas.setActiveObject(cloned);
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+      this.notifyLayers();
+      this.saveHistoryState();
+
+      // Move the clipboard origin so repeated Ctrl/Cmd+V cascades naturally.
+      this.clipboardObject.set({
+        left: (this.clipboardObject.left || 0) + 20,
+        top: (this.clipboardObject.top || 0) + 20,
+      });
+    } catch (error) {
+      console.error('Could not paste clipboard object:', error);
+    }
+  }
+
+  public async cutSelected(): Promise<void> {
+    if (!this.canvas?.getActiveObject()) return;
+    await this.copySelected();
+    this.deleteSelected();
   }
 
   public duplicateSelected(): void {
@@ -4578,26 +4656,58 @@ export class CanvasManager {
     if (!frame || !frame.get('isFrame' as any)) return;
 
     const isPlaceholder = Boolean(frame.get('isCanvaPlaceholder' as any));
-    const currentSrc = (frame.get('originalSrc' as any) as string) || (frame as any).getSrc?.();
+    const currentSrc =
+      (frame.get('originalSrc' as any) as string) ||
+      (frame as any).getSrc?.();
 
-    if (!isPlaceholder && currentSrc && currentSrc !== CANVA_FRAME_PLACEHOLDER_SVG) {
-      // Record exact visual dimensions, position, and scale of the frame before resetting
-      const frameWidth = Math.max(frame.getScaledWidth(), 1);
-      const frameHeight = Math.max(frame.getScaledHeight(), 1);
-      const frameLeft = frame.left ?? 100;
-      const frameTop = frame.top ?? 100;
+    /*
+     * DETACH MUST BE ONE ATOMIC HISTORY ACTION.
+     *
+     * A pending debounced history save can otherwise fire while the async
+     * placeholder/image work is in progress. More importantly, the latest
+     * "photo inside frame" state may still only be waiting in that debounce
+     * timer when Ctrl+Z is pressed after Detach.
+     *
+     * Flush the exact BEFORE state now, suppress all intermediate history
+     * writes, then commit exactly one AFTER state when the operation finishes.
+     */
+    if (this.historyDebounceTimer) {
+      clearTimeout(this.historyDebounceTimer);
+      this.historyDebounceTimer = null;
+    }
 
-      const wasProcessingHistory = this.isProcessingHistory;
-      this.isProcessingHistory = true;
+    // Commit the exact state the user sees before Detach.
+    this.saveHistoryState();
 
-      try {
-        // 1. Reset frame back to Canva landscape placeholder first so frame remains intact at exact same position/size
-        const placeholderFrame = await this.slotImageIntoFrame(frame, CANVA_FRAME_PLACEHOLDER_SVG);
+    const wasProcessingHistory = this.isProcessingHistory;
+    this.isProcessingHistory = true;
+
+    let didChange = false;
+
+    try {
+      if (
+        !isPlaceholder &&
+        currentSrc &&
+        currentSrc !== CANVA_FRAME_PLACEHOLDER_SVG
+      ) {
+        // Record exact visual dimensions and position before rebuilding frame.
+        const frameWidth = Math.max(frame.getScaledWidth(), 1);
+        const frameHeight = Math.max(frame.getScaledHeight(), 1);
+        const frameLeft = frame.left ?? 100;
+        const frameTop = frame.top ?? 100;
+
+        // 1. Keep the frame itself, but restore its empty Canva placeholder.
+        const placeholderFrame = await this.slotImageIntoFrame(
+          frame,
+          CANVA_FRAME_PLACEHOLDER_SVG
+        );
+
         if (placeholderFrame) {
           placeholderFrame.set('isCanvaPlaceholder' as any, true);
+          placeholderFrame.setCoords();
         }
 
-        // 2. Extract detached image with skipFrameSlotting: true, offset slightly (+30px, +30px)
+        // 2. Create the detached photo as a normal independent image.
         const detachedLeft = frameLeft + 30;
         const detachedTop = frameTop + 30;
 
@@ -4607,13 +4717,13 @@ export class CanvasManager {
           {
             left: detachedLeft,
             top: detachedTop,
-            skipFrameSlotting: true, // Prevents re-slotting into the frame or any placeholder frame
+            skipFrameSlotting: true,
             preserveOriginalSize: false,
           }
         );
 
         if (newImg) {
-          // Set extracted image scale so its visual size matches the frame's previous width & height
+          // Preserve the approximate visible size of the photo when detached.
           const natW = Math.max(newImg.width || 1, 1);
           const natH = Math.max(newImg.height || 1, 1);
           const scale = Math.min(frameWidth / natW, frameHeight / natH);
@@ -4626,29 +4736,49 @@ export class CanvasManager {
           });
           newImg.setCoords();
 
-          // Make the detached image active so the user can easily drag, transform, or move it
           this.canvas.setActiveObject(newImg);
+        } else if (placeholderFrame) {
+          this.canvas.setActiveObject(placeholderFrame);
         }
-      } finally {
-        this.isProcessingHistory = wasProcessingHistory;
-      }
 
-      this.canvas.requestRenderAll();
-      this.notifyChange();
-      this.notifySelection();
-      this.notifyLayers();
-      this.saveHistoryState();
-    } else {
-      await this.slotImageIntoFrame(frame, CANVA_FRAME_PLACEHOLDER_SVG);
-      const active = this.canvas.getActiveObject();
-      if (active) {
-        active.set('isCanvaPlaceholder' as any, true);
-        this.canvas.requestRenderAll();
-        this.notifyChange();
-        this.notifySelection();
-        this.notifyLayers();
-        this.saveHistoryState();
+        didChange = Boolean(placeholderFrame || newImg);
+      } else {
+        // Detaching/clearing an already-placeholder frame should still remain
+        // a single history action and must never create an intermediate state.
+        const placeholderFrame = await this.slotImageIntoFrame(
+          frame,
+          CANVA_FRAME_PLACEHOLDER_SVG
+        );
+
+        if (placeholderFrame) {
+          placeholderFrame.set('isCanvaPlaceholder' as any, true);
+          placeholderFrame.setCoords();
+          this.canvas.setActiveObject(placeholderFrame);
+          didChange = true;
+        }
       }
+    } finally {
+      // Intermediate calls from slotImageIntoFrame/addImageFromUrl were blocked
+      // from touching history while isProcessingHistory=true.
+      this.isProcessingHistory = wasProcessingHistory;
+    }
+
+    if (!didChange || !this.canvas) return;
+
+    this.canvas.requestRenderAll();
+    this.notifySelection();
+    this.notifyLayers();
+
+    // Notify normal editor listeners WITHOUT scheduling another debounced
+    // history entry. The transaction is committed explicitly below.
+    this.changeListeners.forEach((cb) => cb());
+    this.notifyPreflight();
+
+    if (!wasProcessingHistory) {
+      // Exactly one AFTER state:
+      // Ctrl+Z => original filled frame
+      // Ctrl+Shift+Z / Redo => placeholder frame + detached photo
+      this.saveHistoryState();
     }
   }
 
@@ -6362,6 +6492,17 @@ export class CanvasManager {
     const isImage = active instanceof FabricImage || active.type === 'image';
 
     const isGroupedSelection = active instanceof Group || active instanceof ActiveSelection;
+
+    // Track the user-editable border separately from SVG artwork's own internal
+    // strokes. New Elements/Shapes start with Border = None.
+    if (prop === 'strokeWidth' || prop === 'baseStrokeWidth') {
+      active.set('_userStrokeEnabled' as any, Number(value) > 0);
+    } else if (prop === 'stroke') {
+      const strokeValue = String(value ?? '').toLowerCase();
+      if (strokeValue === 'transparent' || strokeValue === 'none' || strokeValue === '') {
+        active.set('_userStrokeEnabled' as any, false);
+      }
+    }
 
     if (isGroupedSelection && GROUP_RECURSIVE_PROPERTIES.has(prop)) {
       this.applyPropertyToGroupChildren(
@@ -8390,12 +8531,15 @@ export class CanvasManager {
         const rawFill = usesChildStyles ? styleSource.fill : active.fill;
         return fabricGradientToDesignerGradient(rawFill) || undefined;
       })(),
-      stroke: usesChildStyles && typeof styleSource.stroke === 'string'
-        ? styleSource.stroke
-        : typeof active.stroke === 'string'
-          ? active.stroke
-          : '#000000',
+      stroke: active.get('_userStrokeEnabled' as any) === false
+        ? 'transparent'
+        : usesChildStyles && typeof styleSource.stroke === 'string'
+          ? styleSource.stroke
+          : typeof active.stroke === 'string'
+            ? active.stroke
+            : 'transparent',
       strokeWidth: (() => {
+        if (active.get('_userStrokeEnabled' as any) === false) return 0;
         const rawW = usesChildStyles
           ? styleSource.strokeWidth || active.strokeWidth || 0
           : active.strokeWidth || 0;
@@ -8409,6 +8553,7 @@ export class CanvasManager {
       })(),
       strokePosition: 'inside',
       baseStrokeWidth: (() => {
+        if (active.get('_userStrokeEnabled' as any) === false) return 0;
         const storedBaseW = (active.get('baseStrokeWidth' as any) ||
           styleSource.get('baseStrokeWidth' as any)) as number | undefined;
         if (typeof storedBaseW === 'number') return storedBaseW;
@@ -9112,6 +9257,11 @@ export class CanvasManager {
       if (objects.length > 0) {
         const obj = util.groupSVGElements(objects, optionsInfo);
         this.ensureObjectId(obj, options?.name || 'SVG Shape');
+        obj.set('_userStrokeEnabled' as any, false);
+        obj.set('stroke' as any, 'transparent');
+        obj.set('strokeWidth' as any, 0);
+        obj.set('baseStrokeWidth' as any, 0);
+        obj.set('strokeDashArray' as any, null);
 
         const canvasW = this.dimensions.widthPx || 1063;
         const canvasH = this.dimensions.heightPx || 591;
@@ -9355,6 +9505,14 @@ export class CanvasManager {
       shape.set('originalSrc' as any, metadata.originalSrc || url);
       shape.set('recolourable' as any, metadata.recolourable !== false);
       shape.set('allowPhotoDrop' as any, false);
+
+      // The SVG may contain its own internal artwork strokes, but the
+      // editable Border/Stroke feature starts at None, Canva-style.
+      shape.set('_userStrokeEnabled' as any, false);
+      shape.set('stroke' as any, 'transparent');
+      shape.set('strokeWidth' as any, 0);
+      shape.set('baseStrokeWidth' as any, 0);
+      shape.set('strokeDashArray' as any, null);
 
       shape.set('sourceWidth' as any, naturalW);
       shape.set('sourceHeight' as any, naturalH);
