@@ -867,9 +867,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
             </span>
           )}
         </span>
-        <span className="mt-1 block truncate px-0.5 text-[10px] font-medium text-gray-600 text-center">
-          {shape.name}
-        </span>
+
       </button>
     );
   };
@@ -904,8 +902,8 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
               loading="lazy"
               draggable={false}
               className={`h-full w-full pointer-events-none ${asset.is_vector || asset.asset_type === 'icon' || asset.asset_type === 'frame'
-                  ? 'object-contain'
-                  : 'object-cover rounded-lg'
+                ? 'object-contain'
+                : 'object-cover rounded-lg'
                 }`}
             />
           ) : (
@@ -919,9 +917,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
             </span>
           )}
         </span>
-        <span className="mt-1 block truncate px-0.5 text-[10px] font-medium text-gray-600 text-center">
-          {asset.title}
-        </span>
+      
       </button>
     );
   };

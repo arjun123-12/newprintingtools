@@ -365,6 +365,211 @@ function findSvgElementForFabricObject(
   return candidates[objectIndex] || null;
 }
 
+
+
+/**
+ * Fabric may serialize an alpha/PNG custom frame mask inside <clipPath>.
+ * SVG clipPath only uses geometry, so an <image> inside it clips by the image's
+ * rectangular bounds and loses transparent pixels. Convert those image-based
+ * clipPaths to real alpha masks so custom frames retain their exact silhouette.
+ */
+export function convertImageClipPathsToAlphaMasks(svgDoc: Document): void {
+  const clipPaths = Array.from(svgDoc.querySelectorAll('clipPath'));
+
+  let counter = 0;
+
+  for (const clipPath of clipPaths) {
+    const maskImages = Array.from(clipPath.querySelectorAll('image'));
+    if (maskImages.length === 0) continue;
+
+    const clipId = clipPath.getAttribute('id');
+    if (!clipId) continue;
+
+    // Only convert clipPaths that are actually referenced.
+    const referencing = Array.from(svgDoc.querySelectorAll('[clip-path]')).filter(
+      (el) => el.getAttribute('clip-path') === `url(#${clipId})`
+    );
+    if (referencing.length === 0) continue;
+
+    counter++;
+    const maskId = `export_alpha_mask_${counter}`;
+
+    const mask = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'mask');
+    mask.setAttribute('id', maskId);
+    mask.setAttribute('maskUnits', 'userSpaceOnUse');
+    mask.setAttribute('maskContentUnits', 'userSpaceOnUse');
+    mask.setAttribute('x', '-200%');
+    mask.setAttribute('y', '-200%');
+    mask.setAttribute('width', '500%');
+    mask.setAttribute('height', '500%');
+    mask.setAttribute('style', 'mask-type: alpha;');
+
+    // IMPORTANT: for an alpha mask we want the transparent PNG/SVG raster itself.
+    // Fabric sometimes also adds a transparent rect to the clipPath; that rect
+    // must not become an opaque rectangular mask.
+    for (const child of Array.from(clipPath.childNodes)) {
+      if (child.nodeType !== 1) continue;
+      const element = child as Element;
+      const tag = element.tagName.toLowerCase();
+
+      if (tag === 'rect') {
+        const fill = (element.getAttribute('fill') || '').toLowerCase();
+        const style = (element.getAttribute('style') || '').toLowerCase();
+        if (
+          fill === 'none' ||
+          fill === 'transparent' ||
+          style.includes('fill: none') ||
+          style.includes('fill:none') ||
+          style.includes('fill-opacity: 0') ||
+          style.includes('fill-opacity:0')
+        ) {
+          continue;
+        }
+      }
+
+      const imported = element.cloneNode(true) as Element;
+      imported.removeAttribute('id');
+      imported.removeAttribute('filter');
+      mask.appendChild(imported);
+    }
+
+    const defs = clipPath.parentElement;
+    if (!defs) continue;
+    defs.appendChild(mask);
+
+    for (const el of referencing) {
+      el.removeAttribute('clip-path');
+      el.setAttribute('mask', `url(#${maskId})`);
+    }
+  }
+}
+
+/**
+ * Re-applies the exact Fabric frame silhouette to the raster photo inside every
+ * exported SVG frame. Fabric can serialize a grouped frame photo as a normal
+ * rectangular <image> in some cases, especially for custom/compound frames.
+ *
+ * The mask source is the same source of truth used by canvas rendering:
+ * getObjectVisualSilhouette(frame) -> shape-outline -> photo.clipPath -> overlay.
+ *
+ * This keeps the photo raster, while the frame mask itself remains vector.
+ */
+export function preserveFrameMasksInSvg(
+  svgDoc: Document,
+  canvasManager: CanvasManager | null
+): void {
+  if (!canvasManager) return;
+  const canvas = canvasManager.getCanvas();
+  if (!canvas) return;
+
+  const allObjects = collectFabricObjectsRecursively(canvas);
+
+  let defs = svgDoc.querySelector('defs');
+  if (!defs) {
+    defs = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    svgDoc.documentElement.insertBefore(defs, svgDoc.documentElement.firstChild);
+  }
+
+  const topLevelFrames = canvas.getObjects().filter((obj: any) => {
+    if (!obj) return false;
+    return Boolean(
+      obj.get?.('isFrame' as any) ||
+      obj.isFrame ||
+      obj.isPhotoShapeGroup ||
+      obj.isCustomFrame
+    );
+  });
+
+  let maskCounter = 0;
+
+  for (const frame of topLevelFrames as any[]) {
+    const targetEl = findSvgElementForFabricObject(svgDoc, frame, allObjects);
+    if (!targetEl) continue;
+
+    const silhouette = getObjectVisualSilhouette(frame);
+    if (!silhouette || silhouette === frame) continue;
+
+    // The exported frame group contains the photo as an <image>. We only clip
+    // the actual frame photo; overlays/outlines remain untouched.
+    const imageElements = Array.from(targetEl.querySelectorAll('image'));
+    if (imageElements.length === 0) continue;
+
+    const children: any[] =
+      typeof frame.getObjects === 'function' ? frame.getObjects() : [];
+
+    const photo = children.find((child: any) => child?.frameRole === 'photo');
+    const photoIndex = photo ? children.indexOf(photo) : -1;
+
+    // In our frame architecture the photo is normally the first raster image.
+    // Prefer its child-order index when it maps cleanly; otherwise use first image.
+    const photoEl =
+      photoIndex >= 0 && photoIndex < imageElements.length
+        ? imageElements[photoIndex]
+        : imageElements[0];
+
+    maskCounter++;
+    const clipId = `export_frame_clip_${maskCounter}`;
+
+    const clipPathEl = svgDoc.createElementNS(
+      'http://www.w3.org/2000/svg',
+      'clipPath'
+    );
+    clipPathEl.setAttribute('id', clipId);
+    clipPathEl.setAttribute('clipPathUnits', 'userSpaceOnUse');
+
+    try {
+      // Serialize the ACTUAL Fabric silhouette instead of manufacturing a rect.
+      // This preserves heart/star/circle/path/custom SVG frame geometry.
+      const silhouetteMarkup =
+        typeof silhouette.toSVG === 'function' ? silhouette.toSVG() : '';
+
+      if (!silhouetteMarkup) continue;
+
+      const parser = new DOMParser();
+      const parsed = parser.parseFromString(
+        `<svg xmlns="http://www.w3.org/2000/svg">${silhouetteMarkup}</svg>`,
+        'image/svg+xml'
+      );
+
+      if (parsed.querySelector('parsererror')) {
+        console.warn('[SVG Export] Could not parse frame silhouette SVG.');
+        continue;
+      }
+
+      const parsedRoot = parsed.documentElement;
+      const visualNodes = Array.from(parsedRoot.childNodes).filter(
+        (node): node is Element => node.nodeType === 1
+      );
+
+      if (visualNodes.length === 0) continue;
+
+      for (const visualNode of visualNodes) {
+        const imported = svgDoc.importNode(visualNode, true) as Element;
+
+        // A clipPath uses geometry/alpha, not the editor's visible paint.
+        // Remove effects that could distort the clipping silhouette.
+        imported.removeAttribute('filter');
+        imported.querySelectorAll('[filter]').forEach((el) =>
+          el.removeAttribute('filter')
+        );
+
+        clipPathEl.appendChild(imported);
+      }
+
+      defs.appendChild(clipPathEl);
+
+      // Override any incorrect rectangular/group clipping Fabric emitted.
+      photoEl.setAttribute('clip-path', `url(#${clipId})`);
+
+      // Do not let a nested rectangular clip override the exact frame mask.
+      // The explicit clip-path above is now the authoritative frame geometry.
+      photoEl.removeAttribute('mask');
+    } catch (error) {
+      console.warn('[SVG Export] Failed to preserve exact frame mask:', error);
+    }
+  }
+}
+
 /**
  * Fixes shadows for objects that require visual silhouette projection (clipped images with corner rounding,
  * heart/circle/custom SVG frames).
@@ -379,6 +584,15 @@ export function injectSilhouetteShadowsInSvg(
   if (!canvas) return;
 
   const allObjects = collectFabricObjectsRecursively(canvas);
+
+  // Fabric exports transparent PNG/custom frame masks inside <clipPath>.
+  // An SVG clipPath treats raster images as rectangles, so convert them to
+  // alpha masks before applying any additional frame/shadow repair.
+  convertImageClipPathsToAlphaMasks(svgDoc);
+
+  // Repair vector/path based frame clipping too. This is intentionally
+  // independent of whether a frame has a shadow.
+  preserveFrameMasksInSvg(svgDoc, canvasManager);
 
   let defs = svgDoc.querySelector('defs');
   if (!defs) {

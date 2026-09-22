@@ -438,9 +438,7 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
             </span>
           )}
         </span>
-        <span className="mt-1 block truncate px-0.5 text-[10px] font-medium text-gray-600 text-center">
-          {asset.name}
-        </span>
+
       </button>
     );
   };
