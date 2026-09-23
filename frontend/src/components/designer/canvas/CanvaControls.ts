@@ -22,6 +22,9 @@ import {
 
 export const CANVA_PURPLE = '#8b3dff';
 
+/** Sleek precision black arrow cursor for artwork canvas */
+export const BLACK_ARTWORK_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath fill='%23000000' stroke='%23ffffff' stroke-width='1.2' stroke-linejoin='round' d='M3 2l12 12-5 1 3 6-2.5 1.2-3-6-4.5 4.8z'/%3E%3C/svg%3E") 3 2, default`;
+
 interface LiveFrameResizeState {
   transform: object;
   renderedPhotoScaleX: number;
@@ -1367,6 +1370,8 @@ export function applyCanvaControlsGlobal(): void {
     );
 
     prototype.splitByGrapheme = false;
+    prototype.cursorColor = '#000000';
+    prototype.cursorWidth = 2;
 
     prototype.dynamicMinWidth = function () {
       return Math.max(24, Number((this as any).fontSize || 16) * 0.8);

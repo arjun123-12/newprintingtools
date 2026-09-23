@@ -48,6 +48,7 @@ import {
   applyCanvaControlsToObject,
   getCurveArcAngle,
   getCurvedTextSelectionBox,
+  BLACK_ARTWORK_CURSOR,
 } from './CanvaControls';
 import { createFrameClipPath } from './frameHelpers';
 import {
@@ -557,6 +558,7 @@ export class CanvasManager {
       width: targetWidth,
       height: targetHeight,
       backgroundColor: '#ffffff',
+      defaultCursor: BLACK_ARTWORK_CURSOR,
       preserveObjectStacking: true,
       selection: true,
       selectionColor: 'rgba(139, 61, 255, 0.12)',
@@ -573,6 +575,8 @@ export class CanvasManager {
     });
     (canvas as any).uniformScaling = true;
     (canvas as any).centeredScaling = false;
+    canvas.defaultCursor = BLACK_ARTWORK_CURSOR;
+    canvas.setCursor(BLACK_ARTWORK_CURSOR);
 
     applyCanvaControlsGlobal();
     canvas.setZoom(this.zoom);
@@ -1403,8 +1407,8 @@ export class CanvasManager {
         evented: false,
         hasControls: false,
         hasBorders: false,
-        hoverCursor: 'default',
-        moveCursor: 'default',
+        hoverCursor: BLACK_ARTWORK_CURSOR,
+        moveCursor: BLACK_ARTWORK_CURSOR,
       });
 
       fabricObject.setCoords();
@@ -1436,8 +1440,8 @@ export class CanvasManager {
         lockScalingY: true,
         hasControls: false,
         hasBorders: true,
-        hoverCursor: 'default',
-        moveCursor: 'default',
+        hoverCursor: BLACK_ARTWORK_CURSOR,
+        moveCursor: BLACK_ARTWORK_CURSOR,
         ...(isText ? { editable: false } : {}),
       });
     } else {
@@ -1479,10 +1483,10 @@ export class CanvasManager {
     this.canvas.skipTargetFind = false;
     this.canvas.isDrawingMode = false;
     this.canvas.freeDrawingBrush = undefined;
-    this.canvas.defaultCursor = 'default';
+    this.canvas.defaultCursor = BLACK_ARTWORK_CURSOR;
     this.canvas.hoverCursor = 'move';
     this.canvas.moveCursor = 'move';
-    this.canvas.setCursor('default');
+    this.canvas.setCursor(BLACK_ARTWORK_CURSOR);
 
     this.ensureUpperCanvasNonDraggable();
 
@@ -1606,7 +1610,7 @@ export class CanvasManager {
     // Normal drawing brushes: enable freeDrawingMode
     this.canvas.isDrawingMode = true;
     this.canvas.selection = false;
-    this.canvas.defaultCursor = 'default';
+    this.canvas.defaultCursor = BLACK_ARTWORK_CURSOR;
     this.canvas.hoverCursor = 'move';
 
     // =========================
@@ -6011,8 +6015,8 @@ export class CanvasManager {
         lockScalingX: isLocked,
         lockScalingY: isLocked,
         hasControls: !isLocked,
-        hoverCursor: isLocked ? 'default' : 'move',
-        moveCursor: isLocked ? 'default' : 'move',
+        hoverCursor: isLocked ? BLACK_ARTWORK_CURSOR : 'move',
+        moveCursor: isLocked ? BLACK_ARTWORK_CURSOR : 'move',
         selectable: true,
         evented: true,
       });
@@ -6726,8 +6730,8 @@ export class CanvasManager {
         lockScalingX: locked,
         lockScalingY: locked,
         hasControls: !locked,
-        hoverCursor: locked ? 'default' : 'move',
-        moveCursor: locked ? 'default' : 'move',
+        hoverCursor: locked ? BLACK_ARTWORK_CURSOR : 'move',
+        moveCursor: locked ? BLACK_ARTWORK_CURSOR : 'move',
         selectable: true,
         evented: true,
       });
@@ -9927,7 +9931,7 @@ export class CanvasManager {
           (obj as any).set?.('hoverCursor', 'move');
         }
       });
-      this.canvas?.setCursor('default');
+      this.canvas?.setCursor(BLACK_ARTWORK_CURSOR);
       this.notifySelection();
     });
 

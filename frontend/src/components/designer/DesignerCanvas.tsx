@@ -21,6 +21,7 @@ import { ContextualToolbar } from './toolbar/ContextualToolbar';
 import { ElementActionBar } from './toolbar/ElementActionBar';
 import { RotationBadge } from './toolbar/RotationBadge';
 import { ResizeBadge } from './toolbar/ResizeBadge';
+import { BLACK_ARTWORK_CURSOR } from './canvas/CanvaControls';
 
 const API_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -1234,6 +1235,13 @@ export function DesignerCanvas({
           <div className="relative shrink-0">
             <div
               ref={paperRef}
+              style={{
+                cursor: isViewportPanning
+                  ? 'grabbing'
+                  : isSpacePressed
+                    ? 'cursor-grab'
+                    : BLACK_ARTWORK_CURSOR,
+              }}
               className="relative shrink-0 rounded-sm bg-white shadow-2xl ring-1 ring-black/15"
             >
               {/* Fabric owns only this container */}
