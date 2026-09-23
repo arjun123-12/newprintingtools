@@ -350,6 +350,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     (canvasManager as any)?.applyEffect?.('blur', next);
   };
 
+  // Uses CanvasManager's non-destructive Fabric text-on-path curve engine.
   const handleCurveChange = (val: number) => {
     if (!canvasManager) return;
     const nextCurve = Math.max(-100, Math.min(100, val));
@@ -1036,7 +1037,12 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
               {curveEnabled && (
                 <div className="space-y-2 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-gray-800">Curve</span>
+                    <div>
+                      <span className="text-xs font-semibold text-gray-800">Curve</span>
+                      <p className="mt-0.5 text-[9px] font-medium text-gray-400">
+                        Canva-style bend
+                      </p>
+                    </div>
                     <div className="flex items-center overflow-hidden rounded-xl border border-gray-200 bg-white">
                       <button
                         type="button"
@@ -1065,11 +1071,12 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-4 gap-1">
+                  <div className="grid grid-cols-5 gap-1">
                     {[
-                      { label: '¼ Arc', value: 25 },
-                      { label: 'Semi', value: 50 },
-                      { label: '¾ Arc', value: 75 },
+                      { label: 'Soft', value: 25 },
+                      { label: 'Medium', value: 50 },
+                      { label: 'Strong', value: 75 },
+                      { label: 'Max', value: 90 },
                       { label: 'Circle', value: 100 },
                     ].map((preset) => (
                       <button

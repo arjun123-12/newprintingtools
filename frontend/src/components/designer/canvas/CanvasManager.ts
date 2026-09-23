@@ -43,7 +43,12 @@ import { calculateCanvasDimensions } from '../utils/dimensions';
 import { CanvasGuides } from './CanvasGuides';
 import { CanvasSnapping } from './CanvasSnapping';
 import { SmartSpacingManager } from './SmartSpacingManager';
-import { applyCanvaControlsGlobal, applyCanvaControlsToObject } from './CanvaControls';
+import {
+  applyCanvaControlsGlobal,
+  applyCanvaControlsToObject,
+  getCurveArcAngle,
+  getCurvedTextSelectionBox,
+} from './CanvaControls';
 import { createFrameClipPath } from './frameHelpers';
 import {
   getEffectiveCornerRadius,
@@ -286,6 +291,15 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   'selectable',
   'evented',
   'fontSizePt',
+  // Curved text metadata - additive only.
+  'curve',
+  'curveMode',
+  'curveRadius',
+  'curveDirection',
+  'textShape',
+  'curveBaseFontSize',
+  'curveOriginalTextboxWidth',
+  'curveOriginalTextAlign',
   'naturalWidth',
   'naturalHeight',
   'fileSizeBytes',
@@ -2569,6 +2583,16 @@ export class CanvasManager {
           noScaleCache: false,
           strokeUniform: true,
         });
+
+        // Canva-style default: newly created text has no editable border/stroke.
+        tb.set({
+          stroke: 'transparent',
+          strokeWidth: 0,
+          strokeDashArray: null,
+          strokeUniform: true,
+        });
+        tb.set('baseStrokeWidth' as any, 0);
+        tb.set('_userStrokeEnabled' as any, false);
 
         tb.set('sourceType' as any, 'vector-text');
         tb.set(
@@ -5540,6 +5564,16 @@ export class CanvasManager {
           strokeUniform: true,
         });
 
+        // Canva-style default: newly created text has no editable border/stroke.
+        textbox.set({
+          stroke: 'transparent',
+          strokeWidth: 0,
+          strokeDashArray: null,
+          strokeUniform: true,
+        });
+        textbox.set('baseStrokeWidth' as any, 0);
+        textbox.set('_userStrokeEnabled' as any, false);
+
         textbox.set('fontSizePt' as any, fontSizePt);
         textbox.set('sourceType' as any, 'psd-layer');
         textbox.set('psdLayerId' as any, layer.id);
@@ -6242,10 +6276,14 @@ export class CanvasManager {
           }
         }
       } else if (prop === 'stroke') {
+        const nextStroke = value as string;
         obj.set({
-          stroke: value as string,
+          stroke: nextStroke,
           strokeUniform: true,
-          paintFirst: 'fill',
+          // Text outline is rendered BEHIND the fill. Combined with a doubled
+          // native Fabric stroke width this makes the requested width visible
+          // only outside the glyph, Canva-style, without clipping glyph holes.
+          paintFirst: isText ? 'stroke' : 'fill',
           dirty: true,
         });
         syncObjectCornerGeometry(obj);
@@ -6253,29 +6291,52 @@ export class CanvasManager {
       } else if (prop === 'strokeWidth') {
         const baseW = Math.max(0, Number(value) || 0);
         obj.set('baseStrokeWidth' as any, baseW);
+
         const strokeUpdates: any = {
-          strokeWidth: baseW,
+          // Fabric centers a text stroke on the glyph edge. Draw twice the UI
+          // width behind the fill so the inner half is covered by the fill and
+          // exactly `baseW` remains visible outside.
+          strokeWidth: isText && baseW > 0 ? baseW * 2 : baseW,
           strokeUniform: true,
-          paintFirst: 'fill',
+          paintFirst: isText ? 'stroke' : 'fill',
           dirty: true,
         };
-        if (baseW > 0 && (!obj.stroke || obj.stroke === 'transparent' || obj.stroke === 'none')) {
+
+        if (
+          baseW > 0 &&
+          (!obj.stroke || obj.stroke === 'transparent' || obj.stroke === 'none')
+        ) {
           strokeUpdates.stroke = '#000000';
         }
+
+        if (isText) {
+          obj.set('strokePosition' as any, 'outside');
+        }
+
         obj.set(strokeUpdates);
         syncObjectCornerGeometry(obj);
         syncVisualEffectsGeometry(obj);
       } else if (prop === 'strokePosition') {
         const pos = value === 'outside' ? 'outside' : 'inside';
-        obj.set('strokePosition' as any, pos);
-        const baseW = typeof obj.get('baseStrokeWidth' as any) === 'number'
-          ? (obj.get('baseStrokeWidth' as any) as number)
-          : (obj.strokeWidth || 0);
+
+        // Text always uses the safe vector outside-stroke technique:
+        // native glyph stroke behind fill, no ctx.clip() hacks.
+        const effectivePos = isText ? 'outside' : pos;
+        obj.set('strokePosition' as any, effectivePos);
+
+        const storedBase = obj.get('baseStrokeWidth' as any);
+        const baseW =
+          typeof storedBase === 'number'
+            ? storedBase
+            : isText
+              ? (obj.strokeWidth || 0) / 2
+              : (obj.strokeWidth || 0);
+
         obj.set('baseStrokeWidth' as any, baseW);
         obj.set({
-          strokeWidth: baseW,
+          strokeWidth: isText && baseW > 0 ? baseW * 2 : baseW,
           strokeUniform: true,
-          paintFirst: 'fill',
+          paintFirst: isText ? 'stroke' : 'fill',
           dirty: true,
         });
         syncObjectCornerGeometry(obj);
@@ -6300,6 +6361,16 @@ export class CanvasManager {
           (nextFontSize * 72) /
           Math.max(72, Number(this.dimensions.dpi) || 96)
         );
+        const hasActiveCurve =
+          this.isCurveTextObject(textObject) &&
+          Boolean((textObject as any).path) &&
+          Math.abs(Number(textObject.get('curve' as any) ?? 0)) > 0.001;
+
+        if (hasActiveCurve) {
+          textObject.set('curveBaseFontSize' as any, nextFontSize);
+          const curveVal = Number(textObject.get('curve' as any) ?? 0);
+          this.applyTextCurve(curveVal);
+        }
       } else if (isText && prop === 'fontWeight') {
         (obj as Textbox | IText).set('fontWeight', value as string | number);
       } else if (isText && prop === 'fontStyle') {
@@ -6554,41 +6625,81 @@ export class CanvasManager {
       active.set('fill', value as string);
     }
     else if (prop === 'stroke') {
-      active.set('stroke', value as string);
-      active.set('strokeUniform', true);
-      active.set('paintFirst', 'fill');
-      active.set('strokePosition' as any, 'inside');
+      const nextStroke = String(value ?? '');
       if (isText) {
-        active.set('strokeLineJoin', 'round');
-        active.set('strokeLineCap', 'round');
+        const textObj = active as Textbox | IText;
+        const storedBase = Number(textObj.get('baseStrokeWidth' as any));
+        const baseW = Number.isFinite(storedBase)
+          ? Math.max(0, storedBase)
+          : Math.max(0, Number(textObj.strokeWidth || 0) / 2);
+        textObj.set({
+          stroke: nextStroke,
+          strokeWidth: baseW > 0 ? baseW * 2 : 0,
+          strokeUniform: true,
+          paintFirst: 'stroke',
+          strokeLineJoin: 'round',
+          strokeLineCap: 'round',
+          dirty: true,
+        });
+        textObj.set('baseStrokeWidth' as any, baseW);
+        textObj.set('strokePosition' as any, 'outside');
+      } else {
+        active.set({ stroke: nextStroke, strokeUniform: true, paintFirst: 'fill', dirty: true });
       }
       syncObjectCornerGeometry(active);
       syncVisualEffectsGeometry(active);
     } else if (prop === 'strokeWidth') {
       const baseW = Math.max(0, Number(value) || 0);
-      active.set('strokeUniform', true);
       active.set('baseStrokeWidth' as any, baseW);
-      active.set('strokeWidth', baseW);
-      active.set('paintFirst', 'fill');
-      active.set('strokePosition' as any, 'inside');
-      if (baseW > 0 && (!active.stroke || active.stroke === 'transparent' || active.stroke === 'none')) {
-        active.set('stroke', '#000000');
-      }
       if (isText) {
-        active.set('strokeLineJoin', 'round');
-        active.set('strokeLineCap', 'round');
+        const textObj = active as Textbox | IText;
+        textObj.set({
+          strokeWidth: baseW > 0 ? baseW * 2 : 0,
+          strokeUniform: true,
+          paintFirst: 'stroke',
+          strokeLineJoin: 'round',
+          strokeLineCap: 'round',
+          dirty: true,
+        });
+        textObj.set('strokePosition' as any, 'outside');
+        if (baseW > 0 && (!textObj.stroke || textObj.stroke === 'transparent' || textObj.stroke === 'none')) {
+          textObj.set('stroke', '#000000');
+        }
+      } else {
+        active.set({ strokeWidth: baseW, strokeUniform: true, dirty: true });
+        if (baseW > 0 && (!active.stroke || active.stroke === 'transparent' || active.stroke === 'none')) {
+          active.set('stroke', '#000000');
+        }
       }
       syncObjectCornerGeometry(active);
       syncVisualEffectsGeometry(active);
     } else if (prop === 'strokePosition') {
-      active.set('strokePosition' as any, 'inside');
-      const baseW = typeof active.get('baseStrokeWidth' as any) === 'number'
-        ? (active.get('baseStrokeWidth' as any) as number)
-        : (active.strokeWidth || 0);
-      active.set('baseStrokeWidth' as any, baseW);
-      active.set('strokeWidth', baseW);
-      active.set('paintFirst', 'fill');
-      active.set('strokeUniform', true);
+      const requestedPosition = value === 'outside' ? 'outside' : 'inside';
+      if (isText) {
+        const textObj = active as Textbox | IText;
+        const storedBase = textObj.get('baseStrokeWidth' as any);
+        const baseW = typeof storedBase === 'number'
+          ? Math.max(0, storedBase)
+          : Math.max(0, Number(textObj.strokeWidth || 0) / 2);
+        textObj.set('strokePosition' as any, 'outside');
+        textObj.set('baseStrokeWidth' as any, baseW);
+        textObj.set({
+          strokeWidth: baseW > 0 ? baseW * 2 : 0,
+          strokeUniform: true,
+          paintFirst: 'stroke',
+          strokeLineJoin: 'round',
+          strokeLineCap: 'round',
+          dirty: true,
+        });
+      } else {
+        const storedBase = active.get('baseStrokeWidth' as any);
+        const baseW = typeof storedBase === 'number'
+          ? Math.max(0, storedBase)
+          : Math.max(0, Number(active.strokeWidth || 0));
+        active.set('strokePosition' as any, requestedPosition);
+        active.set('baseStrokeWidth' as any, baseW);
+        active.set({ strokeWidth: baseW, strokeUniform: true, dirty: true });
+      }
       syncObjectCornerGeometry(active);
       syncVisualEffectsGeometry(active);
     } else if (prop === 'strokeLineCap') active.set('strokeLineCap', value as 'round' | 'square' | 'butt');
@@ -6598,25 +6709,7 @@ export class CanvasManager {
     else if (prop === 'rx' || prop === 'ry' || (prop as string) === 'cornerRadius') {
       this.setSelectedCornerRadius(Math.max(0, Number(value) || 0), false);
     } else if (prop === 'curve') {
-      const curveVal = Number(value) || 0;
-      (active as any).curve = curveVal;
-      if (isText) {
-        const textObj = active as Textbox | IText;
-        if (Math.abs(curveVal) < 1) {
-          textObj.set('path', null as any);
-        } else {
-          const w = Math.max(textObj.width || 200, 100);
-          const absC = Math.abs(curveVal);
-          const radius = Math.max(40, (100 / absC) * (w * 0.7));
-          const sweepFlag = curveVal > 0 ? 1 : 0;
-          const arcPath = new Path(`M 0 ${radius} A ${radius} ${radius} 0 0 ${sweepFlag} ${w} ${radius}`, {
-            visible: false,
-            fill: '',
-            stroke: '',
-          });
-          textObj.set('path', arcPath);
-        }
-      }
+      this.applyTextCurve(Number(value) || 0);
     } else if (prop === 'strokeDashArray') {
       active.set('strokeDashArray', value ? (value as number[]) : null);
     } else if (prop === 'strokeUniform') {
@@ -6662,8 +6755,20 @@ export class CanvasManager {
         (nextFontSize * 72) /
         Math.max(72, Number(this.dimensions.dpi) || 96)
       );
-      textObject.initDimensions?.();
-      textObject.setCoords();
+
+      const hasActiveCurve =
+        this.isCurveTextObject(textObject) &&
+        Boolean((textObject as any).path) &&
+        Math.abs(Number(textObject.get('curve' as any) ?? 0)) > 0.001;
+
+      if (hasActiveCurve) {
+        textObject.set('curveBaseFontSize' as any, nextFontSize);
+        const curveVal = Number(textObject.get('curve' as any) ?? 0);
+        this.applyTextCurve(curveVal);
+      } else {
+        textObject.initDimensions?.();
+        textObject.setCoords();
+      }
     } else if (isText && prop === 'fontFamily') {
       const fontName = String(value);
       const fontItem = POPULAR_FONTS.find((f) => f.family === fontName || f.name === fontName);
@@ -7885,6 +7990,678 @@ export class CanvasManager {
     obj.setCoords();
   }
 
+  // --- Canva-style non-destructive Text Curve ------------------------------
+  //
+  // ADDITIVE FEATURE ONLY.
+  // Existing text/stroke/shadow/frame/image code is intentionally untouched.
+  // Curved text remains a real editable Textbox/IText using Fabric's native
+  // text-on-path support.
+
+  private isCurveTextObject(
+    obj: FabricObject | null | undefined
+  ): obj is Textbox | IText {
+    if (!obj) return false;
+
+    const type = String((obj as any).type || '')
+      .toLowerCase()
+      .replace(/[-_\s]/g, '');
+
+    return (
+      obj instanceof Textbox ||
+      obj instanceof IText ||
+      type === 'textbox' ||
+      type === 'itext' ||
+      type === 'text'
+    );
+  }
+
+  /**
+   * Measures curved text as one unwrapped line.
+   * This is used only by the curve engine and does not change normal Textbox
+   * wrapping behavior.
+   */
+  private measureCurvedTextSingleLineWidth(
+    text: Textbox | IText,
+    fontSize: number
+  ): number {
+    const rawText = String((text as any).text || '')
+      .replace(/\r?\n+/g, ' ');
+
+    if (!rawText) {
+      return Math.max(1, fontSize * 0.5);
+    }
+
+    if (typeof document !== 'undefined') {
+      try {
+        const measurementCanvas = document.createElement('canvas');
+        const ctx = measurementCanvas.getContext('2d');
+
+        if (ctx) {
+          const fontStyle = String(
+            (text as any).fontStyle || 'normal'
+          );
+          const fontWeight = String(
+            (text as any).fontWeight || 'normal'
+          );
+          const fontFamily = String(
+            (text as any).fontFamily || 'sans-serif'
+          );
+
+          ctx.font =
+            `${fontStyle} ${fontWeight} ${fontSize}px ${fontFamily}`;
+
+          let width = ctx.measureText(rawText).width;
+
+          const charSpacing =
+            Number((text as any).charSpacing) || 0;
+
+          if (charSpacing !== 0 && rawText.length > 1) {
+            width +=
+              (rawText.length - 1) *
+              ((charSpacing / 1000) * fontSize);
+          }
+
+          return Math.max(1, width);
+        }
+      } catch {
+        // Fall through to Fabric approximation below.
+      }
+    }
+
+    const currentFontSize = Math.max(
+      1,
+      Number((text as any).fontSize) || fontSize || 16
+    );
+
+    const currentWidth = Math.max(
+      1,
+      Number(
+        typeof (text as any).calcTextWidth === 'function'
+          ? (text as any).calcTextWidth()
+          : text.width
+      ) || 1
+    );
+
+    return Math.max(
+      1,
+      currentWidth * (fontSize / currentFontSize)
+    );
+  }
+
+  /**
+   * Convert Canva's -100..100 Curve slider into a practical circular arc.
+   *
+   * Canva does NOT treat 100 as a literal 360-degree circle. A short word at
+   * 100 remains an editable arch, like the reference screenshots.
+   *
+   * Geometry:
+   *   25  ~= 30°
+   *   50  ~= 60°
+   *   75  ~= 90°
+   *   100 ~= 120°
+   *
+   * The radius is calculated from the actual text width, so the letters stay
+   * evenly spaced rather than being squeezed into a fixed small circle.
+  /**
+   * Canonical curve arc angle mapping.
+   */
+  public getCurveArcAngle(amount: number): number {
+    return getCurveArcAngle(amount);
+  }
+
+  /**
+   * Creates the native Fabric path used by text.
+   *
+   * Curve uses Canva-style strength:
+   *   0     = straight
+   *   +100  = complete 360-degree circle (upward)
+   *   -100  = complete 360-degree circle (downward)
+   *   -99..99 = progressive Canva-style arcs
+   */
+  private buildTextCurvePath(
+    text: Textbox | IText,
+    amount: number
+  ): {
+    path: Path;
+    radius: number;
+    direction: 1 | -1;
+  } {
+    const isCircle = Math.abs(amount) >= 99.5;
+    const direction: 1 | -1 = amount >= 0 ? 1 : -1;
+    const arcAngle = this.getCurveArcAngle(amount);
+
+    const baseFontSize =
+      Number(text.get('curveBaseFontSize' as any)) ||
+      Math.max(1, Number((text as any).fontSize) || 36);
+
+    const measuredTextWidth = this.measureCurvedTextSingleLineWidth(
+      text,
+      baseFontSize
+    );
+
+    let radius: number;
+    let pathData: string;
+
+    if (isCircle) {
+      // Circle mode (exactly 100 / -100):
+      // Full 360-degree circle with circumference giving letters ample breathing room.
+      const circleCircumference = Math.max(
+        measuredTextWidth * 1.25,
+        baseFontSize * 5.5
+      );
+      radius = Math.max(
+        baseFontSize * 1.5,
+        circleCircumference / (2 * Math.PI)
+      );
+
+      // In Fabric text-on-path, centered text with textAlign: 'center' sits at
+      // pathLength / 2 (the midpoint of the path).
+      // For direction > 0 (bend upward), we want apex at top (12 o'clock, 0, -radius).
+      // So path starts at bottom (0, radius), sweeps clockwise through top (0, -radius) back to bottom.
+      // For direction < 0 (bend downward), apex is at bottom (0, radius).
+      // So path starts at top (0, -radius), sweeps counter-clockwise through bottom (0, radius) back to top.
+      if (direction > 0) {
+        pathData =
+          `M 0 ${radius} ` +
+          `A ${radius} ${radius} 0 0 1 0 ${-radius} ` +
+          `A ${radius} ${radius} 0 0 1 0 ${radius}`;
+      } else {
+        pathData =
+          `M 0 ${-radius} ` +
+          `A ${radius} ${radius} 0 0 0 0 ${radius} ` +
+          `A ${radius} ${radius} 0 0 0 0 ${-radius}`;
+      }
+    } else {
+      // Standard Canva-style arc (-99..99):
+      // Calculate radius from measured single line width so glyphs never overlap.
+      const requiredArcLength = measuredTextWidth * 1.08;
+      const minRadiusFromText = requiredArcLength / arcAngle;
+      radius = Math.max(baseFontSize * 1.25, minRadiusFromText);
+
+      const centerAngle =
+        direction > 0 ? -Math.PI / 2 : Math.PI / 2;
+      const startAngle = centerAngle - arcAngle / 2;
+      const endAngle = centerAngle + arcAngle / 2;
+
+      const sx = Math.cos(startAngle) * radius;
+      const sy = Math.sin(startAngle) * radius;
+      const ex = Math.cos(endAngle) * radius;
+      const ey = Math.sin(endAngle) * radius;
+
+      const largeArc = arcAngle > Math.PI ? 1 : 0;
+      const sweep = direction > 0 ? 1 : 0;
+
+      pathData =
+        `M ${sx} ${sy} ` +
+        `A ${radius} ${radius} 0 ${largeArc} ${sweep} ${ex} ${ey}`;
+    }
+
+    const path = new Path(pathData, {
+      fill: '',
+      stroke: 'transparent',
+      strokeWidth: 0,
+      selectable: false,
+      evented: false,
+      objectCaching: false,
+    });
+
+    return {
+      path,
+      radius,
+      direction,
+    };
+  }
+
+  /**
+   * Keeps curved text on a single line and reduces font size only when the
+   * sentence becomes longer than the available curve length.
+   *
+   * Normal straight text is never affected by this helper.
+   */
+  private autoFitCurvedTextToPath(
+    text: Textbox | IText
+  ): boolean {
+    const curve =
+      Number(text.get('curve' as any) ?? 0);
+
+    const curveMode =
+      String(text.get('curveMode' as any) ?? '');
+
+    const radius = Math.max(
+      0,
+      Number(text.get('curveRadius' as any) ?? 0)
+    );
+
+    if (
+      !Boolean((text as any).path) ||
+      radius <= 0 ||
+      Math.abs(curve) <= 0.001 ||
+      curveMode === 'none'
+    ) {
+      return false;
+    }
+
+    const currentFontSize = Math.max(
+      1,
+      Number((text as any).fontSize) || 16
+    );
+
+    let baseFontSize =
+      Number(text.get('curveBaseFontSize' as any));
+
+    if (
+      !Number.isFinite(baseFontSize) ||
+      baseFontSize <= 0
+    ) {
+      baseFontSize = currentFontSize;
+
+      text.set(
+        'curveBaseFontSize' as any,
+        baseFontSize
+      );
+    }
+
+    const isCircle = Math.abs(curve) >= 99.5;
+    const arcAngle = this.getCurveArcAngle(curve);
+
+    // Keep safe margins along the curve length so text doesn't overlap
+    const pathArcLength = radius * arcAngle;
+    const availableLength = isCircle
+      ? pathArcLength * 0.85
+      : pathArcLength * 0.96;
+
+    const beforeCenter =
+      text.getCenterPoint();
+
+    const measuredAtBase =
+      this.measureCurvedTextSingleLineWidth(
+        text,
+        baseFontSize
+      );
+
+    let nextFontSize =
+      baseFontSize;
+
+    if (measuredAtBase > availableLength) {
+      nextFontSize = Math.max(
+        6,
+        Math.floor(
+          baseFontSize *
+          (availableLength / measuredAtBase) *
+          100
+        ) / 100
+      );
+    }
+
+    let fittedWidth =
+      this.measureCurvedTextSingleLineWidth(
+        text,
+        nextFontSize
+      );
+
+    // One correction pass for fonts with unusual metrics.
+    if (
+      fittedWidth > availableLength * 1.001 &&
+      nextFontSize > 6
+    ) {
+      nextFontSize = Math.max(
+        6,
+        Math.floor(
+          nextFontSize *
+          (availableLength / fittedWidth) *
+          100
+        ) / 100
+      );
+
+      fittedWidth =
+        this.measureCurvedTextSingleLineWidth(
+          text,
+          nextFontSize
+        );
+    }
+
+    const horizontalRoom = Math.max(
+      8,
+      nextFontSize * 0.35
+    );
+
+    text.set({
+      fontSize: nextFontSize,
+      width: Math.max(
+        24,
+        Math.ceil(
+          fittedWidth + horizontalRoom
+        )
+      ),
+      splitByGrapheme: false,
+      objectCaching: false,
+      dirty: true,
+    } as any);
+
+    if (
+      typeof (text as any).initDimensions === 'function'
+    ) {
+      (text as any).initDimensions();
+    }
+
+    const artworkDpi = Math.max(
+      72,
+      Number(this.dimensions.dpi) || 96
+    );
+
+    text.set(
+      'fontSizePt' as any,
+      (nextFontSize * 72) / artworkDpi
+    );
+
+    text.setPositionByOrigin(
+      beforeCenter,
+      'center',
+      'center'
+    );
+
+    text.setCoords();
+
+    return (
+      Math.abs(
+        nextFontSize - currentFontSize
+      ) > 0.001
+    );
+  }
+
+  /**
+   * Public API used by TextEffectsPanel.
+   *
+   * The same Fabric Textbox/IText instance is preserved, so fill, stroke,
+   * shadow, effects, id, layer order, rotation and all existing properties
+   * remain intact.
+   */
+  public applyTextCurve(
+    value: number
+  ): void {
+    if (!this.canvas) return;
+
+    const active =
+      this.canvas.getActiveObject();
+
+    if (!this.isCurveTextObject(active)) {
+      return;
+    }
+
+    const curve = Math.max(
+      -100,
+      Math.min(100, Number(value) || 0)
+    );
+
+    if (Math.abs(curve) < 0.5) {
+      this.removeTextCurve();
+      return;
+    }
+
+    const text =
+      active as Textbox | IText;
+
+    const oldMode =
+      String(text.get('curveMode' as any) ?? '');
+
+    const originalWidth =
+      Number(
+        text.get(
+          'curveOriginalTextboxWidth' as any
+        )
+      );
+
+    if (
+      !Number.isFinite(originalWidth) ||
+      originalWidth <= 0 ||
+      oldMode === 'none' ||
+      !oldMode
+    ) {
+      text.set(
+        'curveOriginalTextboxWidth' as any,
+        Math.max(
+          24,
+          Number(text.width) || 100
+        )
+      );
+    }
+
+    const existingBaseFont =
+      Number(
+        text.get(
+          'curveBaseFontSize' as any
+        )
+      );
+
+    if (
+      !Number.isFinite(existingBaseFont) ||
+      existingBaseFont <= 0 ||
+      oldMode === 'none' ||
+      !oldMode
+    ) {
+      text.set(
+        'curveBaseFontSize' as any,
+        Math.max(
+          1,
+          Number((text as any).fontSize) || 16
+        )
+      );
+    }
+
+    const existingAlign = text.get('curveOriginalTextAlign' as any);
+    if (!existingAlign || oldMode === 'none' || !oldMode) {
+      text.set(
+        'curveOriginalTextAlign' as any,
+        text.textAlign || 'center'
+      );
+    }
+
+    text.setCoords();
+
+    const beforeCenter =
+      text.getCenterPoint();
+
+    const {
+      path,
+      radius,
+      direction,
+    } = this.buildTextCurvePath(
+      text,
+      curve
+    );
+
+    text.set({
+      path,
+      pathAlign: 'center' as any,
+      pathSide:
+        direction > 0
+          ? 'left'
+          : 'right' as any,
+      pathStartOffset: 0,
+      textAlign: 'center',
+      objectCaching: false,
+      dirty: true,
+    } as any);
+
+    text.set(
+      'curve' as any,
+      curve
+    );
+    text.set(
+      'curveMode' as any,
+      'fabric-text-path'
+    );
+    text.set(
+      'curveRadius' as any,
+      radius
+    );
+    text.set(
+      'curveDirection' as any,
+      direction > 0
+        ? 'up'
+        : 'down'
+    );
+    text.set(
+      'textShape' as any,
+      'curve'
+    );
+
+    this.autoFitCurvedTextToPath(
+      text
+    );
+
+    if (
+      typeof (text as any).initDimensions === 'function'
+    ) {
+      (text as any).initDimensions();
+    }
+
+    text.setPositionByOrigin(
+      beforeCenter,
+      'center',
+      'center'
+    );
+
+    text.setCoords();
+
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+    this.notifyLayers();
+  }
+
+  /**
+   * Removes only the curve and restores the original straight Textbox width
+   * and preferred font size. No other text styling is changed.
+   */
+  public removeTextCurve(): void {
+    if (!this.canvas) return;
+
+    const active =
+      this.canvas.getActiveObject();
+
+    if (!this.isCurveTextObject(active)) {
+      return;
+    }
+
+    const text =
+      active as Textbox | IText;
+
+    text.setCoords();
+
+    const beforeCenter =
+      text.getCenterPoint();
+
+    const originalWidth =
+      Number(
+        text.get(
+          'curveOriginalTextboxWidth' as any
+        )
+      );
+
+    const originalFontSize =
+      Number(
+        text.get(
+          'curveBaseFontSize' as any
+        )
+      );
+
+    const originalAlign = text.get('curveOriginalTextAlign' as any);
+
+    text.set({
+      path: undefined,
+      pathStartOffset: 0,
+      objectCaching: false,
+      dirty: true,
+    } as any);
+
+    text.set(
+      'curve' as any,
+      0
+    );
+    text.set(
+      'curveMode' as any,
+      'none'
+    );
+    text.set(
+      'curveRadius' as any,
+      0
+    );
+    text.set(
+      'curveDirection' as any,
+      'none'
+    );
+    text.set(
+      'textShape' as any,
+      'none'
+    );
+
+    if (
+      Number.isFinite(originalFontSize) &&
+      originalFontSize > 0
+    ) {
+      text.set({
+        fontSize: originalFontSize,
+        dirty: true,
+      });
+
+      text.set(
+        'fontSizePt' as any,
+        (originalFontSize * 72) /
+        Math.max(
+          72,
+          Number(this.dimensions.dpi) || 96
+        )
+      );
+    }
+
+    if (
+      Number.isFinite(originalWidth) &&
+      originalWidth > 0
+    ) {
+      text.set({
+        width: originalWidth,
+        dirty: true,
+      } as any);
+    }
+
+    if (originalAlign) {
+      text.set('textAlign', originalAlign);
+    }
+
+    text.set(
+      'curveBaseFontSize' as any,
+      undefined
+    );
+    text.set(
+      'curveOriginalTextboxWidth' as any,
+      undefined
+    );
+    text.set(
+      'curveOriginalTextAlign' as any,
+      undefined
+    );
+
+    if (
+      typeof (text as any).initDimensions === 'function'
+    ) {
+      (text as any).initDimensions();
+    }
+
+    text.setPositionByOrigin(
+      beforeCenter,
+      'center',
+      'center'
+    );
+
+    text.setCoords();
+
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+    this.notifyLayers();
+  }
+
   // --- Rich Textbox Inserter ---
 
   public async addText(options?: AddTextOptions): Promise<void> {
@@ -7945,11 +8722,21 @@ export class CanvasManager {
       centeredScaling: false,
     });
 
+    // Canva-style default: newly created text has no editable border/stroke.
+    text.set({
+      stroke: 'transparent',
+      strokeWidth: 0,
+      strokeDashArray: null,
+      strokeUniform: true,
+    });
+    text.set('baseStrokeWidth' as any, 0);
+    text.set('_userStrokeEnabled' as any, false);
+
     text.set(
       'fontSizePt' as any,
       options?.fontSizePt || (fontSize * 72) / artworkDpi
     );
-    text.set('strokePosition' as any, 'inside');
+    text.set('strokePosition' as any, 'outside');
     text.set('baseStrokeWidth' as any, 0);
     text.set('sourceType' as any, 'vector-text');
 
@@ -8872,6 +9659,45 @@ export class CanvasManager {
     });
 
     this.canvas.on('mouse:down', (opt: any) => {
+      if (!opt?.target && this.canvas) {
+        const pointer =
+          opt.scenePoint ||
+          (this.canvas as any).getScenePoint?.(opt.e);
+        if (pointer) {
+          const objects = this.canvas.getObjects();
+          for (let i = objects.length - 1; i >= 0; i--) {
+            const obj = objects[i];
+            if (
+              this.isCurveTextObject(obj) &&
+              Boolean((obj as any).path) &&
+              obj.visible &&
+              obj.evented &&
+              obj.selectable
+            ) {
+              const localPoint = (obj as any).toLocalPoint?.(
+                pointer,
+                'center',
+                'center'
+              );
+              if (localPoint) {
+                const box = getCurvedTextSelectionBox(obj);
+                if (
+                  box &&
+                  localPoint.x >= box.left &&
+                  localPoint.x <= box.left + box.width &&
+                  localPoint.y >= box.top &&
+                  localPoint.y <= box.top + box.height
+                ) {
+                  this.canvas.setActiveObject(obj);
+                  this.canvas.requestRenderAll();
+                  this.notifySelection();
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
       if (this.isFrameCropping()) {
         const clickedTarget = opt?.target;
         if (clickedTarget !== this.cropUnclippedPhoto) {
@@ -8973,17 +9799,83 @@ export class CanvasManager {
     });
 
     this.canvas.on('mouse:dblclick', (opt: any) => {
-      const target = opt?.target;
+      let target = opt?.target;
+
+      // When text is curved, glyphs may exist outside straight Textbox aCoords.
+      // If target hit-test missed, check active object or curved text visual bounds.
+      if (!target || !this.isTextObject(target)) {
+        const active = this.canvas?.getActiveObject();
+        if (
+          active &&
+          this.isCurveTextObject(active) &&
+          Boolean((active as any).path)
+        ) {
+          target = active;
+        } else if (opt?.e && this.canvas) {
+          const pointer =
+            opt.scenePoint ||
+            (this.canvas as any).getScenePoint?.(opt.e);
+          if (pointer) {
+            const objects = this.canvas.getObjects();
+            for (let i = objects.length - 1; i >= 0; i--) {
+              const obj = objects[i];
+              if (
+                this.isCurveTextObject(obj) &&
+                Boolean((obj as any).path)
+              ) {
+                const localPoint = (obj as any).toLocalPoint?.(
+                  pointer,
+                  'center',
+                  'center'
+                );
+                if (localPoint) {
+                  const box = getCurvedTextSelectionBox(obj);
+                  if (
+                    box &&
+                    localPoint.x >= box.left &&
+                    localPoint.x <= box.left + box.width &&
+                    localPoint.y >= box.top &&
+                    localPoint.y <= box.top + box.height
+                  ) {
+                    target = obj;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
       if (
         target &&
         this.isTextObject(target) &&
         !(target as any).isEditing &&
         (target as any).editable !== false
       ) {
+        if (this.canvas?.getActiveObject() !== target) {
+          this.canvas?.setActiveObject(target);
+        }
         (target as any).enterEditing?.(opt?.e);
-        (target as any).setCursorByClick?.(opt?.e);
+        try {
+          (target as any).setCursorByClick?.(opt?.e);
+        } catch {
+          // Keep caret
+        }
         (target as any).set?.('hoverCursor', 'text');
         this.canvas?.setCursor('text');
+
+        const textarea = (target as any).hiddenTextarea as
+          | HTMLTextAreaElement
+          | undefined;
+        if (textarea) {
+          try {
+            textarea.focus({ preventScroll: true });
+          } catch {
+            textarea.focus();
+          }
+        }
+
         this.canvas?.requestRenderAll();
         this.notifySelection();
       } else if (
@@ -9055,6 +9947,46 @@ export class CanvasManager {
         this.notifySelection();
       }, 150);
     });
+    // Curved text only: keep a long sentence on one path and auto-shrink
+    // the font before the editor's existing text:changed logic runs.
+    this.canvas.on('text:changed' as any, (opt: any) => {
+      const target =
+        opt?.target as FabricObject | undefined;
+
+      if (
+        target &&
+        this.isCurveTextObject(target) &&
+        Boolean((target as any).path) &&
+        Math.abs(
+          Number(
+            target.get('curve' as any) ?? 0
+          )
+        ) > 0.001
+      ) {
+        const rawText =
+          String(
+            (target as any).text || ''
+          );
+
+        // Fabric text-on-path in this editor is intentionally one line.
+        if (/\r?\n/.test(rawText)) {
+          (target as any).set(
+            'text',
+            rawText.replace(
+              /\s*\r?\n+\s*/g,
+              ' '
+            )
+          );
+        }
+
+        this.autoFitCurvedTextToPath(
+          target
+        );
+
+        this.canvas?.requestRenderAll();
+      }
+    });
+
     this.canvas.on('text:changed' as any, (opt: any) => {
       opt?.target?.set?.('dirty', true);
       opt?.target?.setCoords?.();
@@ -9124,8 +10056,21 @@ export class CanvasManager {
               dirty: true,
             });
             textObj.set('fontSizePt' as any, (nextFontSize * 72) / artworkDpi);
-            textObj.initDimensions();
-            textObj.setCoords();
+
+            const hasActiveCurve =
+              this.isCurveTextObject(textObj) &&
+              Boolean((textObj as any).path) &&
+              Math.abs(Number(textObj.get('curve' as any) ?? 0)) > 0.001;
+
+            if (hasActiveCurve) {
+              textObj.set('curveBaseFontSize' as any, nextFontSize);
+              textObj.set('curveOriginalTextboxWidth' as any, nextWidth);
+              const curveVal = Number(textObj.get('curve' as any) ?? 0);
+              this.applyTextCurve(curveVal);
+            } else {
+              textObj.initDimensions();
+              textObj.setCoords();
+            }
           }
         }
 

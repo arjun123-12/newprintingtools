@@ -526,13 +526,33 @@ export function preserveFrameMasksInSvg(
       if (!silhouetteMarkup) continue;
 
       const parser = new DOMParser();
-      const parsed = parser.parseFromString(
-        `<svg xmlns="http://www.w3.org/2000/svg">${silhouetteMarkup}</svg>`,
+
+      const wrapSilhouette = (markup: string) =>
+        `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">${markup}</svg>`;
+
+      let parsed = parser.parseFromString(
+        wrapSilhouette(silhouetteMarkup),
         'image/svg+xml'
       );
 
+      // Some uploaded/custom frame SVGs contain raw ampersands in URLs or
+      // metadata. Repair only invalid XML ampersands and retry before giving up.
       if (parsed.querySelector('parsererror')) {
-        console.warn('[SVG Export] Could not parse frame silhouette SVG.');
+        const repairedMarkup = silhouetteMarkup.replace(
+          /&(?!(amp|lt|gt|quot|apos|#\d+|#x[a-f\d]+);)/gi,
+          '&amp;'
+        );
+
+        parsed = parser.parseFromString(
+          wrapSilhouette(repairedMarkup),
+          'image/svg+xml'
+        );
+      }
+
+      if (parsed.querySelector('parsererror')) {
+        console.warn(
+          '[SVG Export] Could not parse frame silhouette SVG after XML repair.'
+        );
         continue;
       }
 
@@ -568,6 +588,13 @@ export function preserveFrameMasksInSvg(
       console.warn('[SVG Export] Failed to preserve exact frame mask:', error);
     }
   }
+
+  // IMPORTANT:
+  // A custom frame silhouette may itself be a transparent PNG/image. SVG
+  // <clipPath><image/></clipPath> clips only by the image rectangle, not its
+  // transparent alpha. Convert every newly-created image clipPath into a real
+  // alpha <mask> AFTER all frame clip paths have been created.
+  convertImageClipPathsToAlphaMasks(svgDoc);
 }
 
 /**
@@ -585,13 +612,9 @@ export function injectSilhouetteShadowsInSvg(
 
   const allObjects = collectFabricObjectsRecursively(canvas);
 
-  // Fabric exports transparent PNG/custom frame masks inside <clipPath>.
-  // An SVG clipPath treats raster images as rectangles, so convert them to
-  // alpha masks before applying any additional frame/shadow repair.
-  convertImageClipPathsToAlphaMasks(svgDoc);
-
-  // Repair vector/path based frame clipping too. This is intentionally
-  // independent of whether a frame has a shadow.
+  // Repair frame clipping first. preserveFrameMasksInSvg() now converts any
+  // image-based frame clipPath it creates into a real alpha mask afterwards.
+  // This ordering is critical for transparent PNG/custom-SVG frame masks.
   preserveFrameMasksInSvg(svgDoc, canvasManager);
 
   let defs = svgDoc.querySelector('defs');
@@ -710,6 +733,236 @@ export function injectSilhouetteShadowsInSvg(
   }
 }
 
+
+/**
+ * PDF-only compatibility fallback for complex photo frames.
+ *
+ * svg2pdf.js does not reliably preserve every SVG alpha-mask / image clip-path
+ * combination. The Fabric canvas itself already renders the frame correctly,
+ * so for PDF only we rasterize EACH FRAME OBJECT (not the whole artwork) to a
+ * transparent PNG and replace only that frame's SVG group.
+ *
+ * Result:
+ * - photo stays inside heart/circle/custom frame exactly as seen on canvas
+ * - frame overlay/border is preserved
+ * - all text and non-frame shapes elsewhere stay true vectors in PDF
+ */
+export async function rasterizeFramesForVectorPdf(
+  svgDoc: Document,
+  canvasManager: CanvasManager | null,
+  options?: {
+    preferredMultiplier?: number;
+    maxLongEdgePx?: number;
+  }
+): Promise<number> {
+  if (!canvasManager) return 0;
+
+  const canvas = canvasManager.getCanvas();
+  if (!canvas) return 0;
+
+  const allObjects = collectFabricObjectsRecursively(canvas);
+
+  const topLevelFrames = canvas.getObjects().filter((obj: any) => {
+    if (!obj) return false;
+
+    return Boolean(
+      obj.get?.('isFrame' as any) ||
+      obj.isFrame ||
+      obj.isPhotoShapeGroup ||
+      obj.isCustomFrame
+    );
+  });
+
+  if (topLevelFrames.length === 0) {
+    return 0;
+  }
+
+  const preferredMultiplier = Math.max(
+    1,
+    Math.min(4, options?.preferredMultiplier ?? 2)
+  );
+
+  const maxLongEdgePx = Math.max(
+    1024,
+    options?.maxLongEdgePx ?? 4096
+  );
+
+  let replacedCount = 0;
+
+  for (const frame of topLevelFrames as any[]) {
+    const targetEl = findSvgElementForFabricObject(
+      svgDoc,
+      frame,
+      allObjects
+    );
+
+    if (!targetEl) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          '[PDF Export] Could not locate SVG node for frame:',
+          frame.id || frame._svgExportId || frame.type
+        );
+      }
+      continue;
+    }
+
+    const localWidth = Math.max(
+      1,
+      Number(frame.width) || 1
+    );
+
+    const localHeight = Math.max(
+      1,
+      Number(frame.height) || 1
+    );
+
+    // The SVG group's transform already contains scale/rotation/position.
+    // We therefore rasterize in the frame's LOCAL coordinate system.
+    const sourceLongEdge = Math.max(
+      localWidth,
+      localHeight
+    );
+
+    const safeMultiplier = Math.max(
+      1,
+      Math.min(
+        preferredMultiplier,
+        maxLongEdgePx / sourceLongEdge
+      )
+    );
+
+    try {
+      let rasterCanvas: HTMLCanvasElement | null = null;
+
+      if (typeof frame.toCanvasElement === 'function') {
+        rasterCanvas = frame.toCanvasElement({
+          multiplier: safeMultiplier,
+          withoutTransform: true,
+          // Keep visual frame/photo result but avoid double-applying object
+          // shadow after the SVG node is replaced.
+          withoutShadow: true,
+          enableRetinaScaling: false,
+        } as any);
+      }
+
+      if (!rasterCanvas) {
+        continue;
+      }
+
+      const frameDataUrl = rasterCanvas.toDataURL(
+        'image/png'
+      );
+
+      if (
+        !frameDataUrl ||
+        !frameDataUrl.startsWith('data:image/png')
+      ) {
+        continue;
+      }
+
+      const imageEl = svgDoc.createElementNS(
+        'http://www.w3.org/2000/svg',
+        'image'
+      );
+
+      imageEl.setAttribute(
+        'x',
+        `${-localWidth / 2}`
+      );
+      imageEl.setAttribute(
+        'y',
+        `${-localHeight / 2}`
+      );
+      imageEl.setAttribute(
+        'width',
+        `${localWidth}`
+      );
+      imageEl.setAttribute(
+        'height',
+        `${localHeight}`
+      );
+      imageEl.setAttribute(
+        'preserveAspectRatio',
+        'none'
+      );
+      imageEl.setAttribute(
+        'href',
+        frameDataUrl
+      );
+
+      // Most Fabric frame objects export as a <g>. Keeping the existing group
+      // is ideal because its transform already positions/scales/rotates the
+      // frame correctly. Replace only its visual children.
+      if (
+        targetEl.tagName.toLowerCase() === 'g'
+      ) {
+        while (targetEl.firstChild) {
+          targetEl.removeChild(targetEl.firstChild);
+        }
+
+        // The raster already contains the clipping silhouette.
+        targetEl.removeAttribute('clip-path');
+        targetEl.removeAttribute('mask');
+
+        targetEl.appendChild(imageEl);
+      } else {
+        // Defensive fallback for non-group frame serialization.
+        const replacementGroup =
+          svgDoc.createElementNS(
+            'http://www.w3.org/2000/svg',
+            'g'
+          );
+
+        const transform =
+          targetEl.getAttribute('transform');
+
+        if (transform) {
+          replacementGroup.setAttribute(
+            'transform',
+            transform
+          );
+        }
+
+        const opacity =
+          targetEl.getAttribute('opacity');
+
+        if (opacity) {
+          replacementGroup.setAttribute(
+            'opacity',
+            opacity
+          );
+        }
+
+        replacementGroup.appendChild(imageEl);
+
+        targetEl.parentNode?.replaceChild(
+          replacementGroup,
+          targetEl
+        );
+      }
+
+      replacedCount++;
+    } catch (error) {
+      console.warn(
+        '[PDF Export] Failed to rasterize framed photo:',
+        error
+      );
+    }
+  }
+
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    replacedCount > 0
+  ) {
+    console.info(
+      `[PDF Export] Rasterized ${replacedCount} frame object(s) ` +
+      `for mask-safe vector PDF output.`
+    );
+  }
+
+  return replacedCount;
+}
+
 /**
  * Validates SVG export against active Fabric canvas objects.
  */
@@ -732,13 +985,26 @@ export function validateSvgExport(
   const canvasShadows = allObjects.filter((o) => o.shadow && o.shadow.color && o.shadow.color !== 'transparent');
   const svgFilters = svgDoc.querySelectorAll('filter');
 
+  const canvasFrames = allObjects.filter((o: any) =>
+    Boolean(
+      o?.get?.('isFrame' as any) ||
+      o?.isFrame ||
+      o?.isPhotoShapeGroup ||
+      o?.isCustomFrame
+    )
+  );
+  const svgFrameMasks = svgDoc.querySelectorAll(
+    'mask[id^="export_alpha_mask_"], clipPath[id^="export_frame_clip_"]'
+  );
+
   const textOk = canvasTexts.length === 0 || svgTexts.length > 0;
   const shadowOk = canvasShadows.length === 0 || svgFilters.length > 0;
 
   if (process.env.NODE_ENV !== 'production') {
     console.info(
       `[SVG Export Validation] Fabric texts: ${canvasTexts.length}, SVG text: ${svgTexts.length}; ` +
-      `Fabric shadows: ${canvasShadows.length}, SVG filters: ${svgFilters.length}`
+      `Fabric shadows: ${canvasShadows.length}, SVG filters: ${svgFilters.length}; ` +
+      `Fabric frames: ${canvasFrames.length}, SVG frame masks: ${svgFrameMasks.length}`
     );
     if (!textOk) {
       console.warn('[SVG Export Validation] Notice: Fabric canvas contains text, but SVG output contains 0 text elements.');

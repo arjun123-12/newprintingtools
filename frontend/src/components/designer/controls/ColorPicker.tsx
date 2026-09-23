@@ -903,15 +903,14 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  // Helper for selecting a solid color: applies immediately, saves to recents, and closes popover
+  // Helper for selecting a solid color: applies immediately and saves to recents without closing
   const handleSelectSolid = useCallback(
     (color: string) => {
       const updatedRecents = addRecentColor(color);
       setRecentList(updatedRecents);
       onChange(color);
-      onClose?.();
     },
-    [onChange, onClose]
+    [onChange]
   );
 
   const handlePipette = useCallback(async () => {
@@ -963,7 +962,7 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     [onChange, onGradientChange, canvasManager]
   );
 
-  // Gradient Apply handler: commits gradient, saves undo history, and closes panel
+  // Gradient Apply handler: commits gradient, saves undo history without auto-closing
   const handleGradientApply = useCallback(
     (gradient: DesignerGradientValue) => {
       // Add stop colors to recent list
@@ -977,9 +976,8 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
       if (canvasManager) {
         canvasManager.setSelectedGradient(gradient, false);
       }
-      onClose?.();
     },
-    [onChange, onGradientChange, canvasManager, onClose]
+    [onChange, onGradientChange, canvasManager]
   );
 
   // Gradient Cancel handler: restores original value and closes

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { jsPDF } from 'jspdf';
+import 'svg2pdf.js';
 import {
   X,
   Download,
@@ -21,6 +22,7 @@ import {
   embedFontsInSvgDefs,
   expandSvgFilterRegions,
   injectSilhouetteShadowsInSvg,
+  rasterizeFramesForVectorPdf,
   validateSvgExport,
 } from '../utils/svgExportHelpers';
 
@@ -293,6 +295,552 @@ const inlineSvgRasterImages = async (
 
   return new XMLSerializer().serializeToString(svgDocument);
 };
+
+
+/**
+ * Draws an HTML image/canvas into a smaller PDF-safe raster.
+ *
+ * Text, paths and shapes are NOT rasterized by this function. It is used only
+ * for <image> elements before svg2pdf.js processes the SVG.
+ */
+const createPdfSafeRasterDataUrl = async (
+  source:
+    | HTMLImageElement
+    | HTMLCanvasElement
+    | string,
+  options?: {
+    maxJpegLongEdge?: number;
+    maxAlphaLongEdge?: number;
+    jpegQuality?: number;
+  }
+): Promise<string | null> => {
+  const maxJpegLongEdge = Math.max(
+    512,
+    options?.maxJpegLongEdge ?? 4096
+  );
+  const maxAlphaLongEdge = Math.max(
+    512,
+    options?.maxAlphaLongEdge ?? 3072
+  );
+  const jpegQuality = Math.max(
+    0.72,
+    Math.min(0.96, options?.jpegQuality ?? 0.9)
+  );
+
+  let imageSource:
+    | HTMLImageElement
+    | HTMLCanvasElement;
+
+  let sourceMime = '';
+
+  if (typeof source === 'string') {
+    sourceMime =
+      source.match(/^data:([^;,]+)/i)?.[1]?.toLowerCase() || '';
+
+    const loaded = await new Promise<HTMLImageElement>(
+      (resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = () =>
+          reject(
+            new Error(
+              'Could not decode raster image for vector PDF.'
+            )
+          );
+        img.src = source;
+      }
+    );
+
+    imageSource = loaded;
+  } else {
+    imageSource = source;
+
+    if (source instanceof HTMLImageElement) {
+      const src =
+        source.currentSrc ||
+        source.src ||
+        source.getAttribute('src') ||
+        '';
+      sourceMime =
+        src.match(/^data:([^;,]+)/i)?.[1]?.toLowerCase() || '';
+    }
+  }
+
+  const sourceWidth =
+    imageSource instanceof HTMLCanvasElement
+      ? imageSource.width
+      : imageSource.naturalWidth || imageSource.width;
+
+  const sourceHeight =
+    imageSource instanceof HTMLCanvasElement
+      ? imageSource.height
+      : imageSource.naturalHeight || imageSource.height;
+
+  if (!sourceWidth || !sourceHeight) {
+    return null;
+  }
+
+  // Detect meaningful alpha on a tiny sample instead of scanning the entire
+  // high-resolution source.
+  let hasAlpha = false;
+
+  try {
+    const sampleLongEdge = 64;
+    const sampleScale = Math.min(
+      1,
+      sampleLongEdge / Math.max(sourceWidth, sourceHeight)
+    );
+
+    const sampleW = Math.max(
+      1,
+      Math.round(sourceWidth * sampleScale)
+    );
+    const sampleH = Math.max(
+      1,
+      Math.round(sourceHeight * sampleScale)
+    );
+
+    const sampleCanvas = document.createElement('canvas');
+    sampleCanvas.width = sampleW;
+    sampleCanvas.height = sampleH;
+
+    const sampleCtx = sampleCanvas.getContext('2d', {
+      willReadFrequently: true,
+    });
+
+    if (sampleCtx) {
+      sampleCtx.clearRect(0, 0, sampleW, sampleH);
+      sampleCtx.drawImage(
+        imageSource,
+        0,
+        0,
+        sampleW,
+        sampleH
+      );
+
+      const pixels = sampleCtx.getImageData(
+        0,
+        0,
+        sampleW,
+        sampleH
+      ).data;
+
+      // Sampling every few pixels is enough to detect transparent artwork.
+      for (let i = 3; i < pixels.length; i += 16) {
+        if (pixels[i] < 250) {
+          hasAlpha = true;
+          break;
+        }
+      }
+    }
+  } catch {
+    // If pixel access is unavailable, preserve known PNG/WebP/SVG alpha-capable
+    // sources instead of flattening them to JPEG.
+    hasAlpha =
+      sourceMime.includes('png') ||
+      sourceMime.includes('webp') ||
+      sourceMime.includes('svg');
+  }
+
+  const maxLongEdge = hasAlpha
+    ? maxAlphaLongEdge
+    : maxJpegLongEdge;
+
+  const scale = Math.min(
+    1,
+    maxLongEdge / Math.max(sourceWidth, sourceHeight)
+  );
+
+  const targetWidth = Math.max(
+    1,
+    Math.round(sourceWidth * scale)
+  );
+
+  const targetHeight = Math.max(
+    1,
+    Math.round(sourceHeight * scale)
+  );
+
+  const out = document.createElement('canvas');
+  out.width = targetWidth;
+  out.height = targetHeight;
+
+  const ctx = out.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.clearRect(0, 0, targetWidth, targetHeight);
+  ctx.drawImage(
+    imageSource,
+    0,
+    0,
+    targetWidth,
+    targetHeight
+  );
+
+  // Preserve transparency only where it actually exists. Normal photos become
+  // high-quality JPEG, which reduces a 10–20 MB base64 payload to a fraction
+  // of that size and prevents svg2pdf's String.match stack overflow.
+  return hasAlpha
+    ? out.toDataURL('image/png')
+    : out.toDataURL('image/jpeg', jpegQuality);
+};
+
+/**
+ * PDF-specific SVG raster preparation.
+ *
+ * Unlike the normal SVG download path, this deliberately compacts raster
+ * images before svg2pdf.js sees them. Vector text and vector shapes remain
+ * untouched and resolution-independent.
+ */
+const inlineSvgRasterImagesForVectorPdf = async (
+  svgMarkup: string,
+  canvasManager?: CanvasManager | null
+): Promise<string> => {
+  const parser = new DOMParser();
+
+  let svgDocument = parser.parseFromString(
+    svgMarkup,
+    'image/svg+xml'
+  );
+
+  if (svgDocument.querySelector('parsererror')) {
+    const repairedSvg = svgMarkup.replace(
+      /&(?!(amp|lt|gt|quot|apos|#\d+|#x[a-f\d]+);)/gi,
+      '&amp;'
+    );
+
+    const retryDoc = parser.parseFromString(
+      repairedSvg,
+      'image/svg+xml'
+    );
+
+    if (!retryDoc.querySelector('parsererror')) {
+      svgDocument = retryDoc;
+    }
+  }
+
+  const root = svgDocument.documentElement;
+
+  if (!root.getAttribute('xmlns')) {
+    root.setAttribute(
+      'xmlns',
+      'http://www.w3.org/2000/svg'
+    );
+  }
+
+  // SVG2 uses href. Keeping a second 15–20 MB xlink:href duplicates the same
+  // payload in memory and was a direct contributor to the crash.
+  root.setAttribute('version', '1.1');
+
+  type CanvasRasterEntry = {
+    dataUrl: string;
+    originalSrc?: string;
+    keys: string[];
+  };
+
+  const rasterEntries: CanvasRasterEntry[] = [];
+
+  if (canvasManager) {
+    const canvas = canvasManager.getCanvas();
+
+    if (canvas) {
+      const seen = new Set<any>();
+
+      const collectRaster = async (imgObj: any) => {
+        if (!imgObj || seen.has(imgObj)) return;
+        seen.add(imgObj);
+
+        const el =
+          imgObj._element ||
+          (typeof imgObj.getElement === 'function'
+            ? imgObj.getElement()
+            : null);
+
+        if (
+          !(
+            el instanceof HTMLImageElement ||
+            el instanceof HTMLCanvasElement
+          )
+        ) {
+          return;
+        }
+
+        try {
+          const dataUrl =
+            await createPdfSafeRasterDataUrl(el);
+
+          if (!dataUrl) return;
+
+          const keys = [
+            imgObj.src,
+            imgObj.originalSrc,
+            typeof imgObj.getSrc === 'function'
+              ? imgObj.getSrc()
+              : null,
+            typeof imgObj.getSrc === 'function'
+              ? imgObj.getSrc(true)
+              : null,
+            typeof imgObj.getSvgSrc === 'function'
+              ? imgObj.getSvgSrc()
+              : null,
+            el instanceof HTMLImageElement
+              ? el.currentSrc
+              : null,
+            el instanceof HTMLImageElement
+              ? el.src
+              : null,
+            imgObj.get?.('originalSrc'),
+            imgObj.get?.('src'),
+            imgObj.get?.('assetId'),
+            imgObj.get?.('customShapeUrl'),
+          ].filter(
+            (value): value is string =>
+              typeof value === 'string' &&
+              value.length > 0
+          );
+
+          rasterEntries.push({
+            dataUrl,
+            originalSrc:
+              imgObj.originalSrc ||
+              imgObj.src ||
+              undefined,
+            keys,
+          });
+        } catch (error) {
+          console.warn(
+            '[PDF Export] Could not compact canvas raster image:',
+            error
+          );
+        }
+      };
+
+      const inspect = async (obj: any): Promise<void> => {
+        if (!obj) return;
+
+        if (
+          obj.type === 'image' ||
+          obj.type === 'fabricImage' ||
+          obj.type === 'FabricImage'
+        ) {
+          await collectRaster(obj);
+        }
+
+        const frameImage =
+          (obj as any)._frameImage ||
+          (obj as any).frameImage;
+
+        if (frameImage) {
+          await collectRaster(frameImage);
+        }
+
+        if (
+          obj.fill &&
+          typeof obj.fill === 'object' &&
+          (obj.fill as any).source
+        ) {
+          const patternSource =
+            (obj.fill as any).source;
+
+          if (
+            patternSource instanceof HTMLImageElement ||
+            patternSource instanceof HTMLCanvasElement
+          ) {
+            try {
+              const dataUrl =
+                await createPdfSafeRasterDataUrl(
+                  patternSource
+                );
+
+              if (dataUrl) {
+                rasterEntries.push({
+                  dataUrl,
+                  keys: [
+                    patternSource instanceof HTMLImageElement
+                      ? patternSource.currentSrc
+                      : '',
+                    patternSource instanceof HTMLImageElement
+                      ? patternSource.src
+                      : '',
+                  ].filter(Boolean),
+                });
+              }
+            } catch { }
+          }
+        }
+
+        if (
+          obj.clipPath &&
+          (
+            obj.clipPath.type === 'image' ||
+            obj.clipPath.type === 'fabricImage' ||
+            obj.clipPath.type === 'FabricImage'
+          )
+        ) {
+          await collectRaster(obj.clipPath);
+        }
+
+        const children =
+          Array.isArray(obj._objects)
+            ? obj._objects
+            : typeof obj.getObjects === 'function'
+              ? obj.getObjects()
+              : [];
+
+        for (const child of children) {
+          await inspect(child);
+        }
+      };
+
+      for (const obj of canvas.getObjects()) {
+        await inspect(obj);
+      }
+
+      if (canvas.backgroundImage) {
+        await inspect(canvas.backgroundImage);
+      }
+    }
+  }
+
+  const imageNodes = Array.from(
+    new Set([
+      ...Array.from(
+        svgDocument.getElementsByTagName('image')
+      ),
+      ...Array.from(
+        svgDocument.getElementsByTagNameNS(
+          'http://www.w3.org/2000/svg',
+          'image'
+        )
+      ),
+      ...Array.from(
+        svgDocument.querySelectorAll('image')
+      ),
+    ])
+  );
+
+  for (let idx = 0; idx < imageNodes.length; idx++) {
+    const image = imageNodes[idx];
+
+    const rawHref =
+      image.getAttribute('href') ||
+      image.getAttribute('xlink:href') ||
+      image.getAttributeNS(
+        'http://www.w3.org/1999/xlink',
+        'href'
+      ) ||
+      '';
+
+    let compactDataUrl: string | null = null;
+
+    if (rawHref) {
+      let decodedRawHref = rawHref;
+
+      try {
+        decodedRawHref = decodeURIComponent(rawHref);
+      } catch { }
+
+      // Prefer the compacted live Fabric source.
+      for (const entry of rasterEntries) {
+        let matched = false;
+
+        for (const key of entry.keys) {
+          let decodedKey = key;
+
+          try {
+            decodedKey = decodeURIComponent(key);
+          } catch { }
+
+          if (
+            rawHref === key ||
+            decodedRawHref === decodedKey ||
+            (
+              rawHref.length < 4096 &&
+              key.length < 4096 &&
+              (
+                decodedRawHref.includes(decodedKey) ||
+                decodedKey.includes(decodedRawHref)
+              )
+            )
+          ) {
+            matched = true;
+            break;
+          }
+        }
+
+        if (matched) {
+          compactDataUrl = entry.dataUrl;
+          break;
+        }
+      }
+    }
+
+    // Fabric SVG order is deterministic enough to use as a safe fallback.
+    if (
+      !compactDataUrl &&
+      rasterEntries[idx]
+    ) {
+      compactDataUrl =
+        rasterEntries[idx].dataUrl;
+    }
+
+    // Last resort: compact the SVG's own href. This is intentionally done only
+    // after trying the live Fabric element, because rawHref may itself be huge.
+    if (
+      !compactDataUrl &&
+      rawHref
+    ) {
+      try {
+        compactDataUrl =
+          await createPdfSafeRasterDataUrl(
+            rawHref
+          );
+      } catch (error) {
+        console.warn(
+          '[PDF Export] Could not compact SVG image href:',
+          error
+        );
+      }
+    }
+
+    if (!compactDataUrl) {
+      continue;
+    }
+
+    // IMPORTANT: store the payload ONCE. Do not duplicate giant base64 in both
+    // href and xlink:href.
+    image.removeAttribute('xlink:href');
+    image.removeAttributeNS(
+      'http://www.w3.org/1999/xlink',
+      'href'
+    );
+    image.setAttribute(
+      'href',
+      compactDataUrl
+    );
+  }
+
+  const output =
+    new XMLSerializer().serializeToString(
+      svgDocument
+    );
+
+  if (process.env.NODE_ENV !== 'production') {
+    const mb =
+      output.length / (1024 * 1024);
+
+    console.info(
+      `[PDF Export] Prepared SVG size: ${mb.toFixed(2)} MB; ` +
+      `${imageNodes.length} raster image(s)`
+    );
+  }
+
+  return output;
+};
+
 
 /**
  * Resolves effective background settings from the canvas / manager / document.
@@ -821,6 +1369,439 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
       }
 
       // ==========================================
+      // PDF EXPORT (TRUE VECTOR via SVG -> svg2pdf.js)
+      // ==========================================
+      //
+      // IMPORTANT:
+      // The old implementation rendered the whole artwork to PNG first and
+      // then placed that PNG into jsPDF. That made text/shapes pixel-based.
+      //
+      // This branch instead reuses Fabric's SVG/vector output and converts
+      // that SVG directly into PDF vectors. Raster photos remain raster images
+      // at their original embedded resolution, but text, paths, shapes and
+      // crop/trim marks stay resolution-independent.
+      if (format === 'pdf') {
+        setProgressMessage('Building true vector PDF...');
+        setExportProgress(25);
+
+        await canvasManager.waitForAllImagesToLoad(15000);
+
+        if (typeof document !== 'undefined' && document.fonts) {
+          await document.fonts.ready;
+        }
+
+        const guidesWereVisible = canvasManager.getGuidesVisible();
+        const previousZoom = canvasManager.getZoom();
+        const activeObject = canvas.getActiveObject();
+        const previousVpt = canvas.viewportTransform
+          ? ([...canvas.viewportTransform] as [
+            number,
+            number,
+            number,
+            number,
+            number,
+            number
+          ])
+          : undefined;
+
+        const allCanvasObjs = collectFabricObjectsRecursively(canvas);
+        const originalIds = new Map<any, string | undefined>();
+        const originalExcludeFromExport = new Map<
+          any,
+          boolean | undefined
+        >();
+
+        allCanvasObjs.forEach((obj, idx) => {
+          originalIds.set(obj, obj.id);
+          originalExcludeFromExport.set(
+            obj,
+            (obj as any).excludeFromExport
+          );
+
+          if (!obj.id) {
+            obj.id = `pdf_export_obj_${idx}_${Date.now()}`;
+          }
+
+          (obj as any)._svgExportId = obj.id;
+
+          if (
+            (obj as any).isEffectHelper === true &&
+            (obj as any).excludeFromVisualExport !== true
+          ) {
+            (obj as any).excludeFromExport = false;
+          }
+        });
+
+        try {
+          canvasManager.setGuidesVisible(false);
+          canvas.discardActiveObject();
+          canvasManager.setZoom(1);
+
+          if (canvas.viewportTransform) {
+            canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+          }
+
+          canvas.requestRenderAll();
+
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => resolve());
+          });
+
+          const canvasWidth = geometry.artworkWidthPx;
+          const canvasHeight = geometry.artworkHeightPx;
+          const physicalWidthMm = geometry.artworkWidthMm;
+          const physicalHeightMm = geometry.artworkHeightMm;
+
+          // Fabric keeps text, paths and shapes as SVG vectors here.
+          let fabricSvg = canvas.toSVG({
+            suppressPreamble: true,
+            width: `${physicalWidthMm}mm`,
+            height: `${physicalHeightMm}mm`,
+            viewBox: {
+              x: 0,
+              y: 0,
+              width: canvasWidth,
+              height: canvasHeight,
+            },
+          });
+
+          // ----------------------------------------------------------
+          // Background - keep it inside the vector document.
+          // ----------------------------------------------------------
+          const effBg = getEffectiveBackground(
+            canvasManager,
+            documentSettings
+          );
+
+          let bgSvgElements = '';
+
+          if (!transparentBackground) {
+            if (effBg.type === 'color' && effBg.color) {
+              if (
+                !fabricSvg.includes('<rect ') ||
+                fabricSvg.indexOf('<rect') >
+                fabricSvg.indexOf('<g')
+              ) {
+                bgSvgElements +=
+                  `<rect x="0" y="0" width="${canvasWidth}" ` +
+                  `height="${canvasHeight}" fill="${effBg.color}" />\n`;
+              }
+            } else if (
+              effBg.type === 'gradient' &&
+              effBg.gradient
+            ) {
+              const grad = effBg.gradient;
+              const angleRad =
+                (((grad.angle || 0) - 90) * Math.PI) / 180;
+              const cx = canvasWidth / 2;
+              const cy = canvasHeight / 2;
+              const len =
+                Math.sqrt(
+                  canvasWidth * canvasWidth +
+                  canvasHeight * canvasHeight
+                ) / 2;
+
+              const x1 = cx - Math.cos(angleRad) * len;
+              const y1 = cy - Math.sin(angleRad) * len;
+              const x2 = cx + Math.cos(angleRad) * len;
+              const y2 = cy + Math.sin(angleRad) * len;
+
+              const stops = (grad.stops || [])
+                .map(
+                  (s: any) =>
+                    `<stop offset="${s.offset * 100}%" ` +
+                    `stop-color="${s.color}" />`
+                )
+                .join('');
+
+              bgSvgElements +=
+                `<defs>` +
+                `<linearGradient id="export-bg-grad" ` +
+                `x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ` +
+                `gradientUnits="userSpaceOnUse">` +
+                `${stops}</linearGradient></defs>` +
+                `<rect x="0" y="0" width="${canvasWidth}" ` +
+                `height="${canvasHeight}" fill="url(#export-bg-grad)" />\n`;
+            }
+
+            if (
+              canvas.backgroundImage &&
+              typeof canvas.backgroundImage.toSVG === 'function'
+            ) {
+              bgSvgElements += canvas.backgroundImage.toSVG() + '\n';
+            }
+          }
+
+          if (bgSvgElements) {
+            const svgOpenTagEnd = fabricSvg.indexOf('>') + 1;
+            fabricSvg =
+              fabricSvg.slice(0, svgOpenTagEnd) +
+              '\n' +
+              bgSvgElements +
+              fabricSvg.slice(svgOpenTagEnd);
+          }
+
+          // ----------------------------------------------------------
+          // Prepress trim marks remain vector lines in the PDF.
+          // ----------------------------------------------------------
+          if (includeTrimMarks) {
+            const slugMarginMm = geometry.slugMarginMm;
+            const pxPerMm =
+              geometry.artworkWidthPx / geometry.artworkWidthMm;
+            const slugMarginPx = Math.round(
+              slugMarginMm * pxPerMm
+            );
+
+            const totalW =
+              geometry.artworkWidthPx + slugMarginPx * 2;
+            const totalH =
+              geometry.artworkHeightPx + slugMarginPx * 2;
+
+            const totalMmW = geometry.totalTrimMarksWidthMm;
+            const totalMmH = geometry.totalTrimMarksHeightMm;
+
+            const trimLeft =
+              slugMarginPx + geometry.bleedPx;
+            const trimTop =
+              slugMarginPx + geometry.bleedPx;
+            const trimRight =
+              trimLeft + geometry.trimWidthPx;
+            const trimBottom =
+              trimTop + geometry.trimHeightPx;
+
+            const markLen = Math.round(4 * pxPerMm);
+            const markGap = Math.round(1.5 * pxPerMm);
+
+            const trimMarksSvg = `
+  <g stroke="#000000" stroke-width="0.75" stroke-linecap="square">
+    <line x1="${trimLeft}" y1="${trimTop - markGap}" x2="${trimLeft}" y2="${trimTop - markGap - markLen}" />
+    <line x1="${trimLeft - markGap}" y1="${trimTop}" x2="${trimLeft - markGap - markLen}" y2="${trimTop}" />
+
+    <line x1="${trimRight}" y1="${trimTop - markGap}" x2="${trimRight}" y2="${trimTop - markGap - markLen}" />
+    <line x1="${trimRight + markGap}" y1="${trimTop}" x2="${trimRight + markGap + markLen}" y2="${trimTop}" />
+
+    <line x1="${trimLeft}" y1="${trimBottom + markGap}" x2="${trimLeft}" y2="${trimBottom + markGap + markLen}" />
+    <line x1="${trimLeft - markGap}" y1="${trimBottom}" x2="${trimLeft - markGap - markLen}" y2="${trimBottom}" />
+
+    <line x1="${trimRight}" y1="${trimBottom + markGap}" x2="${trimRight}" y2="${trimBottom + markGap + markLen}" />
+    <line x1="${trimRight + markGap}" y1="${trimBottom}" x2="${trimRight + markGap + markLen}" y2="${trimBottom}" />
+  </g>
+`;
+
+            const svgOpenMatch = fabricSvg.match(/<svg[^>]*>/);
+
+            if (svgOpenMatch) {
+              const openTag = svgOpenMatch[0];
+              const innerContent = fabricSvg.slice(
+                openTag.length,
+                fabricSvg.lastIndexOf('</svg>')
+              );
+
+              const newOpenTag =
+                `<svg xmlns="http://www.w3.org/2000/svg" ` +
+                `xmlns:xlink="http://www.w3.org/1999/xlink" ` +
+                `version="1.1" width="${totalMmW}mm" ` +
+                `height="${totalMmH}mm" ` +
+                `viewBox="0 0 ${totalW} ${totalH}">`;
+
+              fabricSvg = `${newOpenTag}
+  <rect x="0" y="0" width="${totalW}" height="${totalH}" fill="#ffffff" />
+  <g transform="translate(${slugMarginPx}, ${slugMarginPx})">
+    ${innerContent}
+  </g>
+  ${trimMarksSvg}
+</svg>`;
+            }
+          }
+
+          setProgressMessage(
+            'Optimizing photos and preparing vector PDF...'
+          );
+          setExportProgress(55);
+
+          // Reuse the same high-quality SVG preparation pipeline already used
+          // by the SVG download mode.
+          const inlinedSvg =
+            await inlineSvgRasterImagesForVectorPdf(
+              fabricSvg,
+              canvasManager
+            );
+
+          const parser = new DOMParser();
+          let svgDoc = parser.parseFromString(
+            inlinedSvg,
+            'image/svg+xml'
+          );
+
+          if (svgDoc.querySelector('parsererror')) {
+            const repairedSvg = inlinedSvg.replace(
+              /&(?!(amp|lt|gt|quot|apos|#\d+|#x[a-f\d]+);)/gi,
+              '&amp;'
+            );
+
+            const retryDoc = parser.parseFromString(
+              repairedSvg,
+              'image/svg+xml'
+            );
+
+            if (!retryDoc.querySelector('parsererror')) {
+              svgDoc = retryDoc;
+            }
+          }
+
+          expandSvgFilterRegions(svgDoc);
+          injectSilhouetteShadowsInSvg(
+            svgDoc,
+            canvasManager
+          );
+
+          await embedFontsInSvgDefs(
+            svgDoc,
+            canvasManager
+          );
+
+          validateSvgExport(
+            svgDoc,
+            canvasManager
+          );
+
+          // svg2pdf.js can lose complex alpha/clip masks around raster photos.
+          // Rasterize ONLY complete frame objects; text and other artwork
+          // remain true vectors.
+          await rasterizeFramesForVectorPdf(
+            svgDoc,
+            canvasManager,
+            {
+              preferredMultiplier: 2,
+              maxLongEdgePx: 4096,
+            }
+          );
+
+          const finalSvgMarkup =
+            new XMLSerializer().serializeToString(svgDoc);
+
+          // ----------------------------------------------------------
+          // SVG -> PDF, WITHOUT rasterizing the SVG.
+          // ----------------------------------------------------------
+          const pdfWidthMm = includeTrimMarks
+            ? geometry.totalTrimMarksWidthMm
+            : geometry.artworkWidthMm;
+
+          const pdfHeightMm = includeTrimMarks
+            ? geometry.totalTrimMarksHeightMm
+            : geometry.artworkHeightMm;
+
+          const orientation: 'portrait' | 'landscape' =
+            pdfWidthMm > pdfHeightMm
+              ? 'landscape'
+              : 'portrait';
+
+          const pdf = new jsPDF({
+            orientation,
+            unit: 'mm',
+            format: [pdfWidthMm, pdfHeightMm],
+            compress: true,
+            precision: 16,
+            putOnlyUsedFonts: true,
+          });
+
+          const mount = document.createElement('div');
+
+          mount.style.position = 'fixed';
+          mount.style.left = '-100000px';
+          mount.style.top = '-100000px';
+          mount.style.width = '1px';
+          mount.style.height = '1px';
+          mount.style.overflow = 'hidden';
+          mount.setAttribute(
+            'aria-hidden',
+            'true'
+          );
+
+          mount.innerHTML = finalSvgMarkup;
+          document.body.appendChild(mount);
+
+          try {
+            const svgElement =
+              mount.querySelector('svg') as SVGElement | null;
+
+            if (!svgElement) {
+              throw new Error(
+                'Vector SVG could not be prepared for PDF export.'
+              );
+            }
+
+            // svg2pdf.js augments jsPDF with pdf.svg().
+            await pdf.svg(svgElement, {
+              x: 0,
+              y: 0,
+              width: pdfWidthMm,
+              height: pdfHeightMm,
+            });
+          } finally {
+            mount.remove();
+          }
+
+          setExportProgress(95);
+          setProgressMessage(
+            'Saving true vector PDF...'
+          );
+
+          const pdfFilename =
+            `${sanitizedDocName}-vector` +
+            `${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`;
+
+          pdf.save(pdfFilename);
+
+          setExportProgress(100);
+          setProgressMessage(
+            'True vector PDF download ready.'
+          );
+          setIsExporting(false);
+          return;
+        } finally {
+          allCanvasObjs.forEach((obj) => {
+            const orig = originalIds.get(obj);
+
+            if (orig === undefined) {
+              delete obj.id;
+            } else {
+              obj.id = orig;
+            }
+
+            delete (obj as any)._svgExportId;
+
+            const previousExclude =
+              originalExcludeFromExport.get(obj);
+
+            if (previousExclude === undefined) {
+              delete (obj as any).excludeFromExport;
+            } else {
+              (obj as any).excludeFromExport =
+                previousExclude;
+            }
+          });
+
+          if (previousVpt) {
+            canvas.viewportTransform = previousVpt;
+          }
+
+          canvasManager.setZoom(previousZoom);
+          canvasManager.setGuidesVisible(
+            guidesWereVisible
+          );
+
+          if (activeObject) {
+            try {
+              canvas.setActiveObject(activeObject);
+            } catch { }
+          }
+
+          canvas.requestRenderAll();
+        }
+      }
+
+      // ==========================================
       // AI UPSCALING (Real-ESRGAN for low-res rasters)
       // ==========================================
       if (includeEnhanced) {
@@ -973,50 +1954,6 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           setProgressMessage('Creating layered PSD...');
           const psdFilename = `${sanitizedDocName}-${targetDpi}dpi${includeTrimMarks ? '-with-trim-marks' : ''}.psd`;
           await exportLayeredPsd(canvasManager, documentSettings, { ...dimensions, bleedMm }, psdFilename, includeTrimMarks);
-          setExportProgress(100);
-          setProgressMessage('Download ready.');
-          setIsExporting(false);
-          return;
-        }
-
-        if (format === 'pdf') {
-          setProgressMessage('Generating PDF...');
-          const pdfFilename = `${sanitizedDocName}-${targetDpi}dpi${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`;
-
-          if (!renderedDataUrl.startsWith('data:image/')) {
-            throw new Error('Artwork could not be rendered for PDF export.');
-          }
-
-          const pdfWidthMm = includeTrimMarks
-            ? geometry.totalTrimMarksWidthMm
-            : geometry.artworkWidthMm;
-          const pdfHeightMm = includeTrimMarks
-            ? geometry.totalTrimMarksHeightMm
-            : geometry.artworkHeightMm;
-
-          const orientation: 'portrait' | 'landscape' =
-            pdfWidthMm > pdfHeightMm ? 'landscape' : 'portrait';
-
-          const pdf = new jsPDF({
-            orientation,
-            unit: 'mm',
-            format: [pdfWidthMm, pdfHeightMm],
-            compress: true,
-            precision: 10,
-          });
-
-          pdf.addImage(
-            renderedDataUrl,
-            'PNG',
-            0,
-            0,
-            pdfWidthMm,
-            pdfHeightMm,
-            undefined,
-            'FAST'
-          );
-
-          pdf.save(pdfFilename);
           setExportProgress(100);
           setProgressMessage('Download ready.');
           setIsExporting(false);
@@ -1215,10 +2152,10 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs text-blue-900">
               <div className="font-bold flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-blue-600" />
-                <span>True Vector PDF (Sharp Typography & Commercial Print)</span>
+                <span>True Vector PDF (No Pixelated Text)</span>
               </div>
               <p className="mt-1 text-[11px] leading-relaxed text-blue-800">
-                Text and vector shapes are compiled directly as resolution-independent PDF vectors. Text never blurs or pixelates at any zoom level or physical print scale. Photos are embedded at full resolution.
+                Text, paths, shapes and trim marks are exported as real PDF vectors through SVG-to-PDF conversion. They stay sharp at any zoom. Photos remain embedded raster images at their original available resolution.
               </p>
             </div>
           )}

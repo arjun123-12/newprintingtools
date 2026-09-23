@@ -23,6 +23,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "svg-to-pdfkit": "^0.1.8",
+    "svg2pdf.js": "^2.8.1",
     "tailwind-merge": "^2.3.0",
     "util": "^0.12.5",
     "zod": "^3.23.8",

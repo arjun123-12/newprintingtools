@@ -12,6 +12,7 @@ import {
   Path,
   Group,
   Point,
+  util,
 } from 'fabric';
 import {
   installShadowSilhouetteHook,
@@ -718,6 +719,355 @@ export function createCanvaControls(): Record<
   };
 }
 
+
+export type CurvedTextSelectionBox = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+/**
+ * Canonical curve slider mapping (-100..100).
+ * Values 1..99 map to progressive Canva-style arcs (~3° to ~180°).
+ * Only exactly 100 / -100 creates a full 360° circle.
+ */
+export function getCurveArcAngle(amount: number): number {
+  const magnitude = Math.max(
+    0,
+    Math.min(100, Math.abs(Number(amount) || 0))
+  );
+
+  if (magnitude <= 0) {
+    return 0;
+  }
+
+  // Exactly 100 / -100 is full circle mode
+  if (magnitude >= 99.5) {
+    return Math.PI * 2;
+  }
+
+  // Values 1..99 map smoothly without making 75 or 90 circular
+  const minAngle = (3 * Math.PI) / 180;
+  const maxArcAngle = (180 * Math.PI) / 180;
+  const t = magnitude / 99;
+  return minAngle + (maxArcAngle - minAngle) * t;
+}
+
+export function getCurvedTextSelectionBox(
+  text: FabricObject
+): CurvedTextSelectionBox | null {
+  const rawType = String((text as any).type || '')
+    .toLowerCase()
+    .replace(/[-_\s]/g, '');
+
+  const isText =
+    text instanceof Textbox ||
+    text instanceof IText ||
+    rawType === 'textbox' ||
+    rawType === 'itext' ||
+    rawType === 'text';
+
+  if (!isText) return null;
+
+  const curve = Number((text as any).curve ?? 0);
+  const curveMode = String((text as any).curveMode ?? '');
+  const radius = Math.max(0, Number((text as any).curveRadius ?? 0));
+  const textPath = (text as any).path as Path | undefined;
+
+  if (
+    !textPath ||
+    radius <= 0 ||
+    Math.abs(curve) <= 0.001 ||
+    curveMode === 'none'
+  ) {
+    return null;
+  }
+
+  const fontSize = Math.max(
+    1,
+    Number((text as any).fontSize) || 16
+  );
+  const lineHeight = Math.max(
+    1,
+    Number((text as any).lineHeight) || 1.16
+  );
+  const textHeight = fontSize * lineHeight;
+  const isCircle = Math.abs(curve) >= 99.5;
+
+  // Ensure path.segmentsInfo is available so _measureLine computes renderLeft/renderTop
+  if (
+    textPath &&
+    !(textPath as any).segmentsInfo &&
+    typeof (util as any).getPathSegmentsInfo === 'function'
+  ) {
+    try {
+      (textPath as any).segmentsInfo = (util as any).getPathSegmentsInfo(
+        textPath.path
+      );
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Ensure char bounds are measured if not already present
+  if (
+    !(text as any).__charBounds?.[0]?.length &&
+    typeof (text as any)._measureLine === 'function'
+  ) {
+    try {
+      (text as any)._measureLine(0);
+    } catch {
+      // Fallback below
+    }
+  }
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let hasValidChar = false;
+
+  const allLines = (text as any).__charBounds;
+  if (Array.isArray(allLines) && allLines.length > 0) {
+    for (let l = 0; l < allLines.length; l++) {
+      const line = allLines[l];
+      if (!Array.isArray(line)) continue;
+      for (let i = 0; i < line.length; i++) {
+        const cb = line[i];
+        if (
+          !cb ||
+          typeof cb.renderLeft !== 'number' ||
+          typeof cb.renderTop !== 'number'
+        ) {
+          continue;
+        }
+        const w = Math.max(cb.width || 0, cb.kernedWidth || 0);
+        const hw = (w > 0 ? w : fontSize * 0.3) / 2;
+        const topExtent = -fontSize * 0.85;
+        const bottomExtent = fontSize * 0.25;
+        const angle = Number(cb.angle) || 0;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+
+        const corners = [
+          { dx: -hw, dy: topExtent },
+          { dx: hw, dy: topExtent },
+          { dx: hw, dy: bottomExtent },
+          { dx: -hw, dy: bottomExtent },
+        ];
+
+        for (const corner of corners) {
+          const px = cb.renderLeft + corner.dx * cos - corner.dy * sin;
+          const py = cb.renderTop + corner.dx * sin + corner.dy * cos;
+          if (px < minX) minX = px;
+          if (px > maxX) maxX = px;
+          if (py < minY) minY = py;
+          if (py > maxY) maxY = py;
+        }
+        hasValidChar = true;
+      }
+    }
+  }
+
+  if (hasValidChar && Number.isFinite(minX) && Number.isFinite(maxX) && Number.isFinite(minY) && Number.isFinite(maxY)) {
+    const padX = Math.max(8, fontSize * 0.2);
+    const padY = Math.max(8, fontSize * 0.15);
+    const width = maxX - minX + padX * 2;
+    const height = maxY - minY + padY * 2;
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+
+    return {
+      left: cx - width / 2,
+      top: cy - height / 2,
+      width,
+      height,
+    };
+  }
+
+  // Mathematical fallback if charBounds is not ready:
+  // Measure only the arc the text actually occupies, NOT the entire 360 circle.
+  const rawText = String((text as any).text ?? '');
+  const measuredTextWidth = Math.max(
+    1,
+    Number((text as any).width) || rawText.length * fontSize * 0.55
+  );
+
+  const arcAngle = getCurveArcAngle(curve);
+  const direction = curve >= 0 ? 1 : -1;
+  const centerAngle = direction > 0 ? -Math.PI / 2 : Math.PI / 2;
+
+  // Actual angular coverage of the text sentence along the curve
+  const textArcAngle = Math.min(
+    arcAngle,
+    Math.max(0.15, (measuredTextWidth * 1.05) / Math.max(radius, 1))
+  );
+
+  const startAngle = centerAngle - textArcAngle / 2;
+  const endAngle = centerAngle + textArcAngle / 2;
+
+  let fMinX = Infinity;
+  let fMaxX = -Infinity;
+  let fMinY = Infinity;
+  let fMaxY = -Infinity;
+
+  const samples = 16;
+  for (let s = 0; s <= samples; s++) {
+    const a = startAngle + (s / samples) * (endAngle - startAngle);
+    const px = Math.cos(a) * radius;
+    const py = Math.sin(a) * radius;
+    if (px < fMinX) fMinX = px;
+    if (px > fMaxX) fMaxX = px;
+    if (py < fMinY) fMinY = py;
+    if (py > fMaxY) fMaxY = py;
+  }
+
+  const padX = Math.max(10, fontSize * 0.2);
+  const padY = Math.max(8, fontSize * 0.15) + textHeight * 0.4;
+  const width = fMaxX - fMinX + padX * 2;
+  const height = fMaxY - fMinY + padY * 2;
+  const cx = (fMinX + fMaxX) / 2;
+  const cy = (fMinY + fMaxY) / 2;
+
+  return {
+    left: cx - width / 2,
+    top: cy - height / 2,
+    width,
+    height,
+  };
+}
+
+/**
+ * When text is curved, locate controls on the curved-text visual box.
+ * Straight text falls back to Fabric's normal control position calculation.
+ */
+function curvedTextboxControlPositionHandler(
+  dim: Point,
+  finalMatrix: any,
+  fabricObject: FabricObject,
+  currentControl: Control
+): Point {
+  const box = getCurvedTextSelectionBox(fabricObject);
+
+  if (!box) {
+    // Exact Fabric default control positioning for normal/straight text.
+    return new Point(
+      Number(currentControl.x || 0) * Number(dim.x || 0) +
+      Number(currentControl.offsetX || 0),
+      Number(currentControl.y || 0) * Number(dim.y || 0) +
+      Number(currentControl.offsetY || 0)
+    ).transform(finalMatrix);
+  }
+
+  /**
+   * Fabric 6/7 calcOCoords() deliberately removes viewport scaling from
+   * `finalMatrix`; the normal control path receives `dim` already multiplied
+   * by object scale + canvas zoom.
+   *
+   * Our curved selection box is in the Textbox's LOCAL coordinates, so it
+   * MUST be converted to the same screen-sized coordinates before applying
+   * finalMatrix. The previous version skipped this conversion, which is why
+   * the purple frame was correct but the handles stayed far outside it.
+   */
+  const objectScaling =
+    typeof (fabricObject as any).getObjectScaling === 'function'
+      ? (fabricObject as any).getObjectScaling()
+      : new Point(
+        Math.abs(Number(fabricObject.scaleX) || 1),
+        Math.abs(Number(fabricObject.scaleY) || 1)
+      );
+
+  const vpt =
+    typeof (fabricObject as any).getViewportTransform === 'function'
+      ? (fabricObject as any).getViewportTransform()
+      : [1, 0, 0, 1, 0, 0];
+
+  // Support normal zoom and also non-trivial viewport matrices safely.
+  const viewportScaleX = Math.max(
+    0.0001,
+    Math.hypot(Number(vpt?.[0]) || 1, Number(vpt?.[1]) || 0)
+  );
+  const viewportScaleY = Math.max(
+    0.0001,
+    Math.hypot(Number(vpt?.[2]) || 0, Number(vpt?.[3]) || 1)
+  );
+
+  const screenScaleX =
+    Math.max(0.0001, Math.abs(Number(objectScaling?.x) || 1)) *
+    viewportScaleX;
+  const screenScaleY =
+    Math.max(0.0001, Math.abs(Number(objectScaling?.y) || 1)) *
+    viewportScaleY;
+
+  const localX =
+    box.left +
+    (Number(currentControl.x || 0) + 0.5) * box.width;
+  const localY =
+    box.top +
+    (Number(currentControl.y || 0) + 0.5) * box.height;
+
+  // Match Fabric's normal oCoords coordinate space.
+  const scaledX = localX * screenScaleX;
+  const scaledY = localY * screenScaleY;
+
+  const offsetX = Number(currentControl.offsetX || 0);
+  const offsetY = Number(currentControl.offsetY || 0);
+
+  return new Point(
+    scaledX + offsetX,
+    scaledY + offsetY
+  ).transform(finalMatrix);
+}
+
+function createCurvedAwareTextboxCornerControls(): Record<string, Control> {
+  const makeCorner = (x: number, y: number) =>
+    new Control({
+      x,
+      y,
+      cursorStyleHandler: controlsUtils.scaleCursorStyleHandler,
+      actionHandler: frameAwareScalingEqually,
+      actionName: 'scale',
+      render: renderCanvaCornerHandle,
+      positionHandler: curvedTextboxControlPositionHandler as any,
+    });
+
+  return {
+    tl: makeCorner(-0.5, -0.5),
+    tr: makeCorner(0.5, -0.5),
+    bl: makeCorner(-0.5, 0.5),
+    br: makeCorner(0.5, 0.5),
+  };
+}
+
+function createCurvedAwareTextboxRotationControl(): Control {
+  return new Control({
+    x: 0,
+    y: 0.5,
+    offsetX: 0,
+    offsetY: 34,
+    cursorStyleHandler: controlsUtils.rotationStyleHandler,
+    actionHandler: (eventData, transform, x, y) => {
+      const target = transform.target;
+      if (target && (target as any).isEditing) {
+        (target as any).exitEditing?.();
+        (target as any).set?.('hoverCursor', 'move');
+      }
+
+      return controlsUtils.rotationWithSnapping(
+        eventData,
+        transform,
+        x,
+        y
+      );
+    },
+    actionName: 'rotate',
+    withConnection: false,
+    render: renderCanvaRotationHandle,
+    positionHandler: curvedTextboxControlPositionHandler as any,
+  });
+}
+
 /**
  * Canva-style Textbox controls.
  *
@@ -729,7 +1079,7 @@ export function createTextboxCanvaControls(): Record<
   Control
 > {
   return {
-    ...createCornerControls(),
+    ...createCurvedAwareTextboxCornerControls(),
 
     ml: new Control({
       x: -0.5,
@@ -743,6 +1093,7 @@ export function createTextboxCanvaControls(): Record<
       actionHandler: controlsUtils.changeWidth,
       actionName: 'resizing',
       render: renderCanvaSideHandle(true),
+      positionHandler: curvedTextboxControlPositionHandler as any,
     }),
 
     mr: new Control({
@@ -757,9 +1108,10 @@ export function createTextboxCanvaControls(): Record<
       actionHandler: controlsUtils.changeWidth,
       actionName: 'resizing',
       render: renderCanvaSideHandle(true),
+      positionHandler: curvedTextboxControlPositionHandler as any,
     }),
 
-    mbr: createRotationControl(),
+    mbr: createCurvedAwareTextboxRotationControl(),
   };
 }
 
@@ -842,6 +1194,12 @@ export function applyCanvaControlsToObject(
     });
   }
 
+  const hasActiveTextCurve =
+    isText &&
+    Boolean((obj as any).path) &&
+    Math.abs(Number(obj.get?.('curve' as any) ?? (obj as any).curve ?? 0)) > 0.001 &&
+    String(obj.get?.('curveMode' as any) ?? (obj as any).curveMode ?? '') !== 'none';
+
   obj.set({
     borderColor: CANVA_PURPLE,
     borderScaleFactor: 1.5,
@@ -853,6 +1211,7 @@ export function applyCanvaControlsToObject(
     cornerStyle: 'circle',
     selectionBackgroundColor: 'transparent',
     padding: 0,
+    hasBorders: true,
   });
 }
 
@@ -1044,20 +1403,151 @@ export function applyCanvaControlsGlobal(): void {
       return origMouseUpHandler?.call(this, options);
     };
 
-    // Double-click enters text editing mode.
+    // Draw custom selection frame for curved text, or default for straight text.
+    const origDrawBorders = prototype.drawBorders;
+    prototype.drawBorders = function (
+      ctx: CanvasRenderingContext2D,
+      options?: any,
+      styleOverride?: any
+    ) {
+      const box = getCurvedTextSelectionBox(this);
+      if (!box) {
+        return origDrawBorders?.call(this, ctx, options, styleOverride);
+      }
+
+      const objectScaling =
+        typeof (this as any).getObjectScaling === 'function'
+          ? (this as any).getObjectScaling()
+          : new Point(
+              Math.abs(Number(this.scaleX) || 1),
+              Math.abs(Number(this.scaleY) || 1)
+            );
+
+      const vpt =
+        typeof (this as any).getViewportTransform === 'function'
+          ? (this as any).getViewportTransform()
+          : [1, 0, 0, 1, 0, 0];
+
+      const viewportScaleX = Math.max(
+        0.0001,
+        Math.hypot(Number(vpt?.[0]) || 1, Number(vpt?.[1]) || 0)
+      );
+      const viewportScaleY = Math.max(
+        0.0001,
+        Math.hypot(Number(vpt?.[2]) || 0, Number(vpt?.[3]) || 1)
+      );
+
+      const screenScaleX =
+        Math.max(0.0001, Math.abs(Number(objectScaling?.x) || 1)) *
+        viewportScaleX;
+      const screenScaleY =
+        Math.max(0.0001, Math.abs(Number(objectScaling?.y) || 1)) *
+        viewportScaleY;
+
+      ctx.save();
+      ctx.strokeStyle = CANVA_PURPLE;
+      ctx.lineWidth = Number((this as any).borderScaleFactor || 1.5);
+      ctx.strokeRect(
+        box.left * screenScaleX,
+        box.top * screenScaleY,
+        box.width * screenScaleX,
+        box.height * screenScaleY
+      );
+      ctx.restore();
+    };
+
+    // Calculate aCoords from curved selection box so Fabric's native hit-testing,
+    // bounding box calculations, and selection area enclose the curved text accurately.
+    const origCalcACoords = prototype.calcACoords;
+    prototype.calcACoords = function () {
+      const box = getCurvedTextSelectionBox(this);
+      if (!box) {
+        return origCalcACoords?.call(this);
+      }
+      const matrix =
+        typeof this.calcTransformMatrix === 'function'
+          ? this.calcTransformMatrix()
+          : null;
+      if (!matrix) {
+        return origCalcACoords?.call(this);
+      }
+      return {
+        tl: new Point(box.left, box.top).transform(matrix),
+        tr: new Point(box.left + box.width, box.top).transform(matrix),
+        br: new Point(box.left + box.width, box.top + box.height).transform(matrix),
+        bl: new Point(box.left, box.top + box.height).transform(matrix),
+      };
+    };
+
+    // Hit-testing includes curved text bounds so clicks on curved glyphs always work.
+    const origContainsPoint = prototype.containsPoint;
+    prototype.containsPoint = function (point: Point, lines?: any) {
+      const box = getCurvedTextSelectionBox(this);
+      if (box && typeof (this as any).toLocalPoint === 'function') {
+        const localPoint = (this as any).toLocalPoint(point, 'center', 'center');
+        if (
+          localPoint &&
+          localPoint.x >= box.left &&
+          localPoint.x <= box.left + box.width &&
+          localPoint.y >= box.top &&
+          localPoint.y <= box.top + box.height
+        ) {
+          return true;
+        }
+      }
+      return origContainsPoint?.call(this, point, lines);
+    };
+
+    // Double-click enters text editing mode reliably for both straight and curved text.
     const origDoubleClickHandler = prototype.doubleClickHandler;
     prototype.doubleClickHandler = function (options: any) {
-      const isLocked = typeof this.get === 'function' ? this.get('isLocked') === true : (this as any).isLocked === true;
+      const isLocked =
+        typeof this.get === 'function'
+          ? this.get('isLocked') === true
+          : (this as any).isLocked === true;
+
       if (!this.isEditing && this.editable !== false && !isLocked) {
-        this.enterEditing(options?.e);
-        this.setCursorByClick?.(options?.e);
-        this.hoverCursor = 'text';
-        if (this.canvas) {
-          this.canvas.setCursor('text');
-          this.canvas.requestRenderAll();
+        if (this.canvas && this.canvas.getActiveObject() !== this) {
+          this.canvas.setActiveObject(this);
         }
+        this.enterEditing(options?.e);
+
+        try {
+          this.setCursorByClick?.(options?.e);
+        } catch {
+          // Leave current caret position if pointer mapping fails.
+        }
+
+        this.hoverCursor = 'text';
+
+        const focusTextarea = () => {
+          const textarea = this.hiddenTextarea as
+            | HTMLTextAreaElement
+            | undefined;
+
+          if (textarea) {
+            try {
+              textarea.focus({ preventScroll: true });
+            } catch {
+              textarea.focus();
+            }
+          }
+
+          if (this.canvas) {
+            this.canvas.setCursor('text');
+            this.canvas.requestRenderAll();
+          }
+        };
+
+        focusTextarea();
+
+        if (typeof requestAnimationFrame !== 'undefined') {
+          requestAnimationFrame(focusTextarea);
+        }
+
         return;
       }
+
       return origDoubleClickHandler?.call(this, options);
     };
 
@@ -1078,11 +1568,15 @@ export function applyCanvaControlsGlobal(): void {
       this.hoverCursor = 'move';
       this.selectable = true;
       this.evented = true;
-      const isLocked = typeof this.get === 'function' ? this.get('isLocked') === true : (this as any).isLocked === true;
+      const isLocked =
+        typeof this.get === 'function'
+          ? this.get('isLocked') === true
+          : (this as any).isLocked === true;
       if (!isLocked) {
         this.lockMovementX = false;
         this.lockMovementY = false;
         this.hasControls = true;
+        this.hasBorders = true;
       }
       this.setCoords?.();
       if (this.canvas) {
@@ -1118,19 +1612,58 @@ export function applyCanvaControlsGlobal(): void {
   }
 
   // Canva behavior: object bounding box width & height are fixed and do NOT expand when strokeWidth increases
+  const origGetNonTransformedDimensions =
+    FabricObject.prototype._getNonTransformedDimensions;
+
   FabricObject.prototype._getNonTransformedDimensions = function () {
+    const rawType = String((this as any).type || '')
+      .toLowerCase()
+      .replace(/[-_\\s]/g, '');
+    const isTextObject =
+      this instanceof Textbox ||
+      this instanceof IText ||
+      rawType === 'textbox' ||
+      rawType === 'itext' ||
+      rawType === 'text';
+
+    // Keep Fabric's native text metrics so text stroke remains a proper
+    // vector glyph outline and selection bounds are calculated correctly.
+    if (isTextObject) {
+      return origGetNonTransformedDimensions.call(this);
+    }
+
     return new Point(this.width, this.height);
   };
 
   const origGetTransformedDimensions = FabricObject.prototype._getTransformedDimensions;
   FabricObject.prototype._getTransformedDimensions = function (options: any = {}) {
-    const isInside = ((this as any).strokePosition || (typeof this.get === 'function' ? this.get('strokePosition' as any) : null)) !== 'outside';
+    const rawType = String((this as any).type || '')
+      .toLowerCase()
+      .replace(/[-_\\s]/g, '');
+    const isTextObject =
+      this instanceof Textbox ||
+      this instanceof IText ||
+      rawType === 'textbox' ||
+      rawType === 'itext' ||
+      rawType === 'text';
+
+    if (isTextObject) {
+      return origGetTransformedDimensions.call(this, options);
+    }
+
+    const isInside =
+      ((this as any).strokePosition ||
+        (typeof this.get === 'function'
+          ? this.get('strokePosition' as any)
+          : null)) !== 'outside';
+
     if (isInside) {
       return origGetTransformedDimensions.call(this, {
         ...options,
         strokeWidth: 0,
       });
     }
+
     return origGetTransformedDimensions.call(this, options);
   };
 
@@ -1144,25 +1677,57 @@ export function applyCanvaControlsGlobal(): void {
     }
   };
 
-  // Canva behavior: render inside stroke strictly within object path boundary
+  // Canva behavior: render inside stroke strictly within supported object paths.
+  //
+  // IMPORTANT:
+  // Never run the generic ctx.clip() inside-stroke hack for Textbox/IText.
+  // Text glyphs do not expose their letter outlines through ensureObjectStrokePath().
+  // Reusing the current canvas path can therefore paint stale rectangular/control
+  // geometry inside letters (for example inside A/e). Text must use Fabric's
+  // native vector glyph stroke renderer.
   const origRenderStroke = FabricObject.prototype._renderStroke;
   FabricObject.prototype._renderStroke = function (ctx: CanvasRenderingContext2D) {
     if (!this.stroke || this.strokeWidth === 0) return;
-    const isInside = ((this as any).strokePosition || (typeof this.get === 'function' ? this.get('strokePosition' as any) : null)) !== 'outside';
 
-    ensureObjectStrokePath(this, ctx);
+    const rawType = String((this as any).type || '')
+      .toLowerCase()
+      .replace(/[-_\\s]/g, '');
 
-    if (isInside && typeof ctx.clip === 'function') {
+    const isTextObject =
+      this instanceof Textbox ||
+      this instanceof IText ||
+      rawType === 'textbox' ||
+      rawType === 'itext' ||
+      rawType === 'text';
+
+    if (isTextObject) {
+      origRenderStroke.call(this, ctx);
+      return;
+    }
+
+    const isInside =
+      ((this as any).strokePosition ||
+        (typeof this.get === 'function'
+          ? this.get('strokePosition' as any)
+          : null)) !== 'outside';
+
+    // Only clip when we can explicitly build a valid object path.
+    // This prevents stale canvas paths from being used for Groups/Polygons/etc.
+    const hasExplicitStrokePath = ensureObjectStrokePath(this, ctx);
+
+    if (isInside && hasExplicitStrokePath && typeof ctx.clip === 'function') {
       ctx.save();
       ctx.clip();
+
       const origWidth = this.strokeWidth;
       this.strokeWidth = origWidth * 2;
+
       ensureObjectStrokePath(this, ctx);
       origRenderStroke.call(this, ctx);
+
       this.strokeWidth = origWidth;
       ctx.restore();
     } else {
-      ensureObjectStrokePath(this, ctx);
       origRenderStroke.call(this, ctx);
     }
   };
