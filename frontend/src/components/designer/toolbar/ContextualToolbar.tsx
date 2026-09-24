@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Bold,
   Italic,
@@ -48,8 +48,9 @@ import { BrushSizePopover } from './BrushSizePopover';
 import { BrushCapsPopover } from './BrushCapsPopover';
 import { CornerRoundingPopover } from './CornerRoundingPopover';
 import { BorderStylePopover } from './BorderStylePopover';
+import { ColorPicker } from '../controls/ColorPicker';
 import { removeImageBackground } from '@/services/backgroundRemoval';
-import { colorOrGradientToCss } from '@/utils/colorUtils';
+import { colorOrGradientToCss, normalizeHexColor } from '@/utils/colorUtils';
 
 function isMagnificCompatibleImageUrl(
   value: unknown
@@ -107,6 +108,7 @@ type ActivePopoverType =
   | 'brushCaps'
   | 'cornerRounding'
   | 'border'
+  | 'multiColor'
   | null;
 
 export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
@@ -118,6 +120,19 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
 }) => {
   const [activePopover, setActivePopover] = useState<ActivePopoverType>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [activeColorIndex, setActiveColorIndex] = useState<number>(0);
+
+  const editableColors = useMemo(() => {
+    if (selected?.editableColors && selected.editableColors.length > 0) {
+      return selected.editableColors;
+    }
+    return canvasManager?.getSelectedEditableColors() || [];
+  }, [selected?.editableColors, canvasManager]);
+
+  const currentColorsRef = useRef<string[]>([]);
+  useEffect(() => {
+    currentColorsRef.current = [...editableColors];
+  }, [editableColors]);
 
   const [isRemovingBg, setIsRemovingBg] = useState(false);
   const [removeBgError, setRemoveBgError] = useState<string | null>(null);
@@ -269,6 +284,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       previousSelectedIdRef.current = selected?.id;
       setActivePopover(null);
       setRemoveBgError(null);
+      setActiveColorIndex(0);
     }
   }, [selected?.id]);
 
@@ -408,6 +424,67 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   const CurrentBrushIcon = currentBrushPreset.icon;
 
   const currentCanvasBg = (canvasManager?.getBackgroundSettings()?.color as string) || '#ffffff';
+
+  const renderMultiColorSwatches = () => {
+    if (editableColors.length <= 1) return null;
+
+    return (
+      <div className="relative flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+        {editableColors.map((color, idx) => {
+          const isCurrentActive = activePopover === 'multiColor' && activeColorIndex === idx;
+          const displayColor = currentColorsRef.current[idx] || color;
+          return (
+            <button
+              key={`${color}-${idx}`}
+              type="button"
+              onClick={() => {
+                setActiveColorIndex(idx);
+                setActivePopover((prev) => (prev === 'multiColor' && activeColorIndex === idx ? null : 'multiColor'));
+              }}
+              title={`Colour ${idx + 1}: ${displayColor} (Click to change)`}
+              className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${
+                isCurrentActive
+                  ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs ring-2 ring-[#7c3aed] ring-offset-1'
+                  : 'bg-white border-gray-200 hover:bg-gray-50 hover:scale-105'
+              }`}
+            >
+              <div
+                className="w-5 h-5 rounded-lg border border-black/15 shadow-2xs"
+                style={{ backgroundColor: displayColor }}
+              />
+            </button>
+          );
+        })}
+
+        {activePopover === 'multiColor' && (
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-full left-0 mt-2 z-50 animate-in fade-in zoom-in-95 duration-100 select-none shadow-2xl rounded-2xl max-h-[85vh] overflow-y-auto"
+          >
+            <ColorPicker
+              label={`Colour ${activeColorIndex + 1}`}
+              value={currentColorsRef.current[activeColorIndex] || editableColors[activeColorIndex] || '#000000'}
+              onChange={(val) => {
+                const pickedHex = typeof val === 'string' ? val : (val?.stops?.[0]?.color || '#000000');
+                const sourceColor = currentColorsRef.current[activeColorIndex] || editableColors[activeColorIndex];
+                if (sourceColor && pickedHex && canvasManager) {
+                  canvasManager.updateSelectedColorBySource(sourceColor, pickedHex, activeColorIndex);
+                  currentColorsRef.current[activeColorIndex] = pickedHex;
+                }
+              }}
+              onClose={() => {
+                setActivePopover(null);
+                canvasManager?.saveHistoryState();
+              }}
+              allowGradient={false}
+              canvasManager={canvasManager}
+            />
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div
@@ -1082,25 +1159,29 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       {/* ================================================================ */}
       {!isDrawing && isShape && selected && (
         <>
-          {/* Fill Color Swatch (Canva Style - Pure Swatch Tile opening in sidebar) */}
-          <button
-            type="button"
-            onClick={() => {
-              if (onSelectSidebarTab) {
-                onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
-              }
-            }}
-            title="Shape Colour (Open in Sidebar)"
-            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
-              ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
-              : 'bg-white border-gray-200 hover:bg-gray-50'
-              }`}
-          >
-            <div
-              className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs"
-              style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#2563eb') }}
-            />
-          </button>
+          {/* Fill Color Swatch / Multi-Color Swatches */}
+          {editableColors.length > 1 ? (
+            renderMultiColorSwatches()
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (onSelectSidebarTab) {
+                  onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
+                }
+              }}
+              title="Shape Colour (Open in Sidebar)"
+              className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
+                ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
+                : 'bg-white border-gray-200 hover:bg-gray-50'
+                }`}
+            >
+              <div
+                className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs"
+                style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#2563eb') }}
+              />
+            </button>
+          )}
 
           {/* Canva Border Style Icon Button (Weight, Line Style & Color) */}
           <button
@@ -1179,25 +1260,29 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       {/* ================================================================ */}
       {!isDrawing && isGroupedSelection && selected && (
         <>
-          {/* Apply fill to every compatible child in the group */}
-          <button
-            type="button"
-            onClick={() => {
-              if (onSelectSidebarTab) {
-                onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
-              }
-            }}
-            title="Group colour (applies to compatible elements)"
-            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
-              ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
-              : 'bg-white border-gray-200 hover:bg-gray-50'
-              }`}
-          >
-            <div
-              className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs"
-              style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#2563eb') }}
-            />
-          </button>
+          {/* Group Fill Color / Multi-Color Swatches */}
+          {editableColors.length > 1 ? (
+            renderMultiColorSwatches()
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (onSelectSidebarTab) {
+                  onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
+                }
+              }}
+              title="Group colour (applies to compatible elements)"
+              className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
+                ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
+                : 'bg-white border-gray-200 hover:bg-gray-50'
+                }`}
+            >
+              <div
+                className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs"
+                style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#2563eb') }}
+              />
+            </button>
+          )}
 
           {/* Group border: colour, width and dash style (Open in Sidebar) */}
           <button
@@ -1274,6 +1359,15 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           >
             <FlipVertical className="w-3.5 h-3.5" />
           </button>
+        </>
+      )}
+
+      {/* ================================================================ */}
+      {/* 3C. OTHER MULTI-COLOR OBJECT SELECTED (SVG / COMPLEX VECTOR)     */}
+      {/* ================================================================ */}
+      {!isDrawing && !isShape && !isGroupedSelection && !isText && !isImage && !isBrush && selected && editableColors.length > 1 && (
+        <>
+          {renderMultiColorSwatches()}
         </>
       )}
 
@@ -1488,8 +1582,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </button>
           )}
 
-          {/* Canva Ungroup Button */}
-          {canvasManager?.canUngroup() && (
+          {/* Canva Ungroup Button (commented out as requested) */}
+          {/* {canvasManager?.canUngroup() && (
             <button
               type="button"
               onClick={() => canvasManager.ungroupSelected()}
@@ -1499,7 +1593,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               <Ungroup className="w-3.5 h-3.5" />
               <span>Ungroup</span>
             </button>
-          )}
+          )} */}
 
           {/* Position Sidebar Toggle Button (Canva Style - Opens in Sidebar) */}
           <button

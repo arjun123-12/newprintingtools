@@ -38,7 +38,7 @@ import {
   UnitType,
   DesignerGradientValue,
 } from '@/types/designer';
-import { fabricGradientToDesignerGradient, colorOrGradientToCss } from '@/utils/colorUtils';
+import { fabricGradientToDesignerGradient, colorOrGradientToCss, normalizeHexColor } from '@/utils/colorUtils';
 import { calculateCanvasDimensions } from '../utils/dimensions';
 import { CanvasGuides } from './CanvasGuides';
 import { CanvasSnapping } from './CanvasSnapping';
@@ -839,6 +839,183 @@ export class CanvasManager {
 
     const result = Array.from(colors).filter((c) => c && c !== 'transparent');
     return result.length > 0 ? result : ['#000000', '#ffffff', '#2563eb', '#10b981', '#ef4444'];
+  }
+
+  /**
+   * Detects all unique visible editable fill and stroke colors in the currently active object.
+   * If the active object is a group, activeSelection, or SVG-like grouped element,
+   * it recursively inspects child objects.
+   * Filters out transparent, none, empty, rgba(..., 0), and fully invisible colors.
+   * Returns an array of normalized hex colors (#rrggbb).
+   */
+  public getSelectedEditableColors(): string[] {
+    if (!this.canvas) return [];
+    const active = this.canvas.getActiveObject();
+    if (!active) return [];
+
+    // Raster photos don't have vector editable colors (unless placeholder)
+    if (
+      (active instanceof FabricImage || active.type === 'image' || active.type === 'fabricImage') &&
+      !active.get('isCanvaPlaceholder' as any)
+    ) {
+      return [];
+    }
+
+    const uniqueColors: string[] = [];
+    const seen = new Set<string>();
+    const colorToSlot = new Map<string, number>();
+
+    const getOrAssignSlot = (normalized: string): number => {
+      let slot = colorToSlot.get(normalized);
+      if (slot === undefined) {
+        slot = uniqueColors.length;
+        colorToSlot.set(normalized, slot);
+        uniqueColors.push(normalized);
+        seen.add(normalized);
+      }
+      return slot;
+    };
+
+    const inspectObject = (obj: FabricObject) => {
+      if (!obj || this.isNonInteractiveObject(obj)) return;
+      if (obj.visible === false || (obj.opacity !== undefined && obj.opacity <= 0)) return;
+
+      // Don't inspect raster photo objects inside frames
+      if (
+        (obj instanceof FabricImage || obj.type === 'image' || obj.type === 'fabricImage') &&
+        !obj.get('isCanvaPlaceholder' as any)
+      ) {
+        return;
+      }
+
+      if (obj instanceof Group || obj instanceof ActiveSelection) {
+        obj.getObjects().forEach(inspectObject);
+        return;
+      }
+
+      // Check fill
+      if (typeof obj.fill === 'string') {
+        const norm = normalizeHexColor(obj.fill);
+        if (norm) {
+          const slot = getOrAssignSlot(norm);
+          obj.set('_colorSlot_fill' as any, slot);
+        }
+      }
+
+      // Check stroke
+      if (
+        typeof obj.stroke === 'string' &&
+        obj.strokeWidth !== 0 &&
+        obj.get('_userStrokeEnabled' as any) !== false
+      ) {
+        const norm = normalizeHexColor(obj.stroke);
+        if (norm) {
+          const slot = getOrAssignSlot(norm);
+          obj.set('_colorSlot_stroke' as any, slot);
+        }
+      }
+    };
+
+    if (active instanceof Group || active instanceof ActiveSelection) {
+      active.getObjects().forEach(inspectObject);
+    } else {
+      inspectObject(active);
+    }
+
+    return uniqueColors;
+  }
+
+  /**
+   * Updates only matching fill/stroke values inside the selected object
+   * (including child objects in groups/SVGs). Recursively updates children.
+   * Marks objects dirty, triggers requestRenderAll, saves history, and refreshes selected state.
+   */
+  public updateSelectedColorBySource(
+    oldColor: string,
+    newColor: string,
+    slotIndex?: number
+  ): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+
+    const normOld = normalizeHexColor(oldColor);
+    const normNew = normalizeHexColor(newColor) || newColor;
+    if (!normOld || !normNew) return;
+
+    let modified = false;
+
+    const updateObject = (obj: FabricObject) => {
+      if (!obj || this.isNonInteractiveObject(obj)) return;
+
+      // Skip raster photos
+      if (
+        (obj instanceof FabricImage || obj.type === 'image' || obj.type === 'fabricImage') &&
+        !obj.get('isCanvaPlaceholder' as any)
+      ) {
+        return;
+      }
+
+      if (obj instanceof Group || obj instanceof ActiveSelection) {
+        obj.getObjects().forEach(updateObject);
+        obj.set('dirty', true);
+        return;
+      }
+
+      let objChanged = false;
+
+      // Check fill
+      if (typeof obj.fill === 'string') {
+        const fillSlot = obj.get('_colorSlot_fill' as any);
+        const matchesSlot = slotIndex !== undefined && fillSlot === slotIndex;
+        const matchesColor = normalizeHexColor(obj.fill) === normOld;
+
+        if (matchesSlot || matchesColor) {
+          obj.set('fill', normNew);
+          if (slotIndex !== undefined) {
+            obj.set('_colorSlot_fill' as any, slotIndex);
+          }
+          objChanged = true;
+        }
+      }
+
+      // Check stroke
+      if (typeof obj.stroke === 'string' && (obj.strokeWidth || 0) > 0) {
+        const strokeSlot = obj.get('_colorSlot_stroke' as any);
+        const matchesSlot = slotIndex !== undefined && strokeSlot === slotIndex;
+        const matchesColor = normalizeHexColor(obj.stroke) === normOld;
+
+        if (matchesSlot || matchesColor) {
+          obj.set('stroke', normNew);
+          if (slotIndex !== undefined) {
+            obj.set('_colorSlot_stroke' as any, slotIndex);
+          }
+          objChanged = true;
+        }
+      }
+
+      if (objChanged) {
+        obj.set('dirty', true);
+        modified = true;
+      }
+    };
+
+    if (active instanceof Group || active instanceof ActiveSelection) {
+      active.getObjects().forEach(updateObject);
+      active.set('dirty', true);
+      active.setCoords();
+    } else {
+      updateObject(active);
+      active.set('dirty', true);
+      active.setCoords();
+    }
+
+    if (modified) {
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+      this.scheduleHistorySave();
+    }
   }
 
   public setBackgroundGradient(
@@ -9730,6 +9907,7 @@ export class CanvasManager {
       upscaleFactor: imageObj ? ((imageObj.get('upscaleFactor' as any) as any) || 1) : undefined,
       upscaledSrc: imageObj ? ((imageObj.get('upscaledSrc' as any) as string) || undefined) : undefined,
       imageId: imageObj ? ((imageObj.get('imageId' as any) as string) || undefined) : undefined,
+      editableColors: this.getSelectedEditableColors(),
     };
   }
 

@@ -219,6 +219,7 @@ export interface SelectedObjectState {
   paintFirst?: 'fill' | 'stroke';
   strokePosition?: 'inside' | 'outside';
   baseStrokeWidth?: number;
+  editableColors?: string[];
 }
 
 export interface UploadedAsset {

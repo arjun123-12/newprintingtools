@@ -245,3 +245,125 @@ export function addRecentColor(color: string): string[] {
     return [];
   }
 }
+
+/**
+ * Normalizes any visible CSS / SVG color string into standard #rrggbb hex.
+ * Returns null for transparent, none, empty, rgba(..., 0), and invalid colors.
+ */
+export function normalizeHexColor(input: unknown): string | null {
+  if (!input || typeof input !== 'string') return null;
+  const str = input.trim();
+  if (!str) return null;
+  const lower = str.toLowerCase();
+
+  if (
+    lower === 'transparent' ||
+    lower === 'none' ||
+    lower === 'null' ||
+    lower === 'undefined' ||
+    lower === 'inherit' ||
+    lower === 'initial'
+  ) {
+    return null;
+  }
+
+  // Hex: #rgb, #rgba, #rrggbb, #rrggbbaa
+  if (lower.startsWith('#')) {
+    const hex = lower.slice(1);
+    if (hex.length === 3) {
+      if (/^[0-9a-f]{3}$/.test(hex)) {
+        return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+      }
+    }
+    if (hex.length === 4) {
+      if (/^[0-9a-f]{4}$/.test(hex)) {
+        const alphaHex = hex[3];
+        if (alphaHex === '0') return null;
+        return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
+      }
+    }
+    if (hex.length === 6) {
+      if (/^[0-9a-f]{6}$/.test(hex)) {
+        return `#${hex}`;
+      }
+    }
+    if (hex.length === 8) {
+      if (/^[0-9a-f]{8}$/.test(hex)) {
+        const alphaVal = parseInt(hex.slice(6, 8), 16);
+        if (isNaN(alphaVal) || alphaVal <= 0) return null;
+        return `#${hex.slice(0, 6)}`;
+      }
+    }
+  }
+
+  // rgb / rgba
+  const rgbaMatch = lower.match(
+    /^rgba?\s*\(\s*(\d+(?:\.\d+)?%?)\s*,\s*(\d+(?:\.\d+)?%?)\s*,\s*(\d+(?:\.\d+)?%?)(?:\s*,\s*([\d.]+))?\s*\)$/
+  );
+  if (rgbaMatch) {
+    const parseVal = (c: string) =>
+      c.endsWith('%') ? Math.round((parseFloat(c) / 100) * 255) : Math.round(parseFloat(c));
+    const r = Math.min(255, Math.max(0, parseVal(rgbaMatch[1])));
+    const g = Math.min(255, Math.max(0, parseVal(rgbaMatch[2])));
+    const b = Math.min(255, Math.max(0, parseVal(rgbaMatch[3])));
+    const alphaStr = rgbaMatch[4];
+    if (alphaStr !== undefined) {
+      const alpha = parseFloat(alphaStr);
+      if (isNaN(alpha) || alpha <= 0.001) return null;
+    }
+    const toHex = (n: number) => n.toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  // Common SVG & CSS named colors
+  const NAMED_COLORS: Record<string, string> = {
+    black: '#000000',
+    white: '#ffffff',
+    red: '#ff0000',
+    green: '#008000',
+    blue: '#0000ff',
+    yellow: '#ffff00',
+    cyan: '#00ffff',
+    magenta: '#ff00ff',
+    silver: '#c0c0c0',
+    gray: '#808080',
+    grey: '#808080',
+    maroon: '#800000',
+    olive: '#808000',
+    purple: '#800080',
+    teal: '#008080',
+    navy: '#000080',
+    orange: '#ffa500',
+    pink: '#ffc0cb',
+    gold: '#ffd700',
+    brown: '#a52a2a',
+    coral: '#ff7f50',
+    indigo: '#4b0082',
+    violet: '#ee82ee',
+    turquoise: '#40e0d0',
+    lime: '#00ff00',
+  };
+
+  if (NAMED_COLORS[lower]) {
+    return NAMED_COLORS[lower];
+  }
+
+  // Browser canvas fallback for less common CSS color names
+  if (typeof document !== 'undefined') {
+    try {
+      const ctx = document.createElement('canvas').getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#000000';
+        ctx.fillStyle = str;
+        const computed = ctx.fillStyle;
+        if (computed && computed !== str) {
+          return normalizeHexColor(computed);
+        }
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  return null;
+}
