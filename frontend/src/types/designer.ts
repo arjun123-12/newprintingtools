@@ -220,6 +220,7 @@ export interface SelectedObjectState {
   strokePosition?: 'inside' | 'outside';
   baseStrokeWidth?: number;
   editableColors?: string[];
+  activeColorIndex?: number;
 }
 
 export interface UploadedAsset {

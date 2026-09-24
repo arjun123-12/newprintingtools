@@ -841,6 +841,17 @@ export class CanvasManager {
     return result.length > 0 ? result : ['#000000', '#ffffff', '#2563eb', '#10b981', '#ef4444'];
   }
 
+  private activeEditableColorIndex: number = 0;
+
+  public getActiveEditableColorIndex(): number {
+    return this.activeEditableColorIndex;
+  }
+
+  public setActiveEditableColorIndex(index: number): void {
+    this.activeEditableColorIndex = Math.max(0, index);
+    this.notifySelection();
+  }
+
   /**
    * Detects all unique visible editable fill and stroke colors in the currently active object.
    * If the active object is a group, activeSelection, or SVG-like grouped element,
@@ -9908,6 +9919,7 @@ export class CanvasManager {
       upscaledSrc: imageObj ? ((imageObj.get('upscaledSrc' as any) as string) || undefined) : undefined,
       imageId: imageObj ? ((imageObj.get('imageId' as any) as string) || undefined) : undefined,
       editableColors: this.getSelectedEditableColors(),
+      activeColorIndex: this.getActiveEditableColorIndex(),
     };
   }
 
@@ -10386,6 +10398,7 @@ export class CanvasManager {
     });
 
     this.canvas.on('selection:created', () => {
+      this.activeEditableColorIndex = 0;
       const active = this.canvas?.getActiveObject();
       if (active) {
         applyCanvaControlsToObject(active);
@@ -10412,6 +10425,7 @@ export class CanvasManager {
       this.notifySelection();
     });
     this.canvas.on('selection:cleared', () => {
+      this.activeEditableColorIndex = 0;
       this.clearHoverFitHighlight();
       this.snapping.clearGuides();
       this.smartSpacingManager.clear();

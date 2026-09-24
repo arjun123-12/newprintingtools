@@ -48,7 +48,6 @@ import { BrushSizePopover } from './BrushSizePopover';
 import { BrushCapsPopover } from './BrushCapsPopover';
 import { CornerRoundingPopover } from './CornerRoundingPopover';
 import { BorderStylePopover } from './BorderStylePopover';
-import { ColorPicker } from '../controls/ColorPicker';
 import { removeImageBackground } from '@/services/backgroundRemoval';
 import { colorOrGradientToCss, normalizeHexColor } from '@/utils/colorUtils';
 
@@ -108,7 +107,6 @@ type ActivePopoverType =
   | 'brushCaps'
   | 'cornerRounding'
   | 'border'
-  | 'multiColor'
   | null;
 
 export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
@@ -428,10 +426,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   const renderMultiColorSwatches = () => {
     if (editableColors.length <= 1) return null;
 
+    const currentActiveIdx = selected?.activeColorIndex ?? activeColorIndex;
+
     return (
-      <div className="relative flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
         {editableColors.map((color, idx) => {
-          const isCurrentActive = activePopover === 'multiColor' && activeColorIndex === idx;
+          const isCurrentActive = activeSidebarTab === 'color' && currentActiveIdx === idx;
           const displayColor = currentColorsRef.current[idx] || color;
           return (
             <button
@@ -439,12 +439,19 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => {
                 setActiveColorIndex(idx);
-                setActivePopover((prev) => (prev === 'multiColor' && activeColorIndex === idx ? null : 'multiColor'));
+                canvasManager?.setActiveEditableColorIndex(idx);
+                if (onSelectSidebarTab) {
+                  if (activeSidebarTab !== 'color' || currentActiveIdx !== idx) {
+                    onSelectSidebarTab('color');
+                  } else {
+                    onSelectSidebarTab(null);
+                  }
+                }
               }}
-              title={`Colour ${idx + 1}: ${displayColor} (Click to change)`}
+              title={`Colour ${idx + 1}: ${displayColor} (Open in Sidebar)`}
               className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${
                 isCurrentActive
-                  ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs ring-2 ring-[#7c3aed] ring-offset-1'
+                  ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs ring-2 ring-[#7c3aed] ring-offset-1 scale-105'
                   : 'bg-white border-gray-200 hover:bg-gray-50 hover:scale-105'
               }`}
             >
@@ -455,33 +462,6 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </button>
           );
         })}
-
-        {activePopover === 'multiColor' && (
-          <div
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            className="absolute top-full left-0 mt-2 z-50 animate-in fade-in zoom-in-95 duration-100 select-none shadow-2xl rounded-2xl max-h-[85vh] overflow-y-auto"
-          >
-            <ColorPicker
-              label={`Colour ${activeColorIndex + 1}`}
-              value={currentColorsRef.current[activeColorIndex] || editableColors[activeColorIndex] || '#000000'}
-              onChange={(val) => {
-                const pickedHex = typeof val === 'string' ? val : (val?.stops?.[0]?.color || '#000000');
-                const sourceColor = currentColorsRef.current[activeColorIndex] || editableColors[activeColorIndex];
-                if (sourceColor && pickedHex && canvasManager) {
-                  canvasManager.updateSelectedColorBySource(sourceColor, pickedHex, activeColorIndex);
-                  currentColorsRef.current[activeColorIndex] = pickedHex;
-                }
-              }}
-              onClose={() => {
-                setActivePopover(null);
-                canvasManager?.saveHistoryState();
-              }}
-              allowGradient={false}
-              canvasManager={canvasManager}
-            />
-          </div>
-        )}
       </div>
     );
   };

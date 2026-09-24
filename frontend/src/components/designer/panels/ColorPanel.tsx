@@ -58,11 +58,20 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
       Boolean(selected.src))
   );
 
+  const editableColors = selected?.editableColors || canvasManager?.getSelectedEditableColors() || [];
+  const hasMultipleColors = editableColors.length > 1;
+  const activeColorIndex = selected?.activeColorIndex ?? canvasManager?.getActiveEditableColorIndex() ?? 0;
+  const safeActiveIndex = Math.min(Math.max(0, activeColorIndex), Math.max(0, editableColors.length - 1));
+
   let label = 'Colour';
   let currentValue: string | DesignerGradientValue = '#000000';
   let allowGradient = false;
 
-  if (isDrawing && canvasManager) {
+  if (hasMultipleColors) {
+    label = `Colour ${safeActiveIndex + 1}`;
+    currentValue = editableColors[safeActiveIndex] || '#000000';
+    allowGradient = false;
+  } else if (isDrawing && canvasManager) {
     label = 'Brush Colour';
     currentValue = canvasManager.getBrushSettings().color || '#2563eb';
     allowGradient = false;
@@ -94,6 +103,15 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
   }
 
   const handleColorChange = (value: string | DesignerGradientValue) => {
+    if (hasMultipleColors) {
+      const pickedColor = typeof value === 'string' ? value : (value?.stops?.[0]?.color || '#000000');
+      const sourceColor = editableColors[safeActiveIndex];
+      if (sourceColor && canvasManager) {
+        canvasManager.updateSelectedColorBySource(sourceColor, pickedColor, safeActiveIndex);
+      }
+      return;
+    }
+
     if (typeof value === 'object' && value !== null && 'stops' in value) {
       if (isShape || (selected && !isPath && !isDrawing && !isImage)) {
         canvasManager?.setSelectedGradient(value, false);
@@ -127,7 +145,41 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
 
   return (
     <div className="flex flex-col overflow-hidden bg-white select-none">
+      {hasMultipleColors && (
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/70">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
+              Element Colours
+            </span>
+            <span className="text-[10px] font-medium text-gray-400">
+              {safeActiveIndex + 1} of {editableColors.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {editableColors.map((col, i) => (
+              <button
+                key={`${col}-${i}`}
+                type="button"
+                onClick={() => canvasManager?.setActiveEditableColorIndex(i)}
+                title={`Colour ${i + 1}: ${col}`}
+                className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${
+                  safeActiveIndex === i
+                    ? 'border-[#7c3aed] ring-2 ring-[#7c3aed] ring-offset-1 bg-white shadow-xs scale-105'
+                    : 'border-gray-200 bg-white hover:border-gray-300 hover:scale-102'
+                }`}
+              >
+                <div
+                  className="w-6 h-6 rounded-lg border border-black/15 shadow-2xs"
+                  style={{ backgroundColor: col }}
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <ColorPicker
+        key={hasMultipleColors ? `multi-${safeActiveIndex}-${editableColors[safeActiveIndex]}` : 'single-color'}
         label={label}
         value={currentValue}
         onChange={handleColorChange}
