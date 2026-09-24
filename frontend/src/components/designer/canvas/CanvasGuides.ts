@@ -46,10 +46,11 @@ export class CanvasGuides {
     this.dimensions = dims;
 
     const dpi = dims.dpi || 300;
+    const bleedPx = Math.max(0, Number(dims.bleedPx) || 0);
 
     this.userGuides = this.userGuides.map((guide) => ({
       ...guide,
-      posMm: Number(((guide.posPx / dpi) * 25.4).toFixed(1)),
+      posMm: Number((((guide.posPx - bleedPx) / dpi) * 25.4).toFixed(1)),
     }));
 
     this.canvas?.requestRenderAll();
@@ -145,7 +146,7 @@ export class CanvasGuides {
     posPx: number
   ): UserRulerGuide {
     const dpi = this.dimensions.dpi || 300;
-    const { artworkWidth, artworkHeight } = this.getArtworkBounds();
+    const { artworkWidth, artworkHeight, bleedPx } = this.getArtworkBounds();
 
     const maximum =
       orientation === 'horizontal' ? artworkHeight : artworkWidth;
@@ -158,7 +159,7 @@ export class CanvasGuides {
         .substring(2, 7)}`,
       orientation,
       posPx: normalizedPosPx,
-      posMm: Number(((normalizedPosPx / dpi) * 25.4).toFixed(1)),
+      posMm: Number((((normalizedPosPx - bleedPx) / dpi) * 25.4).toFixed(1)),
     };
 
     this.userGuides.push(guide);
@@ -176,7 +177,7 @@ export class CanvasGuides {
     if (index < 0) return null;
 
     const current = this.userGuides[index];
-    const { artworkWidth, artworkHeight } = this.getArtworkBounds();
+    const { artworkWidth, artworkHeight, bleedPx } = this.getArtworkBounds();
 
     const maximum =
       current.orientation === 'horizontal'
@@ -189,7 +190,7 @@ export class CanvasGuides {
     const updated: UserRulerGuide = {
       ...current,
       posPx: normalizedPosPx,
-      posMm: Number(((normalizedPosPx / dpi) * 25.4).toFixed(1)),
+      posMm: Number((((normalizedPosPx - bleedPx) / dpi) * 25.4).toFixed(1)),
     };
 
     this.userGuides[index] = updated;
@@ -213,7 +214,12 @@ export class CanvasGuides {
   }
 
   public setUserGuides(guides: UserRulerGuide[]): void {
-    this.userGuides = guides.map((guide) => ({ ...guide }));
+    const { bleedPx } = this.getArtworkBounds();
+    const dpi = this.dimensions.dpi || 300;
+    this.userGuides = guides.map((guide) => ({
+      ...guide,
+      posMm: Number((((guide.posPx - bleedPx) / dpi) * 25.4).toFixed(1)),
+    }));
     this.canvas?.requestRenderAll();
   }
 

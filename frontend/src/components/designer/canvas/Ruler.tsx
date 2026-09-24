@@ -23,6 +23,7 @@ const TICK_MEDIUM_COLOR = '#94a3b8';
 const TICK_MINOR_COLOR = '#cbd5e1';
 const LABEL_COLOR = '#475569';
 const ACTIVE_COLOR = '#7d2ae8';
+const CURSOR_COLOR = '#94a3b8';
 
 interface RulerProps {
   zoom: number;
@@ -138,6 +139,14 @@ export const Ruler: React.FC<RulerProps> = ({
 
   const [guideRevision, setGuideRevision] = useState(0);
   const [selectionRevision, setSelectionRevision] = useState(0);
+
+  const userGuides = useMemo(
+    () =>
+      canvasManager?.getUserGuides?.() ??
+      [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canvasManager, guideRevision]
+  );
 
   const widthMm = Math.max(dimensions.widthMm || 1, 1);
   const heightMm = Math.max(dimensions.heightMm || 1, 1);
@@ -1003,12 +1012,59 @@ export const Ruler: React.FC<RulerProps> = ({
         );
       }
 
-      // Cursor
-      if (cursor) {
-        ctx.strokeStyle =
-          ACTIVE_COLOR;
+      // User vertical guidelines on top ruler
+      userGuides.forEach((guide) => {
+        if (guide.orientation !== 'vertical') return;
+        const scale =
+          geometry.paperWidth /
+          Math.max(artworkWidthPx, 1);
+        const x =
+          Math.round(
+            geometry.originX +
+            guide.posPx * scale
+          ) + 0.5;
 
-        ctx.lineWidth = 1.5;
+        if (
+          x < -10 ||
+          x > geometry.viewportWidth + 10
+        ) {
+          return;
+        }
+
+        ctx.strokeStyle = ACTIVE_COLOR;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, RULER_SIZE);
+        ctx.stroke();
+      });
+
+      // Active dragging vertical guide on top ruler
+      if (draggingGuide && draggingGuide.orientation === 'vertical') {
+        const x =
+          Math.round(
+            draggingGuide.viewportPosition
+          ) + 0.5;
+
+        if (
+          x >= 0 &&
+          x <= geometry.viewportWidth
+        ) {
+          ctx.strokeStyle = ACTIVE_COLOR;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, RULER_SIZE);
+          ctx.stroke();
+        }
+      }
+
+      // Cursor tracking indicator (distinct from guidelines)
+      if (cursor && !draggingGuide) {
+        ctx.strokeStyle =
+          CURSOR_COLOR;
+
+        ctx.lineWidth = 1;
 
         ctx.beginPath();
 
@@ -1027,10 +1083,12 @@ export const Ruler: React.FC<RulerProps> = ({
     },
       [
         cursor,
+        draggingGuide,
         geometry,
         prepareCanvas,
         pxPerCmX,
         selectedBounds,
+        userGuides,
         widthMm,
         artworkWidthPx,
         trimOriginX,
@@ -1505,12 +1563,59 @@ export const Ruler: React.FC<RulerProps> = ({
         ctx.restore();
       }
 
-      // Cursor
-      if (cursor) {
-        ctx.strokeStyle =
-          ACTIVE_COLOR;
+      // User horizontal guidelines on left ruler
+      userGuides.forEach((guide) => {
+        if (guide.orientation !== 'horizontal') return;
+        const scale =
+          geometry.paperHeight /
+          Math.max(artworkHeightPx, 1);
+        const y =
+          Math.round(
+            geometry.originY +
+            guide.posPx * scale
+          ) + 0.5;
 
-        ctx.lineWidth = 1.5;
+        if (
+          y < -10 ||
+          y > geometry.viewportHeight + 10
+        ) {
+          return;
+        }
+
+        ctx.strokeStyle = ACTIVE_COLOR;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(RULER_SIZE, y);
+        ctx.stroke();
+      });
+
+      // Active dragging horizontal guide on left ruler
+      if (draggingGuide && draggingGuide.orientation === 'horizontal') {
+        const y =
+          Math.round(
+            draggingGuide.viewportPosition
+          ) + 0.5;
+
+        if (
+          y >= 0 &&
+          y <= geometry.viewportHeight
+        ) {
+          ctx.strokeStyle = ACTIVE_COLOR;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(RULER_SIZE, y);
+          ctx.stroke();
+        }
+      }
+
+      // Cursor tracking indicator (distinct from guidelines)
+      if (cursor && !draggingGuide) {
+        ctx.strokeStyle =
+          CURSOR_COLOR;
+
+        ctx.lineWidth = 1;
 
         ctx.beginPath();
 
@@ -1529,6 +1634,7 @@ export const Ruler: React.FC<RulerProps> = ({
     },
       [
         cursor,
+        draggingGuide,
         geometry,
         heightMm,
         artworkHeightPx,
@@ -1536,6 +1642,7 @@ export const Ruler: React.FC<RulerProps> = ({
         prepareCanvas,
         pxPerCmY,
         selectedBounds,
+        userGuides,
         yPxPerMm,
         canvasPxToRulerMm,
       ]
@@ -1628,6 +1735,11 @@ export const Ruler: React.FC<RulerProps> = ({
       handlePointerLeave
     );
 
+    window.addEventListener(
+      'blur',
+      handlePointerLeave
+    );
+
     return () => {
       viewport.removeEventListener(
         'pointermove',
@@ -1636,6 +1748,11 @@ export const Ruler: React.FC<RulerProps> = ({
 
       viewport.removeEventListener(
         'pointerleave',
+        handlePointerLeave
+      );
+
+      window.removeEventListener(
+        'blur',
         handlePointerLeave
       );
 
@@ -1920,14 +2037,6 @@ export const Ruler: React.FC<RulerProps> = ({
     window.addEventListener('pointerup', handleUp, { once: true });
     window.addEventListener('pointercancel', handleCancel, { once: true });
   };
-
-  const userGuides = useMemo(
-    () =>
-      canvasManager?.getUserGuides?.() ??
-      [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canvasManager, guideRevision]
-  );
 
   const clearGuides = () => {
     canvasManager?.clearUserGuides?.();

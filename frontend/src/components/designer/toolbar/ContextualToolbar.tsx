@@ -1184,7 +1184,8 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </svg>
           </button>
 
-          {/* Fit Image into Shape Button */}
+          {/* Fit Image into Shape Button (Commented out) */}
+          {/*
           <button
             type="button"
             onClick={() => {
@@ -1198,6 +1199,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             <ImageIcon className="w-3.5 h-3.5 text-purple-600" />
             <span>Fit Image</span>
           </button>
+          */}
 
           {/* Canva Corner Rounding Icon Button (for Rect / Shapes / Polygons / Triangles / Stars / SVGs) */}
           {(isShape || selected.type === 'rect' || selected.type === 'shape' || selected.type === 'triangle' || selected.type === 'polygon' || selected.type === 'path') &&
