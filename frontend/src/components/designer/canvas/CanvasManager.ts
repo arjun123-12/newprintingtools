@@ -77,6 +77,28 @@ import {
 applyCanvaControlsGlobal();
 installShadowSilhouetteHook();
 
+// Patch Fabric's Blur filter WebGL fragment shader to safely handle transparent / background-removed images without division by zero
+if (
+  typeof filters !== 'undefined' &&
+  filters.Blur &&
+  filters.Blur.prototype &&
+  typeof filters.Blur.prototype.getFragmentSource === 'function'
+) {
+  const originalBlurGetFragmentSource = filters.Blur.prototype.getFragmentSource;
+  filters.Blur.prototype.getFragmentSource = function () {
+    const src = originalBlurGetFragmentSource.call(this);
+    return src
+      .replace(
+        'gl_FragColor.rgb = color.rgb / totalC;',
+        'gl_FragColor.rgb = totalC > 0.0001 ? (color.rgb / totalC) : vec3(0.0);'
+      )
+      .replace(
+        'gl_FragColor.a = color.a / totalA;',
+        'gl_FragColor.a = totalA > 0.0001 ? (color.a / totalA) : 0.0;'
+      );
+  };
+}
+
 // Ensure all Fabric text objects render directly from vector glyphs (no blurry bitmap caching)
 (Textbox as any).ownDefaults = {
   ...((Textbox as any).ownDefaults || {}),
@@ -270,6 +292,9 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   'originalShapeType',
   '_shadowSettings',
   '_activeEffect',
+  '_activeEffects',
+  '_secondaryShadow',
+  '_blurAmount',
   '_effectSettings',
   '_userStrokeEnabled',
   'cropX',
@@ -3460,6 +3485,15 @@ export class CanvasManager {
         if ((frameObj as any)._activeEffect) {
           (photoShapeGroup as any)._activeEffect = (frameObj as any)._activeEffect;
         }
+        if ((frameObj as any)._activeEffects) {
+          (photoShapeGroup as any)._activeEffects = { ...(frameObj as any)._activeEffects };
+        }
+        if ((frameObj as any)._secondaryShadow) {
+          (photoShapeGroup as any)._secondaryShadow = { ...(frameObj as any)._secondaryShadow };
+        }
+        if ((frameObj as any)._blurAmount !== undefined) {
+          (photoShapeGroup as any)._blurAmount = (frameObj as any)._blurAmount;
+        }
         if ((frameObj as any)._effectSettings) {
           (photoShapeGroup as any)._effectSettings = { ...(frameObj as any)._effectSettings };
         }
@@ -3537,6 +3571,15 @@ export class CanvasManager {
         }
         if ((frameObj as any)._activeEffect) {
           (replacement as any)._activeEffect = (frameObj as any)._activeEffect;
+        }
+        if ((frameObj as any)._activeEffects) {
+          (replacement as any)._activeEffects = { ...(frameObj as any)._activeEffects };
+        }
+        if ((frameObj as any)._secondaryShadow) {
+          (replacement as any)._secondaryShadow = { ...(frameObj as any)._secondaryShadow };
+        }
+        if ((frameObj as any)._blurAmount !== undefined) {
+          (replacement as any)._blurAmount = (frameObj as any)._blurAmount;
         }
         if ((frameObj as any)._effectSettings) {
           (replacement as any)._effectSettings = { ...(frameObj as any)._effectSettings };
@@ -3739,6 +3782,15 @@ export class CanvasManager {
       }
       if ((frameObj as any)._activeEffect) {
         (photoShapeGroup as any)._activeEffect = (frameObj as any)._activeEffect;
+      }
+      if ((frameObj as any)._activeEffects) {
+        (photoShapeGroup as any)._activeEffects = { ...(frameObj as any)._activeEffects };
+      }
+      if ((frameObj as any)._secondaryShadow) {
+        (photoShapeGroup as any)._secondaryShadow = { ...(frameObj as any)._secondaryShadow };
+      }
+      if ((frameObj as any)._blurAmount !== undefined) {
+        (photoShapeGroup as any)._blurAmount = (frameObj as any)._blurAmount;
       }
       if ((frameObj as any)._effectSettings) {
         (photoShapeGroup as any)._effectSettings = { ...(frameObj as any)._effectSettings };
@@ -4873,7 +4925,6 @@ export class CanvasManager {
       this.isPhotoDropFrame(obj) ||
       Boolean(obj.get('isShape' as any)) ||
       sourceType === 'shape' ||
-      sourceType === 'element' ||
       sourceType === 'frame' ||
       type === 'group' ||
       type === 'path' ||
@@ -4885,6 +4936,10 @@ export class CanvasManager {
       type === 'textbox' ||
       type === 'text'
     ) {
+      return false;
+    }
+
+    if (sourceType === 'element' && !(type === 'image' || obj instanceof FabricImage)) {
       return false;
     }
 
@@ -5771,6 +5826,19 @@ export class CanvasManager {
       newImg.set('processedUrl' as any, null);
       newImg.set('processingType' as any, null);
 
+      // Preserve adjustments, effects and filters across restore
+      (newImg as any)._adjustments = (active as any)._adjustments ? { ...(active as any)._adjustments } : undefined;
+      (newImg as any)._activeEffect = (active as any)._activeEffect;
+      (newImg as any)._activeEffects = (active as any)._activeEffects ? { ...(active as any)._activeEffects } : undefined;
+      (newImg as any)._secondaryShadow = (active as any)._secondaryShadow ? { ...(active as any)._secondaryShadow } : undefined;
+      (newImg as any)._blurAmount = (active as any)._blurAmount;
+      (newImg as any)._effectSettings = (active as any)._effectSettings ? { ...(active as any)._effectSettings } : undefined;
+      (newImg as any)._activeFilterPreset = (active as any)._activeFilterPreset;
+      (newImg as any)._filterIntensity = (active as any)._filterIntensity;
+      if ((newImg as any)._adjustments || (newImg as any)._activeFilterPreset) {
+        this.reapplyCombinedImageFilters(newImg);
+      }
+
       this.canvas.insertAt(prevIndex, newImg);
       newImg.setCoords();
 
@@ -5877,6 +5945,19 @@ export class CanvasManager {
     newImg.set('processedFileId' as any, bgResult.filePath || bgResult.url);
     newImg.set('processedUrl' as any, resultUrl);
     newImg.set('processingType' as any, 'remove_background');
+
+    // Preserve adjustments, effects and blur across background removal
+    (newImg as any)._adjustments = (active as any)._adjustments ? { ...(active as any)._adjustments } : undefined;
+    (newImg as any)._activeEffect = (active as any)._activeEffect;
+    (newImg as any)._activeEffects = (active as any)._activeEffects ? { ...(active as any)._activeEffects } : undefined;
+    (newImg as any)._secondaryShadow = (active as any)._secondaryShadow ? { ...(active as any)._secondaryShadow } : undefined;
+    (newImg as any)._blurAmount = (active as any)._blurAmount;
+    (newImg as any)._effectSettings = (active as any)._effectSettings ? { ...(active as any)._effectSettings } : undefined;
+    (newImg as any)._activeFilterPreset = (active as any)._activeFilterPreset;
+    (newImg as any)._filterIntensity = (active as any)._filterIntensity;
+    if ((newImg as any)._adjustments || (newImg as any)._activeFilterPreset) {
+      this.reapplyCombinedImageFilters(newImg);
+    }
 
     this.canvas.insertAt(prevIndex, newImg);
     newImg.setCoords();
@@ -6648,11 +6729,18 @@ export class CanvasManager {
         textObj.set('baseStrokeWidth' as any, baseW);
         textObj.set('strokePosition' as any, 'outside');
       } else {
-        active.set({ stroke: nextStroke, strokeUniform: true, paintFirst: 'fill', dirty: true });
+        active.set({
+          stroke: nextStroke,
+          strokeUniform: true,
+          strokePosition: 'inside',
+          paintFirst: 'fill',
+          dirty: true,
+        });
       }
+      active.setCoords();
       syncObjectCornerGeometry(active);
       syncVisualEffectsGeometry(active);
-    } else if (prop === 'strokeWidth') {
+    } else if (prop === 'strokeWidth' || prop === 'baseStrokeWidth') {
       const baseW = Math.max(0, Number(value) || 0);
       active.set('baseStrokeWidth' as any, baseW);
       if (isText) {
@@ -6670,11 +6758,17 @@ export class CanvasManager {
           textObj.set('stroke', '#000000');
         }
       } else {
-        active.set({ strokeWidth: baseW, strokeUniform: true, dirty: true });
+        active.set({
+          strokeWidth: baseW,
+          strokeUniform: true,
+          strokePosition: 'inside',
+          dirty: true,
+        });
         if (baseW > 0 && (!active.stroke || active.stroke === 'transparent' || active.stroke === 'none')) {
           active.set('stroke', '#000000');
         }
       }
+      active.setCoords();
       syncObjectCornerGeometry(active);
       syncVisualEffectsGeometry(active);
     } else if (prop === 'strokePosition') {
@@ -6878,237 +6972,426 @@ export class CanvasManager {
   }
 
   private resetObjectEffectStyles(obj: FabricObject): void {
+    if ((obj as any)._originalCharStyles) {
+      (obj as any).styles = JSON.parse(JSON.stringify((obj as any)._originalCharStyles));
+      delete (obj as any)._originalCharStyles;
+    }
     if ((obj as any)._originalFill !== undefined) {
       obj.set('fill', (obj as any)._originalFill);
     }
     obj.set('shadow', null);
+    (obj as any)._secondaryShadow = null;
+    (obj as any)._secondaryShadows = [];
+    (obj as any)._blurAmount = 0;
     if ((obj as any)._originalStroke !== undefined) {
       obj.set('stroke', (obj as any)._originalStroke);
       obj.set('strokeWidth', (obj as any)._originalStrokeWidth ?? 0);
     } else {
+      obj.set('stroke', null);
       obj.set('strokeWidth', 0);
     }
+    (obj as any).initDimensions?.();
+    const targetImages = this.getImagesFromObject(obj);
+    if (targetImages.length > 0 || this.isImageObject(obj)) {
+      this.applyImageAdjustment({ blur: 0 }, obj);
+    }
+  }
+
+  public recomputeObjectEffects(obj: FabricObject): void {
+    if (!obj) return;
+    this.ensureOriginalStylesSaved(obj);
+
+    const activeEffects: Record<string, boolean> = (obj as any)._activeEffects || {};
+    const effectSettings: Record<string, any> = (obj as any)._effectSettings || {};
+
+    const isText =
+      obj instanceof Textbox ||
+      obj instanceof IText ||
+      (obj as any).type === 'textbox' ||
+      (obj as any).type === 'itext' ||
+      (obj as any).type === 'text';
+
+    const isDarkColor = (colorStr: string): boolean => {
+      if (!colorStr || colorStr === 'transparent') return false;
+      const lower = colorStr.toLowerCase().trim();
+      if (lower === '#000000' || lower === '#111827' || lower === '#1f2937' || lower === '#000' || lower === 'black') return true;
+      if (lower.startsWith('#') && lower.length >= 7) {
+        const r = parseInt(lower.slice(1, 3), 16) || 0;
+        const g = parseInt(lower.slice(3, 5), 16) || 0;
+        const b = parseInt(lower.slice(5, 7), 16) || 0;
+        return (r * 0.299 + g * 0.587 + b * 0.114) < 90;
+      }
+      return false;
+    };
+
+    // 1. Fill & Stroke (Hollow, Outline, Neon, or Original)
+    const isHollow = Boolean(activeEffects.hollow);
+    const isOutline = Boolean(activeEffects.outline);
+    const isNeon = Boolean(activeEffects.neon);
+
+    if (isHollow) {
+      const origFill = (obj as any)._originalFill || obj.fill || '#000000';
+      const hollowSettings = {
+        thickness: 2,
+        color: origFill === 'transparent' ? '#000000' : origFill,
+        ...effectSettings.hollow,
+      };
+
+      // Save character-level styles if present so we can restore them when Hollow is turned off
+      if ((obj as any).styles && !(obj as any)._originalCharStyles) {
+        (obj as any)._originalCharStyles = JSON.parse(JSON.stringify((obj as any).styles));
+      }
+      // Remove character-level fill overrides so transparent fill applies across all letters
+      if ((obj as any).styles) {
+        for (const lineKey of Object.keys((obj as any).styles)) {
+          const line = (obj as any).styles[lineKey];
+          if (line) {
+            for (const charKey of Object.keys(line)) {
+              if (line[charKey] && line[charKey].fill) {
+                delete line[charKey].fill;
+              }
+            }
+          }
+        }
+      }
+
+      obj.set('fill', 'transparent');
+      const strokeColor = isOutline && effectSettings.outline?.color ? effectSettings.outline.color : hollowSettings.color;
+      const strokeThickness = isOutline && effectSettings.outline?.thickness !== undefined ? effectSettings.outline.thickness : hollowSettings.thickness;
+      obj.set('stroke', strokeColor);
+      obj.set('strokeWidth', isText ? strokeThickness * 2 : strokeThickness);
+      obj.set('paintFirst', 'stroke');
+      obj.set('strokeUniform', true);
+      obj.set('strokeLineJoin', 'round');
+      obj.set('strokeLineCap', 'round');
+      if (isText) {
+        (obj as any).set?.('strokePosition', 'outside');
+        (obj as any).set?.('baseStrokeWidth', strokeThickness);
+        (obj as any).initDimensions?.();
+      }
+    } else if (isOutline) {
+      if ((obj as any)._originalCharStyles) {
+        (obj as any).styles = JSON.parse(JSON.stringify((obj as any)._originalCharStyles));
+        delete (obj as any)._originalCharStyles;
+      }
+      const origFill = (obj as any)._originalFill || obj.fill || '#000000';
+      if ((obj as any)._originalFill !== undefined) {
+        obj.set('fill', (obj as any)._originalFill);
+      }
+
+      // If text is dark and outline is black, provide a contrasting outline default (#ffffff or #6366f1)
+      const defaultOutlineColor = isDarkColor(String(origFill)) ? '#6366f1' : '#000000';
+      const outlineSettings = {
+        thickness: 3,
+        color: defaultOutlineColor,
+        ...effectSettings.outline,
+      };
+
+      const strokeThickness = Math.max(1, outlineSettings.thickness || 3);
+      obj.set('stroke', outlineSettings.color);
+      obj.set('strokeWidth', isText ? strokeThickness * 2 : strokeThickness);
+      obj.set('paintFirst', 'stroke');
+      obj.set('strokeUniform', true);
+      obj.set('strokeLineJoin', 'round');
+      obj.set('strokeLineCap', 'round');
+      if (isText) {
+        (obj as any).set?.('strokePosition', 'outside');
+        (obj as any).set?.('baseStrokeWidth', strokeThickness);
+        (obj as any).initDimensions?.();
+      }
+    } else if (isNeon) {
+      if ((obj as any)._originalCharStyles) {
+        (obj as any).styles = JSON.parse(JSON.stringify((obj as any)._originalCharStyles));
+        delete (obj as any)._originalCharStyles;
+      }
+      const neonSettings = {
+        intensity: 50,
+        color: '#ec4899',
+        ...effectSettings.neon,
+      };
+      if ((obj as any)._originalFill !== undefined) {
+        obj.set('fill', (obj as any)._originalFill);
+      }
+      obj.set('stroke', neonSettings.color);
+      obj.set('strokeWidth', isText ? 3 : 1.5);
+      obj.set('paintFirst', 'stroke');
+      obj.set('strokeUniform', true);
+      obj.set('strokeLineJoin', 'round');
+      obj.set('strokeLineCap', 'round');
+      if (isText) {
+        (obj as any).set?.('strokePosition', 'outside');
+        (obj as any).set?.('baseStrokeWidth', 1.5);
+        (obj as any).initDimensions?.();
+      }
+    } else {
+      if ((obj as any)._originalCharStyles) {
+        (obj as any).styles = JSON.parse(JSON.stringify((obj as any)._originalCharStyles));
+        delete (obj as any)._originalCharStyles;
+      }
+      if ((obj as any)._originalFill !== undefined) {
+        obj.set('fill', (obj as any)._originalFill);
+      }
+      if ((obj as any)._originalStroke !== undefined) {
+        obj.set('stroke', (obj as any)._originalStroke);
+        obj.set('strokeWidth', (obj as any)._originalStrokeWidth ?? 0);
+      } else {
+        obj.set('stroke', null);
+        obj.set('strokeWidth', 0);
+      }
+      if (isText) {
+        (obj as any).initDimensions?.();
+      }
+    }
+
+    // 2. Shadows & Lighting (Shadow, Lift, Glow, Neon)
+    const isShadow = Boolean(activeEffects.shadow);
+    const isLift = Boolean(activeEffects.lift);
+    const isGlow = Boolean(activeEffects.glow);
+
+    // Drop Shadow
+    let dropShadowObj: { color: string; blur: number; offsetX: number; offsetY: number } | null = null;
+    if (isShadow) {
+      const s = {
+        direction: -45,
+        offset: 20,
+        blur: 10,
+        transparency: 50,
+        color: '#000000',
+        ...effectSettings.shadow,
+      };
+      const rad = (s.direction * Math.PI) / 180;
+      const offsetX = Math.round(s.offset * Math.cos(rad));
+      const offsetY = Math.round(s.offset * Math.sin(rad));
+      const alpha = Math.max(0.1, Math.min(1, (s.transparency ?? 50) / 100));
+      const shadowColor = this.hexToRgba(s.color, alpha);
+      dropShadowObj = {
+        color: shadowColor,
+        blur: s.blur,
+        offsetX,
+        offsetY,
+      };
+      (obj as any)._shadowSettings = { ...s };
+    }
+
+    // Lift
+    let liftObj: { color: string; blur: number; offsetX: number; offsetY: number } | null = null;
+    if (isLift) {
+      const l = {
+        intensity: 50,
+        blur: 24,
+        transparency: 60,
+        color: '#000000',
+        ...effectSettings.lift,
+      };
+      const alpha = Math.max(0.25, Math.min(1, (l.transparency ?? 60) / 100));
+      const shadowColor = this.hexToRgba(l.color, alpha);
+      const intensity = l.intensity ?? 50;
+      const offsetY = Math.max(3, Math.round((intensity / 100) * 20));
+      const blur = Math.max(6, l.blur ?? Math.round((intensity / 100) * 48));
+      liftObj = {
+        color: shadowColor,
+        blur,
+        offsetX: 0,
+        offsetY,
+      };
+    }
+
+    // Glow
+    let glowObj: { color: string; blur: number; offsetX: number; offsetY: number } | null = null;
+    if (isGlow) {
+      const g = {
+        blur: 25,
+        transparency: 85,
+        color: '#2563eb',
+        ...effectSettings.glow,
+      };
+      const alpha = Math.max(0.3, Math.min(1, (g.transparency ?? 85) / 100));
+      const glowColor = this.hexToRgba(g.color, alpha);
+      glowObj = {
+        color: glowColor,
+        blur: Math.max(8, g.blur || 25),
+        offsetX: 0,
+        offsetY: 0,
+      };
+    }
+
+    // Neon Glow
+    let neonGlowObj: { color: string; blur: number; offsetX: number; offsetY: number } | null = null;
+    if (isNeon) {
+      const n = {
+        intensity: 50,
+        color: '#ec4899',
+        ...effectSettings.neon,
+      };
+      const intensity = n.intensity ?? 50;
+      const blur = Math.max(10, Math.round(15 + (intensity / 100) * 45));
+      neonGlowObj = {
+        color: n.color,
+        blur,
+        offsetX: 0,
+        offsetY: 0,
+      };
+    }
+
+    // Collect all active lighting effects in priority order
+    const allLighting: Array<{ color: string; blur: number; offsetX: number; offsetY: number }> = [];
+    if (dropShadowObj) allLighting.push(dropShadowObj);
+    if (liftObj) allLighting.push(liftObj);
+    if (glowObj) allLighting.push(glowObj);
+    if (neonGlowObj) allLighting.push(neonGlowObj);
+
+    let primaryShadow: Shadow | null = null;
+    if (allLighting.length > 0) {
+      primaryShadow = new Shadow(allLighting[0]);
+      obj.set('shadow', primaryShadow);
+      (obj as any)._secondaryShadows = allLighting.slice(1);
+      (obj as any)._secondaryShadow = allLighting[1] || null;
+    } else {
+      obj.set('shadow', null);
+      (obj as any)._secondaryShadows = [];
+      (obj as any)._secondaryShadow = null;
+    }
+
+    // 3. Blur
+    const isBlur = Boolean(activeEffects.blur);
+    const targetImages = this.getImagesFromObject(obj);
+    if (isBlur) {
+      const b = { blur: 25, ...effectSettings.blur };
+      if (targetImages.length > 0 || this.isImageObject(obj)) {
+        this.applyImageAdjustment({ blur: b.blur }, obj);
+      } else {
+        (obj as any)._blurAmount = b.blur;
+        if (!primaryShadow) {
+          obj.set('shadow', new Shadow({
+            color: 'rgba(0, 0, 0, 0.4)',
+            blur: Math.round((b.blur / 100) * 40),
+            offsetX: 0,
+            offsetY: 0,
+          }));
+        }
+      }
+    } else {
+      (obj as any)._blurAmount = 0;
+      if (targetImages.length > 0 || this.isImageObject(obj)) {
+        this.applyImageAdjustment({ blur: 0 }, obj);
+      }
+    }
+
+    (obj as any).dirty = true;
   }
 
   public applyEffect(
     effectType: 'none' | 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon' | 'blur',
-    customSettings?: any
+    customSettings?: any,
+    options?: { remove?: boolean }
+  ): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+
+    if (effectType === 'none') {
+      this.clearAllEffects();
+      return;
+    }
+
+    if (options?.remove) {
+      this.removeEffect(effectType as any);
+      return;
+    }
+
+    const targets = active instanceof ActiveSelection ? active.getObjects() : [active];
+
+    for (const obj of targets) {
+      this.ensureOriginalStylesSaved(obj);
+      if (!(obj as any)._activeEffects) (obj as any)._activeEffects = {};
+      (obj as any)._activeEffects[effectType] = true;
+      (obj as any)._activeEffect = effectType;
+      if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
+      if (customSettings) {
+        (obj as any)._effectSettings[effectType] = {
+          ...((obj as any)._effectSettings[effectType] || {}),
+          ...customSettings,
+        };
+      }
+      this.recomputeObjectEffects(obj);
+      this.syncVisualEffectsGeometry(obj);
+    }
+
+    if (!(active as any)._activeEffects) (active as any)._activeEffects = {};
+    (active as any)._activeEffects[effectType] = true;
+    (active as any)._activeEffect = effectType;
+    if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
+    if (customSettings) {
+      (active as any)._effectSettings[effectType] = {
+        ...((active as any)._effectSettings[effectType] || {}),
+        ...customSettings,
+      };
+    }
+    this.syncVisualEffectsGeometry(active);
+
+    (active as any).dirty = true;
+    active.setCoords();
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+    this.notifyLayers();
+  }
+
+  public removeEffect(
+    effectType: 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon' | 'blur'
   ): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
     if (!active) return;
 
     const targets = active instanceof ActiveSelection ? active.getObjects() : [active];
-
-    if (effectType === 'shadow') {
-      const settings = {
-        direction: customSettings?.direction ?? -45,
-        offset: customSettings?.offset ?? 20,
-        blur: customSettings?.blur ?? 10,
-        transparency: customSettings?.transparency ?? 30,
-        color: customSettings?.color ?? '#000000',
-      };
-      const rad = (settings.direction * Math.PI) / 180;
-      const offsetX = Math.round(settings.offset * Math.cos(rad));
-      const offsetY = Math.round(settings.offset * Math.sin(rad));
-      const alpha = Math.max(0, Math.min(1, settings.transparency / 100));
-      const shadowColor = this.hexToRgba(settings.color, alpha);
-
-      for (const obj of targets) {
-        this.ensureOriginalStylesSaved(obj);
-        this.resetObjectEffectStyles(obj);
-        obj.set('shadow', new Shadow({
-          color: shadowColor,
-          blur: settings.blur,
-          offsetX,
-          offsetY,
-        }));
-        (obj as any)._shadowSettings = { ...settings };
-        (obj as any)._activeEffect = 'shadow';
-        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
-        (obj as any)._effectSettings.shadow = { ...settings };
-        (obj as any).dirty = true;
-      }
-      (active as any)._shadowSettings = { ...settings };
-      (active as any)._activeEffect = 'shadow';
-      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
-      (active as any)._effectSettings.shadow = { ...settings };
-    } else if (effectType === 'lift') {
-      const settings = {
-        intensity: customSettings?.intensity ?? 50,
-        blur: customSettings?.blur ?? 24,
-        transparency: customSettings?.transparency ?? 30,
-        color: customSettings?.color ?? '#000000',
-      };
-      const alpha = Math.max(0, Math.min(1, settings.transparency / 100));
-      const shadowColor = this.hexToRgba(settings.color, alpha);
-      const offsetY = Math.round((settings.intensity / 100) * 20);
-      const blur = settings.blur ?? Math.round((settings.intensity / 100) * 48);
-
-      for (const obj of targets) {
-        this.ensureOriginalStylesSaved(obj);
-        this.resetObjectEffectStyles(obj);
-        obj.set('shadow', new Shadow({
-          color: shadowColor,
-          blur,
-          offsetX: 0,
-          offsetY,
-        }));
-        (obj as any)._activeEffect = 'lift';
-        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
-        (obj as any)._effectSettings.lift = { ...settings };
-        (obj as any).dirty = true;
-      }
-      (active as any)._activeEffect = 'lift';
-      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
-      (active as any)._effectSettings.lift = { ...settings };
-    } else if (effectType === 'glow') {
-      const settings = {
-        blur: customSettings?.blur ?? 20,
-        transparency: customSettings?.transparency ?? 80,
-        color: customSettings?.color ?? '#2563eb',
-      };
-      const alpha = Math.max(0, Math.min(1, settings.transparency / 100));
-      const glowColor = this.hexToRgba(settings.color, alpha);
-
-      for (const obj of targets) {
-        this.ensureOriginalStylesSaved(obj);
-        this.resetObjectEffectStyles(obj);
-        obj.set('shadow', new Shadow({
-          color: glowColor,
-          blur: settings.blur,
-          offsetX: 0,
-          offsetY: 0,
-        }));
-        (obj as any)._activeEffect = 'glow';
-        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
-        (obj as any)._effectSettings.glow = { ...settings };
-        (obj as any).dirty = true;
-      }
-      (active as any)._activeEffect = 'glow';
-      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
-      (active as any)._effectSettings.glow = { ...settings };
-    } else if (effectType === 'outline') {
-      const settings = {
-        thickness: customSettings?.thickness ?? 2,
-        color: customSettings?.color ?? '#000000',
-      };
-
-      for (const obj of targets) {
-        this.ensureOriginalStylesSaved(obj);
-        this.resetObjectEffectStyles(obj);
-        obj.set({
-          stroke: settings.color,
-          strokeWidth: settings.thickness,
-          shadow: null,
-        });
-        (obj as any)._activeEffect = 'outline';
-        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
-        (obj as any)._effectSettings.outline = { ...settings };
-        (obj as any).dirty = true;
-      }
-      (active as any)._activeEffect = 'outline';
-      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
-      (active as any)._effectSettings.outline = { ...settings };
-    } else if (effectType === 'hollow') {
-      const fallbackColor = typeof active.stroke === 'string' && active.stroke !== 'transparent'
-        ? active.stroke
-        : (typeof active.fill === 'string' && active.fill !== 'transparent' ? active.fill : '#000000');
-      const settings = {
-        thickness: customSettings?.thickness ?? 2,
-        color: customSettings?.color ?? fallbackColor,
-      };
-
-      for (const obj of targets) {
-        this.ensureOriginalStylesSaved(obj);
-        this.resetObjectEffectStyles(obj);
-        obj.set({
-          fill: 'transparent',
-          stroke: settings.color,
-          strokeWidth: settings.thickness,
-          shadow: null,
-        });
-        (obj as any)._activeEffect = 'hollow';
-        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
-        (obj as any)._effectSettings.hollow = { ...settings };
-        (obj as any).dirty = true;
-      }
-      (active as any)._activeEffect = 'hollow';
-      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
-      (active as any)._effectSettings.hollow = { ...settings };
-    } else if (effectType === 'neon') {
-      const settings = {
-        intensity: customSettings?.intensity ?? 50,
-        color: customSettings?.color ?? '#ec4899',
-      };
-      const blur = Math.max(5, Math.round(10 + (settings.intensity / 100) * 40));
-
-      for (const obj of targets) {
-        this.ensureOriginalStylesSaved(obj);
-        this.resetObjectEffectStyles(obj);
-        obj.set({
-          stroke: settings.color,
-          strokeWidth: 1,
-          shadow: new Shadow({ color: settings.color, blur, offsetX: 0, offsetY: 0 }),
-        });
-        (obj as any)._activeEffect = 'neon';
-        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
-        (obj as any)._effectSettings.neon = { ...settings };
-        (obj as any).dirty = true;
-      }
-      (active as any)._activeEffect = 'neon';
-      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
-      (active as any)._effectSettings.neon = { ...settings };
-    } else if (effectType === 'blur') {
-      const settings = {
-        blur: customSettings?.blur ?? 25,
-      };
-
-      for (const obj of targets) {
-        this.ensureOriginalStylesSaved(obj);
-        this.resetObjectEffectStyles(obj);
-
-        if (this.isImageObject(obj)) {
-          this.applyImageAdjustment({ blur: settings.blur });
-        } else {
-          obj.set({
-            shadow: new Shadow({
-              color: 'rgba(0, 0, 0, 0.4)',
-              blur: Math.round((settings.blur / 100) * 40),
-              offsetX: 0,
-              offsetY: 0,
-            }),
-          });
-        }
-        (obj as any)._activeEffect = 'blur';
-        if (!(obj as any)._effectSettings) (obj as any)._effectSettings = {};
-        (obj as any)._effectSettings.blur = { ...settings };
-        (obj as any).dirty = true;
-      }
-      (active as any)._activeEffect = 'blur';
-      if (!(active as any)._effectSettings) (active as any)._effectSettings = {};
-      (active as any)._effectSettings.blur = { ...settings };
-    } else {
-      // none
-      for (const obj of targets) {
-        if (this.isImageObject(obj)) {
-          this.applyImageAdjustment({ blur: 0 });
-        }
-        this.resetObjectEffectStyles(obj);
-        (obj as any)._activeEffect = 'none';
-        delete (obj as any)._shadowSettings;
-        delete (obj as any)._originalFill;
-        delete (obj as any)._originalStroke;
-        delete (obj as any)._originalStrokeWidth;
-        (obj as any).dirty = true;
-      }
-      (active as any)._activeEffect = 'none';
-      delete (active as any)._shadowSettings;
-    }
-
     for (const obj of targets) {
+      if ((obj as any)._activeEffects) {
+        (obj as any)._activeEffects[effectType] = false;
+      }
+      this.recomputeObjectEffects(obj);
       this.syncVisualEffectsGeometry(obj);
     }
+
+    if ((active as any)._activeEffects) {
+      (active as any)._activeEffects[effectType] = false;
+    }
+    this.recomputeObjectEffects(active);
+    this.syncVisualEffectsGeometry(active);
+
+    (active as any).dirty = true;
+    active.setCoords();
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+    this.notifyLayers();
+  }
+
+  public clearAllEffects(): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+
+    const targets = active instanceof ActiveSelection ? active.getObjects() : [active];
+    for (const obj of targets) {
+      const targetImages = this.getImagesFromObject(obj);
+      if (targetImages.length > 0 || this.isImageObject(obj)) {
+        this.applyImageAdjustment({ blur: 0 }, obj);
+      }
+      this.resetObjectEffectStyles(obj);
+      (obj as any)._activeEffects = {};
+      (obj as any)._activeEffect = 'none';
+      delete (obj as any)._shadowSettings;
+      delete (obj as any)._originalFill;
+      delete (obj as any)._originalStroke;
+      delete (obj as any)._originalStrokeWidth;
+      (obj as any).dirty = true;
+      this.syncVisualEffectsGeometry(obj);
+    }
+
+    (active as any)._activeEffects = {};
+    (active as any)._activeEffect = 'none';
+    delete (active as any)._shadowSettings;
     this.syncVisualEffectsGeometry(active);
 
     (active as any).dirty = true;
@@ -7192,6 +7475,7 @@ export class CanvasManager {
 
   public getTextEffectState(): {
     effect: string;
+    activeEffects: Record<string, boolean>;
     settings: any;
     allSettings?: Record<string, any>;
   } {
@@ -7200,6 +7484,7 @@ export class CanvasManager {
 
   public getObjectEffectState(): {
     effect: string;
+    activeEffects: Record<string, boolean>;
     settings: any;
     allSettings?: Record<string, any>;
   } {
@@ -7213,49 +7498,60 @@ export class CanvasManager {
       blur: { blur: 25 },
     };
 
-    if (!this.canvas) return { effect: 'none', settings: defaultSettings.shadow, allSettings: defaultSettings };
+    if (!this.canvas) return { effect: 'none', activeEffects: {}, settings: defaultSettings.shadow, allSettings: defaultSettings };
     const active = this.canvas.getActiveObject();
-    if (!active) return { effect: 'none', settings: defaultSettings.shadow, allSettings: defaultSettings };
+    if (!active) return { effect: 'none', activeEffects: {}, settings: defaultSettings.shadow, allSettings: defaultSettings };
 
-    const storedEffect = (active as any)._activeEffect;
-    const allSettings = (active as any)._effectSettings || {};
+    const activeEffects: Record<string, boolean> = (active as any)._activeEffects
+      ? { ...(active as any)._activeEffects }
+      : {};
+    const allSettings = { ...defaultSettings, ...((active as any)._effectSettings || {}) };
 
-    if (storedEffect && storedEffect !== 'none') {
-      const effectDefault = defaultSettings[storedEffect] || defaultSettings.shadow;
-      const stored = allSettings[storedEffect] || (storedEffect === 'shadow' ? (active as any)._shadowSettings : null);
-      return {
-        effect: storedEffect,
-        settings: stored ? { ...effectDefault, ...stored } : effectDefault,
-        allSettings: { ...defaultSettings, ...allSettings },
-      };
+    // Backward compatibility inference if _activeEffects was not explicitly initialized:
+    if (Object.keys(activeEffects).length === 0) {
+      const storedEffect = (active as any)._activeEffect;
+      if (storedEffect && storedEffect !== 'none') {
+        activeEffects[storedEffect] = true;
+      }
+      const shadow = active.shadow as Shadow | undefined;
+      if (shadow && shadow.color) {
+        if (!activeEffects.glow && !activeEffects.lift && !activeEffects.neon) {
+          activeEffects.shadow = true;
+          const blur = shadow.blur ?? 10;
+          const offsetX = shadow.offsetX ?? 6;
+          const offsetY = shadow.offsetY ?? 6;
+          const offset = Math.round(Math.sqrt(offsetX * offsetX + offsetY * offsetY));
+          const direction = Math.round((Math.atan2(offsetY, offsetX) * 180) / Math.PI);
+          const { color, transparency } = this.parseShadowColor(String(shadow.color));
+          allSettings.shadow = { direction, offset, blur, transparency, color };
+        }
+      }
+      if (active.stroke && (active.strokeWidth || 0) > 0) {
+        if (active.fill === 'transparent') {
+          activeEffects.hollow = true;
+        } else if (!activeEffects.neon) {
+          activeEffects.outline = true;
+        }
+      }
+      const targetImages = this.getImagesFromObject(active);
+      const targetImage = targetImages[0] || null;
+      const blurAdjustment = (targetImage as any)?._adjustments?.blur ?? (active as any)._adjustments?.blur ?? (active as any)._blurAmount;
+      if (typeof blurAdjustment === 'number' && blurAdjustment > 0) {
+        activeEffects.blur = true;
+        allSettings.blur = { blur: blurAdjustment };
+      }
     }
 
-    const shadow = active.shadow as Shadow | undefined;
-    if (shadow && shadow.color) {
-      const blur = shadow.blur ?? 10;
-      const offsetX = shadow.offsetX ?? 6;
-      const offsetY = shadow.offsetY ?? 6;
-      const offset = Math.round(Math.sqrt(offsetX * offsetX + offsetY * offsetY));
-      const direction = Math.round((Math.atan2(offsetY, offsetX) * 180) / Math.PI);
-      const { color, transparency } = this.parseShadowColor(String(shadow.color));
-      const shadowSettings = {
-        direction,
-        offset,
-        blur,
-        transparency,
-        color,
-      };
-      return {
-        effect: 'shadow',
-        settings: shadowSettings,
-        allSettings: {
-          ...defaultSettings,
-          shadow: shadowSettings,
-        },
-      };
-    }
+    const currentPrimary = (active as any)._activeEffect || (Object.keys(activeEffects).find(k => activeEffects[k]) || 'none');
+    const effectDefault = defaultSettings[currentPrimary] || defaultSettings.shadow;
+    const stored = allSettings[currentPrimary] || (currentPrimary === 'shadow' ? (active as any)._shadowSettings : null);
 
-    return { effect: 'none', settings: defaultSettings.shadow, allSettings: defaultSettings };
+    return {
+      effect: currentPrimary,
+      activeEffects,
+      settings: stored ? { ...effectDefault, ...stored } : effectDefault,
+      allSettings,
+    };
   }
 
   /**
@@ -7263,7 +7559,7 @@ export class CanvasManager {
    * nested groups and frame images. A group can cache its rendered bitmap, so
    * callers must also mark the selected root object as dirty after filtering.
    */
-  private getImagesFromObject(root: FabricObject | null): FabricImage[] {
+  public getImagesFromObject(root: FabricObject | null): FabricImage[] {
     if (!root) return [];
 
     const images: FabricImage[] = [];
@@ -7312,6 +7608,7 @@ export class CanvasManager {
       vibrance?: number;
       hue?: number;
       warmth?: number;
+      blur?: number;
     }
   ): any[] {
     const filterList: any[] = [];
@@ -7402,10 +7699,14 @@ export class CanvasManager {
       filterList.push(new filters.Gamma({ gamma: [1 + factor * 0.2, 1, 1 - factor * 0.2] }));
     }
 
+    if (adjustments.blur && adjustments.blur !== 0) {
+      filterList.push(new filters.Blur({ blur: Math.min(1, Math.max(0, adjustments.blur / 100)) }));
+    }
+
     return filterList;
   }
 
-  private reapplyCombinedImageFilters(targetImage: FabricImage): void {
+  public reapplyCombinedImageFilters(targetImage: FabricImage): void {
     const presetId = (targetImage as any)._activeFilterPreset || 'none';
     const intensity = typeof (targetImage as any)._filterIntensity === 'number'
       ? (targetImage as any)._filterIntensity
@@ -7482,6 +7783,10 @@ export class CanvasManager {
     targetImage.set('frameCropCenterY' as any, geometrySnapshot.frameCropCenterY);
     targetImage.set('photoFit' as any, geometrySnapshot.photoFit);
     targetImage.set('originalSrc' as any, geometrySnapshot.originalSrc);
+
+    if (typeof (targetImage as any).clearCache === 'function') {
+      (targetImage as any).clearCache();
+    }
 
     targetImage.setCoords();
 
@@ -7568,20 +7873,23 @@ export class CanvasManager {
     }
   }
 
-  public applyImageAdjustment(adjustments: {
-    brightness?: number;
-    contrast?: number;
-    saturation?: number;
-    vibrance?: number;
-    blur?: number;
-    hue?: number;
-    warmth?: number;
-  }): void {
+  public applyImageAdjustment(
+    adjustments: {
+      brightness?: number;
+      contrast?: number;
+      saturation?: number;
+      vibrance?: number;
+      blur?: number;
+      hue?: number;
+      warmth?: number;
+    },
+    targetObj?: FabricObject | null
+  ): void {
     if (!this.canvas) return;
-    const active = this.canvas.getActiveObject();
-    if (!active) return;
+    const target = targetObj || this.canvas.getActiveObject();
+    if (!target) return;
 
-    const targetImages = this.getImagesFromObject(active);
+    const targetImages = this.getImagesFromObject(target);
 
     if (targetImages.length > 0) {
       for (const targetImage of targetImages) {
@@ -7592,6 +7900,7 @@ export class CanvasManager {
           vibrance: 0,
           hue: 0,
           warmth: 0,
+          blur: 0,
         };
 
         const updated = { ...stored, ...adjustments };
@@ -7599,33 +7908,34 @@ export class CanvasManager {
         this.reapplyCombinedImageFilters(targetImage);
       }
 
-      (active as any)._adjustments = { ...((active as any)._adjustments || {}), ...adjustments };
-      (active as any).dirty = true;
-      active.setCoords();
+      (target as any)._adjustments = { ...((target as any)._adjustments || {}), ...adjustments };
+      (target as any).dirty = true;
+      target.setCoords();
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
     } else {
-      const stored = (active as any)._adjustments || {
+      const stored = (target as any)._adjustments || {
         brightness: 0,
         contrast: 0,
         saturation: 0,
         vibrance: 0,
         hue: 0,
         warmth: 0,
+        blur: 0,
       };
       const updated = { ...stored, ...adjustments };
-      (active as any)._adjustments = updated;
+      (target as any)._adjustments = updated;
 
-      if ((active as any)._originalOpacity === undefined && active.opacity !== undefined) {
-        (active as any)._originalOpacity = active.opacity;
+      if ((target as any)._originalOpacity === undefined && target.opacity !== undefined) {
+        (target as any)._originalOpacity = target.opacity;
       }
-      const baseOpacity = (active as any)._originalOpacity ?? 1;
+      const baseOpacity = (target as any)._originalOpacity ?? 1;
       const opacityDelta = (updated.brightness || 0) / 200;
-      active.set('opacity', Math.max(0.05, Math.min(1, baseOpacity + opacityDelta)));
+      target.set('opacity', Math.max(0.05, Math.min(1, baseOpacity + opacityDelta)));
 
-      (active as any).dirty = true;
-      active.setCoords();
+      (target as any).dirty = true;
+      target.setCoords();
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
@@ -7639,12 +7949,13 @@ export class CanvasManager {
     vibrance: number;
     hue: number;
     warmth: number;
+    blur: number;
     activeFilter: string;
     intensity: number;
   } {
-    if (!this.canvas) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
+    if (!this.canvas) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, hue: 0, warmth: 0, blur: 0, activeFilter: 'none', intensity: 100 };
     const active = this.canvas.getActiveObject();
-    if (!active) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, hue: 0, warmth: 0, activeFilter: 'none', intensity: 100 };
+    if (!active) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, hue: 0, warmth: 0, blur: 0, activeFilter: 'none', intensity: 100 };
 
     const targetImage = this.getImagesFromObject(active)[0] || null;
     const refObj = targetImage || active;
@@ -7657,6 +7968,7 @@ export class CanvasManager {
       vibrance: adj.vibrance ?? 0,
       hue: adj.hue ?? 0,
       warmth: adj.warmth ?? 0,
+      blur: adj.blur ?? 0,
       activeFilter: (refObj as any)._activeFilterPreset || (active as any)._activeFilterPreset || 'none',
       intensity: Math.round(((refObj as any)._filterIntensity ?? (active as any)._filterIntensity ?? 1) * 100),
     };

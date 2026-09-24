@@ -84,26 +84,26 @@ const DEFAULT_SHADOW_SETTINGS: ShadowSettings = {
   direction: -45,
   offset: 20,
   blur: 10,
-  transparency: 30,
+  transparency: 50,
   color: '#000000',
 };
 
 const DEFAULT_LIFT_SETTINGS: LiftSettings = {
-  intensity: 50,
+  intensity: 60,
   blur: 24,
-  transparency: 30,
+  transparency: 60,
   color: '#000000',
 };
 
 const DEFAULT_GLOW_SETTINGS: GlowSettings = {
-  blur: 20,
-  transparency: 80,
+  blur: 25,
+  transparency: 85,
   color: '#2563eb',
 };
 
 const DEFAULT_OUTLINE_SETTINGS: OutlineSettings = {
-  thickness: 2,
-  color: '#000000',
+  thickness: 3,
+  color: '#6366f1',
 };
 
 const DEFAULT_HOLLOW_SETTINGS: HollowSettings = {
@@ -112,7 +112,7 @@ const DEFAULT_HOLLOW_SETTINGS: HollowSettings = {
 };
 
 const DEFAULT_NEON_SETTINGS: NeonSettings = {
-  intensity: 50,
+  intensity: 60,
   color: '#ec4899',
 };
 
@@ -179,7 +179,8 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
   const [showFilterCustomControls, setShowFilterCustomControls] = useState(false);
   const [curveEnabled, setCurveEnabled] = useState(false);
   const [curveAmount, setCurveAmount] = useState(0);
-  const [activeEffect, setActiveEffect] = useState<TextEffectId>('none');
+  const [selectedEffect, setSelectedEffect] = useState<TextEffectId>('none');
+  const [activeEffects, setActiveEffects] = useState<Record<string, boolean>>({});
   const [shadowSettings, setShadowSettings] = useState<ShadowSettings>(
     DEFAULT_SHADOW_SETTINGS
   );
@@ -224,8 +225,18 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
 
     const effectState = (canvasManager as any).getObjectEffectState?.() ||
       (canvasManager as any).getTextEffectState?.();
-    const currEffect = effectState?.effect || (selected as any)?.textEffect || 'none';
-    setActiveEffect(currEffect);
+    const currEffect = (effectState?.effect || (selected as any)?.textEffect || 'none') as TextEffectId;
+    const activeMap = (effectState?.activeEffects || {}) as Record<string, boolean>;
+    setActiveEffects(activeMap);
+
+    const activeList = Object.keys(activeMap).filter(k => activeMap[k]) as TextEffectId[];
+    if (activeList.length > 0) {
+      if (selectedEffect === 'none' || !activeMap[selectedEffect]) {
+        setSelectedEffect(activeList.includes(currEffect) ? currEffect : activeList[0]);
+      }
+    } else {
+      setSelectedEffect('none');
+    }
 
     if (effectState?.allSettings) {
       if (effectState.allSettings.shadow) setShadowSettings({ ...DEFAULT_SHADOW_SETTINGS, ...effectState.allSettings.shadow });
@@ -260,17 +271,43 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
 
   const currentCurve = curveAmount;
 
+  const handleSelectEffect = (effectId: TextEffectId) => {
+    if (effectId === 'none') {
+      handleClearAllEffects();
+      return;
+    }
+
+    setSelectedEffect(effectId);
+    if (!activeEffects[effectId]) {
+      handleApplyStyle(effectId);
+    }
+  };
+
   const handleApplyStyle = (effectId: TextEffectId) => {
     if (!canvasManager) return;
-    setActiveEffect(effectId);
+    setSelectedEffect(effectId);
+    setActiveEffects(prev => ({ ...prev, [effectId]: true }));
     const manager = canvasManager as any;
 
     let settings: any = undefined;
     if (effectId === 'shadow') settings = shadowSettings;
     else if (effectId === 'lift') settings = liftSettings;
     else if (effectId === 'glow') settings = glowSettings;
-    else if (effectId === 'outline') settings = outlineSettings;
-    else if (effectId === 'hollow') settings = hollowSettings;
+    else if (effectId === 'outline') {
+      let outlineColor = outlineSettings.color;
+      const selFill = String((selected as any)?.fill || '').toLowerCase();
+      if ((!outlineColor || outlineColor === '#000000') && (selFill === '#000000' || selFill === '#111827' || selFill === 'black' || !selFill)) {
+        outlineColor = '#6366f1';
+        setOutlineSettings(prev => ({ ...prev, color: '#6366f1' }));
+      }
+      settings = { ...outlineSettings, color: outlineColor };
+    }
+    else if (effectId === 'hollow') {
+      const selFill = String((selected as any)?.fill || '').toLowerCase();
+      const hollowColor = (selFill && selFill !== 'transparent') ? (selected as any).fill : (hollowSettings.color || '#000000');
+      setHollowSettings(prev => ({ ...prev, color: hollowColor }));
+      settings = { ...hollowSettings, color: hollowColor };
+    }
     else if (effectId === 'neon') settings = neonSettings;
     else if (effectId === 'blur') settings = blurSettings;
 
@@ -278,6 +315,39 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       manager.applyEffect(effectId, settings);
     } else if (effectId === 'shadow' && typeof manager.applyShadow === 'function') {
       manager.applyShadow(settings);
+    }
+  };
+
+  const handleRemoveEffect = (effectId: TextEffectId) => {
+    if (!canvasManager) return;
+    const nextMap = { ...activeEffects };
+    delete nextMap[effectId];
+    setActiveEffects(nextMap);
+
+    const manager = canvasManager as any;
+    if (typeof manager.removeEffect === 'function') {
+      manager.removeEffect(effectId);
+    } else if (typeof manager.applyEffect === 'function') {
+      manager.applyEffect(effectId, null, { remove: true });
+    }
+
+    const remaining = Object.keys(nextMap).filter(k => nextMap[k]) as TextEffectId[];
+    if (remaining.length > 0) {
+      setSelectedEffect(remaining[0]);
+    } else {
+      setSelectedEffect('none');
+    }
+  };
+
+  const handleClearAllEffects = () => {
+    if (!canvasManager) return;
+    setActiveEffects({});
+    setSelectedEffect('none');
+    const manager = canvasManager as any;
+    if (typeof manager.clearAllEffects === 'function') {
+      manager.clearAllEffects();
+    } else if (typeof manager.applyEffect === 'function') {
+      manager.applyEffect('none');
     }
   };
 
@@ -484,40 +554,139 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       {activeTab === 'styles' && (
         <div className="space-y-4 animate-in fade-in duration-150">
           {/* Style Effects Grid */}
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">
-              Style
-            </span>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">
+                Style Effects
+              </span>
+              {Object.keys(activeEffects).some((k) => activeEffects[k]) && (
+                <button
+                  type="button"
+                  onClick={handleClearAllEffects}
+                  className="text-[10px] font-bold text-gray-400 hover:text-red-500 transition"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-1.5">
-              {STYLE_EFFECTS.map((eff) => {
+              {/* None / Clean Reset button */}
+              {(() => {
+                const isNoneActive = !Object.keys(activeEffects).some((k) => activeEffects[k]);
+                return (
+                  <button
+                    type="button"
+                    onClick={handleClearAllEffects}
+                    className={`p-2 rounded-xl border flex items-center gap-2 transition text-left group shadow-2xs ${
+                      isNoneActive
+                        ? 'border-purple-600 bg-purple-50 ring-1 ring-purple-600'
+                        : 'border-gray-200 bg-white hover:bg-purple-50 hover:border-purple-300'
+                    }`}
+                  >
+                    <XCircle className="w-4 h-4 text-gray-400 group-hover:text-purple-600 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-gray-800 group-hover:text-purple-700">None</div>
+                      <div className="text-[10px] text-gray-400">Default style</div>
+                    </div>
+                  </button>
+                );
+              })()}
+
+              {/* Stackable Effect Buttons */}
+              {STYLE_EFFECTS.filter((eff) => eff.id !== 'none').map((eff) => {
                 const Icon = eff.icon;
-                const isActive = activeEffect === eff.id;
+                const isApplied = Boolean(activeEffects[eff.id]);
+                const isEditing = selectedEffect === eff.id && isApplied;
                 return (
                   <button
                     key={eff.id}
                     type="button"
-                    onClick={() => handleApplyStyle(eff.id)}
-                    className={`p-1.5 rounded-xl border flex items-center gap-2 transition text-left group shadow-2xs ${isActive
-                      ? 'border-purple-600 bg-purple-50 ring-1 ring-purple-600'
-                      : 'border-gray-200 bg-white hover:bg-purple-50 hover:border-purple-300'
-                      }`}
+                    onClick={() => handleSelectEffect(eff.id)}
+                    className={`p-2 rounded-xl border flex items-center gap-2 transition text-left group shadow-2xs ${
+                      isEditing
+                        ? 'border-purple-600 bg-purple-50 ring-2 ring-purple-600/40'
+                        : isApplied
+                        ? 'border-purple-400 bg-purple-50/60 hover:bg-purple-100/70'
+                        : 'border-gray-200 bg-white hover:bg-purple-50 hover:border-purple-300'
+                    }`}
                   >
-                    <Icon className="w-3.5 h-3.5 text-gray-400 group-hover:text-purple-600 shrink-0" />
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-gray-800 group-hover:text-purple-700 truncate">
-                        {eff.label}
+                    <Icon
+                      className={`w-4 h-4 shrink-0 transition ${
+                        isApplied ? 'text-purple-600' : 'text-gray-400 group-hover:text-purple-600'
+                      }`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-xs font-semibold text-gray-800 group-hover:text-purple-700 truncate">
+                          {eff.label}
+                        </span>
+                        {isApplied && (
+                          <span className="shrink-0 rounded-full bg-purple-100 px-1.5 py-0.2 text-[9px] font-extrabold text-purple-700">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-gray-400 truncate">
+                        {isApplied ? (isEditing ? 'Editing now' : 'Click to edit') : '+ Add effect'}
                       </div>
                     </div>
                   </button>
                 );
               })}
             </div>
+
+            {/* Active Effects Chips Strip */}
+            {Object.keys(activeEffects).some((k) => activeEffects[k]) && (
+              <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-purple-100 bg-purple-50/60 p-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-purple-800">
+                  Applied:
+                </span>
+                {Object.keys(activeEffects)
+                  .filter((k) => activeEffects[k])
+                  .map((effId) => {
+                    const isEditing = selectedEffect === effId;
+                    const label = STYLE_EFFECTS.find((e) => e.id === effId)?.label || effId;
+                    return (
+                      <div
+                        key={effId}
+                        onClick={() => setSelectedEffect(effId as TextEffectId)}
+                        className={`flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-bold transition ${
+                          isEditing
+                            ? 'bg-purple-600 text-white shadow-xs'
+                            : 'border border-purple-200 bg-white text-purple-700 hover:bg-purple-100'
+                        }`}
+                      >
+                        <span>{label}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveEffect(effId as TextEffectId);
+                          }}
+                          className={`flex h-3.5 w-3.5 items-center justify-center rounded-full text-[11px] font-bold ${
+                            isEditing
+                              ? 'text-white hover:bg-purple-700'
+                              : 'text-purple-600 hover:bg-purple-200'
+                          }`}
+                          title={`Remove ${label}`}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </div>
 
-          {activeEffect === 'shadow' && (
+          {selectedEffect === 'shadow' && activeEffects.shadow && (
             <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-900">Shadow settings</span>
+                <div className="flex items-center gap-1.5">
+                  <Sun className="h-4 w-4 text-purple-600" />
+                  <span className="text-xs font-bold text-gray-900">Shadow settings</span>
+                </div>
                 <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
                   <input
                     type="color"
@@ -601,7 +770,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleApplyStyle('none')}
+                onClick={() => handleRemoveEffect('shadow')}
                 className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
               >
                 Remove shadow
@@ -609,10 +778,13 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
             </div>
           )}
 
-          {activeEffect === 'lift' && (
+          {selectedEffect === 'lift' && activeEffects.lift && (
             <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-900">Lift settings</span>
+                <div className="flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-purple-600" />
+                  <span className="text-xs font-bold text-gray-900">Lift settings</span>
+                </div>
                 <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
                   <input
                     type="color"
@@ -682,7 +854,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleApplyStyle('none')}
+                onClick={() => handleRemoveEffect('lift')}
                 className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
               >
                 Remove lift
@@ -690,10 +862,13 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
             </div>
           )}
 
-          {activeEffect === 'glow' && (
+          {selectedEffect === 'glow' && activeEffects.glow && (
             <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-900">Glow settings</span>
+                <div className="flex items-center gap-1.5">
+                  <Zap className="h-4 w-4 text-purple-600" />
+                  <span className="text-xs font-bold text-gray-900">Glow settings</span>
+                </div>
                 <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
                   <input
                     type="color"
@@ -756,7 +931,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleApplyStyle('none')}
+                onClick={() => handleRemoveEffect('glow')}
                 className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
               >
                 Remove glow
@@ -764,10 +939,13 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
             </div>
           )}
 
-          {activeEffect === 'outline' && (
+          {selectedEffect === 'outline' && activeEffects.outline && (
             <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-900">Outline settings</span>
+                <div className="flex items-center gap-1.5">
+                  <CircleDashed className="h-4 w-4 text-purple-600" />
+                  <span className="text-xs font-bold text-gray-900">Outline settings</span>
+                </div>
                 <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
                   <input
                     type="color"
@@ -818,7 +996,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleApplyStyle('none')}
+                onClick={() => handleRemoveEffect('outline')}
                 className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
               >
                 Remove outline
@@ -826,10 +1004,13 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
             </div>
           )}
 
-          {activeEffect === 'hollow' && (
+          {selectedEffect === 'hollow' && activeEffects.hollow && (
             <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-900">Hollow settings</span>
+                <div className="flex items-center gap-1.5">
+                  <CircleDashed className="h-4 w-4 text-purple-600" />
+                  <span className="text-xs font-bold text-gray-900">Hollow settings</span>
+                </div>
                 <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
                   <input
                     type="color"
@@ -880,7 +1061,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleApplyStyle('none')}
+                onClick={() => handleRemoveEffect('hollow')}
                 className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
               >
                 Remove hollow
@@ -888,10 +1069,13 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
             </div>
           )}
 
-          {activeEffect === 'neon' && (
+          {selectedEffect === 'neon' && activeEffects.neon && (
             <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-900">Neon settings</span>
+                <div className="flex items-center gap-1.5">
+                  <Zap className="h-4 w-4 text-purple-600" />
+                  <span className="text-xs font-bold text-gray-900">Neon settings</span>
+                </div>
                 <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1">
                   <input
                     type="color"
@@ -945,7 +1129,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleApplyStyle('none')}
+                onClick={() => handleRemoveEffect('neon')}
                 className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
               >
                 Remove neon
@@ -953,10 +1137,13 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
             </div>
           )}
 
-          {activeEffect === 'blur' && (
+          {selectedEffect === 'blur' && activeEffects.blur && (
             <div className="space-y-3 rounded-xl border border-purple-100 bg-purple-50/40 p-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-900">Blur settings</span>
+                <div className="flex items-center gap-1.5">
+                  <SlidersHorizontal className="h-4 w-4 text-purple-600" />
+                  <span className="text-xs font-bold text-gray-900">Blur settings</span>
+                </div>
               </div>
 
               {/* Quick Blur Presets */}
@@ -992,7 +1179,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleApplyStyle('none')}
+                onClick={() => handleRemoveEffect('blur')}
                 className="w-full rounded-xl bg-purple-600 px-3 py-2 text-xs font-bold text-white hover:bg-purple-700 transition"
               >
                 Remove blur

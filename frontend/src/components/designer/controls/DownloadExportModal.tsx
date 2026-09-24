@@ -1,6 +1,4 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { jsPDF } from 'jspdf';
-import 'svg2pdf.js';
 import {
   X,
   Download,
@@ -14,7 +12,11 @@ import { CanvasDimensions, DocumentSettings } from '@/types/designer';
 import { QualityPreset, ExportFormat } from '@/types/imageUpscaler';
 import { imageQualityService } from '@/services/imageQualityService';
 import { exportLayeredPsd } from '../services/psdExportService';
-import { downloadFile, ensureSafePngOrJpegDataUrl } from '../services/exportService';
+import {
+  downloadFile,
+  ensureSafePngOrJpegDataUrl,
+  exportPreparedVectorPdf,
+} from '../services/exportService';
 import { urlToSafeDataUrl } from '@/utils/imageUrl';
 import { getArtworkExportGeometry, ArtworkExportGeometry } from '../utils/exportGeometry';
 import {
@@ -1483,7 +1485,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                 fabricSvg.indexOf('<g')
               ) {
                 bgSvgElements +=
-                  `<rect x="0" y="0" width="${canvasWidth}" ` +
+                  `<rect data-pdf-background="true" x="0" y="0" width="${canvasWidth}" ` +
                   `height="${canvasHeight}" fill="${effBg.color}" />\n`;
               }
             } else if (
@@ -1520,7 +1522,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                 `x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ` +
                 `gradientUnits="userSpaceOnUse">` +
                 `${stops}</linearGradient></defs>` +
-                `<rect x="0" y="0" width="${canvasWidth}" ` +
+                `<rect data-pdf-background="true" x="0" y="0" width="${canvasWidth}" ` +
                 `height="${canvasHeight}" fill="url(#export-bg-grad)" />\n`;
             }
 
@@ -1528,7 +1530,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
               canvas.backgroundImage &&
               typeof canvas.backgroundImage.toSVG === 'function'
             ) {
-              bgSvgElements += canvas.backgroundImage.toSVG() + '\n';
+              bgSvgElements +=
+                `<g data-pdf-background="true">${canvas.backgroundImage.toSVG()}</g>\n`;
             }
           }
 
@@ -1605,7 +1608,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                 `viewBox="0 0 ${totalW} ${totalH}">`;
 
               fabricSvg = `${newOpenTag}
-  <rect x="0" y="0" width="${totalW}" height="${totalH}" fill="#ffffff" />
+  <rect data-pdf-background="true" x="0" y="0" width="${totalW}" height="${totalH}" fill="#ffffff" />
   <g transform="translate(${slugMarginPx}, ${slugMarginPx})">
     ${innerContent}
   </g>
@@ -1691,71 +1694,38 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             ? geometry.totalTrimMarksHeightMm
             : geometry.artworkHeightMm;
 
-          const orientation: 'portrait' | 'landscape' =
-            pdfWidthMm > pdfHeightMm
-              ? 'landscape'
-              : 'portrait';
-
-          const pdf = new jsPDF({
-            orientation,
-            unit: 'mm',
-            format: [pdfWidthMm, pdfHeightMm],
-            compress: true,
-            precision: 16,
-            putOnlyUsedFonts: true,
-          });
-
-          const mount = document.createElement('div');
-
-          mount.style.position = 'fixed';
-          mount.style.left = '-100000px';
-          mount.style.top = '-100000px';
-          mount.style.width = '1px';
-          mount.style.height = '1px';
-          mount.style.overflow = 'hidden';
-          mount.setAttribute(
-            'aria-hidden',
-            'true'
-          );
-
-          mount.innerHTML = finalSvgMarkup;
-          document.body.appendChild(mount);
-
-          try {
-            const svgElement =
-              mount.querySelector('svg') as SVGElement | null;
-
-            if (!svgElement) {
-              throw new Error(
-                'Vector SVG could not be prepared for PDF export.'
-              );
-            }
-
-            // svg2pdf.js augments jsPDF with pdf.svg().
-            await pdf.svg(svgElement, {
-              x: 0,
-              y: 0,
-              width: pdfWidthMm,
-              height: pdfHeightMm,
-            });
-          } finally {
-            mount.remove();
-          }
-
-          setExportProgress(95);
-          setProgressMessage(
-            'Saving true vector PDF...'
-          );
-
+          // PDFKit + SVG-to-PDFKit is used here instead of svg2pdf.js.
+          //
+          // Why:
+          // - custom web fonts can be registered directly into the PDF
+          // - unsupported SVG blur/drop-shadow filters are supplied as a
+          //   transparent high-resolution effect layer
+          // - the main text/paths/shapes remain true vectors
           const pdfFilename =
             `${sanitizedDocName}-vector` +
             `${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`;
 
-          pdf.save(pdfFilename);
+          setExportProgress(80);
+          setProgressMessage(
+            'Embedding Acrobat-safe fonts, shadows and vector artwork...'
+          );
+
+          const ptPerMm = 72 / 25.4;
+
+          await exportPreparedVectorPdf(
+            finalSvgMarkup,
+            {
+              widthPt:
+                pdfWidthMm * ptPerMm,
+              heightPt:
+                pdfHeightMm * ptPerMm,
+              filename: pdfFilename,
+            }
+          );
 
           setExportProgress(100);
           setProgressMessage(
-            'True vector PDF download ready.'
+            'Vector PDF with fonts and effects ready.'
           );
           setIsExporting(false);
           return;

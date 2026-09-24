@@ -4,6 +4,11 @@ import {
   requiresSilhouetteShadow,
   getEffectiveCornerRadius,
 } from '../canvas/visualGeometry';
+import {
+  LOCAL_PDF_FONT_FAMILIES,
+  pdfWeightStyleName,
+  isPdfSafeSfntFont,
+} from '../services/exportService';
 
 /** Cache for in-memory embedded base64 fonts to avoid duplicate network fetches during session */
 const fontDataUrlCache = new Map<string, string>();
@@ -129,7 +134,12 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
 }
 
 /**
- * Fetches Google Font CSS and downloads the font binary, converting to base64 @font-face rule.
+ * Fetches Google Font CSS and embeds the browser webfont as a base64
+ * @font-face rule for self-contained SVG/browser rendering.
+ *
+ * NOTE: this may be WOFF2, which is correct for SVG. The PDF exporter does
+ * NOT register these WOFF2 bytes directly; exportService separately resolves
+ * an Acrobat-safe TTF/OTF font before PDFKit renders vector text.
  */
 async function fetchAndCreateFontFace(
   family: string,
@@ -139,50 +149,83 @@ async function fetchAndCreateFontFace(
   const cacheKey = `${family.toLowerCase()}|${weight}|${italic ? 1 : 0}`;
   if (fontDataUrlCache.has(cacheKey)) {
     const cached = fontDataUrlCache.get(cacheKey)!;
-    return `@font-face {\n  font-family: '${family}';\n  font-style: ${italic ? 'italic' : 'normal'
-      };\n  font-weight: ${weight};\n  font-display: swap;\n  src: url('${cached}') format('woff2');\n}`;
+    const format = cached.includes('truetype') ? 'truetype' : 'woff2';
+    return `@font-face {\n  font-family: '${family}';\n  font-style: ${
+      italic ? 'italic' : 'normal'
+    };\n  font-weight: ${weight};\n  font-display: swap;\n  src: url('${cached}') format('${format}');\n}`;
   }
 
   if (typeof fetch === 'undefined') return null;
 
+  // Priority 1: Check local Acrobat-safe TTF/OTF first
+  const normalizedFamily = family.toLowerCase().trim();
+  const localConfig = LOCAL_PDF_FONT_FAMILIES[normalizedFamily];
+  if (localConfig) {
+    const style = pdfWeightStyleName(weight, italic);
+    const localUrl = `/fonts/pdf/${localConfig.folder}/${localConfig.prefix}-${style}.ttf`;
+    try {
+      const localResp = await fetch(localUrl, { cache: 'force-cache' });
+      if (localResp.ok) {
+        const localBuf = new Uint8Array(await localResp.arrayBuffer());
+        if (isPdfSafeSfntFont(localBuf)) {
+          const base64 = uint8ArrayToBase64(localBuf);
+          const dataUrl = `data:font/truetype;charset=utf-8;base64,${base64}`;
+          fontDataUrlCache.set(cacheKey, dataUrl);
+          return `@font-face {\n  font-family: '${family}';\n  font-style: ${
+            italic ? 'italic' : 'normal'
+          };\n  font-weight: ${weight};\n  font-display: swap;\n  src: url('${dataUrl}') format('truetype');\n}`;
+        }
+      }
+    } catch { }
+  }
+
   const escapedFamily = encodeURIComponent(family).replace(/%20/g, '+');
-  const cssUrl = `https://fonts.googleapis.com/css2?family=${escapedFamily}:ital,wght@${italic ? 1 : 0
-    },${weight}&display=swap`;
+  const cssUrl = `https://fonts.googleapis.com/css2?family=${escapedFamily}:ital,wght@${
+    italic ? 1 : 0
+  },${weight}&display=swap`;
 
-  const cssResp = await fetch(cssUrl, {
-    mode: 'cors',
-    cache: 'force-cache',
-  });
-  if (!cssResp.ok) return null;
+  try {
+    const cssResp = await fetch(cssUrl, {
+      mode: 'cors',
+      cache: 'force-cache',
+    });
+    if (cssResp.ok) {
+      const cssText = await cssResp.text();
+      const urlMatch = cssText.match(
+        /src\s*:\s*[^;]*url\((['"]?)(https?:\/\/[^)'"]+)\1\)(?:\s*format\((['"]?)([^)'"]+)\3\))?/i
+      );
+      if (urlMatch && urlMatch[2]) {
+        const fontBinaryUrl = urlMatch[2];
+        const format = urlMatch[4] || 'woff2';
 
-  const cssText = await cssResp.text();
-  const urlMatch = cssText.match(/src\s*:\s*[^;]*url\((['"]?)(https?:\/\/[^)'"]+)\1\)(?:\s*format\((['"]?)([^)'"]+)\3\))?/i);
-  if (!urlMatch || !urlMatch[2]) return null;
+        const fontResp = await fetch(fontBinaryUrl, {
+          mode: 'cors',
+          cache: 'force-cache',
+        });
+        if (fontResp.ok) {
+          const buffer = new Uint8Array(await fontResp.arrayBuffer());
+          if (buffer.length >= 10) {
+            const base64 = uint8ArrayToBase64(buffer);
+            const dataUrl = `data:font/${format};charset=utf-8;base64,${base64}`;
+            fontDataUrlCache.set(cacheKey, dataUrl);
 
-  const fontBinaryUrl = urlMatch[2];
-  const format = urlMatch[4] || 'woff2';
+            return `@font-face {\n  font-family: '${family}';\n  font-style: ${
+              italic ? 'italic' : 'normal'
+            };\n  font-weight: ${weight};\n  font-display: swap;\n  src: url('${dataUrl}') format('${format}');\n}`;
+          }
+        }
+      }
+    }
+  } catch { }
 
-  const fontResp = await fetch(fontBinaryUrl, {
-    mode: 'cors',
-    cache: 'force-cache',
-  });
-  if (!fontResp.ok) return null;
-
-  const buffer = new Uint8Array(await fontResp.arrayBuffer());
-  if (buffer.length < 10) return null;
-
-  const base64 = uint8ArrayToBase64(buffer);
-  const dataUrl = `data:font/${format};charset=utf-8;base64,${base64}`;
-  fontDataUrlCache.set(cacheKey, dataUrl);
-
-  return `@font-face {\n  font-family: '${family}';\n  font-style: ${italic ? 'italic' : 'normal'
-    };\n  font-weight: ${weight};\n  font-display: swap;\n  src: url('${dataUrl}') format('${format}');\n}`;
+  return null;
 }
 
 /**
  * Ensures all fonts used in text objects (including nested groups and composite elements)
- * are embedded as real base64 @font-face rules directly in the SVG <defs><style>.
- * Text elements remain 100% genuine vector elements.
+ * are embedded as base64 @font-face rules directly in the SVG <defs><style>.
+ * Text elements remain genuine vector elements. For PDF, exportService maps
+ * these families to Acrobat-safe TTF/OTF binaries before PDFKit rendering.
  */
 export async function embedFontsInSvgDefs(
   svgDoc: Document,
@@ -291,6 +334,24 @@ function parseColorAndOpacity(cssColor: string): { color: string; opacity: numbe
     const b = rgbaMatch[3];
     const a = rgbaMatch[4] !== undefined ? parseFloat(rgbaMatch[4]) : 1;
     return { color: `rgb(${r}, ${g}, ${b})`, opacity: Number.isFinite(a) ? a : 1 };
+  }
+  // 8-digit hex #rrggbbaa
+  const hex8Match = cssColor.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (hex8Match) {
+    const r = parseInt(hex8Match[1], 16);
+    const g = parseInt(hex8Match[2], 16);
+    const b = parseInt(hex8Match[3], 16);
+    const a = parseInt(hex8Match[4], 16) / 255;
+    return { color: `rgb(${r}, ${g}, ${b})`, opacity: Math.round(a * 100) / 100 };
+  }
+  // 4-digit hex #rgba
+  const hex4Match = cssColor.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])$/i);
+  if (hex4Match) {
+    const r = parseInt(hex4Match[1] + hex4Match[1], 16);
+    const g = parseInt(hex4Match[2] + hex4Match[2], 16);
+    const b = parseInt(hex4Match[3] + hex4Match[3], 16);
+    const a = parseInt(hex4Match[4] + hex4Match[4], 16) / 255;
+    return { color: `rgb(${r}, ${g}, ${b})`, opacity: Math.round(a * 100) / 100 };
   }
   return { color: cssColor, opacity: 1 };
 }
@@ -626,8 +687,6 @@ export function injectSilhouetteShadowsInSvg(
   let shadowCounter = 0;
 
   for (const obj of allObjects) {
-    if (!requiresSilhouetteShadow(obj)) continue;
-
     const shadow = obj.shadow;
     if (!shadow || !shadow.color || shadow.color === 'transparent') continue;
 
@@ -642,91 +701,143 @@ export function injectSilhouetteShadowsInSvg(
       continue;
     }
 
-    shadowCounter++;
-    const filterId = `export_sil_shadow_${shadowCounter}`;
-    const { color, opacity } = parseColorAndOpacity(String(shadow.color));
-    const blur = Math.max(0, Number(shadow.blur) || 0);
-    const offsetX = Number(shadow.offsetX) || 0;
-    const offsetY = Number(shadow.offsetY) || 0;
+    if (requiresSilhouetteShadow(obj)) {
+      shadowCounter++;
+      const filterId = `export_sil_shadow_${shadowCounter}`;
+      const { color, opacity } = parseColorAndOpacity(String(shadow.color));
+      const blur = Math.max(0, Number(shadow.blur) || 0);
+      const offsetX = Number(shadow.offsetX) || 0;
+      const offsetY = Number(shadow.offsetY) || 0;
 
-    // Create a filter that outputs ONLY the blurred, offset shadow (no SourceGraphic)
-    const filter = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'filter');
-    filter.setAttribute('id', filterId);
-    filter.setAttribute('x', '-100%');
-    filter.setAttribute('y', '-100%');
-    filter.setAttribute('width', '300%');
-    filter.setAttribute('height', '300%');
+      // Create a filter that outputs ONLY the blurred, offset shadow (no SourceGraphic)
+      const filter = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'filter');
+      filter.setAttribute('id', filterId);
+      filter.setAttribute('x', '-100%');
+      filter.setAttribute('y', '-100%');
+      filter.setAttribute('width', '300%');
+      filter.setAttribute('height', '300%');
 
-    filter.innerHTML = `
-      <feGaussianBlur in="SourceAlpha" stdDeviation="${(blur / 2).toFixed(2)}" />
-      <feOffset dx="${offsetX}" dy="${offsetY}" result="offsetblur" />
-      <feFlood flood-color="${color}" flood-opacity="${opacity}" />
-      <feComposite in2="offsetblur" operator="in" />
-      <feMerge>
-        <feMergeNode />
-      </feMerge>
-    `;
-    defs.appendChild(filter);
+      filter.innerHTML = `
+        <feGaussianBlur in="SourceAlpha" stdDeviation="${(blur / 2).toFixed(2)}" />
+        <feOffset dx="${offsetX}" dy="${offsetY}" result="offsetblur" />
+        <feFlood flood-color="${color}" flood-opacity="${opacity}" />
+        <feComposite in2="offsetblur" operator="in" />
+        <feMerge>
+          <feMergeNode />
+        </feMerge>
+      `;
+      defs.appendChild(filter);
 
-    const isImg =
-      obj.type === 'image' ||
-      obj.type === 'fabricImage' ||
-      obj.type === 'FabricImage';
+      const isImg =
+        obj.type === 'image' ||
+        obj.type === 'fabricImage' ||
+        obj.type === 'FabricImage';
 
-    const isFrame =
-      Boolean((obj as any).isFrame) ||
-      Boolean((obj as any).isPhotoShapeGroup) ||
-      Boolean((obj as any).isCustomFrame);
+      const isFrame =
+        Boolean((obj as any).isFrame) ||
+        Boolean((obj as any).isPhotoShapeGroup) ||
+        Boolean((obj as any).isCustomFrame);
 
-    if (isImg && (obj.clipPath || Number((obj as any).cornerRadius) > 0)) {
-      // Rounded image: emit silhouette rect matching effective corner radius
-      const w = obj.width || 1;
-      const h = obj.height || 1;
-      const { rx: localRx, ry: localRy } = getEffectiveCornerRadius(obj);
+      if (isImg && (obj.clipPath || Number((obj as any).cornerRadius) > 0)) {
+        // Rounded image: emit silhouette rect matching effective corner radius
+        const w = obj.width || 1;
+        const h = obj.height || 1;
+        const { rx: localRx, ry: localRy } = getEffectiveCornerRadius(obj);
 
-      const shadowRect = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      shadowRect.setAttribute('x', `${-w / 2}`);
-      shadowRect.setAttribute('y', `${-h / 2}`);
-      shadowRect.setAttribute('width', `${w}`);
-      shadowRect.setAttribute('height', `${h}`);
-      if (localRx > 0) shadowRect.setAttribute('rx', `${localRx}`);
-      if (localRy > 0) shadowRect.setAttribute('ry', `${localRy}`);
-      shadowRect.setAttribute('fill', '#000000');
-      shadowRect.setAttribute('filter', `url(#${filterId})`);
+        const shadowRect = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        shadowRect.setAttribute('x', `${-w / 2}`);
+        shadowRect.setAttribute('y', `${-h / 2}`);
+        shadowRect.setAttribute('width', `${w}`);
+        shadowRect.setAttribute('height', `${h}`);
+        if (localRx > 0) shadowRect.setAttribute('rx', `${localRx}`);
+        if (localRy > 0) shadowRect.setAttribute('ry', `${localRy}`);
+        shadowRect.setAttribute('fill', '#000000');
+        shadowRect.setAttribute('filter', `url(#${filterId})`);
 
-      const shadowGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
-      const transform = targetEl.getAttribute('transform');
-      if (transform) {
-        shadowGroup.setAttribute('transform', transform);
+        const shadowGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+        shadowGroup.setAttribute('data-shadow-element', 'true');
+        const transform = targetEl.getAttribute('transform');
+        if (transform) {
+          shadowGroup.setAttribute('transform', transform);
+        }
+        shadowGroup.appendChild(shadowRect);
+
+        // Insert immediately before target element in SVG DOM
+        targetEl.parentNode?.insertBefore(shadowGroup, targetEl);
+
+        // Remove any inner filter from image inside clip-path
+        targetEl.removeAttribute('filter');
+        targetEl.querySelectorAll('[filter]').forEach((el) => el.removeAttribute('filter'));
+      } else if (isFrame && typeof (obj as any).getObjects === 'function') {
+        // Frame (heart, circle, custom SVG): locate outline/mask path and place shadow behind photo
+        const children: any[] = (obj as any).getObjects();
+        const shapeOutline = children.find((o) => o.frameRole === 'shape-outline');
+        const outlineEl = shapeOutline
+          ? findSvgElementForFabricObject(svgDoc, shapeOutline, allObjects)
+          : null;
+
+        if (outlineEl) {
+          const shadowShape = outlineEl.cloneNode(true) as Element;
+          shadowShape.removeAttribute('id');
+          shadowShape.removeAttribute('stroke');
+          shadowShape.removeAttribute('stroke-width');
+          shadowShape.setAttribute('fill', '#000000');
+          shadowShape.setAttribute('filter', `url(#${filterId})`);
+          shadowShape.setAttribute('data-shadow-element', 'true');
+
+          // Insert as first child of frame group so it's behind photo and outline
+          targetEl.insertBefore(shadowShape, targetEl.firstChild);
+        } else {
+          // Fallback: apply filter to target frame group
+          targetEl.setAttribute('filter', `url(#${filterId})`);
+        }
       }
-      shadowGroup.appendChild(shadowRect);
+    } else {
+      // Normal Fabric text, shape, or path:
+      // Ensure it has a valid SVG drop-shadow filter if Fabric omitted one.
+      const existingFiltered =
+        targetEl.matches?.('[filter], [style*="filter"]')
+          ? targetEl
+          : targetEl.querySelector?.('[filter], [style*="filter"]') || null;
 
-      // Insert immediately before target element in SVG DOM
-      targetEl.parentNode?.insertBefore(shadowGroup, targetEl);
+      let hasResolvedFilter = false;
 
-      // Remove any inner filter from image inside clip-path
-      targetEl.removeAttribute('filter');
-      targetEl.querySelectorAll('[filter]').forEach((el) => el.removeAttribute('filter'));
-    } else if (isFrame && typeof (obj as any).getObjects === 'function') {
-      // Frame (heart, circle, custom SVG): locate outline/mask path and place shadow behind photo
-      const children: any[] = (obj as any).getObjects();
-      const shapeOutline = children.find((o) => o.frameRole === 'shape-outline');
-      const outlineEl = shapeOutline
-        ? findSvgElementForFabricObject(svgDoc, shapeOutline, allObjects)
-        : null;
+      if (existingFiltered) {
+        const filterAttr = existingFiltered.getAttribute('filter') || '';
+        const styleAttr = existingFiltered.getAttribute('style') || '';
+        const match = filterAttr.match(/url\(#([^)]+)\)/) || styleAttr.match(/filter\s*:\s*url\(#([^)]+)\)/);
+        if (match && svgDoc.getElementById(match[1])) {
+          hasResolvedFilter = true;
+        }
+      }
 
-      if (outlineEl) {
-        const shadowShape = outlineEl.cloneNode(true) as Element;
-        shadowShape.removeAttribute('id');
-        shadowShape.removeAttribute('stroke');
-        shadowShape.removeAttribute('stroke-width');
-        shadowShape.setAttribute('fill', '#000000');
-        shadowShape.setAttribute('filter', `url(#${filterId})`);
+      if (!hasResolvedFilter) {
+        shadowCounter++;
+        const filterId = `export_obj_shadow_${shadowCounter}`;
+        const { color, opacity } = parseColorAndOpacity(String(shadow.color));
+        const blur = Math.max(0, Number(shadow.blur) || 0);
+        const offsetX = Number(shadow.offsetX) || 0;
+        const offsetY = Number(shadow.offsetY) || 0;
 
-        // Insert as first child of frame group so it's behind photo and outline
-        targetEl.insertBefore(shadowShape, targetEl.firstChild);
-      } else {
-        // Fallback: apply filter to target frame group
+        const filter = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'filter');
+        filter.setAttribute('id', filterId);
+        filter.setAttribute('x', '-100%');
+        filter.setAttribute('y', '-100%');
+        filter.setAttribute('width', '300%');
+        filter.setAttribute('height', '300%');
+
+        filter.innerHTML = `
+          <feGaussianBlur in="SourceAlpha" stdDeviation="${(blur / 2).toFixed(2)}" />
+          <feOffset dx="${offsetX}" dy="${offsetY}" result="offsetblur" />
+          <feFlood flood-color="${color}" flood-opacity="${opacity}" />
+          <feComposite in2="offsetblur" operator="in" />
+          <feMerge>
+            <feMergeNode />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        `;
+        defs.appendChild(filter);
+
         targetEl.setAttribute('filter', `url(#${filterId})`);
       }
     }

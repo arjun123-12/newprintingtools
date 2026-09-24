@@ -717,6 +717,9 @@ export function applyCornerRadiusToObject(
       _requestedRadius: clampedRadius,
       _shadowSettings: (object as any)._shadowSettings,
       _activeEffect: (object as any)._activeEffect,
+      _activeEffects: (object as any)._activeEffects ? { ...(object as any)._activeEffects } : undefined,
+      _secondaryShadow: (object as any)._secondaryShadow ? { ...(object as any)._secondaryShadow } : undefined,
+      _blurAmount: (object as any)._blurAmount,
       _effectSettings: (object as any)._effectSettings,
     } as any);
 

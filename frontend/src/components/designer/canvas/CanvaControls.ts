@@ -1261,8 +1261,8 @@ export function setupImageStrokePath(
 }
 
 /**
- * Ensures that ctx has the proper rounded path established before stroke/clip
- * for images and rects with corner rounding.
+ * Ensures that ctx has the proper path established before stroke/clip
+ * for images, rects, circles, ellipses, triangles, polygons, and paths so inside strokes clip cleanly.
  */
 export function ensureObjectStrokePath(
   obj: FabricObject,
@@ -1276,17 +1276,91 @@ export function ensureObjectStrokePath(
     (obj as any).type === 'FabricImage';
 
   if (isImg) {
-    return setupImageStrokePath(obj as FabricImage, ctx);
+    if (setupImageStrokePath(obj as FabricImage, ctx)) {
+      return true;
+    }
+    const w = obj.width || 1;
+    const h = obj.height || 1;
+    ctx.beginPath();
+    ctx.rect(-w / 2, -h / 2, w, h);
+    ctx.closePath();
+    return true;
   }
 
   const isRect = obj instanceof Rect || (obj as any).type === 'rect';
   if (isRect) {
     const w = obj.width || 1;
     const h = obj.height || 1;
-    let rx = (obj as any).rx || 0;
-    let ry = (obj as any).ry || 0;
+    const rx = Math.min(Number((obj as any).rx) || 0, w / 2);
+    const ry = Math.min(Number((obj as any).ry) || 0, h / 2);
     if (rx > 0 || ry > 0) {
       drawRoundedRectPath(ctx, -w / 2, -h / 2, w, h, rx, ry);
+    } else {
+      ctx.beginPath();
+      ctx.rect(-w / 2, -h / 2, w, h);
+      ctx.closePath();
+    }
+    return true;
+  }
+
+  const isCircle = obj instanceof Circle || (obj as any).type === 'circle';
+  if (isCircle) {
+    const r = Number((obj as any).radius) || ((obj.width || 1) / 2);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2, false);
+    ctx.closePath();
+    return true;
+  }
+
+  const isEllipse = (obj as any).type === 'ellipse';
+  if (isEllipse) {
+    const rx = Number((obj as any).rx) || ((obj.width || 1) / 2);
+    const ry = Number((obj as any).ry) || ((obj.height || 1) / 2);
+    ctx.beginPath();
+    if (typeof ctx.ellipse === 'function') {
+      ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    } else {
+      ctx.arc(0, 0, rx, 0, Math.PI * 2, false);
+    }
+    ctx.closePath();
+    return true;
+  }
+
+  const isTriangle = (obj as any).type === 'triangle';
+  if (isTriangle) {
+    const w2 = (obj.width || 1) / 2;
+    const h2 = (obj.height || 1) / 2;
+    ctx.beginPath();
+    ctx.moveTo(-w2, h2);
+    ctx.lineTo(0, -h2);
+    ctx.lineTo(w2, h2);
+    ctx.closePath();
+    return true;
+  }
+
+  const isPolygon =
+    obj instanceof Polygon ||
+    (obj as any).type === 'polygon' ||
+    (obj as any).type === 'polyline';
+  if (isPolygon && Array.isArray((obj as any).points) && (obj as any).points.length > 0) {
+    const pts = (obj as any).points;
+    const diffX = (obj as any).pathOffset?.x ?? 0;
+    const diffY = (obj as any).pathOffset?.y ?? 0;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x - diffX, pts[0].y - diffY);
+    for (let i = 1; i < pts.length; i++) {
+      ctx.lineTo(pts[i].x - diffX, pts[i].y - diffY);
+    }
+    ctx.closePath();
+    return true;
+  }
+
+  const isPath = obj instanceof Path || (obj as any).type === 'path';
+  if (isPath && (obj as any).path) {
+    if (typeof (obj as any)._renderPathCommands === 'function') {
+      ctx.beginPath();
+      (obj as any)._renderPathCommands(ctx);
+      ctx.closePath();
       return true;
     }
   }
@@ -1672,13 +1746,59 @@ export function applyCanvaControlsGlobal(): void {
     return origGetTransformedDimensions.call(this, options);
   };
 
+  (FabricObject.prototype as any).isStrokeAccountedForInDimensions = function () {
+    const rawType = String((this as any).type || '')
+      .toLowerCase()
+      .replace(/[-_\\s]/g, '');
+    const isTextObject =
+      this instanceof Textbox ||
+      this instanceof IText ||
+      rawType === 'textbox' ||
+      rawType === 'itext' ||
+      rawType === 'text';
+
+    if (isTextObject) {
+      return false;
+    }
+
+    const isInside =
+      ((this as any).strokePosition ||
+        (typeof this.get === 'function'
+          ? this.get('strokePosition' as any)
+          : null)) !== 'outside';
+
+    return isInside;
+  };
+
   // Canva behavior: FabricImage stroke must respect corner rounding and clipPath
   const origImageStroke = FabricImage.prototype._stroke;
   FabricImage.prototype._stroke = function (ctx: CanvasRenderingContext2D) {
     if (!this.stroke || this.strokeWidth === 0) return;
-    const hasCustom = setupImageStrokePath(this, ctx);
-    if (!hasCustom) {
+    const isInside =
+      ((this as any).strokePosition ||
+        (typeof this.get === 'function'
+          ? this.get('strokePosition' as any)
+          : null)) !== 'outside';
+
+    const hasExplicitStrokePath = ensureObjectStrokePath(this, ctx);
+
+    if (isInside && hasExplicitStrokePath && typeof ctx.clip === 'function') {
+      ctx.save();
+      ctx.clip();
+
+      const origWidth = this.strokeWidth;
+      this.strokeWidth = origWidth * 2;
+
+      ensureObjectStrokePath(this, ctx);
       origImageStroke.call(this, ctx);
+
+      this.strokeWidth = origWidth;
+      ctx.restore();
+    } else {
+      const hasCustom = setupImageStrokePath(this, ctx);
+      if (!hasCustom) {
+        origImageStroke.call(this, ctx);
+      }
     }
   };
 
@@ -1734,6 +1854,63 @@ export function applyCanvaControlsGlobal(): void {
       ctx.restore();
     } else {
       origRenderStroke.call(this, ctx);
+    }
+  };
+
+  // Support additive multi-shadow rendering (e.g. Drop Shadow + Glow aura + Lift simultaneously)
+  // and native vector blur filter across all cached and non-cached objects
+  const origRender = FabricObject.prototype.render;
+  FabricObject.prototype.render = function (ctx: CanvasRenderingContext2D) {
+    if (this.isNotVisible()) return;
+    if (this.canvas && this.canvas.skipOffscreen && !this.group && !this.isOnScreen()) return;
+
+    const secondaryShadows: Array<{ color: string; blur: number; offsetX?: number; offsetY?: number }> =
+      (this as any)._secondaryShadows ||
+      ((this as any)._secondaryShadow ? [(this as any)._secondaryShadow] : []);
+
+    // 1. Multi-pass rendering for secondary/compound lighting (Glow aura, Neon aura, Lift, etc.)
+    if (secondaryShadows.length > 0) {
+      const canvasZoom = this.canvas?.getZoom?.() || 1;
+      const retina = typeof (this as any).getCanvasRetinaScaling === 'function' ? (this as any).getCanvasRetinaScaling() : 1;
+      const r = canvasZoom * retina;
+      const scaling = typeof (this as any).getObjectScaling === 'function' ? (this as any).getObjectScaling() : { x: 1, y: 1 };
+      const avgScale = (Math.abs(scaling.x) + Math.abs(scaling.y)) / 2;
+
+      for (const sec of secondaryShadows) {
+        if (!sec || !sec.color || sec.color === 'transparent') continue;
+
+        ctx.save();
+        (this as any)._setupCompositeOperation?.(ctx);
+        this.transform(ctx);
+        (this as any)._setOpacity?.(ctx);
+
+        ctx.shadowColor = sec.color;
+        ctx.shadowBlur = (sec.blur || 0) * r * avgScale;
+        ctx.shadowOffsetX = (sec.offsetX || 0) * r * Math.abs(scaling.x);
+        ctx.shadowOffsetY = (sec.offsetY || 0) * r * Math.abs(scaling.y);
+
+        this.drawObject(ctx, false, {});
+        ctx.restore();
+      }
+    }
+
+    // 2. Vector blur filter (for text, paths, shapes)
+    const blurVal = Number((this as any)._blurAmount) || 0;
+    let didFilter = false;
+    if (blurVal > 0 && typeof ctx.filter === 'string') {
+      const px = Math.round((blurVal / 100) * 20);
+      if (px > 0) {
+        ctx.save();
+        ctx.filter = `blur(${px}px)`;
+        didFilter = true;
+      }
+    }
+
+    // 3. Render primary object and primary shadow
+    origRender.call(this, ctx);
+
+    if (didFilter) {
+      ctx.restore();
     }
   };
 

@@ -188,6 +188,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
         dirty: true,
       });
 
+      if (typeof (canvasManager as any).reapplyCombinedImageFilters === 'function') {
+        (canvasManager as any).reapplyCombinedImageFilters(targetImageObj);
+      } else if (typeof targetImageObj.applyFilters === 'function') {
+        targetImageObj.applyFilters();
+      }
+
       if (activeObject !== targetImageObj) {
         activeObject.set({ dirty: true });
       }
