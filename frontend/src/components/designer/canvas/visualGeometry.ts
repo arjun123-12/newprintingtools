@@ -1090,24 +1090,7 @@ export function installShadowSilhouetteHook(): void {
       return;
     }
 
-    if (requiresSilhouetteShadow(this)) {
-      // Let Fabric compute exact shadow metrics on ctx first
-      origSetShadow.call(this, ctx);
-
-      // Render the exact silhouette shadow projected offscreen
-      const rendered = renderSilhouetteShadow(this, ctx);
-
-      if (rendered) {
-        // Clear native shadow on ctx so drawObject does not cast a rectangular drop-shadow
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
-        return;
-      }
-    }
-
-    // Fall back to original Fabric shadow
+    // Native Fabric shadow for all elements (images, shapes, svgs, paths, text)
     origSetShadow.call(this, ctx);
   };
 }

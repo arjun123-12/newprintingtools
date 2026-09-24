@@ -7528,7 +7528,7 @@ export class CanvasManager {
       }
       this.recomputeObjectEffects(obj);
       this.syncVisualEffectsGeometry(obj);
-      (obj as any).objectCaching = false;
+      (obj as any).objectCaching = true;
       (obj as any).dirty = true;
     }
 

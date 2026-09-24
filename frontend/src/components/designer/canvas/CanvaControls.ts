@@ -1881,22 +1881,18 @@ export function applyCanvaControlsGlobal(): void {
       for (const sec of secondaryShadows) {
         if (!sec || !sec.color || sec.color === 'transparent') continue;
 
-        if (requiresSilhouetteShadow(this)) {
-          renderSilhouetteShadowPass(this, ctx, sec);
-        } else {
-          ctx.save();
-          (this as any)._setupCompositeOperation?.(ctx);
-          this.transform(ctx);
-          (this as any)._setOpacity?.(ctx);
+        ctx.save();
+        (this as any)._setupCompositeOperation?.(ctx);
+        this.transform(ctx);
+        (this as any)._setOpacity?.(ctx);
 
-          ctx.shadowColor = sec.color;
-          ctx.shadowBlur = (sec.blur || 0) * r * avgScale;
-          ctx.shadowOffsetX = (sec.offsetX || 0) * r * Math.abs(scaling.x);
-          ctx.shadowOffsetY = (sec.offsetY || 0) * r * Math.abs(scaling.y);
+        ctx.shadowColor = sec.color;
+        ctx.shadowBlur = (sec.blur || 0) * r * avgScale;
+        ctx.shadowOffsetX = (sec.offsetX || 0) * r * Math.abs(scaling.x);
+        ctx.shadowOffsetY = (sec.offsetY || 0) * r * Math.abs(scaling.y);
 
-          this.drawObject(ctx, false, {});
-          ctx.restore();
-        }
+        this.drawObject(ctx, false, {});
+        ctx.restore();
       }
     }
 

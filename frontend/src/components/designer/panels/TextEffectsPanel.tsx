@@ -749,14 +749,14 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                 label="Offset"
                 value={shadowSettings.offset}
                 min={0}
-                max={100}
+                max={200}
                 onChange={(value) => handleShadowSettingChange('offset', value)}
               />
               <ShadowSlider
                 label="Blur"
                 value={shadowSettings.blur}
                 min={0}
-                max={100}
+                max={200}
                 onChange={(value) => handleShadowSettingChange('blur', value)}
               />
               <ShadowSlider
@@ -840,7 +840,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                 label="Blur"
                 value={liftSettings.blur}
                 min={0}
-                max={100}
+                max={200}
                 onChange={(value) => handleLiftSettingChange('blur', value)}
               />
               <ShadowSlider
@@ -917,7 +917,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
                 label="Blur / Size"
                 value={glowSettings.blur}
                 min={0}
-                max={100}
+                max={200}
                 onChange={(value) => handleGlowSettingChange('blur', value)}
               />
               <ShadowSlider
