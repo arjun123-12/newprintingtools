@@ -44,18 +44,18 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
   const [activeSubTab, setActiveSubTab] = useState<'arrange' | 'layers'>('arrange');
   const [isRatioLocked, setIsRatioLocked] = useState<boolean>(true);
 
-  // Local state for numeric inputs
-  const [localWidth, setLocalWidth] = useState<number>(100);
-  const [localHeight, setLocalHeight] = useState<number>(100);
-  const [localX, setLocalX] = useState<number>(0);
-  const [localY, setLocalY] = useState<number>(0);
-  const [localAngle, setLocalAngle] = useState<number>(0);
+  // Local state for numeric inputs (can hold string while actively editing/typing)
+  const [localWidth, setLocalWidth] = useState<number | string>(100);
+  const [localHeight, setLocalHeight] = useState<number | string>(100);
+  const [localX, setLocalX] = useState<number | string>(0);
+  const [localY, setLocalY] = useState<number | string>(0);
+  const [localAngle, setLocalAngle] = useState<number | string>(0);
 
   // Keep local inputs synchronized with active selection
   useEffect(() => {
     if (!selected) return;
-    const computedW = Math.round((selected.width || 0) * (selected.scaleX || 1));
-    const computedH = Math.round((selected.height || 0) * (selected.scaleY || 1));
+    const computedW = Math.round(selected.width || 0);
+    const computedH = Math.round(selected.height || 0);
     setLocalWidth(Math.max(computedW, 1));
     setLocalHeight(Math.max(computedH, 1));
     setLocalX(Math.round(selected.left || 0));
@@ -78,13 +78,17 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
     canvasManager.spaceEvenlySelected(direction);
   };
 
-  const handleWidthChange = (newWidth: number) => {
-    const validW = Math.max(Number(newWidth) || 1, 1);
-    setLocalWidth(validW);
+  const handleWidthChange = (rawVal: string) => {
+    setLocalWidth(rawVal);
+    if (rawVal === '') return;
+    const validW = Math.max(Number(rawVal) || 1, 1);
     if (!canvasManager || !selected) return;
 
-    if (isRatioLocked && localWidth > 0) {
-      const ratio = localHeight / localWidth;
+    const currentW = typeof localWidth === 'number' ? localWidth : Number(localWidth) || 1;
+    const currentH = typeof localHeight === 'number' ? localHeight : Number(localHeight) || 1;
+
+    if (isRatioLocked && currentW > 0 && currentH > 0) {
+      const ratio = currentH / currentW;
       const newHeight = Math.max(Math.round(validW * ratio), 1);
       setLocalHeight(newHeight);
       canvasManager.updateSelectedProperty('width', validW);
@@ -94,13 +98,23 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
     }
   };
 
-  const handleHeightChange = (newHeight: number) => {
-    const validH = Math.max(Number(newHeight) || 1, 1);
-    setLocalHeight(validH);
+  const handleWidthBlur = () => {
+    if (localWidth === '' || Number.isNaN(Number(localWidth))) {
+      setLocalWidth(Math.max(Math.round(selected?.width || 1), 1));
+    }
+  };
+
+  const handleHeightChange = (rawVal: string) => {
+    setLocalHeight(rawVal);
+    if (rawVal === '') return;
+    const validH = Math.max(Number(rawVal) || 1, 1);
     if (!canvasManager || !selected) return;
 
-    if (isRatioLocked && localHeight > 0) {
-      const ratio = localWidth / localHeight;
+    const currentW = typeof localWidth === 'number' ? localWidth : Number(localWidth) || 1;
+    const currentH = typeof localHeight === 'number' ? localHeight : Number(localHeight) || 1;
+
+    if (isRatioLocked && currentH > 0 && currentW > 0) {
+      const ratio = currentW / currentH;
       const newWidth = Math.max(Math.round(validH * ratio), 1);
       setLocalWidth(newWidth);
       canvasManager.updateSelectedProperty('height', validH);
@@ -110,26 +124,55 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
     }
   };
 
-  const handleXChange = (newX: number) => {
-    const validX = Number(newX) || 0;
-    setLocalX(validX);
-    if (!canvasManager) return;
-    canvasManager.updateSelectedProperty('left', validX);
+  const handleHeightBlur = () => {
+    if (localHeight === '' || Number.isNaN(Number(localHeight))) {
+      setLocalHeight(Math.max(Math.round(selected?.height || 1), 1));
+    }
   };
 
-  const handleYChange = (newY: number) => {
-    const validY = Number(newY) || 0;
-    setLocalY(validY);
+  const handleXChange = (rawVal: string) => {
+    setLocalX(rawVal);
+    if (rawVal === '' || rawVal === '-') return;
+    const num = Number(rawVal);
+    if (Number.isNaN(num)) return;
     if (!canvasManager) return;
-    canvasManager.updateSelectedProperty('top', validY);
+    canvasManager.updateSelectedProperty('left', num);
   };
 
-  const handleAngleChange = (newAngle: number) => {
-    let normalized = Math.round(Number(newAngle) || 0) % 360;
+  const handleXBlur = () => {
+    if (localX === '' || localX === '-' || Number.isNaN(Number(localX))) {
+      setLocalX(Math.round(selected?.left || 0));
+    }
+  };
+
+  const handleYChange = (rawVal: string) => {
+    setLocalY(rawVal);
+    if (rawVal === '' || rawVal === '-') return;
+    const num = Number(rawVal);
+    if (Number.isNaN(num)) return;
+    if (!canvasManager) return;
+    canvasManager.updateSelectedProperty('top', num);
+  };
+
+  const handleYBlur = () => {
+    if (localY === '' || localY === '-' || Number.isNaN(Number(localY))) {
+      setLocalY(Math.round(selected?.top || 0));
+    }
+  };
+
+  const handleAngleChange = (rawVal: string | number) => {
+    setLocalAngle(rawVal);
+    if (rawVal === '' || rawVal === '-') return;
+    let normalized = Math.round(Number(rawVal) || 0) % 360;
     if (normalized < 0) normalized += 360;
-    setLocalAngle(normalized);
     if (!canvasManager) return;
     canvasManager.updateSelectedProperty('angle', normalized);
+  };
+
+  const handleAngleBlur = () => {
+    if (localAngle === '' || localAngle === '-' || Number.isNaN(Number(localAngle))) {
+      setLocalAngle(Math.round(selected?.angle || 0));
+    }
   };
 
   const hasSelection = Boolean(selected);
@@ -452,7 +495,8 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                         type="number"
                         disabled={!hasSelection}
                         value={localWidth}
-                        onChange={(e) => handleWidthChange(Number(e.target.value))}
+                        onChange={(e) => handleWidthChange(e.target.value)}
+                        onBlur={handleWidthBlur}
                         className="w-full px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-gray-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed] transition disabled:opacity-40"
                       />
                       <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-sans">
@@ -470,7 +514,8 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                         type="number"
                         disabled={!hasSelection}
                         value={localHeight}
-                        onChange={(e) => handleHeightChange(Number(e.target.value))}
+                        onChange={(e) => handleHeightChange(e.target.value)}
+                        onBlur={handleHeightBlur}
                         className="w-full px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-gray-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed] transition disabled:opacity-40"
                       />
                       <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-sans">
@@ -508,7 +553,8 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                       type="number"
                       disabled={!hasSelection}
                       value={localX}
-                      onChange={(e) => handleXChange(Number(e.target.value))}
+                      onChange={(e) => handleXChange(e.target.value)}
+                      onBlur={handleXBlur}
                       className="w-full px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-gray-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed] transition disabled:opacity-40"
                     />
                     <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-sans">
@@ -526,7 +572,8 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                       type="number"
                       disabled={!hasSelection}
                       value={localY}
-                      onChange={(e) => handleYChange(Number(e.target.value))}
+                      onChange={(e) => handleYChange(e.target.value)}
+                      onBlur={handleYBlur}
                       className="w-full px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-gray-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed] transition disabled:opacity-40"
                     />
                     <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 font-sans">
@@ -563,7 +610,8 @@ export const PositionPanel: React.FC<PositionPanelProps> = ({
                     max="360"
                     disabled={!hasSelection}
                     value={localAngle}
-                    onChange={(e) => handleAngleChange(Number(e.target.value))}
+                    onChange={(e) => handleAngleChange(e.target.value)}
+                    onBlur={handleAngleBlur}
                     className="w-14 px-2 py-1 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-center text-gray-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed] transition disabled:opacity-40"
                   />
                 </div>

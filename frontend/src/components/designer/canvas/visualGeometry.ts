@@ -778,10 +778,14 @@ export function getObjectVisualSilhouette(object: FabricObject): any {
 /**
  * Draws a shape or SVG path for silhouette shadow projection.
  */
-export function drawShapeOrPath(shape: any, ctx: CanvasRenderingContext2D): void {
+export function drawShapeOrPath(
+  shape: any,
+  ctx: CanvasRenderingContext2D,
+  skipTransform: boolean = false
+): void {
   if (!shape) return;
   ctx.save();
-  if (typeof shape.transform === 'function') {
+  if (!skipTransform && typeof shape.transform === 'function') {
     shape.transform(ctx);
   }
 
@@ -831,6 +835,7 @@ export function drawShapeOrPath(shape: any, ctx: CanvasRenderingContext2D): void
 
 /**
  * Draws the complete visual silhouette for an object in local coordinate space.
+ * Seamlessly handles raster images, photos, transparent cutouts, SVGs, paths, and frames.
  */
 export function drawObjectSilhouette(object: FabricObject, ctx: CanvasRenderingContext2D): void {
   if (!object) return;
@@ -852,7 +857,9 @@ export function drawObjectSilhouette(object: FabricObject, ctx: CanvasRenderingC
   const isImg =
     object instanceof FabricImage ||
     (object as any).type === 'image' ||
-    (object as any).type === 'FabricImage';
+    (object as any).type === 'FabricImage' ||
+    Boolean((object as any)._element) ||
+    Boolean(object.get?.('isImage' as any));
 
   const rx =
     Number((object as any).cornerRadius) ||
@@ -860,15 +867,56 @@ export function drawObjectSilhouette(object: FabricObject, ctx: CanvasRenderingC
     Number((object as any).rx) ||
     0;
 
-  if (isImg && rx > 0) {
+  // Handle all image & photo variations (JPG, PNG, WebP, transparent cutouts, rounded corners, crops)
+  if (isImg) {
     const w = object.width || 1;
     const h = object.height || 1;
-    const { rx: localRx, ry: localRy } = getEffectiveCornerRadius(object);
-    drawRoundedRectPath(ctx, -w / 2, -h / 2, w, h, localRx, localRy);
-    ctx.fill();
+    const imgEl = (object as any)._filteredEl || (object as any)._element;
+
+    if (rx > 0) {
+      const { rx: localRx, ry: localRy } = getEffectiveCornerRadius(object);
+      drawRoundedRectPath(ctx, -w / 2, -h / 2, w, h, localRx, localRy);
+      ctx.fill();
+      if (object.strokeWidth && object.stroke && object.stroke !== 'transparent') {
+        ctx.lineWidth = object.strokeWidth;
+        ctx.stroke();
+      }
+      return;
+    }
+
+    if (object.clipPath && !(object.clipPath as any).isCornerRoundingClip) {
+      drawShapeOrPath(object.clipPath, ctx);
+      return;
+    }
+
+    // Normal rectangular photo or transparent cutout PNG/sticker
+    if (imgEl && (imgEl.naturalWidth || imgEl.width) && (imgEl.naturalHeight || imgEl.height)) {
+      const filterScaleX = Number((object as any)._filterScalingX) || 1;
+      const filterScaleY = Number((object as any)._filterScalingY) || 1;
+      const cropX = Math.max((object as any).cropX || 0, 0);
+      const cropY = Math.max((object as any).cropY || 0, 0);
+      const elWidth = (imgEl as HTMLImageElement).naturalWidth || imgEl.width;
+      const elHeight = (imgEl as HTMLImageElement).naturalHeight || imgEl.height;
+
+      const sX = cropX * filterScaleX;
+      const sY = cropY * filterScaleY;
+      const sW = Math.min(w * filterScaleX, elWidth - sX);
+      const sH = Math.min(h * filterScaleY, elHeight - sY);
+      const destW = Math.min(w, elWidth / filterScaleX - cropX);
+      const destH = Math.min(h, elHeight / filterScaleY - cropY);
+
+      try {
+        ctx.drawImage(imgEl, sX, sY, sW, sH, -w / 2, -h / 2, destW, destH);
+      } catch {
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+      }
+    } else {
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+    }
+
     if (object.strokeWidth && object.stroke && object.stroke !== 'transparent') {
       ctx.lineWidth = object.strokeWidth;
-      ctx.stroke();
+      ctx.strokeRect(-w / 2, -h / 2, w, h);
     }
     return;
   }
@@ -891,12 +939,13 @@ export function drawObjectSilhouette(object: FabricObject, ctx: CanvasRenderingC
     return;
   }
 
-  drawShapeOrPath(object, ctx);
+  drawShapeOrPath(object, ctx, true);
 }
 
 /**
  * Checks whether an object requires silhouette-based shadow rendering
  * rather than raw unclipped image/group rendering.
+ * All image and photo types, shapes, and frames use silhouette projection.
  */
 export function requiresSilhouetteShadow(object: FabricObject): boolean {
   if (!object || !object.shadow || !object.shadow.color || object.shadow.color === 'transparent') {
@@ -912,35 +961,16 @@ export function requiresSilhouetteShadow(object: FabricObject): boolean {
     return false;
   }
 
-  const isFrame =
-    Boolean(object.get?.('isFrame' as any)) ||
-    Boolean((object as any).isFrame) ||
-    Boolean((object as any).isPhotoShapeGroup) ||
-    Boolean((object as any).isCustomFrame);
-
-  if (isFrame) return true;
-
-  // Any object with a clipPath
-  if (Boolean(object.clipPath)) {
-    return true;
+  // Text objects use native Fabric vector text glyph shadow renderer
+  const rawType = String((object as any).type || '')
+    .toLowerCase()
+    .replace(/[-_\s]/g, '');
+  if (['text', 'itext', 'textbox'].includes(rawType)) {
+    return false;
   }
 
-  const isImg =
-    object instanceof FabricImage ||
-    (object as any).type === 'image' ||
-    (object as any).type === 'FabricImage';
-
-  if (
-    isImg &&
-    (Number((object as any).rx) > 0 ||
-      Number((object as any).ry) > 0 ||
-      Number((object as any).cornerRadius) > 0 ||
-      Number((object as any)._requestedRadius) > 0)
-  ) {
-    return true;
-  }
-
-  return false;
+  // All other objects (images, photos, cutouts, shapes, paths, SVGs, frames) use silhouette projection
+  return true;
 }
 
 /**
@@ -971,6 +1001,53 @@ export function renderSilhouetteShadow(object: FabricObject, ctx: CanvasRenderin
   ctx.shadowBlur = shadowBlur;
   ctx.shadowOffsetX = shadowOffsetX + PROJECT_OFFSET;
   ctx.shadowOffsetY = shadowOffsetY;
+  ctx.fillStyle = '#000000';
+  ctx.strokeStyle = '#000000';
+
+  ctx.translate(-PROJECT_OFFSET, 0);
+
+  drawObjectSilhouette(object, ctx);
+
+  ctx.restore();
+
+  return true;
+}
+
+/**
+ * Multi-pass silhouette shadow projection for compound lighting effects (Glow, Lift, Neon)
+ */
+export function renderSilhouetteShadowPass(
+  object: FabricObject,
+  ctx: CanvasRenderingContext2D,
+  sec: { color: string; blur: number; offsetX?: number; offsetY?: number }
+): boolean {
+  if (!sec || !sec.color || sec.color === 'transparent') {
+    return false;
+  }
+
+  const canvasZoom = object.canvas?.getZoom?.() || 1;
+  const retina =
+    typeof (object as any).getCanvasRetinaScaling === 'function'
+      ? (object as any).getCanvasRetinaScaling()
+      : 1;
+  const r = canvasZoom * retina;
+  const scaling =
+    typeof (object as any).getObjectScaling === 'function'
+      ? (object as any).getObjectScaling()
+      : { x: 1, y: 1 };
+  const avgScale = (Math.abs(scaling.x) + Math.abs(scaling.y)) / 2;
+
+  const PROJECT_OFFSET = 50000;
+
+  ctx.save();
+  (object as any)._setupCompositeOperation?.(ctx);
+  object.transform(ctx);
+  (object as any)._setOpacity?.(ctx);
+
+  ctx.shadowColor = sec.color;
+  ctx.shadowBlur = (sec.blur || 0) * r * avgScale;
+  ctx.shadowOffsetX = (sec.offsetX || 0) * r * Math.abs(scaling.x) + PROJECT_OFFSET;
+  ctx.shadowOffsetY = (sec.offsetY || 0) * r * Math.abs(scaling.y);
   ctx.fillStyle = '#000000';
   ctx.strokeStyle = '#000000';
 

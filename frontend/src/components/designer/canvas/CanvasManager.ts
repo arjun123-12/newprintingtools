@@ -6018,7 +6018,10 @@ export class CanvasManager {
       (newImg as any)._adjustments = (active as any)._adjustments ? { ...(active as any)._adjustments } : undefined;
       (newImg as any)._activeEffect = (active as any)._activeEffect;
       (newImg as any)._activeEffects = (active as any)._activeEffects ? { ...(active as any)._activeEffects } : undefined;
+      (newImg as any)._shadowSettings = (active as any)._shadowSettings ? { ...(active as any)._shadowSettings } : undefined;
+      newImg.set('shadow', active.shadow);
       (newImg as any)._secondaryShadow = (active as any)._secondaryShadow ? { ...(active as any)._secondaryShadow } : undefined;
+      (newImg as any)._secondaryShadows = (active as any)._secondaryShadows ? [...(active as any)._secondaryShadows] : undefined;
       (newImg as any)._blurAmount = (active as any)._blurAmount;
       (newImg as any)._effectSettings = (active as any)._effectSettings ? { ...(active as any)._effectSettings } : undefined;
       (newImg as any)._activeFilterPreset = (active as any)._activeFilterPreset;
@@ -6138,7 +6141,10 @@ export class CanvasManager {
     (newImg as any)._adjustments = (active as any)._adjustments ? { ...(active as any)._adjustments } : undefined;
     (newImg as any)._activeEffect = (active as any)._activeEffect;
     (newImg as any)._activeEffects = (active as any)._activeEffects ? { ...(active as any)._activeEffects } : undefined;
+    (newImg as any)._shadowSettings = (active as any)._shadowSettings ? { ...(active as any)._shadowSettings } : undefined;
+    newImg.set('shadow', active.shadow);
     (newImg as any)._secondaryShadow = (active as any)._secondaryShadow ? { ...(active as any)._secondaryShadow } : undefined;
+    (newImg as any)._secondaryShadows = (active as any)._secondaryShadows ? [...(active as any)._secondaryShadows] : undefined;
     (newImg as any)._blurAmount = (active as any)._blurAmount;
     (newImg as any)._effectSettings = (active as any)._effectSettings ? { ...(active as any)._effectSettings } : undefined;
     (newImg as any)._activeFilterPreset = (active as any)._activeFilterPreset;
@@ -6870,25 +6876,44 @@ export class CanvasManager {
       return;
     }
 
-    if (prop === 'left') active.set('left', value as number);
-    else if (prop === 'top') active.set('top', value as number);
-    else if (prop === 'width') {
+    if (prop === 'left') {
+      const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+      const targetCanvasLeft = (Number(value) || 0) + bleedPx;
+      active.setCoords();
+      const bound = active.getBoundingRect();
+      const deltaX = targetCanvasLeft - bound.left;
+      active.set('left', (active.left ?? 0) + deltaX);
+      active.setCoords();
+    } else if (prop === 'top') {
+      const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+      const targetCanvasTop = (Number(value) || 0) + bleedPx;
+      active.setCoords();
+      const bound = active.getBoundingRect();
+      const deltaY = targetCanvasTop - bound.top;
+      active.set('top', (active.top ?? 0) + deltaY);
+      active.setCoords();
+    } else if (prop === 'width') {
       const w = Math.max(Number(value), 1);
       if (this.isTextObject(active) && active.type === 'textbox') {
         active.set('width', w);
-      } else if (active.type === 'rect' || active.type === 'image') {
-        active.set('width', w);
+      } else if (active.type === 'rect') {
+        active.set({ width: w, scaleX: 1 });
       } else {
         active.scaleToWidth(w);
       }
+      active.setCoords();
     } else if (prop === 'height') {
       const h = Math.max(Number(value), 1);
-      if (active.type === 'rect' || active.type === 'image') {
-        active.set('height', h);
+      if (active.type === 'rect') {
+        active.set({ height: h, scaleY: 1 });
       } else {
         active.scaleToHeight(h);
       }
-    } else if (prop === 'angle') active.set('angle', value as number);
+      active.setCoords();
+    } else if (prop === 'angle') {
+      active.set('angle', value as number);
+      active.setCoords();
+    }
     else if (prop === 'opacity') active.set('opacity', value as number);
     else if (prop === 'fill') {
       if (typeof value === 'object' && value !== null && 'stops' in value) {
@@ -7503,6 +7528,8 @@ export class CanvasManager {
       }
       this.recomputeObjectEffects(obj);
       this.syncVisualEffectsGeometry(obj);
+      (obj as any).objectCaching = false;
+      (obj as any).dirty = true;
     }
 
     if (!(active as any)._activeEffects) (active as any)._activeEffects = {};
@@ -8313,46 +8340,44 @@ export class CanvasManager {
     const deltaX = currentLeft - bound.left;
     const deltaY = currentTop - bound.top;
 
+    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+    const trimWidth = this.dimensions.widthPx || 1063;
+    const trimHeight = this.dimensions.heightPx || 591;
+
     let targetBoundLeft = bound.left;
     let targetBoundTop = bound.top;
 
     switch (type) {
       case 'left':
-        targetBoundLeft = 0;
-        active.set('left', targetBoundLeft + deltaX);
+        targetBoundLeft = bleedPx;
         break;
       case 'center':
       case 'center-h':
-        targetBoundLeft = (canvasWidth - bound.width) / 2;
-        active.set('left', targetBoundLeft + deltaX);
+        targetBoundLeft = bleedPx + (trimWidth - bound.width) / 2;
         break;
       case 'right':
-        targetBoundLeft = canvasWidth - bound.width;
-        active.set('left', targetBoundLeft + deltaX);
+        targetBoundLeft = bleedPx + trimWidth - bound.width;
         break;
       case 'top':
-        targetBoundTop = 0;
-        active.set('top', targetBoundTop + deltaY);
+        targetBoundTop = bleedPx;
         break;
       case 'middle':
       case 'center-v':
-        targetBoundTop = (canvasHeight - bound.height) / 2;
-        active.set('top', targetBoundTop + deltaY);
+        targetBoundTop = bleedPx + (trimHeight - bound.height) / 2;
         break;
       case 'bottom':
-        targetBoundTop = canvasHeight - bound.height;
-        active.set('top', targetBoundTop + deltaY);
+        targetBoundTop = bleedPx + trimHeight - bound.height;
         break;
       case 'center-both':
-        targetBoundLeft = (canvasWidth - bound.width) / 2;
-        targetBoundTop = (canvasHeight - bound.height) / 2;
-        active.set({
-          left: targetBoundLeft + deltaX,
-          top: targetBoundTop + deltaY,
-        });
+        targetBoundLeft = bleedPx + (trimWidth - bound.width) / 2;
+        targetBoundTop = bleedPx + (trimHeight - bound.height) / 2;
         break;
     }
 
+    active.set({
+      left: Math.round(targetBoundLeft + deltaX),
+      top: Math.round(targetBoundTop + deltaY),
+    });
     active.setCoords();
     this.canvas.requestRenderAll();
     this.notifyChange();
@@ -8474,8 +8499,9 @@ export class CanvasManager {
   }
 
   public centerObjectOnCanvas(obj: FabricObject): void {
-    const canvasW = this.dimensions.widthPx || 1063;
-    const canvasH = this.dimensions.heightPx || 591;
+    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+    const trimW = this.dimensions.widthPx || 1063;
+    const trimH = this.dimensions.heightPx || 591;
 
     obj.setCoords();
     const bound = obj.getBoundingRect();
@@ -8484,12 +8510,12 @@ export class CanvasManager {
     const deltaX = currentLeft - bound.left;
     const deltaY = currentTop - bound.top;
 
-    const targetLeft = (canvasW - bound.width) / 2 + deltaX;
-    const targetTop = (canvasH - bound.height) / 2 + deltaY;
+    const targetBoundLeft = bleedPx + (trimW - bound.width) / 2;
+    const targetBoundTop = bleedPx + (trimH - bound.height) / 2;
 
     obj.set({
-      left: Math.round(targetLeft),
-      top: Math.round(targetTop),
+      left: Math.round(targetBoundLeft + deltaX),
+      top: Math.round(targetBoundTop + deltaY),
     });
     obj.setCoords();
   }
@@ -9737,6 +9763,12 @@ export class CanvasManager {
     const renderedWidth = Math.round((active.width || 0) * (active.scaleX || 1));
     const renderedHeight = Math.round((active.height || 0) * (active.scaleY || 1));
 
+    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+    active.setCoords();
+    const bound = active.getBoundingRect();
+    const artworkPageX = Math.round(bound.left - bleedPx);
+    const artworkPageY = Math.round(bound.top - bleedPx);
+
     let qualityInfo;
     let naturalWidth;
     let naturalHeight;
@@ -9804,8 +9836,8 @@ export class CanvasManager {
                 : (active.type || 'object').toLowerCase(),
       isMultiple,
       count,
-      left: Math.round(active.left || 0),
-      top: Math.round(active.top || 0),
+      left: artworkPageX,
+      top: artworkPageY,
       width: renderedWidth,
       height: renderedHeight,
       scaleX: Number((active.scaleX || 1).toFixed(2)),
