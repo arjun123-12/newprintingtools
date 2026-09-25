@@ -116,6 +116,7 @@ export interface LayerItem {
   zIndex: number;
   textPreview?: string;
   thumbnail?: string;
+  opacity?: number;
 }
 
 export type ArtworkQuality = 'excellent' | 'good' | 'low' | 'critical';

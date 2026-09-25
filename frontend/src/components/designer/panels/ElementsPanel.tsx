@@ -859,7 +859,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
               className="h-full w-full object-contain pointer-events-none"
             />
           ) : (
-            <Shapes className="h-7 w-7 text-gray-800" />
+            <Shapes className="h-7 w-7 text-[#f4b400]" />
           )}
           {isInsertingCurrent && (
             <span className="absolute inset-0 flex items-center justify-center bg-white/75 rounded-xl">
@@ -917,7 +917,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
             </span>
           )}
         </span>
-      
+
       </button>
     );
   };
@@ -1003,7 +1003,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              <h3 className="truncate text-xs font-bold text-gray-800">
+              <h3 className="truncate text-xs font-bold text-[#f4b400]">
                 {activeExpandedShapeSection.name}
               </h3>
               <span className="ml-auto text-[10px] text-gray-400 font-medium">
@@ -1037,7 +1037,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
             {recentShapeAssets.length > 0 && (
               <section>
                 <div className="mb-2">
-                  <h4 className="text-[11px] font-bold text-gray-800 tracking-tight">
+                  <h4 className="text-[11px] font-bold text-[#f4b400] tracking-tight">
                     Recently used
                   </h4>
                 </div>
@@ -1050,14 +1050,14 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
             {shapeSections.map((section: ShapeSection) => (
               <section key={section.id}>
                 <div className="mb-2 flex items-center justify-between">
-                  <h4 className="truncate pr-2 text-[11px] font-bold text-gray-800 tracking-tight">
+                  <h4 className="truncate pr-2 text-[11px] font-bold text-[#f4b400] tracking-tight">
                     {section.name}
                   </h4>
                   {section.assets.length > 5 && (
                     <button
                       type="button"
                       onClick={() => setExpandedShapeSectionId(section.id)}
-                      className="shrink-0 text-[10px] font-semibold text-gray-500 hover:text-purple-600 transition"
+                      className="shrink-0 text-[10px] font-semibold text-amber-500 hover:text-amber-600 transition"
                     >
                       See all
                     </button>
@@ -1090,7 +1090,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
           {recentShapeAssets.length > 0 && (
             <section>
               <div className="mb-2">
-                <h4 className="text-[11px] font-bold text-gray-800 tracking-tight">
+                <h4 className="text-[11px] font-bold text-[#f4b400] tracking-tight">
                   Recently used
                 </h4>
               </div>
@@ -1104,7 +1104,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
           {shapeAssets.length > 0 && (
             <section>
               <div className="mb-2 flex items-center justify-between">
-                <h4 className="text-[11px] font-bold text-gray-800 tracking-tight">
+                <h4 className="text-[11px] font-bold text-[#f4b400] tracking-tight">
                   Shapes
                 </h4>
                 <button
@@ -1125,7 +1125,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
           {frameAssets.length > 0 && (
             <section>
               <div className="mb-2 flex items-center justify-between">
-                <h4 className="text-[11px] font-bold text-gray-800 tracking-tight">
+                <h4 className="text-[11px] font-bold text-[#f4b400] tracking-tight">
                   Frames
                 </h4>
                 <button
@@ -1149,7 +1149,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
           {graphicsAssets.length > 0 && (
             <section>
               <div className="mb-2 flex items-center justify-between">
-                <h4 className="text-[11px] font-bold text-gray-800 tracking-tight">
+                <h4 className="text-[11px] font-bold text-[#f4b400] tracking-tight">
                   Graphics
                 </h4>
                 <button
@@ -1170,7 +1170,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
           {photoAssets.length > 0 && (
             <section>
               <div className="mb-2 flex items-center justify-between">
-                <h4 className="text-[11px] font-bold text-gray-800 tracking-tight">
+                <h4 className="text-[11px] font-bold text-[#f4b400] tracking-tight">
                   Photos
                 </h4>
                 <button

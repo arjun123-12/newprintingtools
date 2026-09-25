@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Plus, Trash2, Copy, Layers, Eye } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { renderCanvasJsonToThumbnail } from '../utils/canvasThumbnail';
 
@@ -22,16 +23,22 @@ interface PageManagerTrayProps {
   printSides?: string;
   sideNames?: string[];
   onOpenPreview?: () => void;
+  onApplyDesignToBack?: () => void;
 }
 
 export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
   pages,
   activePageIndex,
   onPageSelect,
+  onAddPage,
+  onDuplicatePage,
+  onDeletePage,
   onUpdatePageThumbnail,
   canvasManager,
   printSides = 'both',
   sideNames,
+  onOpenPreview,
+  onApplyDesignToBack,
 }) => {
   // Store real-time live thumbnails for all pages
   const [liveThumbnails, setLiveThumbnails] = useState<Record<number, string>>({});
@@ -147,57 +154,171 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
   }, [pages]);
 
   return (
-    <div className="absolute right-5 top-1/2 z-30 -translate-y-1/2">
-      <div className="flex max-h-[60vh] flex-col items-center gap-5 overflow-y-auto px-1 py-2 custom-scrollbar">
-        {displayPages.map((page, idx) => {
-          const isActive = activePageIndex === idx;
-          const label = getPageLabel(idx);
-          const thumbSrc = liveThumbnails[idx] || page.thumbnail;
+    <div className="absolute right-4 top-1/2 z-30 -translate-y-1/2 flex flex-col items-center">
+      {/* Container card with backdrop blur and sleek borders */}
+      <div className="flex max-h-[78vh] flex-col items-center gap-3 overflow-y-auto px-2 py-3 custom-scrollbar bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200/90 shadow-xl select-none">
+        {/* Tray Header */}
+        <div className="flex items-center justify-between w-full px-1 border-b border-gray-100 pb-1.5">
+          <div className="flex items-center gap-1.5 text-gray-700">
+            <Layers className="w-3.5 h-3.5 text-sky-600" />
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-700">
+              Pages
+            </span>
+          </div>
+          <span className="text-[10px] font-mono text-gray-400 font-bold bg-gray-100 px-1.5 py-0.5 rounded-full">
+            {displayPages.length}
+          </span>
+        </div>
 
-          return (
-            <button
-              key={page.id || idx}
-              type="button"
-              onClick={() => onPageSelect(idx)}
-              className="group flex flex-col items-center gap-1.5"
-              title={`Switch to ${label}`}
-            >
+        {/* Pages List */}
+        <div className="flex flex-col items-center gap-3">
+          {displayPages.map((page, idx) => {
+            const isActive = activePageIndex === idx;
+            const label = getPageLabel(idx);
+            const thumbSrc = liveThumbnails[idx] || page.thumbnail;
+            const isFront = idx === 0;
+
+            return (
               <div
-                className={`relative flex h-[84px] w-[120px] item-center justify-center overflow-hidden rounded-[3px] bg-white transition-colors ${isActive
-                  ? 'border-2 border-sky-500'
-                  : 'border-2 border-gray-300 hover:border-gray-500'
-                  }`}
+                key={page.id || idx}
+                className="group relative flex flex-col items-center gap-1.5"
               >
-                {thumbSrc ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={thumbSrc}
-                    alt={label}
-                    draggable={false}
-                    className="pointer-events-none h-full w-full select-none object-contain p-0.5"
-                  />
-                ) : (
-                  <div className="h-full w-full bg-white" />
-                )}
+                {/* Thumbnail card */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onPageSelect(idx)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onPageSelect(idx);
+                    }
+                  }}
+                  className={`relative flex h-[84px] w-[124px] items-center justify-center overflow-hidden rounded-lg bg-white transition-all cursor-pointer ${
+                    isActive
+                      ? 'border-2 border-sky-500 shadow-md ring-2 ring-sky-500/20'
+                      : 'border-2 border-gray-200 hover:border-gray-400 shadow-2xs'
+                  }`}
+                  title={`Switch to ${label}`}
+                >
+                  {thumbSrc ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={thumbSrc}
+                      alt={label}
+                      draggable={false}
+                      className="pointer-events-none h-full w-full select-none object-contain p-0.5"
+                    />
+                  ) : (
+                    <div className="h-full w-full bg-white flex items-center justify-center text-[10px] text-gray-300">
+                      Blank
+                    </div>
+                  )}
 
-                {isActive && (
-                  <div className="absolute left-0 top-0 h-2.5 w-2.5 bg-sky-500">
-                    <div className="absolute left-0 top-0 h-1.5 w-1.5 bg-red-500" />
+                  {/* Active Page Marker Indicator */}
+                  {isActive && (
+                    <div className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded bg-sky-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-xs">
+                      <span>{idx + 1}</span>
+                    </div>
+                  )}
+
+                  {/* Non-active index badge */}
+                  {!isActive && (
+                    <div className="absolute left-1.5 top-1.5 rounded bg-gray-900/60 px-1.5 py-0.5 text-[9px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span>{idx + 1}</span>
+                    </div>
+                  )}
+
+                  {/* Hover Actions Overlay: Duplicate & Delete */}
+                  <div className="absolute right-1 top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-xs rounded-md p-0.5 shadow-sm border border-gray-200">
+                    {/* Duplicate Page Button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDuplicatePage(idx);
+                      }}
+                      className="p-1 text-gray-500 hover:text-sky-600 hover:bg-sky-50 rounded transition"
+                      title="Duplicate page"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+
+                    {/* Delete Page Button */}
+                    {displayPages.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeletePage(idx);
+                        }}
+                        className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition"
+                        title="Delete page"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
+                </div>
+
+                {/* Page Label */}
+                <div className="flex items-center justify-center gap-1 w-full">
+                  <span
+                    className={`text-[11px] leading-tight transition ${
+                      isActive
+                        ? 'font-bold text-sky-600'
+                        : 'font-medium text-gray-700 group-hover:text-gray-900'
+                    }`}
+                  >
+                    {label}
+                  </span>
+                </div>
+
+                {/* "Apply this design to back page" Button (shown on Front page card) */}
+                {isFront && onApplyDesignToBack && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onApplyDesignToBack();
+                    }}
+                    title="Copy and apply front-page design to back page"
+                    className="flex items-center justify-center gap-1.5 w-[124px] py-1 px-1.5 rounded-md bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[10px] font-bold shadow-2xs transition active:scale-95 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3 text-sky-600 shrink-0" />
+                    <span className="truncate">Apply to Back</span>
+                  </button>
                 )}
               </div>
+            );
+          })}
+        </div>
 
-              <span
-                className={`text-[12px] leading-none ${isActive
-                  ? 'font-semibold text-black dark:text-white'
-                  : 'font-normal text-gray-800 group-hover:text-black dark:text-gray-200 dark:group-hover:text-white'
-                  }`}
-              >
-                {label}
-              </span>
+        {/* Canva-like "Add Page" Button */}
+        <div className="w-full pt-1 border-t border-gray-100 flex flex-col items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onAddPage}
+            className="flex items-center justify-center gap-1.5 w-[124px] py-2 px-2 rounded-xl border-2 border-dashed border-gray-300 hover:border-sky-500 hover:bg-sky-50/60 text-gray-600 hover:text-sky-700 transition cursor-pointer shadow-2xs group"
+            title="Add a new blank page with matching dimensions and bleed settings"
+          >
+            <Plus className="w-3.5 h-3.5 text-gray-400 group-hover:text-sky-600 transition" />
+            <span className="text-[11px] font-semibold">Add page</span>
+          </button>
+
+          {/* Quick Preview Toggle if handler provided */}
+          {onOpenPreview && (
+            <button
+              type="button"
+              onClick={onOpenPreview}
+              className="flex items-center justify-center gap-1 text-[10px] font-medium text-gray-400 hover:text-gray-700 py-0.5 transition"
+              title="Preview all artwork pages"
+            >
+              <Eye className="w-3 h-3" />
+              <span>Preview all</span>
             </button>
-          );
-        })}
+          )}
+        </div>
       </div>
     </div>
   );

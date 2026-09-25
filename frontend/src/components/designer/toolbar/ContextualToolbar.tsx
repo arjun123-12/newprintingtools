@@ -34,6 +34,7 @@ import {
   Group as GroupIcon,
   Ungroup,
   Maximize2,
+  Copy,
 } from 'lucide-react';
 import { SelectedObjectState, BrushSettings, BrushType, ActiveSidebarTab } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -93,6 +94,7 @@ interface ContextualToolbarProps {
   zoom: number;
   onSelectSidebarTab?: (tab: ActiveSidebarTab) => void;
   activeSidebarTab?: ActiveSidebarTab;
+  onApplyDesignToBack?: () => void;
 }
 
 type ActivePopoverType =
@@ -115,6 +117,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   zoom,
   onSelectSidebarTab,
   activeSidebarTab,
+  onApplyDesignToBack,
 }) => {
   const [activePopover, setActivePopover] = useState<ActivePopoverType>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -529,6 +532,22 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             <Trash2 className="w-3.5 h-3.5 text-red-500" />
             <span>Delete BG</span>
           </button>
+
+          {/* Apply this design to back page button */}
+          {onApplyDesignToBack && (
+            <>
+              <div className="h-4 w-px bg-gray-200 mx-0.5" />
+              <button
+                type="button"
+                onClick={onApplyDesignToBack}
+                title="Copy and apply current design to the back page"
+                className="h-8 px-2.5 rounded-xl border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+              >
+                <Copy className="w-3.5 h-3.5 text-sky-600" />
+                <span>Apply design to back</span>
+              </button>
+            </>
+          )}
         </>
       )}
 

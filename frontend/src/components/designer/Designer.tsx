@@ -282,6 +282,7 @@ export default function Designer({
   const loadedTemplateKeyRef = useRef<string | null>(null);
   const loadSequenceRef = useRef<number>(0);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleAutosaveRef = useRef<() => void>(() => {});
   const saveInProgressRef = useRef<boolean>(false);
   const saveQueuedRef = useRef<boolean>(false);
   const metadataAutosaveReadyRef = useRef<boolean>(false);
@@ -661,10 +662,7 @@ export default function Designer({
     const fabricCanvas = manager.getCanvas();
     if (!fabricCanvas) return pages;
 
-    const rawCanvasJson = fabricCanvas.toObject([
-      'id', 'name', 'originalSrc', 'isFrame', 'frameId',
-      'slotId', 'assetId', 'provider', 'providerAssetId', 'sourceType',
-    ]);
+    const rawCanvasJson = manager.getSerializableJson();
     let thumbDataUrl = '';
 
     try {
@@ -735,6 +733,85 @@ export default function Designer({
     }
   }, [activeSide, activePageIndex, getCurrentPagesState]);
 
+  const handleApplyDesignToBack = useCallback(async () => {
+    if (!canvasManagerRef.current) return;
+
+    // 1. Snapshot the latest current active canvas
+    const currentPages = await getCurrentPagesState();
+    const sourcePageIndex = activePageIndexRef.current ?? activePageIndex;
+    const sourcePage = currentPages[sourcePageIndex] || currentPages[0];
+    if (!sourcePage || !sourcePage.canvasJson) return;
+
+    // 2. Deep clone the canvas JSON so changes on back page never affect front page
+    const clonedJson = JSON.parse(JSON.stringify(sourcePage.canvasJson));
+
+    // Ensure cloned objects on the back page get completely new unique IDs
+    if (Array.isArray(clonedJson.objects)) {
+      clonedJson.objects.forEach((obj: any, idx: number) => {
+        obj.id = `obj_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_${idx}`;
+      });
+    }
+
+    const updatedPages = [...currentPages];
+
+    // 3. Determine if back page already exists (index 1)
+    if (updatedPages.length < 2) {
+      // Create the back page with the cloned design
+      const newBackPage: PageData = {
+        id: `page-back-${Date.now()}`,
+        thumbnail: sourcePage.thumbnail || null,
+        canvasJson: clonedJson,
+      };
+      updatedPages.push(newBackPage);
+      setPages(updatedPages);
+      pagesRef.current = updatedPages;
+      setSideNames((prev) => {
+        const names = [...prev];
+        if (!names[0]) names[0] = 'Front';
+        names[1] = 'Back';
+        return names;
+      });
+      setPrintSides('both');
+    } else {
+      // Back page already exists (index 1). Check if it already has a design
+      const existingBack = updatedPages[1];
+      const hasExistingDesign =
+        existingBack?.canvasJson &&
+        ((Array.isArray(existingBack.canvasJson.objects) && existingBack.canvasJson.objects.length > 0) ||
+          (existingBack.canvasJson.background &&
+            existingBack.canvasJson.background !== '#ffffff' &&
+            existingBack.canvasJson.background !== documentSettingsRef.current.backgroundColor));
+
+      if (hasExistingDesign) {
+        const confirmed = window.confirm(
+          'The back page already has a design. Do you want to replace it with this design?'
+        );
+        if (!confirmed) return;
+      }
+
+      updatedPages[1] = {
+        ...existingBack,
+        canvasJson: clonedJson,
+        thumbnail: sourcePage.thumbnail || null,
+      };
+      setPages(updatedPages);
+      pagesRef.current = updatedPages;
+    }
+
+    // 4. If the user is currently looking at the back page, reload it immediately onto canvas
+    if (activePageIndex === 1) {
+      await canvasManagerRef.current.loadTemplate({
+        canvas_json: clonedJson,
+        backgroundColor: documentSettingsRef.current.backgroundColor || '#ffffff',
+      } as any);
+    }
+
+    // 5. Toast notification & autosave
+    setTemplateSavedMsg('Design applied to back page!');
+    setTimeout(() => setTemplateSavedMsg(null), 3000);
+    scheduleAutosaveRef.current();
+  }, [activePageIndex, getCurrentPagesState]);
+
   const handlePageSelect = useCallback(async (index: number) => {
     if (index === activePageIndex) return;
     if (!canvasManagerRef.current) return;
@@ -755,17 +832,30 @@ export default function Designer({
         canvas_json: nextPage.canvasJson,
         backgroundColor: documentSettingsRef.current.backgroundColor,
       } as any);
+
+      const { w, h } = containerDimensionsRef.current;
+      if (w > 0 && h > 0 && isAutoFitRef.current) {
+        canvasManagerRef.current.fitToViewport(w, h, 32, 48);
+      } else {
+        canvasManagerRef.current.centerViewport();
+      }
     }
   }, [activePageIndex, getCurrentPagesState]);
 
   const handleAddPage = useCallback(async () => {
     const updatedPages = await getCurrentPagesState();
 
+    const bleedPx = Math.max(0, Number(dimensionsRef.current.bleedPx) || 0);
+    const artworkWidth = dimensionsRef.current.widthPx + bleedPx * 2;
+    const artworkHeight = dimensionsRef.current.heightPx + bleedPx * 2;
+
     const newPage: PageData = {
       id: `page-${Date.now()}`,
       thumbnail: null,
       canvasJson: {
         version: '6.0.0',
+        width: artworkWidth,
+        height: artworkHeight,
         objects: [],
         background: documentSettingsRef.current.backgroundColor || '#ffffff',
       },
@@ -773,9 +863,25 @@ export default function Designer({
 
     const newPages = [...updatedPages, newPage];
     setPages(newPages);
-    setSideNames((prev) => [...prev, `Page ${newPages.length}`]);
+    pagesRef.current = newPages;
+
     const newIndex = updatedPages.length;
+    let newLabel = `Page ${newIndex + 1}`;
+    if (newIndex === 1 && updatedPages.length === 1) {
+      newLabel = 'Back';
+    }
+    setSideNames((prev) => {
+      const names = [...prev];
+      if (newIndex === 1 && names.length === 1 && names[0] === 'Front') {
+        return ['Front', 'Back'];
+      }
+      return [...names, newLabel];
+    });
+
     setActivePageIndex(newIndex);
+    if (newIndex === 1 && newPages.length === 2) {
+      setActiveSide('back');
+    }
     if (newPages.length > 2) {
       setPrintSides('both');
     }
@@ -785,7 +891,15 @@ export default function Designer({
         canvas_json: newPage.canvasJson,
         backgroundColor: documentSettingsRef.current.backgroundColor || '#ffffff',
       } as any);
+
+      const { w, h } = containerDimensionsRef.current;
+      if (w > 0 && h > 0 && isAutoFitRef.current) {
+        canvasManagerRef.current.fitToViewport(w, h, 32, 48);
+      } else {
+        canvasManagerRef.current.centerViewport();
+      }
     }
+    scheduleAutosaveRef.current();
   }, [getCurrentPagesState]);
 
   const handleDuplicatePage = useCallback(async (index: number) => {
@@ -793,16 +907,24 @@ export default function Designer({
     const sourcePage = updatedPages[index];
     if (!sourcePage) return;
 
+    // Deep clone to avoid reference issues and assign brand new unique object IDs
+    const clonedJson = JSON.parse(JSON.stringify(sourcePage.canvasJson));
+    if (Array.isArray(clonedJson.objects)) {
+      clonedJson.objects.forEach((obj: any, idx: number) => {
+        obj.id = `obj_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_${idx}`;
+      });
+    }
+
     const newPage: PageData = {
       id: `page-${Date.now()}`,
       thumbnail: sourcePage.thumbnail,
-      // Deep clone to avoid reference issues
-      canvasJson: JSON.parse(JSON.stringify(sourcePage.canvasJson)),
+      canvasJson: clonedJson,
     };
 
     const newPages = [...updatedPages];
     newPages.splice(index + 1, 0, newPage);
     setPages(newPages);
+    pagesRef.current = newPages;
     setSideNames((prev) => {
       const next = [...prev];
       next.splice(index + 1, 0, `Page ${newPages.length}`);
@@ -811,20 +933,40 @@ export default function Designer({
 
     const newIndex = index + 1;
     setActivePageIndex(newIndex);
+    if (newPages.length > 2) {
+      setPrintSides('both');
+    }
     if (canvasManagerRef.current) {
       await canvasManagerRef.current.loadTemplate({
         canvas_json: newPage.canvasJson,
         backgroundColor: documentSettingsRef.current.backgroundColor || '#ffffff',
       } as any);
+
+      const { w, h } = containerDimensionsRef.current;
+      if (w > 0 && h > 0 && isAutoFitRef.current) {
+        canvasManagerRef.current.fitToViewport(w, h, 32, 48);
+      } else {
+        canvasManagerRef.current.centerViewport();
+      }
     }
+    scheduleAutosaveRef.current();
   }, [getCurrentPagesState]);
 
   const handleDeletePage = useCallback(async (index: number) => {
-    if (pages.length <= 1) return; // Cannot delete the last page
+    if (pages.length <= 1) {
+      alert('You cannot delete the only page.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Are you sure you want to delete this page? This action cannot be undone.'
+    );
+    if (!confirmed) return;
 
     const updatedPages = await getCurrentPagesState();
     const newPages = updatedPages.filter((_, i) => i !== index);
     setPages(newPages);
+    pagesRef.current = newPages;
     setSideNames((prev) => prev.filter((_, i) => i !== index));
 
     if (newPages.length === 1) {
@@ -850,6 +992,7 @@ export default function Designer({
       // Shift active index if we deleted a page before it
       setActivePageIndex(activePageIndex - 1);
     }
+    scheduleAutosaveRef.current();
   }, [activePageIndex, pages.length, getCurrentPagesState]);
   const handleSaveAdminTemplate = useCallback(async (
     publish = false
@@ -1169,6 +1312,10 @@ export default function Designer({
       void handleSaveDraft();
     }, AUTOSAVE_DELAY_MS);
   }, [handleSaveDraft]);
+
+  useEffect(() => {
+    scheduleAutosaveRef.current = scheduleAutosave;
+  }, [scheduleAutosave]);
 
   // Reuse the same backend artwork row after page refresh.
   useEffect(() => {
@@ -2272,6 +2419,7 @@ export default function Designer({
             onSelectSidebarTab={setActiveSidebarTab}
             activeSidebarTab={activeSidebarTab}
             onUpdateDocumentSettings={handleUpdateDocumentSettings}
+            onApplyDesignToBack={handleApplyDesignToBack}
           />
 
           {/* Page Manager Tray */}
@@ -2282,6 +2430,7 @@ export default function Designer({
             onAddPage={handleAddPage}
             onDuplicatePage={handleDuplicatePage}
             onDeletePage={handleDeletePage}
+            onApplyDesignToBack={handleApplyDesignToBack}
             onUpdatePageThumbnail={(idx, thumb) => {
               setPages((prev) => {
                 if (prev[idx]?.thumbnail === thumb) return prev;

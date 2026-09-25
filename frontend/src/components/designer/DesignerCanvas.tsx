@@ -52,6 +52,8 @@ export interface DesignerCanvasProps {
   onUpdateDocumentSettings?: (
     settings: Partial<DocumentSettings>
   ) => void;
+
+  onApplyDesignToBack?: () => void;
 }
 
 function makeAbsoluteStorageUrl(url: string): string {
@@ -74,6 +76,7 @@ export function DesignerCanvas({
   onSelectSidebarTab,
   activeSidebarTab,
   onUpdateDocumentSettings,
+  onApplyDesignToBack,
 }: DesignerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
@@ -1125,6 +1128,7 @@ export function DesignerCanvas({
         zoom={zoom}
         onSelectSidebarTab={onSelectSidebarTab}
         activeSidebarTab={activeSidebarTab}
+        onApplyDesignToBack={onApplyDesignToBack}
       />
 
       {isEraserActive && mousePos.visible && (

@@ -1547,6 +1547,32 @@ export class CanvasManager {
     this.setZoom(Math.max(fitZoom, 0.01));
   }
 
+  public centerViewport(): void {
+    if (!this.viewportElement || !this.canvas) return;
+    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+    const artworkWidth = (this.dimensions.widthPx || 1063) + bleedPx * 2;
+    const artworkHeight = (this.dimensions.heightPx || 591) + bleedPx * 2;
+    const targetWidth = Math.round(artworkWidth * this.zoom);
+    const targetHeight = Math.round(artworkHeight * this.zoom);
+
+    const paddingX = 16;
+    const paddingY = 16;
+    const totalContentW = targetWidth + paddingX * 2;
+    const totalContentH = targetHeight + paddingY * 2;
+
+    if (totalContentW > this.viewportElement.clientWidth) {
+      this.viewportElement.scrollLeft = Math.max(0, (totalContentW - this.viewportElement.clientWidth) / 2);
+    } else {
+      this.viewportElement.scrollLeft = 0;
+    }
+
+    if (totalContentH > this.viewportElement.clientHeight) {
+      this.viewportElement.scrollTop = Math.max(0, (totalContentH - this.viewportElement.clientHeight) / 2);
+    } else {
+      this.viewportElement.scrollTop = 0;
+    }
+  }
+
   /**
    * Fabric objects can cross serialization, cloning and optimized bundle
    * boundaries where instanceof is not reliable. Always retain a type-name
@@ -2142,11 +2168,24 @@ export class CanvasManager {
     await this.waitForAllImagesToLoad();
 
     const wasGuidesVisible = this.guides.getVisible();
+    const cachedStates = new Map<any, boolean>();
 
     try {
       if (wasGuidesVisible) {
         this.guides.setVisible(false);
       }
+
+      // Temporarily disable objectCaching on all objects so text, vectors, and shapes
+      // are rasterized directly at the target preview multiplier without using low-res bitmap caches
+      this.canvas.forEachObject((obj) => {
+        cachedStates.set(obj, Boolean(obj.objectCaching));
+        obj.set({
+          objectCaching: false,
+          dirty: true,
+        });
+      });
+
+      this.canvas.renderAll();
 
       const currentZoom = this.zoom || 1.0;
       const effectiveMultiplier = (1 / currentZoom) * multiplier;
@@ -2156,10 +2195,12 @@ export class CanvasManager {
       try {
         // In Fabric.js, toDataURL() exports only lowerCanvas objects.
         // UpperCanvas selection outlines and control handles are never exported.
+        // Using enableRetinaScaling: false prevents fractional DPI resampling blur.
         dataUrl = this.canvas.toDataURL({
           format: 'png',
           multiplier: effectiveMultiplier,
-          enableRetinaScaling: true,
+          quality: 1.0,
+          enableRetinaScaling: false,
         });
       } catch (toDataUrlErr) {
         console.warn('Standard toDataURL failed, attempting lower element fallback:', toDataUrlErr);
@@ -2178,6 +2219,13 @@ export class CanvasManager {
       console.error('Failed to generate clean preview data URL:', err);
       return null;
     } finally {
+      // Restore cached states
+      this.canvas.forEachObject((obj) => {
+        if (cachedStates.has(obj)) {
+          obj.set({ objectCaching: cachedStates.get(obj) });
+        }
+      });
+
       if (wasGuidesVisible) {
         this.guides.setVisible(true);
       }
@@ -2205,11 +2253,11 @@ export class CanvasManager {
 
   // --- Helper: Ensure Object has Unique ID & Name ---
 
-  private ensureObjectId(obj: FabricObject, defaultName?: string): void {
-    if (!obj.get('id' as any)) {
+  private ensureObjectId(obj: FabricObject, defaultName?: string, forceNewId: boolean = false): void {
+    if (forceNewId || !obj.get('id' as any)) {
       obj.set(
         'id' as any,
-        `obj_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`
+        `obj_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
       );
     }
     if (!obj.get('name' as any)) {
@@ -2306,7 +2354,7 @@ export class CanvasManager {
       if (cloned instanceof ActiveSelection) {
         cloned.canvas = this.canvas;
         cloned.forEachObject((obj) => {
-          this.ensureObjectId(obj, `${obj.get('name' as any) || 'Object'} (Copy)`);
+          this.ensureObjectId(obj, `${obj.get('name' as any) || 'Object'} (Copy)`, true);
           obj.set({
             left: (obj.left || 0) + 20,
             top: (obj.top || 0) + 20,
@@ -2318,7 +2366,7 @@ export class CanvasManager {
         });
         cloned.setCoords();
       } else {
-        this.ensureObjectId(cloned, `${cloned.get('name' as any) || 'Object'} (Copy)`);
+        this.ensureObjectId(cloned, `${cloned.get('name' as any) || 'Object'} (Copy)`, true);
         cloned.setCoords();
         this.canvas.add(cloned);
       }
@@ -2354,7 +2402,7 @@ export class CanvasManager {
     active.clone().then((cloned: FabricObject) => {
       if (!this.canvas) return;
       this.canvas.discardActiveObject();
-      this.ensureObjectId(cloned, `${active.get('name' as any) || 'Object'} (Copy)`);
+      this.ensureObjectId(cloned, `${active.get('name' as any) || 'Object'} (Copy)`, true);
 
       cloned.set({
         left: (cloned.left || 0) + 20,
@@ -2711,15 +2759,11 @@ export class CanvasManager {
 
           await this.canvas.loadFromJSON(exportSafeJson);
 
-          // Guarantee that the canvas dimensions strictly respect this template's dimensions
-          const targetWidth = Math.round(this.dimensions.widthPx * this.zoom);
-          const targetHeight = Math.round(this.dimensions.heightPx * this.zoom);
-          this.canvas.setDimensions({
-            width: targetWidth,
-            height: targetHeight,
-          });
+          // Guarantee that canvas dimensions, bleed margins, and boundary lines are strictly initialized
+          this.setDimensions(this.dimensions);
           this.canvas.setZoom(this.zoom);
           this.guides.updateDimensions(this.dimensions);
+          this.syncArtworkBoundaryLines();
           this.canvas.calcOffset();
           this.canvas.forEachObject((obj) => {
             obj.setCoords();
@@ -2727,6 +2771,7 @@ export class CanvasManager {
           this.canvas.requestRenderAll();
           await this.waitForAllImagesToLoad();
           this.syncAllVisualEffects();
+          this.centerViewport();
 
           this.finishTemplateLoading();
           return;
@@ -6226,18 +6271,27 @@ export class CanvasManager {
   public getLayersList(): LayerItem[] {
     if (!this.canvas) return [];
     const objects = this.canvas.getObjects().filter((obj) => !obj.get('isGuide' as any));
+    const seenIds = new Set<string>();
 
     // Return reversed so top visual object is index 0 in the UI
     return objects
       .map((obj, index) => {
         this.ensureObjectId(obj);
+        let id = obj.get('id' as any) as string;
+        // Guarantee every object has an absolute unique ID
+        if (!id || seenIds.has(id)) {
+          id = `obj_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_${index}`;
+          obj.set('id' as any, id);
+        }
+        seenIds.add(id);
+
         const isPath = obj instanceof Path || Boolean(obj.get('isBrushPath' as any));
         const type = isPath ? 'brush' : obj.type || 'object';
         const isText = this.isTextObject(obj);
         const textPreview = isText ? (obj as Textbox).text?.substring(0, 24) : undefined;
 
         return {
-          id: obj.get('id' as any) as string,
+          id,
           name:
             (obj.get('name' as any) as string) ||
             `${type.charAt(0).toUpperCase() + type.slice(1)}`,
@@ -6246,6 +6300,7 @@ export class CanvasManager {
           isVisible: obj.visible !== false,
           zIndex: index,
           textPreview,
+          opacity: typeof obj.opacity === 'number' ? obj.opacity : 1,
         };
       })
       .reverse();
@@ -6335,7 +6390,7 @@ export class CanvasManager {
     if (obj) {
       obj.clone(CUSTOM_CANVAS_PROPERTIES).then((cloned: FabricObject) => {
         if (!this.canvas) return;
-        this.ensureObjectId(cloned, `${obj.get('name' as any) || 'Object'} (Copy)`);
+        this.ensureObjectId(cloned, `${obj.get('name' as any) || 'Object'} (Copy)`, true);
 
         // Deep clone originalShapePoints so duplicated objects don't share mutable references
         if ((obj as any).originalShapePoints && Array.isArray((obj as any).originalShapePoints)) {
@@ -6385,6 +6440,52 @@ export class CanvasManager {
     this.canvas.requestRenderAll();
     this.notifyChange();
     this.notifyLayers();
+    this.saveHistoryState();
+  }
+
+  public moveLayer(id: string, toUiIndex: number): void {
+    if (!this.canvas) return;
+    const objects = this.canvas.getObjects().filter((obj) => !obj.get('isGuide' as any));
+    const obj = objects.find((o) => o.get('id' as any) === id);
+    if (!obj) return;
+
+    const total = objects.length;
+    const clampedUiIndex = Math.max(0, Math.min(total - 1, toUiIndex));
+    // In UI, index 0 is top layer (highest visual index in Fabric)
+    const targetFabricIndex = (total - 1) - clampedUiIndex;
+
+    if (typeof (this.canvas as any).moveObjectTo === 'function') {
+      (this.canvas as any).moveObjectTo(obj, targetFabricIndex);
+    } else {
+      const currentFabricIndex = this.canvas.getObjects().indexOf(obj);
+      const diff = targetFabricIndex - currentFabricIndex;
+      if (diff > 0) {
+        for (let i = 0; i < diff; i++) {
+          this.canvas.bringObjectForward(obj);
+        }
+      } else if (diff < 0) {
+        for (let i = 0; i < Math.abs(diff); i++) {
+          this.canvas.sendObjectBackwards(obj);
+        }
+      }
+    }
+
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifyLayers();
+    this.saveHistoryState();
+  }
+
+  public setObjectOpacity(id: string, opacity: number): void {
+    if (!this.canvas) return;
+    const obj = this.canvas.getObjects().find((o) => o.get('id' as any) === id);
+    if (obj) {
+      obj.set('opacity', Math.max(0, Math.min(1, opacity)));
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+      this.notifyLayers();
+    }
   }
 
   // --- Object & Typography Modification ---
