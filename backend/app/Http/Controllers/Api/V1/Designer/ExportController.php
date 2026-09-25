@@ -125,6 +125,42 @@ class ExportController extends Controller
     }
 
     /**
+     * Dedicated Print CMYK Export endpoint.
+     * Accepts: format, color_mode, icc_profile, dpi, include_bleed, include_trim_marks, dimensions, etc.
+     */
+    public function exportPrint(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['nullable', 'string', 'max:100'],
+            'format' => ['required', 'string', 'in:pdf,tiff,tif,jpeg,jpg'],
+            'color_mode' => ['required', 'string', 'in:cmyk,rgb'],
+            'icc_profile' => ['nullable', 'string', 'max:50'],
+            'dpi' => ['nullable', 'integer', 'min:72', 'max:1200'],
+            'custom_dpi' => ['nullable', 'integer', 'min:72', 'max:1200'],
+            'include_bleed' => ['nullable', 'boolean'],
+            'include_trim_marks' => ['nullable', 'boolean'],
+            'bleed_mm' => ['nullable', 'numeric', 'min:0', 'max:50'],
+            'quality' => ['nullable', 'integer', 'min:60', 'max:100'],
+            'background_color' => ['nullable', 'string'],
+            'artwork_id' => ['nullable', 'uuid'],
+            'session_id' => ['nullable', 'string', 'max:255'],
+            'dimensions' => ['required', 'array'],
+            'pages' => ['nullable', 'array'],
+            'canvas_json' => ['nullable', 'array'],
+            'preview_data_url' => ['nullable', 'string'],
+            'rendered_data_url' => ['nullable', 'string'],
+        ]);
+
+        $validated['target_dpi'] = $validated['dpi'] ?? $validated['custom_dpi'] ?? 300;
+        $validated['quality_preset'] = ImageQualityService::PRESET_PRINT;
+        $validated['include_normal'] = false;
+        $validated['include_enhanced'] = true;
+
+        $request->merge($validated);
+        return $this->export($request);
+    }
+
+    /**
      * Poll status of an active or completed export.
      */
     public function status(Request $request, string $exportId): JsonResponse

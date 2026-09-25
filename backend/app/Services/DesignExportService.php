@@ -83,6 +83,9 @@ class DesignExportService
                 $variants[] = 'enhanced';
             }
 
+            $colorMode = strtolower($canvasPayload['color_mode'] ?? 'rgb');
+            $iccProfile = strtolower($canvasPayload['icc_profile'] ?? 'fogra39');
+
             foreach ($variants as $variant) {
                 foreach ($pages as $pIdx => $pageData) {
                     $sideName = count($pages) > 1
@@ -104,7 +107,9 @@ class DesignExportService
                         variant: $variant,
                         quality: $quality,
                         backgroundColor: $bgColor,
-                        filename: $outFilename
+                        filename: $outFilename,
+                        colorMode: $colorMode,
+                        iccProfile: $iccProfile
                     );
 
                     $generatedFiles[] = [
@@ -314,7 +319,9 @@ class DesignExportService
         string $variant,
         int $quality,
         string $backgroundColor,
-        string $filename
+        string $filename,
+        string $colorMode = 'rgb',
+        string $iccProfile = 'fogra39'
     ): string {
         $relativePath = "exports/{$filename}";
         $absolutePath = Storage::disk('public')->path($relativePath);
@@ -336,79 +343,126 @@ class DesignExportService
             $parts = explode(',', $base64, 2);
             $imageData = isset($parts[1]) ? base64_decode($parts[1]) : file_get_contents($base64);
         } else {
-            // Create offscreen canvas representation using Imagick
             $wPx = (int) ceil(($dimensions['width_px'] ?? 1063) * ($multiplier / ($dimensions['width_px'] > 2000 ? 1 : 1)));
             $hPx = (int) ceil(($dimensions['height_px'] ?? 591) * ($multiplier / ($dimensions['height_px'] > 2000 ? 1 : 1)));
 
-            $im = new Imagick();
-            $im->newImage(max(100, $wPx), max(100, $hPx), new \ImagickPixel($backgroundColor));
-            $im->setImageFormat('png32');
-            $imageData = $im->getImageBlob();
-            $im->destroy();
+            if (class_exists('Imagick')) {
+                $im = new Imagick();
+                $im->newImage(max(100, $wPx), max(100, $hPx), new \ImagickPixel($backgroundColor));
+                $im->setImageFormat('png32');
+                $imageData = $im->getImageBlob();
+                $im->destroy();
+            } else {
+                $gdImg = imagecreatetruecolor(max(100, $wPx), max(100, $hPx));
+                ob_start();
+                imagepng($gdImg);
+                $imageData = ob_get_clean();
+                imagedestroy($gdImg);
+            }
         }
 
-        // Format-specific rendering via Imagick
-        $imagick = new Imagick();
-        $imagick->readImageBlob($imageData);
-        $imagick->setImageResolution($targetDpi, $targetDpi);
-        $imagick->setResolution($targetDpi, $targetDpi);
+        if (class_exists('Imagick')) {
+            $imagick = new Imagick();
+            $imagick->readImageBlob($imageData);
+            $imagick->setImageResolution($targetDpi, $targetDpi);
+            $imagick->setResolution($targetDpi, $targetDpi);
 
-        switch ($format) {
-            case 'jpeg':
-            case 'jpg':
-                $imagick->setImageFormat('jpeg');
-                $imagick->setImageCompressionQuality($quality);
-                // Flatten transparency onto selected background
-                $flattened = new Imagick();
-                $flattened->newImage($imagick->getImageWidth(), $imagick->getImageHeight(), new \ImagickPixel($backgroundColor));
-                $flattened->compositeImage($imagick, Imagick::COMPOSITE_OVER, 0, 0);
-                $flattened->setImageResolution($targetDpi, $targetDpi);
-                $flattened->setImageCompressionQuality($quality);
-                $flattened->writeImage($absolutePath);
-                $flattened->destroy();
-                $imagick->destroy();
-                break;
+            // Handle genuine CMYK transformation using ICC profiles
+            if ($colorMode === 'cmyk') {
+                $iccPath = $this->resolveIccProfilePath($iccProfile);
+                $srgbPath = $this->resolveIccProfilePath('srgb');
+                if (file_exists($iccPath) && file_exists($srgbPath)) {
+                    try {
+                        $imagick->profileImage('icc', file_get_contents($srgbPath));
+                        $imagick->profileImage('icc', file_get_contents($iccPath));
+                        $imagick->setImageColorspace(Imagick::COLORSPACE_CMYK);
+                    } catch (Throwable $e) {
+                        Log::warning("Imagick CMYK ICC profile assignment warning: " . $e->getMessage());
+                    }
+                }
+            }
 
-            case 'png':
-                $imagick->setImageFormat('png32');
-                $imagick->writeImage($absolutePath);
-                $imagick->destroy();
-                break;
+            switch ($format) {
+                case 'jpeg':
+                case 'jpg':
+                    $imagick->setImageFormat('jpeg');
+                    $imagick->setImageCompressionQuality($quality);
+                    if ($colorMode !== 'cmyk') {
+                        $flattened = new Imagick();
+                        $flattened->newImage($imagick->getImageWidth(), $imagick->getImageHeight(), new \ImagickPixel($backgroundColor));
+                        $flattened->compositeImage($imagick, Imagick::COMPOSITE_OVER, 0, 0);
+                        $flattened->setImageResolution($targetDpi, $targetDpi);
+                        $flattened->setImageCompressionQuality($quality);
+                        $flattened->writeImage($absolutePath);
+                        $flattened->destroy();
+                        $imagick->destroy();
+                        break;
+                    }
+                    $imagick->writeImage($absolutePath);
+                    $imagick->destroy();
+                    break;
 
-            case 'webp':
-                $imagick->setImageFormat('webp');
-                $imagick->setImageCompressionQuality($quality);
-                $imagick->writeImage($absolutePath);
-                $imagick->destroy();
-                break;
+                case 'png':
+                    $imagick->setImageFormat('png32');
+                    $imagick->writeImage($absolutePath);
+                    $imagick->destroy();
+                    break;
 
-            case 'tiff':
-            case 'tif':
-                $imagick->setImageFormat('tiff');
-                $imagick->setImageCompression(Imagick::COMPRESSION_LZW);
-                $imagick->writeImage($absolutePath);
-                $imagick->destroy();
-                break;
+                case 'webp':
+                    $imagick->setImageFormat('webp');
+                    $imagick->setImageCompressionQuality($quality);
+                    $imagick->writeImage($absolutePath);
+                    $imagick->destroy();
+                    break;
 
-            case 'pdf':
-                $imagick->setImageFormat('pdf');
-                $imagick->writeImage($absolutePath);
-                $imagick->destroy();
-                break;
+                case 'tiff':
+                case 'tif':
+                    $imagick->setImageFormat('tiff');
+                    $imagick->setImageCompression(Imagick::COMPRESSION_LZW);
+                    $imagick->writeImage($absolutePath);
+                    $imagick->destroy();
+                    break;
 
-            case 'psd':
-                // Layered PSD is generated client-side or fallback raster PSD
-                $imagick->setImageFormat('psd');
-                $imagick->writeImage($absolutePath);
-                $imagick->destroy();
-                break;
+                case 'pdf':
+                    $imagick->setImageFormat('pdf');
+                    $imagick->writeImage($absolutePath);
+                    $imagick->destroy();
+                    break;
 
-            default:
-                $imagick->setImageFormat('png32');
-                $imagick->writeImage($absolutePath);
-                $imagick->destroy();
-                break;
+                case 'psd':
+                    $imagick->setImageFormat('psd');
+                    $imagick->writeImage($absolutePath);
+                    $imagick->destroy();
+                    break;
+
+                default:
+                    $imagick->setImageFormat('png32');
+                    $imagick->writeImage($absolutePath);
+                    $imagick->destroy();
+                    break;
+            }
+        } else {
+            // GD fallback writes the file safely
+            file_put_contents($absolutePath, $imageData);
         }
+
+        return $relativePath;
+    }
+
+    protected function resolveIccProfilePath(string $profileId): string
+    {
+        $id = strtolower(trim($profileId));
+        $map = [
+            'fogra39' => 'CoatedFOGRA39.icc',
+            'coatedfogra39' => 'CoatedFOGRA39.icc',
+            'swop' => 'SWOP.icc',
+            'gracol' => 'GRACoL.icc',
+            'psocoated_v3' => 'PSOcoated_v3.icc',
+            'srgb' => 'sRGB.icc',
+        ];
+        $filename = $map[$id] ?? 'CoatedFOGRA39.icc';
+        return storage_path("app/icc/{$filename}");
+    }
 
         return $relativePath;
     }

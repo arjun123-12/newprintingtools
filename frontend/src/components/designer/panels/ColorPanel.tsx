@@ -4,6 +4,8 @@ import React from 'react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { SelectedObjectState, DesignerGradientValue } from '@/types/designer';
 import { ColorPicker } from '../controls/ColorPicker';
+import { colorConversionService, hexToRgb } from '@/services/colorManagement/colorConversionService';
+import { CMYKColor } from '@/services/colorManagement/types';
 
 interface ColorPanelProps {
   canvasManager: CanvasManager | null;
@@ -143,6 +145,27 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
     }
   };
 
+  const [activeCmyk, setActiveCmyk] = React.useState<CMYKColor | null>(null);
+
+  React.useEffect(() => {
+    let isCancelled = false;
+    if (typeof currentValue === 'string' && currentValue.startsWith('#')) {
+      const rgb = hexToRgb(currentValue);
+      colorConversionService.rgbToCmykWithIcc(rgb).then((cmyk) => {
+        if (!isCancelled) setActiveCmyk(cmyk);
+      });
+    } else {
+      setActiveCmyk(null);
+    }
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentValue]);
+
+  const activeRgb = typeof currentValue === 'string' && currentValue.startsWith('#')
+    ? hexToRgb(currentValue)
+    : null;
+
   return (
     <div className="flex flex-col overflow-hidden bg-white select-none">
       {hasMultipleColors && (
@@ -175,6 +198,17 @@ export const ColorPanel: React.FC<ColorPanelProps> = ({
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Swatch CMYK, RGB, HEX readout */}
+      {typeof currentValue === 'string' && currentValue.startsWith('#') && activeRgb && (
+        <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between text-[10px] font-mono text-gray-600">
+          <div>HEX: <strong className="text-gray-900">{currentValue.toUpperCase()}</strong></div>
+          <div>RGB: <strong className="text-gray-900">{activeRgb.r},{activeRgb.g},{activeRgb.b}</strong></div>
+          {activeCmyk && (
+            <div>CMYK: <strong className="text-purple-950 font-bold">C{activeCmyk.c} M{activeCmyk.m} Y{activeCmyk.y} K{activeCmyk.k}</strong></div>
+          )}
         </div>
       )}
 

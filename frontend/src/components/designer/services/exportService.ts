@@ -570,8 +570,6 @@ export async function createPdfShadowLayerFromFabric(
     return null;
   }
 
-  const OFFSET = 50000;
-
   // Preserve live canvas states
   const prevBg = canvas.backgroundColor;
   const prevBgImg = canvas.backgroundImage;
@@ -606,8 +604,8 @@ export async function createPdfShadowLayerFromFabric(
       allObjects.forEach((o) => {
         const isSelfOrAncestor =
           o === obj ||
-          (Array.isArray(o._objects) &&
-            o._objects.some(
+          (Array.isArray((o as any)._objects) &&
+            (o as any)._objects.some(
               (c: any) =>
                 c === obj || (Array.isArray(c._objects) && c._objects.includes(obj))
             ));
@@ -620,33 +618,44 @@ export async function createPdfShadowLayerFromFabric(
         }
       });
 
+      // 1. Render object WITH shadow at high resolution
+      const withShadowCanvas = canvas.toCanvasElement(scale);
+
+      // 2. Render silhouette WITHOUT shadow (with opacity 1 so destination-out cleanly erases the body)
       const s = obj.shadow;
-      // Temporarily disable shadow on the object so the silhouette has crisp edges
+      const prevOpacity = obj.opacity;
       obj.shadow = null;
-
-      // Render silhouette of this object on transparent canvas at high resolution
-      const silCanvas = canvas.toCanvasElement(scale);
-
-      // Restore obj.shadow
+      obj.opacity = 1;
+      const noShadowCanvas = canvas.toCanvasElement(scale);
       obj.shadow = s;
+      obj.opacity = prevOpacity;
 
-      if (silCanvas && s) {
-        finalShadowCtx.save();
-        const objOpacity = Math.max(
-          0,
-          Math.min(1, Number(originalStates.get(obj)?.opacity ?? 1))
-        );
-        finalShadowCtx.globalAlpha = objOpacity;
-        finalShadowCtx.shadowColor = String(s.color);
-        finalShadowCtx.shadowBlur = Math.max(0, Number(s.blur) || 0) * scale;
-        finalShadowCtx.shadowOffsetX =
-          (Number(s.offsetX) || 0) * scale + OFFSET;
-        finalShadowCtx.shadowOffsetY = (Number(s.offsetY) || 0) * scale;
+      if (withShadowCanvas && noShadowCanvas) {
+        const itemCanvas = document.createElement('canvas');
+        itemCanvas.width = pixelWidth;
+        itemCanvas.height = pixelHeight;
+        const itemCtx = itemCanvas.getContext('2d');
+        if (itemCtx) {
+          const drawX = slugMarginPx * scale;
+          const drawY = slugMarginPx * scale;
 
-        const drawX = -OFFSET + slugMarginPx * scale;
-        const drawY = slugMarginPx * scale;
-        finalShadowCtx.drawImage(silCanvas, drawX, drawY);
-        finalShadowCtx.restore();
+          // A. Draw with shadow intact
+          itemCtx.drawImage(withShadowCanvas, drawX, drawY);
+
+          // B. Erase object body using destination-out ONLY for semi-transparent objects.
+          // For opaque objects, keeping the body prevents any white hole or subpixel fringe,
+          // because Layer 3 vector artwork will sit directly on top at identical 1:1 scale.
+          const objAlpha = Number(originalStates.get(obj)?.opacity ?? 1);
+          if (objAlpha < 0.98) {
+            itemCtx.save();
+            itemCtx.globalCompositeOperation = 'destination-out';
+            itemCtx.drawImage(noShadowCanvas, drawX, drawY);
+            itemCtx.restore();
+          }
+
+          // C. Blend onto final shadow canvas
+          finalShadowCtx.drawImage(itemCanvas, 0, 0);
+        }
       }
     }
   } catch (error) {
@@ -692,7 +701,8 @@ export async function createPdfShadowLayerFromFabric(
  */
 async function prepareSvgFiltersForVectorPdf(
   svg: string,
-  rasterScale: number = 2
+  rasterScale: number = 2,
+  skipShadowRasterization: boolean = false
 ): Promise<{
   backgroundSvg: string | null;
   vectorSvg: string;
@@ -731,8 +741,8 @@ async function prepareSvgFiltersForVectorPdf(
     }
   };
 
-  // If no filters exist, vectorDoc is just the clean SVG as-is
-  if (filtered.length === 0) {
+  // If no filters exist and no external shadow layer was provided, return clean vector SVG directly
+  if (filtered.length === 0 && !skipShadowRasterization) {
     const vectorDoc = sourceDoc.cloneNode(true) as Document;
     vectorDoc.querySelectorAll('[data-shadow-element="true"]').forEach((node) => {
       node.remove();
@@ -764,12 +774,20 @@ async function prepareSvgFiltersForVectorPdf(
     if (el.getAttribute('data-pdf-background') === 'true') {
       return true;
     }
+    if (el.closest?.('[data-pdf-background="true"]')) {
+      return true;
+    }
     if (el.tagName.toLowerCase() === 'rect') {
+      const hasFilter =
+        el.hasAttribute('filter') ||
+        (el.getAttribute('style') || '').includes('filter') ||
+        el.getAttribute('data-shadow-element') === 'true';
+      if (hasFilter) return false;
+
       const parentTag = el.parentElement?.tagName.toLowerCase();
-      if (
-        parentTag === 'svg' ||
-        (parentTag === 'g' && el.parentElement === sourceDoc.documentElement.firstElementChild)
-      ) {
+      const isTopLevelOrUnderG = parentTag === 'svg' || parentTag === 'g';
+
+      if (isTopLevelOrUnderG) {
         const xAttr = el.getAttribute('x') || '0';
         const yAttr = el.getAttribute('y') || '0';
         const wAttr = el.getAttribute('width') || '0';
@@ -777,23 +795,13 @@ async function prepareSvgFiltersForVectorPdf(
 
         const x = parseFloat(xAttr);
         const y = parseFloat(yAttr);
-        const isFullWidth = wAttr.includes('%')
-          ? parseFloat(wAttr) >= 99
-          : parseFloat(wAttr) >= logicalWidth * 0.95;
-        const isFullHeight = hAttr.includes('%')
-          ? parseFloat(hAttr) >= 99
-          : parseFloat(hAttr) >= logicalHeight * 0.95;
+        const w = parseFloat(wAttr);
+        const h = parseFloat(hAttr);
 
-        if (
-          (x === 0 || xAttr === '0%') &&
-          (y === 0 || yAttr === '0%') &&
-          isFullWidth &&
-          isFullHeight
-        ) {
-          const hasFilter =
-            el.hasAttribute('filter') ||
-            (el.getAttribute('style') || '').includes('filter');
-          if (!hasFilter) return true;
+        if ((x === 0 || xAttr === '0%') && (y === 0 || yAttr === '0%')) {
+          if (wAttr.includes('%') && parseFloat(wAttr) >= 95) return true;
+          // Matches total width OR canvas artwork width
+          if (w >= logicalWidth * 0.45 && h >= logicalHeight * 0.45) return true;
         }
       }
     }
@@ -844,6 +852,14 @@ async function prepareSvgFiltersForVectorPdf(
   const vectorSvgString = new XMLSerializer().serializeToString(
     vectorDoc.documentElement
   );
+
+  if (skipShadowRasterization) {
+    return {
+      backgroundSvg,
+      vectorSvg: vectorSvgString,
+      shadowDataUrl: null,
+    };
+  }
 
   // 3. Build Effect document (renders ONLY the pure transparent shadow layer)
   const effectDoc = sourceDoc.cloneNode(true) as Document;
@@ -1911,7 +1927,24 @@ export async function exportPreparedVectorPdf(
 
   ensurePdfKitStandardFontsRegistered();
 
-  const embeddedSvg = await inlineExternalSvgImages(svg);
+  // Normalize root SVG width and height to match PDF points exactly.
+  // SVGtoPDF converts "mm" using 96 DPI CSS pixels instead of 72 DPI PDF points (96/72 = 1.333x scale mismatch).
+  // Setting width and height in exact PDF points guarantees 1:1 scale alignment with the PDF page and shadow layer.
+  let normalizedSvg = svg;
+  if (widthPt > 0 && heightPt > 0) {
+    normalizedSvg = normalizedSvg.replace(
+      /<svg\b([^>]*?)(\/?>)/i,
+      (match, attrs, close) => {
+        const clean = attrs
+          .replace(/\bwidth\s*=\s*["'][^"']*["']/gi, '')
+          .replace(/\bheight\s*=\s*["'][^"']*["']/gi, '')
+          .trim();
+        return `<svg ${clean} width="${widthPt}" height="${heightPt}"${close}`;
+      }
+    );
+  }
+
+  const embeddedSvg = await inlineExternalSvgImages(normalizedSvg);
 
   const pdf = new PDFDocument({
     size: [widthPt, heightPt],
@@ -1986,7 +2019,8 @@ export async function exportPreparedVectorPdf(
   // 2. Prepare SVG layers (background and vector artwork)
   const preparedPdfSvg = await prepareSvgFiltersForVectorPdf(
     embeddedSvg,
-    2
+    2,
+    Boolean(directFabricShadowUrl)
   );
 
   // Prefer direct Fabric shadow layer; fallback to SVG filter shadow if needed

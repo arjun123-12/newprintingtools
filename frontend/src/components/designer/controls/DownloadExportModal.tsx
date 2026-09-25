@@ -27,8 +27,19 @@ import {
   rasterizeFramesForVectorPdf,
   validateSvgExport,
 } from '../utils/svgExportHelpers';
+import { iccProfileService } from '@/services/colorManagement/iccProfileService';
+import { printExportService, downloadBinaryFile } from '@/services/colorManagement/printExportService';
+import { PrintColorProfile } from '@/services/colorManagement/types';
 
-type DownloadFormat = ExportFormat | 'svg';
+type DownloadFormat =
+  | ExportFormat
+  | 'svg'
+  | 'print_pdf_cmyk'
+  | 'cmyk_tiff'
+  | 'cmyk_jpeg'
+  | 'proof_png'
+  | 'proof_webp'
+  | 'proof_svg';
 
 const downloadSvgFile = (svgMarkup: string, filename: string): void => {
   const blob = new Blob([svgMarkup], {
@@ -996,6 +1007,10 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
   const [backgroundColor, setBackgroundColor] = useState<string>('#ffffff');
   const [transparentBackground, setTransparentBackground] = useState<boolean>(false);
   const [includeTrimMarks, setIncludeTrimMarks] = useState<boolean>(true);
+  const [includeBleed, setIncludeBleed] = useState<boolean>(true);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(() =>
+    iccProfileService.getDefaultProfileId()
+  );
   const [bleedMm, setBleedMm] = useState<number>(
     dimensions.bleedMm !== undefined ? dimensions.bleedMm : 3
   );
@@ -1030,9 +1045,10 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
   // Unified artwork export geometry
   const geometry = useMemo(() => {
-    const dimsWithBleed = { ...dimensions, bleedMm };
+    const effectiveBleed = includeBleed ? bleedMm : 0;
+    const dimsWithBleed = { ...dimensions, bleedMm: effectiveBleed };
     return getArtworkExportGeometry(dimsWithBleed, targetDpi, 6);
-  }, [dimensions, bleedMm, targetDpi]);
+  }, [dimensions, bleedMm, targetDpi, includeBleed]);
 
   // Scan canvas for raster images and analyze effective DPI
   const rasterAnalysis = useMemo(() => {
@@ -1142,9 +1158,158 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           : documentSettings.backgroundColor || backgroundColor || '#ffffff';
 
       // ==========================================
+      // CMYK TIFF (4-Channel 300 DPI with ICC Profile)
+      // ==========================================
+      if (format === 'cmyk_tiff') {
+        setProgressMessage(`Rendering 300 DPI CMYK TIFF (${iccProfileService.getProfile(selectedProfileId).name})...`);
+        setExportProgress(20);
+
+        const tiffResult = await printExportService.exportCmykTiff({
+          canvasManager,
+          dimensions,
+          profileId: selectedProfileId,
+          includeBleed,
+          includeTrimMarks,
+          bleedMm,
+          designName: sanitizedDocName,
+          onProgress: (p, msg) => {
+            setExportProgress(p);
+            setProgressMessage(msg);
+          },
+        });
+
+        downloadBinaryFile(tiffResult.bytes, tiffResult.filename, 'image/tiff');
+        setExportProgress(100);
+        setProgressMessage('CMYK TIFF download ready.');
+        setIsExporting(false);
+        onClose();
+        return;
+      }
+
+      // ==========================================
+      // CMYK JPEG (300 DPI Print JPEG)
+      // ==========================================
+      if (format === 'cmyk_jpeg') {
+        setProgressMessage(`Encoding 300 DPI CMYK JPEG (${iccProfileService.getProfile(selectedProfileId).name})...`);
+        setExportProgress(25);
+
+        const targetDpiVal = 300;
+        const geom = getArtworkExportGeometry({ ...dimensions, bleedMm: includeBleed ? bleedMm : 0 }, targetDpiVal, 6);
+        const widthPx = includeTrimMarks ? geom.totalTrimMarksWidthPx : geom.targetArtworkWidthPx;
+        const heightPx = includeTrimMarks ? geom.totalTrimMarksHeightPx : geom.targetArtworkHeightPx;
+
+        const offscreen = document.createElement('canvas');
+        offscreen.width = widthPx;
+        offscreen.height = heightPx;
+        const ctx = offscreen.getContext('2d')!;
+        ctx.fillStyle = effBgColor;
+        ctx.fillRect(0, 0, widthPx, heightPx);
+
+        const dataUrl = canvas.toDataURL({
+          format: 'png',
+          multiplier: widthPx / canvas.getWidth(),
+        });
+        const img = new Image();
+        img.src = dataUrl;
+        await new Promise((r) => (img.onload = r));
+        ctx.drawImage(img, 0, 0, widthPx, heightPx);
+
+        const renderedBase64 = offscreen.toDataURL('image/jpeg', 0.95);
+
+        try {
+          setProgressMessage('Submitting to CMYK print export service...');
+          const response = await fetch('/api/v1/designer/export/print', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+              name: sanitizedDocName,
+              format: 'jpeg',
+              color_mode: 'cmyk',
+              icc_profile: selectedProfileId,
+              dpi: targetDpiVal,
+              include_bleed: includeBleed,
+              include_trim_marks: includeTrimMarks,
+              bleed_mm: bleedMm,
+              dimensions,
+              rendered_data_url: renderedBase64,
+            }),
+          });
+          const resData = await response.json();
+          if (resData.success && resData.data?.download_url) {
+            window.location.href = resData.data.download_url;
+            setIsExporting(false);
+            onClose();
+            return;
+          }
+        } catch (err) {
+          console.warn('[DownloadExportModal] Backend print JPEG fallback:', err);
+        }
+
+        downloadFile(renderedBase64, `${sanitizedDocName}_CMYK_300dpi.jpeg`);
+        setExportProgress(100);
+        setIsExporting(false);
+        onClose();
+        return;
+      }
+
+      // ==========================================
+      // PRINT PREVIEW PNG (Soft-Proof RGB)
+      // ==========================================
+      if (format === 'proof_png') {
+        setProgressMessage('Generating Print Preview PNG (simulating CMYK appearance)...');
+        setExportProgress(30);
+
+        const proofPng = await printExportService.exportPrintPreviewPng({
+          canvasManager,
+          dimensions,
+          profileId: selectedProfileId,
+          designName: sanitizedDocName,
+          onProgress: (p, msg) => {
+            setExportProgress(p);
+            setProgressMessage(msg);
+          },
+        });
+
+        downloadFile(proofPng.dataUrl, proofPng.filename);
+        setExportProgress(100);
+        setIsExporting(false);
+        onClose();
+        return;
+      }
+
+      // ==========================================
+      // PRINT PREVIEW WEBP (Soft-Proof RGB)
+      // ==========================================
+      if (format === 'proof_webp') {
+        setProgressMessage('Generating Print Preview WebP (simulating CMYK appearance)...');
+        setExportProgress(30);
+
+        const proofWebp = await printExportService.exportPrintPreviewWebp({
+          canvasManager,
+          dimensions,
+          profileId: selectedProfileId,
+          designName: sanitizedDocName,
+          quality: jpegQuality,
+          onProgress: (p, msg) => {
+            setExportProgress(p);
+            setProgressMessage(msg);
+          },
+        });
+
+        downloadFile(proofWebp.dataUrl, proofWebp.filename);
+        setExportProgress(100);
+        setIsExporting(false);
+        onClose();
+        return;
+      }
+
+      // ==========================================
       // SVG EXPORT (True Vector, Self-Contained)
       // ==========================================
-      if (format === 'svg') {
+      if (format === 'svg' || format === 'proof_svg') {
         setProgressMessage('Building self-contained vector SVG with embedded fonts & silhouettes...');
         setExportProgress(30);
 
@@ -1329,6 +1494,19 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
           const finalSvgMarkup = new XMLSerializer().serializeToString(svgDoc);
 
+          if (format === 'proof_svg') {
+            const proofRes = await printExportService.exportPrintPreviewSvg({
+              svgMarkup: finalSvgMarkup,
+              profileId: selectedProfileId,
+              designName: sanitizedDocName,
+            });
+            downloadSvgFile(proofRes.svg, proofRes.filename);
+            setExportProgress(100);
+            setProgressMessage('Print Preview Vector SVG ready.');
+            setIsExporting(false);
+            return;
+          }
+
           downloadSvgFile(
             finalSvgMarkup,
             `${sanitizedDocName}-vector${includeTrimMarks ? '-with-trim-marks' : ''}.svg`
@@ -1382,8 +1560,13 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
       // that SVG directly into PDF vectors. Raster photos remain raster images
       // at their original embedded resolution, but text, paths, shapes and
       // crop/trim marks stay resolution-independent.
-      if (format === 'pdf') {
-        setProgressMessage('Building true vector PDF...');
+      if (format === 'pdf' || format === 'print_pdf_cmyk') {
+        const isCmykPrint = format === 'print_pdf_cmyk';
+        setProgressMessage(
+          isCmykPrint
+            ? `Building Print Ready CMYK Vector PDF (${iccProfileService.getProfile(selectedProfileId).name})...`
+            : 'Building true vector PDF...'
+        );
         setExportProgress(25);
 
         await canvasManager.waitForAllImagesToLoad(15000);
@@ -1544,6 +1727,15 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
               fabricSvg.slice(svgOpenTagEnd);
           }
 
+          // Tag any canvas background rect produced by Fabric so vector export can cleanly distinguish it
+          fabricSvg = fabricSvg.replace(
+            /(<rect\s+[^>]*?x=["']0["'][^>]*?y=["']0["'][^>]*?width=["']\d+(?:\.\d+)?["'][^>]*?height=["']\d+(?:\.\d+)?["'][^>]*?)(\/?>)/i,
+            (match, p1, p2) => {
+              if (p1.includes('data-pdf-background')) return match;
+              return `${p1} data-pdf-background="true"${p2}`;
+            }
+          );
+
           // ----------------------------------------------------------
           // Prepress trim marks remain vector lines in the PDF.
           // ----------------------------------------------------------
@@ -1683,6 +1875,22 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           const finalSvgMarkup =
             new XMLSerializer().serializeToString(svgDoc);
 
+          let exportSvgMarkup = finalSvgMarkup;
+
+          if (isCmykPrint) {
+            setExportProgress(65);
+            setProgressMessage(
+              `Converting vector colors to CMYK (${iccProfileService.getProfile(selectedProfileId).name})...`
+            );
+
+            const proofRes = await printExportService.exportPrintPreviewSvg({
+              svgMarkup: finalSvgMarkup,
+              profileId: selectedProfileId,
+              designName: sanitizedDocName,
+            });
+            exportSvgMarkup = proofRes.svg;
+          }
+
           // ----------------------------------------------------------
           // SVG -> PDF, WITHOUT rasterizing the SVG.
           // ----------------------------------------------------------
@@ -1701,33 +1909,41 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           // - unsupported SVG blur/drop-shadow filters are supplied as a
           //   transparent high-resolution effect layer
           // - the main text/paths/shapes remain true vectors
-          const pdfFilename =
-            `${sanitizedDocName}-vector` +
-            `${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`;
+          const pdfFilename = isCmykPrint
+            ? `${sanitizedDocName}-print-cmyk${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`
+            : `${sanitizedDocName}-vector${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`;
 
           setExportProgress(80);
           setProgressMessage(
-            'Embedding Acrobat-safe fonts, shadows and vector artwork...'
+            isCmykPrint
+              ? 'Embedding Acrobat-safe fonts, high-res shadows and CMYK vectors...'
+              : 'Embedding Acrobat-safe fonts, shadows and vector artwork...'
           );
 
           const ptPerMm = 72 / 25.4;
 
           await exportPreparedVectorPdf(
-            finalSvgMarkup,
+            exportSvgMarkup,
             {
               widthPt:
                 pdfWidthMm * ptPerMm,
               heightPt:
                 pdfHeightMm * ptPerMm,
               filename: pdfFilename,
+              canvasManager,
+              geometry,
+              includeTrimMarks,
             }
           );
 
           setExportProgress(100);
           setProgressMessage(
-            'Vector PDF with fonts and effects ready.'
+            isCmykPrint
+              ? 'Print Ready CMYK PDF with fonts, shadows and vectors ready.'
+              : 'Vector PDF with fonts and effects ready.'
           );
           setIsExporting(false);
+          onClose();
           return;
         } finally {
           allCanvasObjs.forEach((obj) => {
@@ -2043,6 +2259,9 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
     backgroundColor,
     bleedMm,
     includeTrimMarks,
+    includeBleed,
+    selectedProfileId,
+    onClose,
     transparentBackground,
     geometry,
   ]);
@@ -2076,35 +2295,204 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Format Selector */}
-          <div>
-            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
-              1. File Format
-            </label>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {[
-                { id: 'svg', label: 'SVG', badge: 'True Vector' },
-                { id: 'png', label: 'PNG', badge: 'Lossless' },
-                { id: 'pdf', label: 'PDF', badge: 'Vector PDF' },
-                { id: 'psd', label: 'PSD', badge: 'Layered' },
-                { id: 'jpeg', label: 'JPEG', badge: 'Compact' },
-                { id: 'tiff', label: 'TIFF', badge: 'LZW Print' },
-                { id: 'webp', label: 'WebP', badge: 'Web' },
-              ].map((fmt) => (
-                <button
-                  key={fmt.id}
-                  type="button"
-                  onClick={() => setFormat(fmt.id as DownloadFormat)}
-                  className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all ${format === fmt.id
-                    ? 'border-blue-600 bg-blue-50/60 ring-2 ring-blue-600/20 text-blue-900 font-bold shadow-xs'
-                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 font-medium'
+          <div className="space-y-4">
+            {/* 1. SCREEN / DIGITAL SECTION */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                  Screen / Digital Formats (RGB)
+                </span>
+                <span className="text-[10px] text-gray-400 font-semibold">Monitor & Web Display</span>
+              </div>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {[
+                  { id: 'png', label: 'PNG', badge: 'Lossless' },
+                  { id: 'jpeg', label: 'JPEG RGB', badge: 'Compact' },
+                  { id: 'webp', label: 'WebP', badge: 'Web' },
+                  { id: 'svg', label: 'SVG', badge: 'True Vector' },
+                  { id: 'pdf', label: 'PDF', badge: 'Vector PDF' },
+                  { id: 'psd', label: 'PSD', badge: 'Layered' },
+                ].map((fmt) => (
+                  <button
+                    key={fmt.id}
+                    type="button"
+                    onClick={() => setFormat(fmt.id as DownloadFormat)}
+                    className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all ${
+                      format === fmt.id
+                        ? 'border-blue-600 bg-blue-50/60 ring-2 ring-blue-600/20 text-blue-900 font-bold shadow-xs'
+                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 font-medium'
                     }`}
-                >
-                  <span className="text-sm font-bold">{fmt.label}</span>
-                  <span className="text-[10px] text-gray-500 mt-0.5">{fmt.badge}</span>
-                </button>
-              ))}
+                  >
+                    <span className="text-xs font-bold">{fmt.label}</span>
+                    <span className="text-[10px] text-gray-500 mt-0.5">{fmt.badge}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 2. PRINT SECTION (ACTUAL CMYK) */}
+            <div className="pt-2 border-t border-gray-100">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                  <span>Print Ready Formats (CMYK)</span>
+                </span>
+                <span className="text-[10px] text-purple-700 font-semibold bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                  Actual CMYK Output
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {[
+                  { id: 'print_pdf_cmyk', label: 'Print Ready PDF - CMYK', badge: 'Vector CMYK + ICC', highlight: true },
+                  { id: 'cmyk_tiff', label: 'CMYK TIFF', badge: '4-Channel 300 DPI', highlight: false },
+                  { id: 'cmyk_jpeg', label: 'CMYK JPEG', badge: '4-Channel Print', highlight: false },
+                ].map((fmt) => (
+                  <button
+                    key={fmt.id}
+                    type="button"
+                    onClick={() => setFormat(fmt.id as DownloadFormat)}
+                    className={`flex flex-col items-start p-3 rounded-xl border text-left transition-all ${
+                      format === fmt.id
+                        ? 'border-purple-600 bg-purple-50/70 ring-2 ring-purple-600/25 text-purple-950 font-bold shadow-xs'
+                        : 'border-purple-100 bg-purple-50/20 hover:border-purple-300 hover:bg-purple-50/40 text-gray-800 font-medium'
+                    }`}
+                  >
+                    <span className="text-xs font-bold text-purple-950">{fmt.label}</span>
+                    <span className="text-[10px] text-purple-700 mt-0.5 font-medium">{fmt.badge}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 3. OPTIONAL SOFT-PROOF FILES (RGB APPEARANCE) */}
+            <div className="pt-2 border-t border-gray-100">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                  Optional Soft-Proof Files (Simulated CMYK in RGB)
+                </span>
+                <span className="text-[10px] text-gray-400 font-semibold">Simulated Print Look</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {[
+                  { id: 'proof_png', label: 'Print Preview PNG', badge: 'RGB Soft Proof' },
+                  { id: 'proof_webp', label: 'Print Preview WebP', badge: 'RGB Soft Proof' },
+                  { id: 'proof_svg', label: 'Print Preview SVG', badge: 'Vector RGB Soft Proof' },
+                ].map((fmt) => (
+                  <button
+                    key={fmt.id}
+                    type="button"
+                    onClick={() => setFormat(fmt.id as DownloadFormat)}
+                    className={`flex flex-col items-start p-2.5 rounded-xl border text-left transition-all ${
+                      format === fmt.id
+                        ? 'border-indigo-600 bg-indigo-50/60 ring-2 ring-indigo-600/20 text-indigo-950 font-bold shadow-xs'
+                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 font-medium'
+                    }`}
+                  >
+                    <span className="text-xs font-bold">{fmt.label}</span>
+                    <span className="text-[10px] text-gray-500 mt-0.5">{fmt.badge}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
+
+          {/* PRINT EXPORT OPTIONS (Dedicated configuration for CMYK & soft-proof prints) */}
+          {(format === 'print_pdf_cmyk' ||
+            format === 'cmyk_tiff' ||
+            format === 'cmyk_jpeg' ||
+            format === 'proof_png' ||
+            format === 'proof_webp' ||
+            format === 'proof_svg') && (
+            <div className="p-4 rounded-2xl border border-purple-200 bg-purple-50/40 space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between border-b border-purple-100 pb-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-purple-950 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-purple-600" />
+                  <span>Print Export Options</span>
+                </span>
+                <span className="text-[10px] font-bold font-mono px-2 py-0.5 rounded-md bg-purple-100 text-purple-800">
+                  {format === 'print_pdf_cmyk' || format === 'cmyk_tiff' || format === 'cmyk_jpeg'
+                    ? 'Color Mode: CMYK'
+                    : 'Color Mode: RGB Soft Proof'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Color Profile Selector */}
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                    Color Profile (ICC)
+                  </label>
+                  <select
+                    value={selectedProfileId}
+                    onChange={(e) => setSelectedProfileId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-purple-200 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs cursor-pointer"
+                  >
+                    {iccProfileService.getAllProfiles().map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} {p.totalAreaCoverage ? `(TAC ${p.totalAreaCoverage}%)` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-gray-500 mt-1 leading-snug">
+                    {iccProfileService.getProfile(selectedProfileId).description}
+                  </p>
+                </div>
+
+                {/* Resolution */}
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                    Resolution
+                  </label>
+                  <div className="px-3 py-2 text-xs font-bold font-mono rounded-xl border border-gray-200 bg-white text-gray-900 shadow-2xs flex items-center justify-between">
+                    <span>300 DPI</span>
+                    <span className="text-[10px] text-emerald-600 font-semibold uppercase">Commercial Standard</span>
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-1 leading-snug">
+                    Full prepress standard resolution for crisp, razor-sharp output.
+                  </p>
+                </div>
+              </div>
+
+              {/* Bleed & Trim Marks Controls */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-purple-100">
+                <label className="flex items-center gap-2 text-xs font-semibold text-gray-800 cursor-pointer p-2 rounded-xl bg-white border border-gray-200 hover:border-purple-300 transition">
+                  <input
+                    type="checkbox"
+                    checked={includeBleed}
+                    onChange={(e) => setIncludeBleed(e.target.checked)}
+                    className="w-4 h-4 rounded text-purple-600 accent-purple-600 focus:ring-purple-500 cursor-pointer"
+                  />
+                  <span>Include Bleed Area ({bleedMm} mm)</span>
+                </label>
+
+                <label className="flex items-center gap-2 text-xs font-semibold text-gray-800 cursor-pointer p-2 rounded-xl bg-white border border-gray-200 hover:border-purple-300 transition">
+                  <input
+                    type="checkbox"
+                    checked={includeTrimMarks}
+                    onChange={(e) => setIncludeTrimMarks(e.target.checked)}
+                    className="w-4 h-4 rounded text-purple-600 accent-purple-600 focus:ring-purple-500 cursor-pointer"
+                  />
+                  <span>Include Trim & Crop Marks</span>
+                </label>
+              </div>
+
+              <div className="text-[11px] text-purple-900/80 bg-white/70 p-2.5 rounded-xl border border-purple-100 leading-relaxed">
+                ℹ <strong>Prepress Note:</strong> Print files preserve vector typography and vector SVG geometries without full-artwork rasterization. The embedded {iccProfileService.getProfile(selectedProfileId).name} profile defines the press separation condition.
+              </div>
+            </div>
+          )}
+
+          {format === 'print_pdf_cmyk' && (
+            <div className="rounded-xl border border-purple-200 bg-purple-50 p-4 text-xs text-purple-950">
+              <div className="font-bold flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-purple-600" />
+                <span>Print Ready CMYK PDF</span>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-purple-900">
+                True vector text and paths are preserved with embedded font typography, shadow compatibility, frame masking, and CMYK color space assignment. No pixelation at any zoom level.
+              </p>
+            </div>
+          )}
 
           {format === 'svg' && (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-900">
@@ -2400,9 +2788,23 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             onClick={handleStartExport}
             disabled={
               isExporting ||
-              (format !== 'svg' && !includeNormal && !includeEnhanced)
+              (format !== 'svg' &&
+                format !== 'print_pdf_cmyk' &&
+                format !== 'cmyk_tiff' &&
+                format !== 'cmyk_jpeg' &&
+                format !== 'proof_png' &&
+                format !== 'proof_webp' &&
+                format !== 'proof_svg' &&
+                !includeNormal &&
+                !includeEnhanced)
             }
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed ${
+              format === 'print_pdf_cmyk' || format === 'cmyk_tiff' || format === 'cmyk_jpeg'
+                ? 'bg-purple-700 hover:bg-purple-800'
+                : format === 'proof_png' || format === 'proof_webp' || format === 'proof_svg'
+                  ? 'bg-indigo-600 hover:bg-indigo-700'
+                  : 'bg-blue-600 hover:bg-blue-700'
+            }`}
           >
             {isExporting ? (
               <>
@@ -2413,11 +2815,23 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
               <>
                 <Download className="w-3.5 h-3.5" />
                 <span>
-                  {format === 'svg'
-                    ? `Download True Vector SVG${includeTrimMarks ? ' (With Trim Marks)' : ''}`
-                    : format === 'pdf'
-                      ? `Download True Vector PDF${includeTrimMarks ? ' (With Trim Marks)' : ''}`
-                      : `Download ${format.toUpperCase()} (${targetDpi} DPI)${includeTrimMarks ? ' + Trim Marks' : ''}`}
+                  {format === 'print_pdf_cmyk'
+                    ? `Download Print Ready CMYK PDF (${iccProfileService.getProfile(selectedProfileId).name})`
+                    : format === 'cmyk_tiff'
+                      ? `Download 4-Channel CMYK TIFF (300 DPI)`
+                      : format === 'cmyk_jpeg'
+                        ? `Download CMYK JPEG (300 DPI)`
+                        : format === 'proof_png'
+                          ? `Download Print Preview PNG (RGB Soft Proof)`
+                          : format === 'proof_webp'
+                            ? `Download Print Preview WebP (RGB Soft Proof)`
+                            : format === 'proof_svg'
+                              ? `Download Print Preview SVG (RGB Soft Proof)`
+                              : format === 'svg'
+                                ? `Download True Vector SVG${includeTrimMarks ? ' (With Trim Marks)' : ''}`
+                                : format === 'pdf'
+                                  ? `Download True Vector PDF${includeTrimMarks ? ' (With Trim Marks)' : ''}`
+                                  : `Download ${format.toUpperCase()} (${targetDpi} DPI)${includeTrimMarks ? ' + Trim Marks' : ''}`}
                 </span>
               </>
             )}

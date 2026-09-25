@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { CanvasManager } from '../canvas/CanvasManager';
 import { DesignerGradientValue, DesignerGradientStop } from '@/types/designer';
+import { CMYKColorControls } from './CMYKColorControls';
 import {
   hexToRgb,
   rgbToHex,
@@ -165,7 +166,7 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
   const initialHex = color && typeof color === 'string' && color.startsWith('#') ? color : '#7d2ae8';
   const [hsv, setHsv] = useState(() => hexToHsv(initialHex));
   const [hexInput, setHexInput] = useState(initialHex);
-  const [inputMode, setInputMode] = useState<'hex' | 'rgb'>('hex');
+  const [inputMode, setInputMode] = useState<'hex' | 'rgb' | 'cmyk'>('hex');
   const [rgbState, setRgbState] = useState(() => hexToRgb(initialHex) || { r: 125, g: 42, b: 232, a: 1 });
   const [alpha, setAlpha] = useState<number>(100);
 
@@ -417,6 +418,13 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
             >
               RGB
             </button>
+            <button
+              type="button"
+              onClick={() => setInputMode('cmyk')}
+              className={`px-2 py-0.5 rounded-md transition ${inputMode === 'cmyk' ? 'bg-white text-purple-950 font-black shadow-2xs' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              CMYK
+            </button>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -473,7 +481,7 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
               </button>
             )}
           </div>
-        ) : (
+        ) : inputMode === 'rgb' ? (
           <div className="grid grid-cols-3 gap-1.5">
             <div>
               <span className="block text-[9px] font-bold text-gray-400 mb-0.5">R</span>
@@ -509,6 +517,17 @@ const CanvaColorChart: React.FC<CanvaColorChartProps> = ({
               />
             </div>
           </div>
+        ) : (
+          <CMYKColorControls
+            currentHex={hexInput}
+            onColorChange={(displayHex) => {
+              setHexInput(displayHex);
+              setHsv(hexToHsv(displayHex));
+              const nextRgb = hexToRgb(displayHex);
+              if (nextRgb) setRgbState(nextRgb);
+              emitColor(displayHex);
+            }}
+          />
         )}
       </div>
     </div>

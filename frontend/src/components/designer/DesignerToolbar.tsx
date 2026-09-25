@@ -37,6 +37,7 @@ import { ZoomControls } from './controls/ZoomControls';
 import { CanvasManager } from './canvas/CanvasManager';
 import { PreflightBadge } from './controls/PreflightBadge';
 import { PreflightReport } from './utils/preflightCheck';
+import { PrintPreviewToggle } from './toolbar/PrintPreviewToggle';
 
 interface DesignerToolbarProps {
   designName: string;
@@ -159,169 +160,9 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
 
         {/* Menus: File, View, Size */}
         <div className="flex items-center gap-1 text-xs">
-          {/* File Menu */}
-          {/* <div className="relative">
-            <button
-              type="button"
-              onClick={() => setActiveMenu(activeMenu === 'file' ? null : 'file')}
-              className="px-2.5 py-1.5 rounded-lg text-gray-700 hover:bg-gray-100 font-medium transition flex items-center gap-1"
-            >
-              <span>File</span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
-            </button>
 
-            {activeMenu === 'file' && (
-              <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onSave) onSave();
-                    setActiveMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <Save className="w-3.5 h-3.5 text-gray-400" />
-                    <span>Save Draft</span>
-                  </span>
-                  <span className="text-[10px] text-gray-400 font-mono">Ctrl+S</span>
-                </button>
-                {onSaveAsTemplate && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onSaveAsTemplate();
-                      setActiveMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left text-xs text-emerald-700 hover:bg-emerald-50 flex items-center justify-between font-semibold"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Save className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>{isAdminTemplateMode ? 'Publish Template' : 'Save as Design Template'}</span>
-                    </span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onSaveVersion) onSaveVersion();
-                    setActiveMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <History className="w-3.5 h-3.5 text-gray-400" />
-                    <span>Save New Version</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onOpenCustomSize) onOpenCustomSize();
-                    setActiveMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <Maximize2 className="w-3.5 h-3.5 text-gray-400" />
-                    <span>Banner / Custom Size...</span>
-                  </span>
-                </button>
-                <div className="my-1 border-t border-gray-100" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onOpenPreview) onOpenPreview();
-                    setActiveMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center justify-between"
-                >
-                  <span className="flex items-center gap-2">
-                    <Eye className="w-3.5 h-3.5 text-gray-400" />
-                    <span>Print Preview</span>
-                  </span>
-                </button>
-              </div>
-            )}
-          </div> */}
 
-          {/* View Menu */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setActiveMenu(activeMenu === 'view' ? null : 'view')}
-              className="px-2.5 py-1.5 rounded-lg text-gray-700 hover:bg-gray-100 font-medium transition flex items-center gap-1"
-            >
-              <span>View</span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
-            </button>
 
-            {activeMenu === 'view' && (
-              <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onToggleGuides();
-                    setActiveMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center justify-between"
-                >
-                  <span>Show Bleed & Safe Guides</span>
-                  <span className="text-[10px] text-gray-400">{showGuides ? 'ON' : 'OFF'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (canvasManager) {
-                      const cur = canvasManager.getSmartGuidesEnabled();
-                      canvasManager.setSmartGuidesEnabled(!cur);
-                    }
-                    setActiveMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center justify-between"
-                >
-                  <span>Smart Snapping</span>
-                  <span className="text-[10px] text-gray-400">
-                    {canvasManager?.getSmartGuidesEnabled() !== false ? 'ON' : 'OFF'}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (canvasManager) {
-                      canvasManager.clearUserGuides();
-                    }
-                    setActiveMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center justify-between"
-                >
-                  <span>Clear User Ruler Guides</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onFitCanvas();
-                    setActiveMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center justify-between"
-                >
-                  <span>Fit Canvas to Screen</span>
-                  <span className="text-[10px] text-gray-400">Ctrl+0</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onResetZoom();
-                    setActiveMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50 flex items-center justify-between"
-                >
-                  <span>Reset 100% Zoom</span>
-                  <span className="text-[10px] text-gray-400">Ctrl+1</span>
-                </button>
-              </div>
-            )}
-          </div>
 
           {/* Custom Banner / Size Trigger Button */}
           {onOpenCustomSize && (
@@ -576,7 +417,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
         />
       </div>
 
-      {/* Right Section: Inspector, Preview & Export Dropdown */}
+
       <div className="flex items-center gap-2" ref={exportMenuRef}>
 
 

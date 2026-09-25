@@ -76,6 +76,7 @@ Route::prefix('images')->group(function () {
 // Multi-Format Designer Export Engine (JPEG, PNG, WebP, PDF, TIFF, PSD)
 Route::prefix('designer')->group(function () {
     Route::post('/export', [ExportController::class, 'export']);
+    Route::post('/export/print', [ExportController::class, 'exportPrint']);
     Route::get('/exports/{export}/status', [ExportController::class, 'status']);
     Route::get('/exports/{export}/download', [ExportController::class, 'download']);
 });

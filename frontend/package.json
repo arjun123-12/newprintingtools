@@ -8,9 +8,11 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "postinstall": "node scripts/fix-lcms.js"
   },
   "dependencies": {
+    "@kittl/little-cms": "^1.0.3",
     "@tanstack/react-query": "^5.45.1",
     "ag-psd": "^31.0.2",
     "axios": "^1.7.2",
