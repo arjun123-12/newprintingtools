@@ -14,6 +14,10 @@ import {
   SelectedObjectState,
 } from '@/types/designer';
 import { CanvasManager } from './CanvasManager';
+import {
+  CANVA_GUIDE_HORIZONTAL_CURSOR,
+  CANVA_GUIDE_VERTICAL_CURSOR,
+} from './CanvaControls';
 
 const RULER_SIZE = 24;
 const RULER_BACKGROUND = '#ffffff';
@@ -1837,6 +1841,11 @@ export const Ruler: React.FC<RulerProps> = ({
       });
     };
 
+    document.body.style.cursor =
+      orientation === 'horizontal'
+        ? CANVA_GUIDE_HORIZONTAL_CURSOR
+        : CANVA_GUIDE_VERTICAL_CURSOR;
+
     update(
       event.clientX,
       event.clientY
@@ -1853,6 +1862,7 @@ export const Ruler: React.FC<RulerProps> = ({
     const handleUp = (
       upEvent: PointerEvent
     ) => {
+      document.body.style.cursor = '';
       window.removeEventListener(
         'pointermove',
         handleMove
@@ -1940,6 +1950,11 @@ export const Ruler: React.FC<RulerProps> = ({
     let isInsideArtwork = true;
     let hasDragged = false;
 
+    document.body.style.cursor =
+      guide.orientation === 'horizontal'
+        ? CANVA_GUIDE_HORIZONTAL_CURSOR
+        : CANVA_GUIDE_VERTICAL_CURSOR;
+
     const update = (clientX: number, clientY: number) => {
       const viewportRect = viewport.getBoundingClientRect();
       const paperRect = paper.getBoundingClientRect();
@@ -2000,6 +2015,7 @@ export const Ruler: React.FC<RulerProps> = ({
     }
 
     function cleanup() {
+      document.body.style.cursor = '';
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
       window.removeEventListener('pointercancel', handleCancel);
@@ -2099,8 +2115,9 @@ export const Ruler: React.FC<RulerProps> = ({
         guide.orientation === 'horizontal' ? (
           <div
             key={guide.id}
-            className="group pointer-events-auto absolute z-30 h-3 -translate-y-1/2 cursor-row-resize touch-none"
+            className="group pointer-events-auto absolute z-30 h-3.5 -translate-y-1/2 touch-none"
             style={{
+              cursor: CANVA_GUIDE_HORIZONTAL_CURSOR,
               left: `${geometry.originX}px`,
               top: `${geometry.originY +
                 guide.posPx * (geometry.paperHeight / Math.max(artworkHeightPx, 1))
@@ -2122,8 +2139,9 @@ export const Ruler: React.FC<RulerProps> = ({
         ) : (
           <div
             key={guide.id}
-            className="group pointer-events-auto absolute z-30 w-3 -translate-x-1/2 cursor-col-resize touch-none"
+            className="group pointer-events-auto absolute z-30 w-3.5 -translate-x-1/2 touch-none"
             style={{
+              cursor: CANVA_GUIDE_VERTICAL_CURSOR,
               left: `${geometry.originX +
                 guide.posPx * (geometry.paperWidth / Math.max(artworkWidthPx, 1))
                 }px`,
@@ -2147,7 +2165,8 @@ export const Ruler: React.FC<RulerProps> = ({
 
       {/* Top Horizontal Ruler */}
       <div
-        className="pointer-events-auto absolute left-0 right-0 top-0 h-6 cursor-row-resize select-none"
+        className="pointer-events-auto absolute left-0 right-0 top-0 h-6 select-none"
+        style={{ cursor: CANVA_GUIDE_HORIZONTAL_CURSOR }}
         onPointerDown={(event) =>
           startGuideDrag(
             'horizontal',
@@ -2164,7 +2183,8 @@ export const Ruler: React.FC<RulerProps> = ({
 
       {/* Left Vertical Ruler */}
       <div
-        className="pointer-events-auto absolute bottom-0 left-0 top-0 w-6 cursor-col-resize select-none"
+        className="pointer-events-auto absolute bottom-0 left-0 top-0 w-6 select-none"
+        style={{ cursor: CANVA_GUIDE_VERTICAL_CURSOR }}
         onPointerDown={(event) =>
           startGuideDrag(
             'vertical',

@@ -117,6 +117,10 @@ export interface LayerItem {
   textPreview?: string;
   thumbnail?: string;
   opacity?: number;
+  fill?: string;
+  stroke?: string;
+  shapeType?: string;
+  isCustomNamed?: boolean;
 }
 
 export type ArtworkQuality = 'excellent' | 'good' | 'low' | 'critical';

@@ -7,9 +7,6 @@ import {
   CopyPlus,
   Trash2,
   MoreHorizontal,
-  Group as GroupIcon,
-  Ungroup,
-  MessageSquarePlus,
 } from 'lucide-react';
 import { SelectedObjectState } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -167,7 +164,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
 
   if (!coords) return null;
 
-  // Exactly as requested: visible ONLY when object is fixed/stationary, NOT while moving/transforming
+  // Visible ONLY when object is fixed/stationary, NOT while moving/transforming
   const isVisible = !isTransforming;
 
   const handleToggleLock = (e: React.MouseEvent) => {
@@ -196,15 +193,6 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
     }
   };
 
-  const handleComment = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const canvas = canvasManager?.getCanvas();
-    const active = canvas?.getActiveObject();
-    if (active) {
-      (active as any).__commentAdded = true;
-    }
-  };
-
   return (
     <div
       style={{
@@ -223,17 +211,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
         onClick={(e) => e.stopPropagation()}
         className="flex items-center gap-0.5 bg-white/95 backdrop-blur-md px-1.5 py-1 rounded-full shadow-[0_4px_20px_rgba(0,0,0,0.15)] border border-gray-200/90 text-gray-700 animate-in fade-in zoom-in-95 duration-100"
       >
-        {/* 1. Comment button (Canva-style) */}
-        <button
-          type="button"
-          onClick={handleComment}
-          title="Add comment"
-          className="p-1.5 rounded-full hover:bg-gray-100/90 text-gray-700 hover:text-gray-900 transition flex items-center justify-center cursor-pointer"
-        >
-          <MessageSquarePlus className="w-4 h-4" />
-        </button>
-
-        {/* 2. Lock / Unlock */}
+        {/* 1. Lock / Unlock */}
         <button
           type="button"
           onClick={handleToggleLock}
@@ -247,39 +225,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
           {selected.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
         </button>
 
-        {/* Group (when multi-selection) */}
-        {canvasManager?.canGroup() && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              canvasManager?.groupSelected();
-            }}
-            title="Group (Ctrl+G)"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-semibold transition cursor-pointer"
-          >
-            <GroupIcon className="w-3.5 h-3.5" />
-            <span>Group</span>
-          </button>
-        )}
-
-        {/* Ungroup (when group selected) */}
-        {canvasManager?.canUngroup() && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              canvasManager?.ungroupSelected();
-            }}
-            title="Ungroup (Ctrl+Shift+G)"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-semibold transition cursor-pointer"
-          >
-            <Ungroup className="w-3.5 h-3.5" />
-            <span>Ungroup</span>
-          </button>
-        )}
-
-        {/* 3. Duplicate (hidden if locked, like Canva) */}
+        {/* 2. Duplicate (hidden if locked) */}
         {!selected.isLocked && (
           <button
             type="button"
@@ -291,7 +237,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
           </button>
         )}
 
-        {/* 4. Delete (hidden if locked, like Canva) */}
+        {/* 3. Delete (hidden if locked) */}
         {!selected.isLocked && (
           <button
             type="button"
@@ -303,7 +249,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
           </button>
         )}
 
-        {/* 5. More actions (•••) */}
+        {/* 4. More actions (•••) */}
         <div className="relative">
           <button
             type="button"

@@ -1095,57 +1095,61 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             <span className="hidden sm:inline"></span>
           </button>
 
-          {/* Canva Border Style Icon Button */}
-          <button
-            type="button"
-            onClick={() => {
-              if (onSelectSidebarTab) {
-                onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
-              }
-            }}
-            title="Border & Outline (Open in Sidebar)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
-              ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
-              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-              }`}
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
-              <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
-              <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
-            </svg>
-          </button>
-
-          {(!selected.isFrame || selected.frameShape === 'rect') && (
-            /* Canva Corner Rounding Icon Button */
-            <div className="relative">
+          {/* Canva Border Style Icon Button (only if not already rendered by Shape controls) */}
+          {!isShape && (
+            <>
               <button
                 type="button"
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  togglePopover('cornerRounding');
+                onClick={() => {
+                  if (onSelectSidebarTab) {
+                    onSelectSidebarTab(activeSidebarTab === 'border' ? null : 'border');
+                  }
                 }}
-                title="Corner Rounding"
-                className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
+                title="Border & Outline (Open in Sidebar)"
+                className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
                   ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
                   : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                   }`}
               >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 20V12a8 8 0 0 1 8-8h8" />
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <line x1="3" y1="6" x2="21" y2="6" strokeWidth="3" strokeLinecap="round" />
+                  <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" strokeLinecap="round" />
+                  <line x1="3" y1="18" x2="21" y2="18" strokeWidth="1" strokeLinecap="round" />
                 </svg>
               </button>
-              {activePopover === 'cornerRounding' && (
-                <CornerRoundingPopover
-                  rx={selected.rx || 0}
-                  maxRadius={cornerMaxRadius}
-                  onChange={(rx) => canvasManager?.setSelectedCornerRadius(rx, true)}
-                  onCommit={() => canvasManager?.commitCornerRadius()}
-                  onClose={() => setActivePopover(null)}
-                />
+
+              {(!selected.isFrame || selected.frameShape === 'rect') && (
+                /* Canva Corner Rounding Icon Button */
+                <div className="relative">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePopover('cornerRounding');
+                    }}
+                    title="Corner Rounding"
+                    className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
+                      ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
+                      : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 20V12a8 8 0 0 1 8-8h8" />
+                    </svg>
+                  </button>
+                  {activePopover === 'cornerRounding' && (
+                    <CornerRoundingPopover
+                      rx={selected.rx || 0}
+                      maxRadius={cornerMaxRadius}
+                      onChange={(rx) => canvasManager?.setSelectedCornerRadius(rx, true)}
+                      onCommit={() => canvasManager?.commitCornerRadius()}
+                      onClose={() => setActivePopover(null)}
+                    />
+                  )}
+                </div>
               )}
-            </div>
+            </>
           )}
         </>
       )}

@@ -3403,9 +3403,36 @@ export class CanvasManager {
     const usesSameSvgForMaskAndOverlay =
       normalizeFrameSource(overlayUrl) === normalizeFrameSource(maskUrl);
 
+    const shapeOutline = await this.loadCustomShapeObject(maskUrl || overlayUrl);
+    shapeOutline.setCoords();
+    const outlineBounds = shapeOutline.getBoundingRect();
+    const outlineRenderedW = Math.max(Number(outlineBounds.width) || 1, 1);
+    const outlineRenderedH = Math.max(Number(outlineBounds.height) || 1, 1);
+    const outlineBaseScaleX = Number(shapeOutline.scaleX) || 1;
+    const outlineBaseScaleY = Number(shapeOutline.scaleY) || 1;
+
+    shapeOutline.set({
+      originX: 'center',
+      originY: 'center',
+      left: 0,
+      top: 0,
+      angle: 0,
+      scaleX: outlineBaseScaleX * (frameWidth / outlineRenderedW),
+      scaleY: outlineBaseScaleY * (frameHeight / outlineRenderedH),
+      selectable: false,
+      evented: false,
+      objectCaching: false,
+      fill: 'transparent',
+      stroke: 'transparent',
+      strokeWidth: 0,
+      strokeDashArray: null,
+    });
+    shapeOutline.setPositionByOrigin(new Point(0, 0), 'center', 'center');
+    shapeOutline.set('frameRole' as any, 'shape-outline');
+
     const frameChildren: FabricObject[] = usesSameSvgForMaskAndOverlay
-      ? [photo]
-      : [photo, overlay];
+      ? [photo, shapeOutline]
+      : [photo, overlay, shapeOutline];
 
     const group = new Group(frameChildren, {
       originX: 'center',
@@ -3418,8 +3445,6 @@ export class CanvasManager {
       cornerSize: 12,
       transparentCorners: false,
       objectCaching: false,
-      // The uploaded overlay is the exact frame. Do not generate another
-      // rectangular stroke around the custom frame Group.
       stroke: 'transparent',
       strokeWidth: 0,
       strokeDashArray: null,
@@ -6915,21 +6940,68 @@ export class CanvasManager {
         seenIds.add(id);
 
         const isPath = obj instanceof Path || Boolean(obj.get('isBrushPath' as any));
-        const type = isPath ? 'brush' : obj.type || 'object';
+        const rawType = (obj.type || 'object').toLowerCase();
         const isText = this.isTextObject(obj);
-        const textPreview = isText ? (obj as Textbox).text?.substring(0, 24) : undefined;
+        const type = isText ? 'text' : isPath ? 'brush' : rawType;
+        const textPreview = isText ? (obj as Textbox).text?.trim() : undefined;
+
+        let thumbnail: string | undefined = undefined;
+        if (rawType === 'image' || rawType === 'fabricimage' || obj instanceof FabricImage) {
+          thumbnail =
+            (obj as any).getSrc?.() ||
+            (obj as any)._element?.src ||
+            (obj as any).src ||
+            (obj as any).get?.('originalUrl') ||
+            (obj as any).get?.('imageUrl') ||
+            (obj as any).get?.('url');
+        } else if (rawType === 'group' || obj instanceof Group) {
+          const childObjects = (obj as any)._objects || (obj as any).getObjects?.() || [];
+          const imgChild = childObjects.find(
+            (c: any) =>
+              (c.type || '').toLowerCase() === 'image' ||
+              (c.type || '').toLowerCase() === 'fabricimage' ||
+              c instanceof FabricImage
+          );
+          if (imgChild) {
+            thumbnail =
+              imgChild.getSrc?.() ||
+              imgChild._element?.src ||
+              imgChild.src ||
+              imgChild.get?.('src');
+          }
+          if (!thumbnail) {
+            thumbnail =
+              (obj as any).get?.('imageUrl') ||
+              (obj as any).get?.('frameImageUrl') ||
+              (obj as any).get?.('overlayUrl') ||
+              (obj as any).get?.('maskUrl') ||
+              (obj as any).get?.('thumbnailUrl');
+          }
+        }
+
+        const isCustomNamed = Boolean(obj.get('isCustomNamed' as any));
+        const customName = (obj.get('customName' as any) as string) || '';
+        const savedName = (obj.get('name' as any) as string) || '';
+        const name = isCustomNamed && customName ? customName : (savedName || `${type.charAt(0).toUpperCase() + type.slice(1)}`);
+
+        const shapeType = (obj.get('shapeType' as any) as string) || (obj as any).shapeType || rawType;
+        const fill = typeof obj.fill === 'string' ? obj.fill : undefined;
+        const stroke = typeof obj.stroke === 'string' ? obj.stroke : undefined;
 
         return {
           id,
-          name:
-            (obj.get('name' as any) as string) ||
-            `${type.charAt(0).toUpperCase() + type.slice(1)}`,
+          name,
           type,
           isLocked: obj.get('isLocked' as any) === true,
           isVisible: obj.visible !== false,
           zIndex: index,
           textPreview,
+          thumbnail,
           opacity: typeof obj.opacity === 'number' ? obj.opacity : 1,
+          fill,
+          stroke,
+          shapeType,
+          isCustomNamed,
         };
       })
       .reverse();
@@ -6991,10 +7063,14 @@ export class CanvasManager {
     if (!this.canvas) return;
     const obj = this.canvas.getObjects().find((o) => o.get('id' as any) === id);
     if (obj) {
-      obj.set('name' as any, newName.trim() || 'Layer');
+      const trimmed = newName.trim();
+      obj.set('name' as any, trimmed || 'Layer');
+      obj.set('customName' as any, trimmed);
+      obj.set('isCustomNamed' as any, Boolean(trimmed));
       this.notifyChange();
       this.notifySelection();
       this.notifyLayers();
+      this.saveHistoryState();
     }
   }
 
@@ -7157,43 +7233,22 @@ export class CanvasManager {
       'strokeLineJoin',
     ]);
 
-    // Generic group styling applies strokes to image children and creates an
-    // unwanted rectangular border. Uploaded custom frames are intentionally
-    // stroke-free because their overlay asset is already the complete frame.
-    if (
+    // For photo frames and custom frames, border controls style the shape outline
+    // along the frame's silhouette (not the photo rectangle).
+    const isFrameGroup =
       root instanceof Group &&
-      root.get('isCustomFrame' as any) &&
-      shapeBorderProperties.has(prop)
-    ) {
-      root.set({
-        stroke: 'transparent',
-        strokeWidth: 0,
-        strokeDashArray: null,
-        dirty: true,
-      });
-      root.getObjects().forEach((child) => {
-        child.set({
-          stroke: 'transparent',
-          strokeWidth: 0,
-          strokeDashArray: null,
-          dirty: true,
-        });
-        child.setCoords();
-      });
-      return;
-    }
+      (Boolean(root.get('isFrame' as any)) ||
+        Boolean(root.get('isPhotoShapeGroup' as any)) ||
+        Boolean(root.get('isCustomFrame' as any)));
 
-    // A filled photo shape contains two children: the clipped photo and a
-    // transparent SVG outline. Border controls must style only that outline;
-    // applying a stroke to the photo itself always produces a rectangle.
-    if (
-      root instanceof Group &&
-      root.get('isPhotoShapeGroup' as any) &&
-      shapeBorderProperties.has(prop)
-    ) {
-      const outline = root
+    if (isFrameGroup && shapeBorderProperties.has(prop)) {
+      let outline: FabricObject | null | undefined = root
         .getObjects()
         .find((object) => object.get('frameRole' as any) === 'shape-outline');
+
+      if (!outline) {
+        outline = this.ensureFrameGroupShapeOutline(root);
+      }
 
       if (outline) {
         this.applyShapeOutlineProperty(outline, prop, value);
@@ -7405,6 +7460,118 @@ export class CanvasManager {
     }
   }
 
+  private ensureFrameGroupShapeOutline(root: Group): FabricObject | null {
+    let outline = root
+      .getObjects()
+      .find((object) => object.get('frameRole' as any) === 'shape-outline');
+    if (outline) return outline;
+
+    const photo = (root.getObjects().find(
+      (o) => o.get('frameRole' as any) === 'photo' || o instanceof FabricImage
+    ) || root.getObjects()[0]) as FabricImage | undefined;
+
+    const frameW = root.width || photo?.width || 200;
+    const frameH = root.height || photo?.height || 200;
+
+    const shapeType = (root.get('frameShape' as any) || (photo as any)?.get?.('frameShape' as any) || root.get('shapeType' as any)) as string | undefined;
+
+    if (shapeType && typeof shapeType === 'string' && shapeType !== 'custom-svg' && FRAME_PRESETS.some((p) => p.shape === shapeType)) {
+      outline = createFrameClipPath(shapeType as FrameShapeType, frameW, frameH);
+    }
+
+    if (!outline && photo && photo.clipPath) {
+      const srcClip = photo.clipPath;
+      const scaleX = (srcClip.scaleX || 1) * (photo.scaleX || 1);
+      const scaleY = (srcClip.scaleY || 1) * (photo.scaleY || 1);
+
+      if (srcClip instanceof Path) {
+        outline = new Path((srcClip as any).path, {
+          originX: 'center',
+          originY: 'center',
+          scaleX,
+          scaleY,
+          fill: 'transparent',
+        });
+      } else if (srcClip instanceof Polygon) {
+        outline = new Polygon([...((srcClip as any).points || [])], {
+          originX: 'center',
+          originY: 'center',
+          scaleX,
+          scaleY,
+          fill: 'transparent',
+        });
+      } else if (srcClip instanceof Circle) {
+        outline = new Circle({
+          radius: (srcClip as any).radius,
+          originX: 'center',
+          originY: 'center',
+          scaleX,
+          scaleY,
+          fill: 'transparent',
+        });
+      } else if (srcClip instanceof Rect) {
+        outline = new Rect({
+          width: srcClip.width,
+          height: srcClip.height,
+          rx: (srcClip as any).rx || 0,
+          ry: (srcClip as any).ry || 0,
+          originX: 'center',
+          originY: 'center',
+          scaleX,
+          scaleY,
+          fill: 'transparent',
+        });
+      } else if (srcClip instanceof Group) {
+        const clonedChildren = (srcClip as any).getObjects().map((c: any) => {
+          if (c instanceof Path) {
+            return new Path(c.path, {
+              originX: c.originX,
+              originY: c.originY,
+              left: c.left,
+              top: c.top,
+              scaleX: c.scaleX,
+              scaleY: c.scaleY,
+              fill: 'transparent',
+            });
+          }
+          return null;
+        }).filter(Boolean);
+        if (clonedChildren.length > 0) {
+          outline = new Group(clonedChildren, {
+            originX: 'center',
+            originY: 'center',
+            scaleX,
+            scaleY,
+            fill: 'transparent',
+          });
+        }
+      }
+    }
+
+    if (outline) {
+      outline.set({
+        originX: 'center',
+        originY: 'center',
+        left: 0,
+        top: 0,
+        selectable: false,
+        evented: false,
+        objectCaching: false,
+        fill: 'transparent',
+        stroke: 'transparent',
+        strokeWidth: 0,
+        strokeDashArray: null,
+      });
+      outline.setPositionByOrigin(new Point(0, 0), 'center', 'center');
+      outline.set('frameRole' as any, 'shape-outline');
+      root.add(outline);
+      root.set('dirty', true);
+      return outline;
+    }
+
+    return null;
+  }
+
   private applyShapeOutlineProperty(
     root: FabricObject,
     prop: keyof SelectedObjectState,
@@ -7423,24 +7590,24 @@ export class CanvasManager {
         continue;
       }
 
-      object.set({ fill: 'transparent', paintFirst: 'fill', strokePosition: 'inside' as any, strokeUniform: true });
+      object.set({
+        fill: 'transparent',
+        strokeUniform: true,
+        visible: true,
+      });
 
       if (prop === 'stroke') {
-        object.set('stroke', String(value || 'transparent'));
-      } else if (prop === 'strokeWidth') {
+        const nextStroke = String(value || 'transparent');
+        object.set('stroke', nextStroke);
+      } else if (prop === 'strokeWidth' || prop === 'baseStrokeWidth') {
         const baseW = Math.max(0, Number(value) || 0);
         object.set('baseStrokeWidth' as any, baseW);
         object.set('strokeWidth', baseW);
-        object.set('strokePosition' as any, 'inside');
-        object.set('paintFirst', 'fill');
+        if (baseW > 0 && (!object.stroke || object.stroke === 'transparent' || object.stroke === 'none')) {
+          object.set('stroke', '#000000');
+        }
       } else if (prop === 'strokePosition') {
-        object.set('strokePosition' as any, 'inside');
-        const baseW = typeof object.get('baseStrokeWidth' as any) === 'number'
-          ? (object.get('baseStrokeWidth' as any) as number)
-          : (object.strokeWidth || 0);
-        object.set('baseStrokeWidth' as any, baseW);
-        object.set('strokeWidth', baseW);
-        object.set('paintFirst', 'fill');
+        object.set('strokePosition' as any, value as any);
       } else if (prop === 'strokeDashArray') {
         object.set('strokeDashArray', value ? (value as number[]) : null);
       } else if (prop === 'strokeLineCap') {
@@ -7456,6 +7623,7 @@ export class CanvasManager {
     }
 
     root.set('dirty', true);
+    root.setCoords();
     syncVisualEffectsGeometry(root);
   }
 
@@ -10542,6 +10710,10 @@ export class CanvasManager {
     const isCanvaPlaceholder = Boolean(active.get('isCanvaPlaceholder' as any)) ||
       Boolean(imageObj?.get('isCanvaPlaceholder' as any));
 
+    const frameOutline = isFrameObject && active instanceof Group
+      ? active.getObjects().find((object) => object.get('frameRole' as any) === 'shape-outline')
+      : null;
+
     return {
       id: active.get('id' as any) as string,
       name: active.get('name' as any) as string,
@@ -10578,13 +10750,23 @@ export class CanvasManager {
       })(),
       stroke: active.get('_userStrokeEnabled' as any) === false
         ? 'transparent'
-        : usesChildStyles && typeof styleSource.stroke === 'string'
-          ? styleSource.stroke
-          : typeof active.stroke === 'string'
+        : frameOutline && typeof frameOutline.stroke === 'string' && frameOutline.stroke !== 'transparent'
+          ? frameOutline.stroke
+          : typeof active.stroke === 'string' && active.stroke !== 'transparent'
             ? active.stroke
-            : 'transparent',
+            : usesChildStyles && typeof styleSource.stroke === 'string'
+              ? styleSource.stroke
+              : typeof active.stroke === 'string'
+                ? active.stroke
+                : 'transparent',
       strokeWidth: (() => {
         if (active.get('_userStrokeEnabled' as any) === false) return 0;
+        if (frameOutline && (frameOutline.strokeWidth || 0) > 0) {
+          return frameOutline.strokeWidth || 0;
+        }
+        if ((active.strokeWidth || 0) > 0) {
+          return active.strokeWidth || 0;
+        }
         const rawW = usesChildStyles
           ? styleSource.strokeWidth || active.strokeWidth || 0
           : active.strokeWidth || 0;
@@ -10597,8 +10779,12 @@ export class CanvasManager {
         return rawW;
       })(),
       strokePosition: 'inside',
+      strokeDashArray: frameOutline?.strokeDashArray || active.strokeDashArray || styleSource.strokeDashArray || undefined,
       baseStrokeWidth: (() => {
         if (active.get('_userStrokeEnabled' as any) === false) return 0;
+        if (frameOutline && (frameOutline.strokeWidth || 0) > 0) {
+          return frameOutline.strokeWidth || 0;
+        }
         const storedBaseW = (active.get('baseStrokeWidth' as any) ||
           styleSource.get('baseStrokeWidth' as any)) as number | undefined;
         if (typeof storedBaseW === 'number') return storedBaseW;
@@ -10635,7 +10821,6 @@ export class CanvasManager {
             : (active as any).rx || (styleSource as any).rx || 0,
       ry: (active as any).ry || (styleSource as any).ry || 0,
       curve: (active as any).curve || 0,
-      strokeDashArray: active.strokeDashArray || styleSource.strokeDashArray || undefined,
       paintFirst: (active.paintFirst as 'fill' | 'stroke') || 'fill',
       // Text
       text: textObj ? textObj.text : undefined,
