@@ -781,6 +781,30 @@ export function DesignerCanvas({
   ) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
+
+    if (canvasManager) {
+      const fabricCanvas = canvasManager.getCanvas();
+      if (fabricCanvas) {
+        const canvasWithPointerMethods = fabricCanvas as typeof fabricCanvas & {
+          getScenePoint?: (event: Event) => { x: number; y: number };
+          getPointer?: (event: Event) => { x: number; y: number };
+        };
+        const pointer =
+          typeof canvasWithPointerMethods.getScenePoint === 'function'
+            ? canvasWithPointerMethods.getScenePoint(event.nativeEvent)
+            : canvasWithPointerMethods.getPointer?.(event.nativeEvent);
+
+        if (pointer) {
+          canvasManager.handleExternalDragHover(pointer);
+        }
+      }
+    }
+  };
+
+  const handleDragLeave = (_event: DragEvent<HTMLDivElement>) => {
+    if (canvasManager) {
+      canvasManager.clearHoverFitHighlight();
+    }
   };
 
   const handleDrop = async (
@@ -790,6 +814,7 @@ export function DesignerCanvas({
     setDropError(null);
 
     if (!canvasManager) return;
+    canvasManager.clearHoverFitHighlight();
 
     try {
       const freepikId =
@@ -1019,6 +1044,23 @@ export function DesignerCanvas({
         return;
       }
 
+      // Check if dropped directly over an existing Frame
+      if (pointer) {
+        const targetFrame = canvasManager.getFrameUnderPoint(pointer);
+        if (targetFrame) {
+          const slotted = await canvasManager.slotImageIntoFrame(targetFrame, imageUrl, {
+            name: elementJson?.title,
+            provider: elementJson?.provider,
+            providerAssetId: elementJson?.providerAssetId,
+            sourceType: elementJson?.asset_type,
+            originalSrc: imageUrl,
+          });
+          if (slotted) {
+            return;
+          }
+        }
+      }
+
       await canvasManager.addImageFromUrl(
         imageUrl,
         {
@@ -1029,6 +1071,9 @@ export function DesignerCanvas({
           originalSrc: imageUrl,
         } as any,
         {
+          left: pointer?.x,
+          top: pointer?.y,
+          skipFrameSlotting: true,
           fitToArtworkInsetMm: 20,
         }
       );
@@ -1089,6 +1134,7 @@ export function DesignerCanvas({
     <div
       ref={containerRef}
       onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onMouseMove={(event) => {
         if (!isEraserActive) return;

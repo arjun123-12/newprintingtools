@@ -322,16 +322,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       selected.type === 'shape' ||
       (selected.type === 'path' && !selected.isBrushPath));
 
-  // A filled frame can also carry isShape=true internally.
-  // Give filled frames image/frame toolbar priority so Canva-style
-  // frame actions (Replace, Fit, Detach, Clear) remain visible.
-  const isFilledFrame =
-    Boolean(selected?.isFrame) && !selected?.isCanvaPlaceholder;
+  // Frames (filled or placeholder) must expose frame actions (Replace, Fit, Detach).
+  const isFrame = Boolean(selected?.isFrame);
+  const isFilledFrame = isFrame && !selected?.isCanvaPlaceholder;
 
   const isImage =
     selected &&
     (
-      isFilledFrame ||
+      isFrame ||
       (
         !isShape &&
         (selected.type === 'image' ||
@@ -961,26 +959,25 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 reader.onload = async () => {
                   const dataUrl = reader.result as string;
                   const activeObj = canvasManager.getCanvas()?.getActiveObject();
-                  if (activeObj && selected.isFrame) {
+                  const isFrameTarget = selected.isFrame || (activeObj ? canvasManager.isPhotoDropFrame(activeObj) || Boolean(activeObj.get('isFrame' as any)) : false);
+                  if (activeObj && isFrameTarget) {
                     await canvasManager.slotImageIntoFrame(activeObj, dataUrl, {
                       naturalWidth: 800,
                       naturalHeight: 800,
                       fileSizeBytes: file.size,
                       name: file.name,
                     });
+                  } else if (activeObj) {
+                    await canvasManager.replaceActiveImage(dataUrl, {
+                      name: file.name,
+                      fileSizeBytes: file.size,
+                    });
                   } else {
-                    if (activeObj && !selected.isFrame) {
-                      await canvasManager.replaceActiveImage(dataUrl, {
-                        name: file.name,
-                        fileSizeBytes: file.size,
-                      });
-                    } else {
-                      await canvasManager.addImageFromUrl(
-                        dataUrl,
-                        { name: file.name, fileSizeBytes: file.size },
-                        { fitToArtworkInsetMm: 20 }
-                      );
-                    }
+                    await canvasManager.addImageFromUrl(
+                      dataUrl,
+                      { name: file.name, fileSizeBytes: file.size },
+                      { fitToArtworkInsetMm: 20 }
+                    );
                   }
                 };
                 reader.readAsDataURL(file);

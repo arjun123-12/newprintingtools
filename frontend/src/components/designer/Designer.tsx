@@ -249,11 +249,21 @@ export default function Designer({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
-  const [pages, setPages] = useState<PageData[]>([]);
+  const [pages, setPages] = useState<PageData[]>([
+    {
+      id: 'page-front-1',
+      thumbnail: null,
+      canvasJson: {
+        version: '6.0.0',
+        objects: [],
+        background: '#ffffff',
+      },
+    },
+  ]);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
   const [printSides, setPrintSides] = useState<PrintSides>('front');
   const [activeSide, setActiveSide] = useState<'front' | 'back'>('front');
-  const [sideNames, setSideNames] = useState<string[]>([]);
+  const [sideNames, setSideNames] = useState<string[]>(['Front']);
 
   const canvasManagerRef = useRef<CanvasManager | null>(null);
   const dimensionsRef = useRef<CanvasDimensions>(dimensions);
@@ -657,10 +667,10 @@ export default function Designer({
   // Ensure the current active canvas is saved to the pages array before doing operations
   const getCurrentPagesState = useCallback(async () => {
     const manager = canvasManagerRef.current;
-    if (!manager) return pages;
+    if (!manager) return pagesRef.current && pagesRef.current.length > 0 ? pagesRef.current : pages;
 
     const fabricCanvas = manager.getCanvas();
-    if (!fabricCanvas) return pages;
+    if (!fabricCanvas) return pagesRef.current && pagesRef.current.length > 0 ? pagesRef.current : pages;
 
     const rawCanvasJson = manager.getSerializableJson();
     let thumbDataUrl = '';
@@ -677,13 +687,27 @@ export default function Designer({
     const currentIdx = activePageIndexRef.current ?? activePageIndex;
 
     const updatedPages = [...currentPages];
-    if (updatedPages[currentIdx]) {
+    if (updatedPages.length === 0) {
+      // Very first snapshot: initialize page 0 with the active canvas design!
+      updatedPages.push({
+        id: `page-front-${Date.now()}`,
+        thumbnail: thumbDataUrl || null,
+        canvasJson: rawCanvasJson,
+      });
+    } else if (updatedPages[currentIdx]) {
       updatedPages[currentIdx] = {
         ...updatedPages[currentIdx],
         canvasJson: rawCanvasJson,
-        thumbnail: thumbDataUrl,
+        thumbnail: thumbDataUrl || updatedPages[currentIdx].thumbnail,
+      };
+    } else {
+      updatedPages[currentIdx] = {
+        id: `page-${currentIdx}-${Date.now()}`,
+        thumbnail: thumbDataUrl || null,
+        canvasJson: rawCanvasJson,
       };
     }
+
     pagesRef.current = updatedPages;
     setPages(updatedPages);
     return updatedPages;
@@ -710,8 +734,10 @@ export default function Designer({
       };
       const updated = [...currentPages, newPage];
       setPages(updated);
+      pagesRef.current = updated;
       setSideNames(['Front', 'Back']);
       setActiveSide('back');
+      activePageIndexRef.current = 1;
       setActivePageIndex(1);
       await canvasManagerRef.current.loadTemplate({
         canvas_json: newPage.canvasJson,
@@ -722,6 +748,7 @@ export default function Designer({
 
     if (targetIndex === activePageIndex) return;
     setActiveSide(targetSide);
+    activePageIndexRef.current = targetIndex;
     setActivePageIndex(targetIndex);
 
     const targetPage = currentPages[targetIndex];
@@ -825,6 +852,7 @@ export default function Designer({
       setActiveSide('back');
     }
 
+    activePageIndexRef.current = index;
     setActivePageIndex(index);
     const nextPage = currentPages[index] || currentPages[0];
     if (nextPage) {
@@ -878,6 +906,7 @@ export default function Designer({
       return [...names, newLabel];
     });
 
+    activePageIndexRef.current = newIndex;
     setActivePageIndex(newIndex);
     if (newIndex === 1 && newPages.length === 2) {
       setActiveSide('back');
@@ -932,6 +961,7 @@ export default function Designer({
     });
 
     const newIndex = index + 1;
+    activePageIndexRef.current = newIndex;
     setActivePageIndex(newIndex);
     if (newPages.length > 2) {
       setPrintSides('both');

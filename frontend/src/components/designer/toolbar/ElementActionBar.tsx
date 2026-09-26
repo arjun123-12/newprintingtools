@@ -1,11 +1,19 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Lock, Unlock, Copy, Trash2, MoreHorizontal, Group as GroupIcon, Ungroup } from 'lucide-react';
+import {
+  Lock,
+  Unlock,
+  CopyPlus,
+  Trash2,
+  MoreHorizontal,
+  Group as GroupIcon,
+  Ungroup,
+  MessageSquarePlus,
+} from 'lucide-react';
 import { SelectedObjectState } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { MoreMenuPopover } from './MoreMenuPopover';
-import { QualityBadge } from './QualityBadge';
 
 interface ElementActionBarProps {
   selected: SelectedObjectState;
@@ -14,11 +22,7 @@ interface ElementActionBarProps {
   onOpenMore?: () => void;
 }
 
-export const ElementActionBar: React.FC<ElementActionBarProps> = () => {
-  return null;
-};
-
-const ElementActionBarDisabled: React.FC<ElementActionBarProps> = ({
+export const ElementActionBar: React.FC<ElementActionBarProps> = ({
   selected,
   canvasManager,
   zoom,
@@ -26,25 +30,9 @@ const ElementActionBarDisabled: React.FC<ElementActionBarProps> = ({
 }) => {
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
-  const [isVisible, setIsVisible] = useState(true);
-  const [isHovered, setIsHovered] = useState(false);
+  const [isTransforming, setIsTransforming] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
-  const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const startHideTimer = useCallback(() => {
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
-    }
-    hideTimerRef.current = setTimeout(() => {
-      setIsVisible(false);
-    }, 1800);
-  }, []);
-
-  const resetHideTimer = useCallback(() => {
-    setIsVisible(true);
-    startHideTimer();
-  }, [startHideTimer]);
+  const animFrameRef = useRef<number | null>(null);
 
   // Close popover when clicked outside
   useEffect(() => {
@@ -57,115 +45,165 @@ const ElementActionBarDisabled: React.FC<ElementActionBarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Reset hide timer when selected element changes
-  useEffect(() => {
-    resetHideTimer();
-  }, [selected?.id, resetHideTimer]);
-
-  // Update floating bar coordinates on selection change, zoom, or canvas events
+  // Update floating bar coordinates centered above the active object
   const updatePosition = useCallback(() => {
-    if (!canvasManager) return;
-    const rect = canvasManager.getActiveObjectBoundingRect();
-    if (rect) {
-      // Scale unzoomed scene bounding box to display zoom level
-      const scaledLeft = rect.left * zoom;
-      const scaledTop = rect.top * zoom;
-      const scaledWidth = rect.width * zoom;
-      const scaledHeight = rect.height * zoom;
-
-      // Centered above the element's bounding box
-      const centerX = scaledLeft + scaledWidth / 2;
-      // Position 46px above element; if too close to top, flip below
-      let topY = scaledTop - 46;
-      if (topY < 10) {
-        topY = scaledTop + scaledHeight + 12;
-      }
-      setCoords({ x: centerX, y: topY });
-    } else {
-      // Fallback using selected state coordinates scaled by zoom
-      const centerX = (selected.left + (selected.width * (selected.scaleX || 1)) / 2) * zoom;
-      const topY = Math.max(selected.top * zoom - 46, 10);
-      setCoords({ x: centerX, y: topY });
-    }
-  }, [canvasManager, selected, zoom]);
-
-  const animFrameRef = useRef<number | null>(null);
-
-  const scheduleUpdatePosition = useCallback(() => {
-    resetHideTimer();
-    if (animFrameRef.current !== null) return;
-    animFrameRef.current = requestAnimationFrame(() => {
-      animFrameRef.current = null;
-      updatePosition();
-    });
-  }, [updatePosition, resetHideTimer]);
-
-  useEffect(() => {
-    updatePosition();
-    resetHideTimer();
     if (!canvasManager) return;
     const canvas = canvasManager.getCanvas();
     if (!canvas) return;
 
-    const handleCanvasEvent = () => scheduleUpdatePosition();
-    canvas.on('object:moving', handleCanvasEvent);
-    canvas.on('object:scaling', handleCanvasEvent);
-    canvas.on('object:rotating', handleCanvasEvent);
-    canvas.on('object:modified', handleCanvasEvent);
+    const active = canvas.getActiveObject();
+    if (active) {
+      active.setCoords();
+      const rect = active.getBoundingRect();
+      if (rect && rect.width > 0 && rect.height > 0) {
+        const scaledLeft = rect.left * zoom;
+        const scaledTop = rect.top * zoom;
+        const scaledWidth = rect.width * zoom;
+        const scaledHeight = rect.height * zoom;
+
+        // Centered above the element's bounding box
+        const centerX = scaledLeft + scaledWidth / 2;
+        // Position ~46px above element; if too close to top edge, flip below
+        let topY = scaledTop - 46;
+        if (topY < 10) {
+          topY = scaledTop + scaledHeight + 12;
+        }
+
+        setCoords({ x: centerX, y: topY });
+        return;
+      }
+    }
+
+    // Fallback using selected state coordinates scaled by zoom
+    if (selected) {
+      const selW = (selected.width || 0) * (selected.scaleX || 1);
+      const selH = (selected.height || 0) * (selected.scaleY || 1);
+      const centerX = (selected.left + selW / 2) * zoom;
+      let topY = selected.top * zoom - 46;
+      if (topY < 10) {
+        topY = (selected.top + selH) * zoom + 12;
+      }
+      setCoords({ x: centerX, y: topY });
+    }
+  }, [canvasManager, selected, zoom]);
+
+  // Position updates on selection, position, or zoom change (only when object is stationary)
+  useEffect(() => {
+    if (!isTransforming) {
+      updatePosition();
+    }
+  }, [
+    selected?.id,
+    selected?.left,
+    selected?.top,
+    selected?.width,
+    selected?.height,
+    selected?.scaleX,
+    selected?.scaleY,
+    selected?.angle,
+    zoom,
+    isTransforming,
+    updatePosition,
+  ]);
+
+  // Canvas interaction listener:
+  // HIDE floating action bar when moving/scaling/rotating/transforming
+  // SHOW and REPOSITION floating action bar when object settles/stops moving (stationary)
+  useEffect(() => {
+    if (!canvasManager) return;
+    const canvas = canvasManager.getCanvas();
+    if (!canvas) return;
+
+    // Immediately hide when movement or transform begins
+    const handleTransformStart = () => {
+      setIsTransforming(true);
+      setIsMoreOpen(false);
+    };
+
+    // When movement finishes (object modified, mouse released, or selection settled),
+    // show bar at the new fixed/stationary position
+    const handleTransformEnd = () => {
+      setIsTransforming(false);
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+      }
+      animFrameRef.current = requestAnimationFrame(() => {
+        animFrameRef.current = null;
+        updatePosition();
+      });
+    };
+
+    canvas.on('object:moving', handleTransformStart);
+    canvas.on('object:scaling', handleTransformStart);
+    canvas.on('object:rotating', handleTransformStart);
+    canvas.on('object:skewing', handleTransformStart);
+    canvas.on('before:transform', handleTransformStart);
+
+    canvas.on('object:modified', handleTransformEnd);
+    canvas.on('mouse:up', handleTransformEnd);
+    canvas.on('selection:created', handleTransformEnd);
+    canvas.on('selection:updated', handleTransformEnd);
+
+    // Initial position sync
+    updatePosition();
 
     return () => {
       if (animFrameRef.current !== null) {
         cancelAnimationFrame(animFrameRef.current);
         animFrameRef.current = null;
       }
-      canvas.off('object:moving', handleCanvasEvent);
-      canvas.off('object:scaling', handleCanvasEvent);
-      canvas.off('object:rotating', handleCanvasEvent);
-      canvas.off('object:modified', handleCanvasEvent);
-    };
-  }, [canvasManager, updatePosition, scheduleUpdatePosition, resetHideTimer]);
+      canvas.off('object:moving', handleTransformStart);
+      canvas.off('object:scaling', handleTransformStart);
+      canvas.off('object:rotating', handleTransformStart);
+      canvas.off('object:skewing', handleTransformStart);
+      canvas.off('before:transform', handleTransformStart);
 
-  useEffect(() => {
-    return () => {
-      if (hideTimerRef.current) {
-        clearTimeout(hideTimerRef.current);
-        hideTimerRef.current = null;
-      }
+      canvas.off('object:modified', handleTransformEnd);
+      canvas.off('mouse:up', handleTransformEnd);
+      canvas.off('selection:created', handleTransformEnd);
+      canvas.off('selection:updated', handleTransformEnd);
     };
-  }, []);
+  }, [canvasManager, updatePosition]);
 
   if (!coords) return null;
+
+  // Exactly as requested: visible ONLY when object is fixed/stationary, NOT while moving/transforming
+  const isVisible = !isTransforming;
 
   const handleToggleLock = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!canvasManager) return;
     canvasManager.updateSelectedProperty('isLocked', !selected.isLocked);
-    resetHideTimer();
   };
 
   const handleDuplicate = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!canvasManager) return;
+    if (!canvasManager || selected.isLocked) return;
     canvasManager.duplicateSelected();
-    resetHideTimer();
   };
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!canvasManager) return;
+    if (!canvasManager || selected.isLocked) return;
     canvasManager.deleteSelected();
   };
 
   const handleMore = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsMoreOpen((prev) => !prev);
-    resetHideTimer();
     if (onOpenMore) {
       onOpenMore();
     }
   };
 
-  const shouldBeVisible = isVisible || isHovered || isMoreOpen;
+  const handleComment = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const canvas = canvasManager?.getCanvas();
+    const active = canvas?.getActiveObject();
+    if (active) {
+      (active as any).__commentAdded = true;
+    }
+  };
 
   return (
     <div
@@ -175,110 +213,109 @@ const ElementActionBarDisabled: React.FC<ElementActionBarProps> = ({
         top: `${coords.y}px`,
         transform: 'translateX(-50%)',
       }}
-      className={`z-10 select-none transition-opacity duration-200 ${
-        shouldBeVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+      className={`z-30 select-none transition-all duration-150 ${
+        isVisible ? 'opacity-100 pointer-events-auto scale-100' : 'opacity-0 pointer-events-none scale-95'
       }`}
     >
       <div
         ref={barRef}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
-        onMouseEnter={() => {
-          setIsHovered(true);
-          setIsVisible(true);
-          if (hideTimerRef.current) {
-            clearTimeout(hideTimerRef.current);
-            hideTimerRef.current = null;
-          }
-        }}
-        onMouseLeave={() => {
-          setIsHovered(false);
-          startHideTimer();
-        }}
-        className="flex items-center gap-1 bg-white px-1.5 py-1 rounded-full shadow-lg border border-gray-200 text-gray-700 animate-in fade-in zoom-in-95 duration-100"
+        className="flex items-center gap-0.5 bg-white/95 backdrop-blur-md px-1.5 py-1 rounded-full shadow-[0_4px_20px_rgba(0,0,0,0.15)] border border-gray-200/90 text-gray-700 animate-in fade-in zoom-in-95 duration-100"
       >
-        {/* Image Quality Badge */}
-        {/* {selected.type === 'image' && (
-          <div className="flex items-center pl-1 pr-1.5 border-r border-gray-200">
-            <QualityBadge
-              effectiveDpi={selected.effectiveDpi || Math.round(selected.qualityInfo?.estimatedDpi || 300)}
-              qualityLevel={
-                selected.upscaleStatus === 'processing' || selected.upscaleStatus === 'pending'
-                  ? 'enhancing'
-                  : (selected.qualityLevel || (selected.effectiveDpi && selected.effectiveDpi >= 300 ? 'excellent' : selected.effectiveDpi && selected.effectiveDpi >= 150 ? 'acceptable' : 'low'))
-              }
-              isUpscaling={selected.upscaleStatus === 'processing' || selected.upscaleStatus === 'pending'}
-            />
-          </div>
-        )} */}
+        {/* 1. Comment button (Canva-style) */}
+        <button
+          type="button"
+          onClick={handleComment}
+          title="Add comment"
+          className="p-1.5 rounded-full hover:bg-gray-100/90 text-gray-700 hover:text-gray-900 transition flex items-center justify-center cursor-pointer"
+        >
+          <MessageSquarePlus className="w-4 h-4" />
+        </button>
 
-        {/* Lock / Unlock */}
+        {/* 2. Lock / Unlock */}
         <button
           type="button"
           onClick={handleToggleLock}
           title={selected.isLocked ? 'Unlock (Ctrl+L)' : 'Lock (Ctrl+L)'}
-          className={`p-1.5 rounded-full hover:bg-gray-100 transition ${selected.isLocked ? 'text-amber-600 bg-amber-50' : 'text-gray-600 hover:text-gray-900'
-            }`}
+          className={`p-1.5 rounded-full transition flex items-center justify-center cursor-pointer ${
+            selected.isLocked
+              ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
+              : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100/90'
+          }`}
         >
-          {selected.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+          {selected.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
         </button>
 
-        {/* Group */}
+        {/* Group (when multi-selection) */}
         {canvasManager?.canGroup() && (
           <button
             type="button"
-            onClick={() => canvasManager?.groupSelected()}
+            onClick={(e) => {
+              e.stopPropagation();
+              canvasManager?.groupSelected();
+            }}
             title="Group (Ctrl+G)"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold transition shadow-2xs"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-semibold transition cursor-pointer"
           >
             <GroupIcon className="w-3.5 h-3.5" />
             <span>Group</span>
           </button>
         )}
 
-        {/* Ungroup */}
+        {/* Ungroup (when group selected) */}
         {canvasManager?.canUngroup() && (
           <button
             type="button"
-            onClick={() => canvasManager?.ungroupSelected()}
+            onClick={(e) => {
+              e.stopPropagation();
+              canvasManager?.ungroupSelected();
+            }}
             title="Ungroup (Ctrl+Shift+G)"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold transition shadow-2xs"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-semibold transition cursor-pointer"
           >
             <Ungroup className="w-3.5 h-3.5" />
             <span>Ungroup</span>
           </button>
         )}
 
-        {/* Duplicate */}
-        <button
-          type="button"
-          onClick={handleDuplicate}
-          title="Duplicate (Ctrl+D)"
-          className="p-1.5 rounded-full hover:bg-gray-100 text-gray-600 hover:text-gray-900 transition"
-        >
-          <Copy className="w-3.5 h-3.5" />
-        </button>
+        {/* 3. Duplicate (hidden if locked, like Canva) */}
+        {!selected.isLocked && (
+          <button
+            type="button"
+            onClick={handleDuplicate}
+            title="Duplicate (Ctrl+D)"
+            className="p-1.5 rounded-full hover:bg-gray-100/90 text-gray-700 hover:text-gray-900 transition flex items-center justify-center cursor-pointer"
+          >
+            <CopyPlus className="w-4 h-4" />
+          </button>
+        )}
 
-        {/* Delete */}
-        <button
-          type="button"
-          onClick={handleDelete}
-          title="Delete (Del / Backspace)"
-          className="p-1.5 rounded-full hover:bg-red-50 text-gray-600 hover:text-red-600 transition"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        {/* 4. Delete (hidden if locked, like Canva) */}
+        {!selected.isLocked && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            title="Delete (Delete)"
+            className="p-1.5 rounded-full hover:bg-red-50 text-gray-700 hover:text-red-600 transition flex items-center justify-center cursor-pointer"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
 
-        {/* More actions */}
+        {/* 5. More actions (•••) */}
         <div className="relative">
           <button
             type="button"
             onClick={handleMore}
             title="More actions"
-            className={`p-1.5 rounded-full hover:bg-gray-100 transition ${isMoreOpen ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:text-gray-900'
-              }`}
+            className={`p-1.5 rounded-full transition flex items-center justify-center cursor-pointer ${
+              isMoreOpen
+                ? 'bg-gray-200 text-gray-900'
+                : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100/90'
+            }`}
           >
-            <MoreHorizontal className="w-3.5 h-3.5" />
+            <MoreHorizontal className="w-4 h-4" />
           </button>
 
           {isMoreOpen && (

@@ -66,6 +66,7 @@ export const FRAME_SVG_PATHS: Record<FrameShapeType, string> = {
   heart: 'M 50,86 C 20,62 6,42 6,26 C 6,14 16,6 28,6 C 36,6 44,11 50,18 C 56,11 64,6 72,6 C 84,6 94,14 94,26 C 94,42 80,62 50,86 Z',
   star: 'M 50,4 L 64,34 L 96,36 L 72,58 L 79,90 L 50,74 L 21,90 L 28,58 L 4,36 L 36,34 Z',
   hexagon: 'M 50,4 L 92,27 L 92,73 L 50,96 L 8,73 L 8,27 Z',
+  pentagon: 'M 50,4 L 95,36 L 78,94 L 22,94 L 5,36 Z',
   octagon: 'M 32,6 L 68,6 L 94,32 L 94,68 L 68,94 L 32,94 L 6,68 L 6,32 Z',
   diamond: 'M 50,6 L 94,50 L 50,94 L 6,50 Z',
   triangle: 'M 50,6 L 94,92 L 6,92 Z',
@@ -169,6 +170,14 @@ export const FRAME_PRESETS: FramePreset[] = [
     shape: 'hexagon',
     category: 'basic',
     description: 'Geometric 6-sided frame',
+    aspectRatio: 1.0,
+  },
+  {
+    id: 'frame_pentagon',
+    name: 'Pentagon',
+    shape: 'pentagon',
+    category: 'basic',
+    description: 'Geometric 5-sided frame',
     aspectRatio: 1.0,
   },
   {

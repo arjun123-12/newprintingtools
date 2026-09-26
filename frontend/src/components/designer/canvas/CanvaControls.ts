@@ -1653,11 +1653,13 @@ export function applyCanvaControlsGlobal(): void {
         typeof this.get === 'function'
           ? this.get('isLocked') === true
           : (this as any).isLocked === true;
+      this.lockMovementX = false;
+      this.lockMovementY = false;
+      this.hasBorders = true;
       if (!isLocked) {
-        this.lockMovementX = false;
-        this.lockMovementY = false;
         this.hasControls = true;
-        this.hasBorders = true;
+      } else {
+        this.hasControls = false;
       }
       this.setCoords?.();
       if (this.canvas) {

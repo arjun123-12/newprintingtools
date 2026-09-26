@@ -262,6 +262,7 @@ export type FrameShapeType =
   | 'heart'
   | 'star'
   | 'hexagon'
+  | 'pentagon'
   | 'octagon'
   | 'diamond'
   | 'triangle'

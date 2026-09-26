@@ -277,6 +277,7 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   'frameOverlayUrl',
   'frameMaskUrl',
   'frameMaskType',
+  'frameUsesSingleSvg',
   'frameWidth',
   'frameHeight',
   'frameRole',
@@ -463,11 +464,21 @@ export class CanvasManager {
 
   // Shape-to-Image / Image-to-Shape Hover & Fit State
   private currentHoverFitTarget: FabricObject | null = null;
+  private pendingDropFrame: FabricObject | null = null;
   private origHoverTargetProps: {
     stroke?: any;
     strokeWidth?: number;
     strokeDashArray?: any;
+    shadow?: any;
+    outlineChild?: FabricObject | null;
+    origOutlineProps?: {
+      stroke?: any;
+      strokeWidth?: number;
+      strokeDashArray?: any;
+    } | null;
   } | null = null;
+  private origMovingObj: FabricObject | null = null;
+  private origMovingObjOpacity: number = 1.0;
   private isProcessingShapeFit: boolean = false;
   private isNormalizingFrameTransform: boolean = false;
   private frameResizeSnapshots = new WeakMap<FabricObject, FrameResizeSnapshot>();
@@ -1672,15 +1683,15 @@ export class CanvasManager {
       fabricObject.set({
         selectable: true,
         evented: true,
-        lockMovementX: true,
-        lockMovementY: true,
+        lockMovementX: false,
+        lockMovementY: false,
         lockRotation: true,
         lockScalingX: true,
         lockScalingY: true,
         hasControls: false,
         hasBorders: true,
-        hoverCursor: BLACK_ARTWORK_CURSOR,
-        moveCursor: BLACK_ARTWORK_CURSOR,
+        hoverCursor: 'move',
+        moveCursor: 'move',
         ...(isText ? { editable: false } : {}),
       });
     } else {
@@ -2319,9 +2330,152 @@ export class CanvasManager {
   }
 
   /**
+   * Deeply clones any canvas object, preserving all Canva frame metadata, clipPaths,
+   * vector shape points, effects, and child object structures.
+   */
+  public async cloneCanvasObject(obj: FabricObject): Promise<FabricObject> {
+    const cloned = await obj.clone(CUSTOM_CANVAS_PROPERTIES);
+
+    // 1. If it's a Canva Frame (Group or Image)
+    const isFrame =
+      Boolean(obj.get('isFrame' as any)) ||
+      Boolean((obj as any).isPhotoShapeGroup) ||
+      Boolean((obj as any).isCustomFrame);
+
+    if (isFrame) {
+      cloned.set('isFrame' as any, true);
+      cloned.set('allowPhotoDrop' as any, true);
+      cloned.set('isShape' as any, true);
+      if (obj.get('frameShape' as any)) cloned.set('frameShape' as any, obj.get('frameShape' as any));
+      if (obj.get('shapeType' as any)) cloned.set('shapeType' as any, obj.get('shapeType' as any));
+      if (obj.get('photoFit' as any)) cloned.set('photoFit' as any, obj.get('photoFit' as any));
+      if (obj.get('originalSrc' as any)) cloned.set('originalSrc' as any, obj.get('originalSrc' as any));
+      if (obj.get('isCanvaPlaceholder' as any) !== undefined) cloned.set('isCanvaPlaceholder' as any, obj.get('isCanvaPlaceholder' as any));
+      if (obj.get('customShapeUrl' as any)) cloned.set('customShapeUrl' as any, obj.get('customShapeUrl' as any));
+      if (obj.get('isCustomFrame' as any)) cloned.set('isCustomFrame' as any, true);
+      if (obj.get('frameOverlayUrl' as any)) cloned.set('frameOverlayUrl' as any, obj.get('frameOverlayUrl' as any));
+      if (obj.get('frameMaskUrl' as any)) cloned.set('frameMaskUrl' as any, obj.get('frameMaskUrl' as any));
+      if (obj.get('frameUsesSingleSvg' as any)) cloned.set('frameUsesSingleSvg' as any, obj.get('frameUsesSingleSvg' as any));
+      if (obj.get('naturalWidth' as any)) cloned.set('naturalWidth' as any, obj.get('naturalWidth' as any));
+      if (obj.get('naturalHeight' as any)) cloned.set('naturalHeight' as any, obj.get('naturalHeight' as any));
+      if (obj.get('framePhotoScale' as any)) cloned.set('framePhotoScale' as any, obj.get('framePhotoScale' as any));
+      if (obj.get('frameCropCenterX' as any)) cloned.set('frameCropCenterX' as any, obj.get('frameCropCenterX' as any));
+      if (obj.get('frameCropCenterY' as any)) cloned.set('frameCropCenterY' as any, obj.get('frameCropCenterY' as any));
+      if (obj.get('stroke' as any)) cloned.set('stroke' as any, obj.get('stroke' as any));
+      if (obj.get('strokeWidth' as any) !== undefined) cloned.set('strokeWidth' as any, obj.get('strokeWidth' as any));
+      if (obj.get('strokeDashArray' as any)) cloned.set('strokeDashArray' as any, obj.get('strokeDashArray' as any));
+      if ((obj as any).isPhotoShapeGroup || obj.get('isPhotoShapeGroup' as any)) {
+        cloned.set('isPhotoShapeGroup' as any, true);
+        (cloned as any).isPhotoShapeGroup = true;
+      }
+      cloned.set('sourceType' as any, obj.get('sourceType' as any) || 'shape');
+      cloned.set('objectCaching', false);
+      cloned.set('noScaleCache', false);
+
+      if (cloned instanceof Group && obj instanceof Group) {
+        const origChildren = obj.getObjects();
+        const clonedChildren = cloned.getObjects();
+        clonedChildren.forEach((child, i) => {
+          const orig = origChildren[i];
+          if (orig) {
+            this.ensureObjectId(child, `${orig.get('name' as any) || 'Child'} (Copy)`, true);
+            const role = orig.get('frameRole' as any);
+            if (role) child.set('frameRole' as any, role);
+            if (orig.get('originalSrc' as any)) child.set('originalSrc' as any, orig.get('originalSrc' as any));
+            if (orig.get('isFrame' as any)) child.set('isFrame' as any, true);
+            if (orig.get('isCanvaPlaceholder' as any) !== undefined) {
+              child.set('isCanvaPlaceholder' as any, orig.get('isCanvaPlaceholder' as any));
+            }
+            if (orig.get('stroke' as any)) child.set('stroke' as any, orig.get('stroke' as any));
+            if (orig.get('strokeWidth' as any) !== undefined) child.set('strokeWidth' as any, orig.get('strokeWidth' as any));
+            if (orig.get('strokeDashArray' as any)) child.set('strokeDashArray' as any, orig.get('strokeDashArray' as any));
+
+            // Deep clone points on child polygon (e.g. shapeOutline or polygon frame)
+            if ((orig as any).points && Array.isArray((orig as any).points)) {
+              (child as any).points = (orig as any).points.map(
+                (p: any) => new Point(p.x, p.y)
+              );
+            }
+
+            child.set('selectable', false);
+            child.set('evented', false);
+            child.set('objectCaching', false);
+            child.set('noScaleCache', false);
+            child.set('dirty', true);
+
+            // Deep clone and center clipPath on child (the photo)
+            const origClip = orig.clipPath as any;
+            if (origClip) {
+              const targetClip = child.clipPath as any;
+              if (targetClip) {
+                if (origClip.points && Array.isArray(origClip.points)) {
+                  targetClip.points = origClip.points.map((p: any) => new Point(p.x, p.y));
+                }
+                targetClip.set({
+                  originX: 'center',
+                  originY: 'center',
+                  absolutePositioned: false,
+                  objectCaching: false,
+                  dirty: true,
+                  selectable: false,
+                  evented: false,
+                });
+                targetClip.setPositionByOrigin(new Point(0, 0), 'center', 'center');
+                targetClip.setCoords();
+              }
+            }
+            child.setCoords();
+          }
+        });
+      }
+    }
+
+    if (obj.clipPath && cloned.clipPath) {
+      if ((obj.clipPath as any).points && Array.isArray((obj.clipPath as any).points)) {
+        (cloned.clipPath as any).points = (obj.clipPath as any).points.map(
+          (p: any) => new Point(p.x, p.y)
+        );
+      }
+      cloned.clipPath.set({
+        originX: 'center',
+        originY: 'center',
+        absolutePositioned: false,
+        objectCaching: false,
+        dirty: true,
+        selectable: false,
+        evented: false,
+      } as any);
+      (cloned.clipPath as FabricObject).setPositionByOrigin(new Point(0, 0), 'center', 'center');
+      cloned.clipPath.setCoords();
+    }
+
+    // 2. Clone custom shape points and corner radii for vector polygons/rectangles
+    if ((obj as any).originalShapePoints && Array.isArray((obj as any).originalShapePoints)) {
+      (cloned as any).originalShapePoints = (obj as any).originalShapePoints.map((pt: any) => ({
+        x: pt.x,
+        y: pt.y,
+      }));
+    }
+    if ((obj as any).originalShapeType) (cloned as any).originalShapeType = (obj as any).originalShapeType;
+    if ((obj as any).cornerRadius !== undefined) (cloned as any).cornerRadius = (obj as any).cornerRadius;
+    if ((obj as any)._requestedRadius !== undefined) (cloned as any)._requestedRadius = (obj as any)._requestedRadius;
+    if ((obj as any).rx !== undefined) (cloned as any).rx = (obj as any).rx;
+    if ((obj as any).ry !== undefined) (cloned as any).ry = (obj as any).ry;
+
+    // 3. Clone visual effect settings
+    if ((obj as any)._shadowSettings) (cloned as any)._shadowSettings = { ...(obj as any)._shadowSettings };
+    if ((obj as any)._activeEffect) (cloned as any)._activeEffect = (obj as any)._activeEffect;
+    if ((obj as any)._activeEffects) (cloned as any)._activeEffects = { ...(obj as any)._activeEffects };
+    if ((obj as any)._secondaryShadow) (cloned as any)._secondaryShadow = { ...(obj as any)._secondaryShadow };
+    if ((obj as any)._blurAmount !== undefined) (cloned as any)._blurAmount = (obj as any)._blurAmount;
+    if ((obj as any)._effectSettings) (cloned as any)._effectSettings = { ...(obj as any)._effectSettings };
+
+    return cloned;
+  }
+
+  /**
    * Canva/Photoshop-style internal canvas clipboard.
-   * Uses Fabric cloning so frame metadata, clip paths, custom properties and groups
-   * remain editable after paste.
+   * Preserves frame metadata, clip paths, custom properties and groups after paste.
    */
   public async copySelected(): Promise<void> {
     if (!this.canvas) return;
@@ -2329,7 +2483,7 @@ export class CanvasManager {
     if (!active) return;
 
     try {
-      this.clipboardObject = await active.clone();
+      this.clipboardObject = await this.cloneCanvasObject(active);
     } catch (error) {
       console.error('Could not copy selected object:', error);
     }
@@ -2339,7 +2493,7 @@ export class CanvasManager {
     if (!this.canvas || !this.clipboardObject) return;
 
     try {
-      const cloned = await this.clipboardObject.clone();
+      const cloned = await this.cloneCanvasObject(this.clipboardObject);
       if (!this.canvas) return;
 
       this.canvas.discardActiveObject();
@@ -2361,17 +2515,22 @@ export class CanvasManager {
             evented: true,
             selectable: true,
           });
+          applyCanvaControlsToObject(obj);
+          this.restoreObjectInteractivity(obj);
           obj.setCoords();
           this.canvas?.add(obj);
         });
         cloned.setCoords();
       } else {
         this.ensureObjectId(cloned, `${cloned.get('name' as any) || 'Object'} (Copy)`, true);
+        applyCanvaControlsToObject(cloned);
+        this.restoreObjectInteractivity(cloned);
         cloned.setCoords();
         this.canvas.add(cloned);
       }
 
       this.canvas.setActiveObject(cloned);
+      this.syncVisualEffectsGeometry(cloned);
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
@@ -2394,13 +2553,15 @@ export class CanvasManager {
     this.deleteSelected();
   }
 
-  public duplicateSelected(): void {
+  public async duplicateSelected(): Promise<void> {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
     if (!active) return;
 
-    active.clone().then((cloned: FabricObject) => {
+    try {
+      const cloned = await this.cloneCanvasObject(active);
       if (!this.canvas) return;
+
       this.canvas.discardActiveObject();
       this.ensureObjectId(cloned, `${active.get('name' as any) || 'Object'} (Copy)`, true);
 
@@ -2408,24 +2569,42 @@ export class CanvasManager {
         left: (cloned.left || 0) + 20,
         top: (cloned.top || 0) + 20,
         evented: true,
+        selectable: true,
       });
 
       if (cloned instanceof ActiveSelection) {
         cloned.canvas = this.canvas;
         cloned.forEachObject((obj) => {
+          this.ensureObjectId(obj, `${obj.get('name' as any) || 'Object'} (Copy)`, true);
+          obj.set({
+            left: (obj.left || 0) + 20,
+            top: (obj.top || 0) + 20,
+            evented: true,
+            selectable: true,
+          });
+          applyCanvaControlsToObject(obj);
+          this.restoreObjectInteractivity(obj);
+          obj.setCoords();
           this.canvas?.add(obj);
         });
         cloned.setCoords();
       } else {
+        applyCanvaControlsToObject(cloned);
+        this.restoreObjectInteractivity(cloned);
+        cloned.setCoords();
         this.canvas.add(cloned);
       }
 
       this.canvas.setActiveObject(cloned);
+      this.syncVisualEffectsGeometry(cloned);
       this.canvas.requestRenderAll();
       this.notifyChange();
       this.notifySelection();
       this.notifyLayers();
-    });
+      this.saveHistoryState();
+    } catch (error) {
+      console.error('Could not duplicate selected object:', error);
+    }
   }
 
   // --- Canva Grouping & Ungrouping Engine ---
@@ -3737,6 +3916,8 @@ export class CanvasManager {
           photoShapeGroup
         );
         photoShapeGroup.setCoords();
+        applyCanvaControlsToObject(photoShapeGroup);
+        this.restoreObjectInteractivity(photoShapeGroup);
         this.canvas.setActiveObject(photoShapeGroup);
         this.canvas.requestRenderAll();
         this.notifyChange();
@@ -3747,8 +3928,12 @@ export class CanvasManager {
       }
 
       if (Boolean(frameObj.get('isCustomFrame' as any))) {
-        const overlayUrl = frameObj.get('frameOverlayUrl' as any) as string;
-        const maskUrl = frameObj.get('frameMaskUrl' as any) as string;
+        const overlayUrl =
+          (frameObj.get('frameOverlayUrl' as any) as string) ||
+          (frameObj.get('customShapeUrl' as any) as string) ||
+          (frameObj.get('frameMaskUrl' as any) as string);
+        const maskUrl =
+          (frameObj.get('frameMaskUrl' as any) as string) || overlayUrl;
         if (!overlayUrl || !maskUrl) {
           throw new Error('Custom frame is missing its overlay or mask URL.');
         }
@@ -3818,6 +4003,8 @@ export class CanvasManager {
           (replacement as any)._effectSettings = { ...(frameObj as any)._effectSettings };
         }
         replacement.setCoords();
+        applyCanvaControlsToObject(replacement);
+        this.restoreObjectInteractivity(replacement);
 
         this.canvas.remove(frameObj);
         this.canvas.insertAt(zIndex >= 0 ? zIndex : this.canvas.getObjects().length, replacement);
@@ -4036,6 +4223,8 @@ export class CanvasManager {
         photoShapeGroup
       );
       photoShapeGroup.setCoords();
+      applyCanvaControlsToObject(photoShapeGroup);
+      this.restoreObjectInteractivity(photoShapeGroup);
 
       this.canvas.setActiveObject(photoShapeGroup);
       this.canvas.requestRenderAll();
@@ -5217,9 +5406,12 @@ export class CanvasManager {
     if (type === 'polygon') {
       const points = (obj as Polygon).points || [];
       if (points.length === 10) return 'star';
+      if (points.length === 8) return 'octagon';
       if (points.length === 6) return 'hexagon';
+      if (points.length === 5) return 'pentagon';
+      if (points.length === 4) return 'diamond';
       if (points.length === 3) return 'triangle';
-      return 'star';
+      return 'pentagon';
     }
 
     return 'circle';
@@ -5232,7 +5424,7 @@ export class CanvasManager {
    * Normal Shapes/Elements must NEVER absorb an image on hover/drop.
    * The photo-fit interaction belongs only to FramesPanel-created frames.
    */
-  private isPhotoDropFrame(obj?: FabricObject | null): boolean {
+  public isPhotoDropFrame(obj?: FabricObject | null): boolean {
     if (!obj) return false;
     if (obj.get('isGuide' as any) || (obj as any).excludeFromExport) return false;
 
@@ -5245,35 +5437,191 @@ export class CanvasManager {
   }
 
   /**
-   * Finds an overlapping candidate only for FRAME <-> IMAGE fitting.
-   * Generic shapes/elements are intentionally excluded.
+   * Extracts the photo source URL and metadata from any canvas object,
+   * whether it is a standalone image, an existing frame containing a photo, or an image inside a group.
    */
-  public findOverlappingTarget(movingObj: FabricObject): FabricObject | null {
+  public getPhotoSourceFromObject(obj?: FabricObject | null): {
+    url: string;
+    metadata?: ImageMetadata;
+    isFromFrame?: boolean;
+    sourceFrame?: FabricObject;
+  } | null {
+    if (!obj) return null;
+    if (obj.get('isGuide' as any) || (obj as any).excludeFromExport) return null;
+
+    // Case 1: Standalone image (FabricImage or type === 'image')
+    if (this.isImageObject(obj)) {
+      const url =
+        (obj as any).getSrc?.() ||
+        (obj as any)._element?.currentSrc ||
+        (obj as any)._element?.src ||
+        obj.get('originalSrc' as any) ||
+        '';
+      if (!url || url === CANVA_FRAME_PLACEHOLDER_SVG) return null;
+
+      const metadata: ImageMetadata = {
+        naturalWidth: Number(obj.get('naturalWidth' as any)) || (obj as any).width || undefined,
+        naturalHeight: Number(obj.get('naturalHeight' as any)) || (obj as any).height || undefined,
+        originalSrc: obj.get('originalSrc' as any) || url,
+        name: obj.get('name' as any) || undefined,
+        photoFit: (obj.get('photoFit' as any) as 'cover' | 'contain') || 'cover',
+      };
+      return { url, metadata, isFromFrame: false };
+    }
+
+    // Case 2: Frame containing an image (isPhotoDropFrame)
+    if (this.isPhotoDropFrame(obj)) {
+      const isPlaceholder = Boolean(obj.get('isCanvaPlaceholder' as any));
+      const explicitSrc = (obj.get('originalSrc' as any) as string) || '';
+
+      if (isPlaceholder || explicitSrc === CANVA_FRAME_PLACEHOLDER_SVG) {
+        return null;
+      }
+
+      // Find photo child if group
+      let photoChild: FabricImage | null = null;
+      if (obj instanceof Group) {
+        photoChild =
+          (obj.getObjects().find(
+            (c: any) =>
+              c.get('frameRole') === 'photo' ||
+              c instanceof FabricImage ||
+              c.type === 'image'
+          ) as FabricImage) || null;
+      }
+
+      const url =
+        explicitSrc ||
+        (photoChild as any)?.getSrc?.() ||
+        (photoChild as any)?._element?.currentSrc ||
+        (photoChild as any)?._element?.src ||
+        '';
+
+      if (!url || url === CANVA_FRAME_PLACEHOLDER_SVG) return null;
+
+      const metadata: ImageMetadata = {
+        naturalWidth:
+          Number(obj.get('naturalWidth' as any)) ||
+          photoChild?.width ||
+          undefined,
+        naturalHeight:
+          Number(obj.get('naturalHeight' as any)) ||
+          photoChild?.height ||
+          undefined,
+        originalSrc: obj.get('originalSrc' as any) || url,
+        name: obj.get('name' as any) || undefined,
+        photoFit: (obj.get('photoFit' as any) as 'cover' | 'contain') || 'cover',
+        framePhotoScale: obj.get('framePhotoScale' as any) || undefined,
+        frameCropCenterX: obj.get('frameCropCenterX' as any) || undefined,
+        frameCropCenterY: obj.get('frameCropCenterY' as any) || undefined,
+      };
+
+      return { url, metadata, isFromFrame: true, sourceFrame: obj };
+    }
+
+    // Case 3: Group that contains a FabricImage child (e.g. grouped element)
+    if (obj instanceof Group) {
+      const imgChild = obj.getObjects().find(
+        (c: any) => c instanceof FabricImage || c.type === 'image'
+      ) as FabricImage | undefined;
+      if (imgChild) {
+        const url =
+          (imgChild as any).getSrc?.() ||
+          (imgChild as any)._element?.currentSrc ||
+          (imgChild as any)._element?.src ||
+          imgChild.get('originalSrc' as any) ||
+          '';
+        if (url && url !== CANVA_FRAME_PLACEHOLDER_SVG) {
+          return {
+            url,
+            metadata: {
+              naturalWidth: Number(imgChild.get('naturalWidth' as any)) || imgChild.width || undefined,
+              naturalHeight: Number(imgChild.get('naturalHeight' as any)) || imgChild.height || undefined,
+              originalSrc: url,
+            },
+            isFromFrame: false,
+          };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Finds an overlapping candidate for Canva-style FRAME <-> IMAGE fitting.
+   * Supports dragging standalone images over frames, frames with photos over other frames,
+   * or empty frames over images.
+   */
+  public findOverlappingTarget(
+    movingObj: FabricObject,
+    pointer?: { x: number; y: number }
+  ): FabricObject | null {
     if (!this.canvas || !movingObj) return null;
 
-    const isMovingFrame = this.isPhotoDropFrame(movingObj);
-    const isMovingImage = this.isImageObject(movingObj);
+    const photoSource = this.getPhotoSourceFromObject(movingObj);
+    const isMovingEmptyFrame =
+      this.isPhotoDropFrame(movingObj) &&
+      (Boolean(movingObj.get('isCanvaPlaceholder' as any)) || !photoSource);
 
-    if (!isMovingFrame && !isMovingImage) return null;
+    // If movingObj is already a frame containing a photo, it is an independent design object
+    // and must NEVER transfer its photo to another frame or trigger hover fitting/translucency.
+    if (photoSource?.isFromFrame) return null;
 
-    const objects = this.canvas.getObjects().slice().reverse();
+    // If moving object has no photo AND is not an empty frame, it cannot engage in frame hover/drop
+    if (!photoSource && !isMovingEmptyFrame) return null;
+
+    movingObj.setCoords();
     const movingCenter = movingObj.getCenterPoint();
     const movingBounds = movingObj.getBoundingRect();
 
-    for (const other of objects) {
+    const objects = this.canvas.getObjects().slice().reverse();
+    let bestTarget: FabricObject | null = null;
+    let bestScore = 0;
+
+    for (let i = 0; i < objects.length; i++) {
+      const other = objects[i];
       if (other === movingObj) continue;
-      if (other.visible === false || (other as any).excludeFromExport || other.get('isGuide' as any)) continue;
+      if (
+        other.visible === false ||
+        (other as any).excludeFromExport ||
+        other.get('isGuide' as any)
+      ) {
+        continue;
+      }
 
-      // Only Frames can receive photos. Normal shapes/elements are ignored.
-      const otherIsTarget = isMovingFrame
-        ? this.isImageObject(other)
-        : this.isPhotoDropFrame(other);
-      if (!otherIsTarget) continue;
+      // If moving object has a photo: target must be another Frame (isPhotoDropFrame)
+      // If moving object is an empty frame: target must be a standalone image (isImageObject)
+      const isTargetValid = photoSource
+        ? this.isPhotoDropFrame(other)
+        : this.isImageObject(other);
 
+      if (!isTargetValid) continue;
+
+      other.setCoords();
       const otherCenter = other.getCenterPoint();
       const otherBounds = other.getBoundingRect();
 
-      // Check center inside bounds
+      let score = 0;
+
+      // 1. Pointer inside other object (highest priority when dragging)
+      // Topmost frame under pointer gets the highest boost so background/overlapping frames don't steal the drop
+      if (pointer) {
+        const pt = new Point(pointer.x, pointer.y);
+        const zBonus = (objects.length - i) * 20;
+        if (other.containsPoint(pt)) {
+          score += 10000 + zBonus;
+        } else if (
+          pointer.x >= otherBounds.left &&
+          pointer.x <= otherBounds.left + otherBounds.width &&
+          pointer.y >= otherBounds.top &&
+          pointer.y <= otherBounds.top + otherBounds.height
+        ) {
+          score += 5000 + zBonus;
+        }
+      }
+
+      // 2. Center containment
       const movingInOther =
         movingCenter.x >= otherBounds.left &&
         movingCenter.x <= otherBounds.left + otherBounds.width &&
@@ -5287,18 +5635,17 @@ export class CanvasManager {
         otherCenter.y <= movingBounds.top + movingBounds.height;
 
       if (movingInOther || otherInMoving) {
-        return other;
+        score += 500;
       }
 
-      // Check polygon containsPoint
       if (
         other.containsPoint(new Point(movingCenter.x, movingCenter.y)) ||
         movingObj.containsPoint(new Point(otherCenter.x, otherCenter.y))
       ) {
-        return other;
+        score += 400;
       }
 
-      // Check bounding box intersection area >= 25% of smaller object
+      // 3. Overlap area
       const overlapX = Math.max(
         0,
         Math.min(movingBounds.left + movingBounds.width, otherBounds.left + otherBounds.width) -
@@ -5310,40 +5657,119 @@ export class CanvasManager {
         Math.max(movingBounds.top, otherBounds.top)
       );
       const overlapArea = overlapX * overlapY;
-      const minArea = Math.min(movingBounds.width * movingBounds.height, otherBounds.width * otherBounds.height);
+      const minArea = Math.min(
+        movingBounds.width * movingBounds.height,
+        otherBounds.width * otherBounds.height
+      );
 
-      if (minArea > 0 && overlapArea / minArea >= 0.25) {
-        return other;
+      const overlapRatio = minArea > 0 ? overlapArea / minArea : 0;
+
+      if (overlapRatio >= 0.08 || (overlapX > 20 && overlapY > 20)) {
+        score += Math.round(overlapRatio * 300);
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestTarget = other;
       }
     }
 
-    return null;
+    return bestTarget;
   }
 
   /**
-   * Handles visual hover feedback only when a real photo frame is dragged over an image, or vice versa.
+   * Handles Canva-style live visual hover feedback:
+   * Target frame glows with Canva purple border + glowing shadow.
+   * Dragged image smoothly turns translucent (opacity 0.38) for instant snap feel.
    */
-  public handleShapeImageHover(movingObj: FabricObject): void {
+  public handleShapeImageHover(
+    movingObj: FabricObject,
+    pointer?: { x: number; y: number }
+  ): void {
     if (!this.canvas || this.isProcessingShapeFit) return;
 
-    const target = this.findOverlappingTarget(movingObj);
+    // An existing framed photo must NEVER become translucent or trigger hover-glow on other frames
+    const photoSource = this.getPhotoSourceFromObject(movingObj);
+    if (photoSource?.isFromFrame) {
+      if (this.currentHoverFitTarget) {
+        this.clearHoverFitHighlight();
+      }
+      return;
+    }
+
+    const target = this.findOverlappingTarget(movingObj, pointer);
 
     if (target) {
       if (target !== this.currentHoverFitTarget) {
         this.clearHoverFitHighlight();
         this.currentHoverFitTarget = target;
+        this.pendingDropFrame = target;
+
+        // Find shape outline child if target is a Group
+        let outlineChild: FabricObject | null = null;
+        if (target instanceof Group) {
+          outlineChild =
+            target.getObjects().find(
+              (c: any) => c.get('frameRole') === 'shape-outline'
+            ) || null;
+        }
+
         this.origHoverTargetProps = {
           stroke: target.stroke,
           strokeWidth: target.strokeWidth,
           strokeDashArray: target.strokeDashArray,
+          shadow: target.shadow,
+          outlineChild,
+          origOutlineProps: outlineChild
+            ? {
+                stroke: outlineChild.stroke,
+                strokeWidth: outlineChild.strokeWidth,
+                strokeDashArray: outlineChild.strokeDashArray,
+              }
+            : null,
         };
 
-        // Canva-style purple dashed glowing border to signify "Drop here to fit image into shape"
-        target.set({
-          stroke: '#8b3dff',
-          strokeWidth: 3,
-          strokeDashArray: [6, 4],
+        const canvaPurpleGlow = new Shadow({
+          color: 'rgba(139, 61, 255, 0.65)',
+          blur: 18,
+          offsetX: 0,
+          offsetY: 0,
         });
+
+        // 1. Highlight target frame with Canva purple glowing border
+        if (outlineChild) {
+          this.applyShapeOutlineProperty(outlineChild, 'stroke', '#8b3dff');
+          this.applyShapeOutlineProperty(outlineChild, 'strokeWidth', 3);
+          outlineChild.set({
+            strokeDashArray: [6, 4],
+            strokeUniform: true,
+          });
+          target.set({
+            shadow: canvaPurpleGlow,
+            dirty: true,
+          });
+        } else {
+          target.set({
+            stroke: '#8b3dff',
+            strokeWidth: 3,
+            strokeDashArray: [6, 4],
+            strokeUniform: true,
+            shadow: canvaPurpleGlow,
+            dirty: true,
+          });
+        }
+
+        // 2. Canva-style ghost snap effect: make dragged image translucent
+        if (movingObj && movingObj !== target) {
+          this.origMovingObj = movingObj;
+          this.origMovingObjOpacity =
+            typeof movingObj.opacity === 'number' ? movingObj.opacity : 1.0;
+          movingObj.set({
+            opacity: 0.38,
+            dirty: true,
+          });
+        }
+
         this.canvas.requestRenderAll();
       }
     } else {
@@ -5354,56 +5780,221 @@ export class CanvasManager {
   }
 
   /**
-   * Clears any active hover fitting visual feedback.
+   * Handles external drag hover (e.g. dragging photos from the left sidebar onto canvas frames).
+   */
+  public handleExternalDragHover(point: { x: number; y: number }): void {
+    if (!this.canvas || this.isProcessingShapeFit) return;
+
+    const targetFrame = this.getFrameUnderPoint(point);
+
+    if (targetFrame) {
+      if (targetFrame !== this.currentHoverFitTarget) {
+        this.clearHoverFitHighlight();
+        this.currentHoverFitTarget = targetFrame;
+        this.pendingDropFrame = targetFrame;
+
+        let outlineChild: FabricObject | null = null;
+        if (targetFrame instanceof Group) {
+          outlineChild =
+            targetFrame.getObjects().find(
+              (c: any) => c.get('frameRole') === 'shape-outline'
+            ) || null;
+        }
+
+        this.origHoverTargetProps = {
+          stroke: targetFrame.stroke,
+          strokeWidth: targetFrame.strokeWidth,
+          strokeDashArray: targetFrame.strokeDashArray,
+          shadow: targetFrame.shadow,
+          outlineChild,
+          origOutlineProps: outlineChild
+            ? {
+                stroke: outlineChild.stroke,
+                strokeWidth: outlineChild.strokeWidth,
+                strokeDashArray: outlineChild.strokeDashArray,
+              }
+            : null,
+        };
+
+        const canvaPurpleGlow = new Shadow({
+          color: 'rgba(139, 61, 255, 0.65)',
+          blur: 18,
+          offsetX: 0,
+          offsetY: 0,
+        });
+
+        if (outlineChild) {
+          this.applyShapeOutlineProperty(outlineChild, 'stroke', '#8b3dff');
+          this.applyShapeOutlineProperty(outlineChild, 'strokeWidth', 3);
+          outlineChild.set({
+            strokeDashArray: [6, 4],
+            strokeUniform: true,
+          });
+          targetFrame.set({
+            shadow: canvaPurpleGlow,
+            dirty: true,
+          });
+        } else {
+          targetFrame.set({
+            stroke: '#8b3dff',
+            strokeWidth: 3,
+            strokeDashArray: [6, 4],
+            strokeUniform: true,
+            shadow: canvaPurpleGlow,
+            dirty: true,
+          });
+        }
+        this.canvas.requestRenderAll();
+      }
+    } else {
+      if (this.currentHoverFitTarget) {
+        this.clearHoverFitHighlight();
+      }
+    }
+  }
+
+  /**
+   * Clears any active hover fitting visual feedback and restores original styles.
    */
   public clearHoverFitHighlight(): void {
-    if (!this.canvas || !this.currentHoverFitTarget) return;
+    if (!this.canvas) return;
 
-    if (this.origHoverTargetProps) {
+    if (this.currentHoverFitTarget && this.origHoverTargetProps) {
+      const { outlineChild, origOutlineProps } = this.origHoverTargetProps;
+
+      if (outlineChild && origOutlineProps) {
+        this.applyShapeOutlineProperty(
+          outlineChild,
+          'stroke',
+          origOutlineProps.stroke || 'transparent'
+        );
+        this.applyShapeOutlineProperty(
+          outlineChild,
+          'strokeWidth',
+          origOutlineProps.strokeWidth || 0
+        );
+        outlineChild.set({
+          strokeDashArray: origOutlineProps.strokeDashArray || null,
+        });
+      }
+
       this.currentHoverFitTarget.set({
-        stroke: this.origHoverTargetProps.stroke,
-        strokeWidth: this.origHoverTargetProps.strokeWidth,
-        strokeDashArray: this.origHoverTargetProps.strokeDashArray,
+        stroke: this.origHoverTargetProps.stroke || 'transparent',
+        strokeWidth: this.origHoverTargetProps.strokeWidth || 0,
+        strokeDashArray: this.origHoverTargetProps.strokeDashArray || null,
+        shadow: this.origHoverTargetProps.shadow || null,
+        dirty: true,
       });
     }
 
+    if (this.origMovingObj) {
+      this.origMovingObj.set({
+        opacity: this.origMovingObjOpacity,
+        dirty: true,
+      });
+      this.origMovingObj = null;
+    }
+
     this.currentHoverFitTarget = null;
+    this.pendingDropFrame = null;
     this.origHoverTargetProps = null;
     this.canvas.requestRenderAll();
   }
 
   /**
-   * Automatically fits an image only into a real photo frame when released on drop.
+   * Automatically fits an image into a frame when released on drop.
+   * Supports:
+   * 1. Dropping a loose standalone photo over a frame -> photo is slotted, loose image removed.
+   * 2. Dropping an empty frame over a loose standalone photo -> photo is slotted into the moving frame.
+   * Note: Framed photos are independent objects and NEVER transfer their photos to other frames.
    */
-  public async handleShapeImageDrop(movingObj: FabricObject): Promise<boolean> {
+  public async handleShapeImageDrop(
+    movingObj: FabricObject,
+    pointer?: { x: number; y: number }
+  ): Promise<boolean> {
     if (this.isProcessingShapeFit || !this.canvas || !movingObj) {
       this.clearHoverFitHighlight();
       return false;
     }
 
-    const target = this.currentHoverFitTarget;
+    // Existing framed photos must NEVER drop or transfer photos into other frames
+    const photoSource = this.getPhotoSourceFromObject(movingObj);
+    if (photoSource?.isFromFrame) {
+      this.clearHoverFitHighlight();
+      return false;
+    }
+
+    // Only drop if there was an active hover target OR pointer is directly over a valid frame
+    const target =
+      this.currentHoverFitTarget ||
+      this.pendingDropFrame ||
+      (pointer ? this.findOverlappingTarget(movingObj, pointer) : null);
+
+    // Ensure moving object opacity is restored
+    if (this.origMovingObj) {
+      this.origMovingObj.set({
+        opacity: this.origMovingObjOpacity,
+        dirty: true,
+      });
+      this.origMovingObj = null;
+    }
     this.clearHoverFitHighlight();
 
-    if (!target) return false;
+    if (!target || target === movingObj) return false;
 
     this.isProcessingShapeFit = true;
     try {
-      const isMovingFrame = this.isPhotoDropFrame(movingObj);
-      const isMovingImage = this.isImageObject(movingObj);
+      // Case 1: movingObj has a loose standalone photo (never an existing framed photo)
+      const movingPhoto = this.getPhotoSourceFromObject(movingObj);
       const isTargetFrame = this.isPhotoDropFrame(target);
-      const isTargetImage = this.isImageObject(target);
 
-      if (isMovingFrame && isTargetImage) {
-        // A real frame dragged over an image.
-        await this.fitImageIntoShape(movingObj, target);
-        return true;
-      } else if (isMovingImage && isTargetFrame) {
-        // An image dropped over a real frame.
-        await this.fitImageIntoShape(target, movingObj);
-        return true;
+      if (movingPhoto && !movingPhoto.isFromFrame && isTargetFrame) {
+        const slotted = await this.slotImageIntoFrame(
+          target,
+          movingPhoto.url,
+          movingPhoto.metadata
+        );
+
+        if (slotted) {
+          if (movingObj !== target) {
+            // Remove loose standalone image from canvas
+            this.canvas.remove(movingObj);
+          }
+
+          this.canvas.setActiveObject(slotted);
+          this.canvas.requestRenderAll();
+          this.notifyChange();
+          this.notifySelection();
+          this.notifyLayers();
+          this.saveHistoryState();
+          return true;
+        }
+      }
+
+      // Case 2: movingObj is an empty frame dropped onto a standalone image
+      const isMovingFrame = this.isPhotoDropFrame(movingObj);
+      const targetPhoto = this.getPhotoSourceFromObject(target);
+
+      if (isMovingFrame && targetPhoto && !targetPhoto.isFromFrame) {
+        const slotted = await this.slotImageIntoFrame(
+          movingObj,
+          targetPhoto.url,
+          targetPhoto.metadata
+        );
+
+        if (slotted) {
+          this.canvas.remove(target);
+          this.canvas.setActiveObject(slotted);
+          this.canvas.requestRenderAll();
+          this.notifyChange();
+          this.notifySelection();
+          this.notifyLayers();
+          this.saveHistoryState();
+          return true;
+        }
       }
     } catch (err) {
-      console.error('Failed to fit image into shape on drop:', err);
+      console.error('Failed to slot image into frame on drop:', err);
     } finally {
       this.isProcessingShapeFit = false;
     }
@@ -5414,6 +6005,7 @@ export class CanvasManager {
   /**
    * Fits an image into a shape (or frame), positioning and sizing the image to fit
    * the shape's bounds with clipping/masking, and removing the loose image from canvas.
+   * IMPORTANT: Never steals or transfers photos from existing frames.
    */
   public async fitImageIntoShape(
     shapeObj: FabricObject,
@@ -5424,9 +6016,6 @@ export class CanvasManager {
 
     // A frame can contain ONLY an image. Never slot shapes/elements/text/groups.
     if (!this.isPhotoDropFrame(shapeObj)) return null;
-    if (typeof imageObjOrUrl !== 'string' && !this.isImageObject(imageObjOrUrl)) {
-      return null;
-    }
 
     let imageUrl: string = '';
     let imageMetadata: ImageMetadata | undefined = metadata;
@@ -5435,27 +6024,34 @@ export class CanvasManager {
     if (typeof imageObjOrUrl === 'string') {
       imageUrl = imageObjOrUrl;
     } else if (imageObjOrUrl && typeof imageObjOrUrl === 'object') {
-      imageObjToRemove = imageObjOrUrl;
-      // Prefer the source that Fabric has ALREADY loaded successfully.
-      // Freepik originalSrc can be a remote CDN URL that causes proxy-image
-      // to be called again (and can fail with 500). getSrc/currentSrc is the
-      // browser-safe/local source currently visible on the canvas.
-      imageUrl =
-        (imageObjOrUrl as any).getSrc?.() ||
-        (imageObjOrUrl as any)._element?.currentSrc ||
-        (imageObjOrUrl as any)._element?.src ||
-        imageObjOrUrl.get('originalSrc' as any) ||
-        '';
-      imageMetadata = {
-        naturalWidth: Number(imageObjOrUrl.get('naturalWidth' as any)) || (imageObjOrUrl as any).width || undefined,
-        naturalHeight: Number(imageObjOrUrl.get('naturalHeight' as any)) || (imageObjOrUrl as any).height || undefined,
-        originalSrc: imageUrl,
-        name: imageObjOrUrl.get('name' as any) || `${shapeObj.get('name') || 'Shape'} Image`,
-        ...(metadata || {}),
-      };
+      // Must NOT be an existing frame! Frames are independent and never transfer photos to other frames.
+      if (this.isPhotoDropFrame(imageObjOrUrl as FabricObject)) {
+        return null;
+      }
+
+      const source = this.getPhotoSourceFromObject(imageObjOrUrl);
+      if (source) {
+        if (source.isFromFrame) {
+          return null;
+        }
+        imageUrl = source.url;
+        imageMetadata = {
+          ...source.metadata,
+          ...(metadata || {}),
+        };
+        imageObjToRemove = imageObjOrUrl;
+      } else {
+        imageUrl =
+          (imageObjOrUrl as any).getSrc?.() ||
+          (imageObjOrUrl as any)._element?.currentSrc ||
+          (imageObjOrUrl as any)._element?.src ||
+          imageObjOrUrl.get('originalSrc' as any) ||
+          '';
+        imageObjToRemove = imageObjOrUrl;
+      }
     }
 
-    if (!imageUrl) return null;
+    if (!imageUrl || imageUrl === CANVA_FRAME_PLACEHOLDER_SVG) return null;
 
     const shapeType = this.getShapeTypeFromObject(shapeObj);
     shapeObj.set('frameShape' as any, shapeType);
@@ -5475,19 +6071,49 @@ export class CanvasManager {
 
   /**
    * Checks if a point on canvas (pointer { x, y }) lies within any Frame or Shape object.
+   * Uses two-pass testing: exact shape containment on topmost frame, with edge proximity fallback.
    */
   public getFrameUnderPoint(point: { x: number; y: number }): FabricObject | null {
     if (!this.canvas) return null;
 
+    const pt = new Point(point.x, point.y);
     const objects = this.canvas.getObjects().slice().reverse();
+
+    // Pass 1: Topmost object with exact point containment
     for (const obj of objects) {
-      if (this.isPhotoDropFrame(obj) && obj.visible !== false) {
-        if (obj.containsPoint(new Point(point.x, point.y))) {
-          return obj;
+      if (!this.isPhotoDropFrame(obj) || obj.visible === false || (obj as any).excludeFromExport || obj.get('isGuide' as any)) {
+        continue;
+      }
+      obj.setCoords();
+      if (obj.containsPoint(pt)) {
+        return obj;
+      }
+    }
+
+    // Pass 2: Edge proximity fallback - closest frame center to cursor wins
+    let bestObj: FabricObject | null = null;
+    let closestDistSq = Infinity;
+
+    for (const obj of objects) {
+      if (!this.isPhotoDropFrame(obj) || obj.visible === false || (obj as any).excludeFromExport || obj.get('isGuide' as any)) {
+        continue;
+      }
+      const bounds = obj.getBoundingRect();
+      if (
+        point.x >= bounds.left - 5 &&
+        point.x <= bounds.left + bounds.width + 5 &&
+        point.y >= bounds.top - 5 &&
+        point.y <= bounds.top + bounds.height + 5
+      ) {
+        const center = obj.getCenterPoint();
+        const distSq = (center.x - point.x) ** 2 + (center.y - point.y) ** 2;
+        if (distSq < closestDistSq) {
+          closestDistSq = distSq;
+          bestObj = obj;
         }
       }
     }
-    return null;
+    return bestObj;
   }
 
   // --- Image Handling & Non-Destructive Crop ---
@@ -5510,19 +6136,12 @@ export class CanvasManager {
     //
     // Explicit drag-hover/drop still calls fitImageIntoShape() directly and
     // therefore continues to fill the hovered shape/frame.
-    if (!(options as any)?.isFrame && !options?.skipFrameSlotting) {
+    if (!(options as any)?.isFrame) {
       const activeObj = this.canvas.getActiveObject();
       let targetFrame: FabricObject | null | undefined = null;
 
-      if (activeObj && this.isPhotoDropFrame(activeObj)) {
+      if (!options?.skipFrameSlotting && activeObj && this.isPhotoDropFrame(activeObj)) {
         targetFrame = activeObj;
-      } else {
-        const objects = this.canvas.getObjects();
-        targetFrame = objects.find(
-          (obj) =>
-            obj.get('isFrame' as any) &&
-            Boolean(obj.get('isCanvaPlaceholder' as any))
-        );
       }
 
       if (targetFrame && this.isPhotoDropFrame(targetFrame)) {
@@ -5972,12 +6591,19 @@ export class CanvasManager {
   public async replaceActiveImage(newUrl: string, metadata?: ImageMetadata): Promise<void> {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
-    if (!active || !(active instanceof FabricImage)) return;
+    if (!active) return;
 
-    if (active.get('isFrame' as any)) {
+    if (
+      this.isPhotoDropFrame(active) ||
+      Boolean(active.get('isFrame' as any)) ||
+      Boolean((active as any).isPhotoShapeGroup) ||
+      Boolean((active as any).isCustomFrame)
+    ) {
       await this.slotImageIntoFrame(active, newUrl, metadata);
       return;
     }
+
+    if (!(active instanceof FabricImage || active.type === 'image' || active.type === 'fabricImage')) return;
 
     try {
       const prevName = active.get('name' as any);
@@ -5990,8 +6616,11 @@ export class CanvasManager {
           ...metadata,
         },
         {
+          left: active.left,
+          top: active.top,
           fitToArtworkInsetMm: 20,
           skipFrameSlotting: true,
+          preserveOriginalSize: false,
         }
       );
     } catch (err) {
@@ -6339,14 +6968,14 @@ export class CanvasManager {
     if (obj) {
       obj.set('isLocked' as any, isLocked);
       obj.set({
-        lockMovementX: isLocked,
-        lockMovementY: isLocked,
+        lockMovementX: false,
+        lockMovementY: false,
         lockRotation: isLocked,
         lockScalingX: isLocked,
         lockScalingY: isLocked,
         hasControls: !isLocked,
-        hoverCursor: isLocked ? BLACK_ARTWORK_CURSOR : 'move',
-        moveCursor: isLocked ? BLACK_ARTWORK_CURSOR : 'move',
+        hoverCursor: 'move',
+        moveCursor: 'move',
         selectable: true,
         evented: true,
       });
@@ -6388,29 +7017,18 @@ export class CanvasManager {
     if (!this.canvas) return;
     const obj = this.canvas.getObjects().find((o) => o.get('id' as any) === id);
     if (obj) {
-      obj.clone(CUSTOM_CANVAS_PROPERTIES).then((cloned: FabricObject) => {
+      this.cloneCanvasObject(obj).then((cloned: FabricObject) => {
         if (!this.canvas) return;
         this.ensureObjectId(cloned, `${obj.get('name' as any) || 'Object'} (Copy)`, true);
-
-        // Deep clone originalShapePoints so duplicated objects don't share mutable references
-        if ((obj as any).originalShapePoints && Array.isArray((obj as any).originalShapePoints)) {
-          (cloned as any).originalShapePoints = (obj as any).originalShapePoints.map((pt: any) => ({
-            x: pt.x,
-            y: pt.y,
-          }));
-        }
-        (cloned as any).originalShapeType = (obj as any).originalShapeType;
-        (cloned as any).cornerRadius = (obj as any).cornerRadius;
-        (cloned as any)._requestedRadius = (obj as any)._requestedRadius;
-        (cloned as any).rx = (obj as any).rx;
-        (cloned as any).ry = (obj as any).ry;
 
         cloned.set({
           left: (cloned.left || 0) + 20,
           top: (cloned.top || 0) + 20,
           evented: true,
+          selectable: true,
         });
         applyCanvaControlsToObject(cloned);
+        this.restoreObjectInteractivity(cloned);
         this.canvas.add(cloned);
         this.canvas.setActiveObject(cloned);
         this.syncVisualEffectsGeometry(cloned);
@@ -6418,6 +7036,7 @@ export class CanvasManager {
         this.notifyChange();
         this.notifySelection();
         this.notifyLayers();
+        this.saveHistoryState();
       });
     }
   }
@@ -7132,14 +7751,14 @@ export class CanvasManager {
       const locked = value as boolean;
       active.set('isLocked' as any, locked);
       active.set({
-        lockMovementX: locked,
-        lockMovementY: locked,
+        lockMovementX: false,
+        lockMovementY: false,
         lockRotation: locked,
         lockScalingX: locked,
         lockScalingY: locked,
         hasControls: !locked,
-        hoverCursor: locked ? BLACK_ARTWORK_CURSOR : 'move',
-        moveCursor: locked ? BLACK_ARTWORK_CURSOR : 'move',
+        hoverCursor: 'move',
+        moveCursor: 'move',
         selectable: true,
         evented: true,
       });
@@ -9850,14 +10469,16 @@ export class CanvasManager {
     const isText = this.isTextObject(active);
     const textObj = isText ? (active as Textbox | IText) : null;
 
-    const isImage = active instanceof FabricImage || active.type === 'image';
-    const isFrameObject = Boolean(active.get('isFrame' as any));
+    const isImage = active instanceof FabricImage || active.type === 'image' || active.type === 'fabricImage';
+    const isFrameObject = Boolean(active.get('isFrame' as any)) ||
+      Boolean((active as any).isPhotoShapeGroup) ||
+      Boolean((active as any).isCustomFrame);
     const customFramePhoto = active instanceof Group && isFrameObject
-      ? active.getObjects().find((object) => object.get('frameRole' as any) === 'photo')
+      ? active.getObjects().find((object) => object.get('frameRole' as any) === 'photo' || object instanceof FabricImage || object.type === 'image' || object.type === 'fabricImage')
       : null;
     const imageObj = isImage
       ? (active as FabricImage)
-      : customFramePhoto instanceof FabricImage || customFramePhoto?.type === 'image'
+      : customFramePhoto instanceof FabricImage || customFramePhoto?.type === 'image' || (customFramePhoto as any)?.type === 'fabricImage'
         ? (customFramePhoto as FabricImage)
         : null;
 
@@ -10427,10 +11048,13 @@ export class CanvasManager {
         this.smartSpacingManager.clear();
       }
 
-      if (this.currentHoverFitTarget) {
+      if (this.currentHoverFitTarget || this.pendingDropFrame) {
         const active = this.canvas?.getActiveObject() || opt?.target;
         if (active) {
-          this.handleShapeImageDrop(active);
+          const pointer =
+            (opt as any).scenePoint ||
+            ((opt as any).e ? (this.canvas as any).getScenePoint?.((opt as any).e) : undefined);
+          void this.handleShapeImageDrop(active, pointer);
         } else {
           this.clearHoverFitHighlight();
         }
@@ -10715,7 +11339,10 @@ export class CanvasManager {
           }
         }
 
-        const handled = await this.handleShapeImageDrop(opt.target);
+        let handled = false;
+        if (this.currentHoverFitTarget || this.pendingDropFrame) {
+          handled = await this.handleShapeImageDrop(opt.target);
+        }
         const normalized = handled
           ? false
           : await this.normalizeFrameTransform(opt.target);
@@ -10737,7 +11364,10 @@ export class CanvasManager {
       if (opt.target) {
         this.snapping.handleObjectMove(opt.target);
         this.smartSpacingManager.handleObjectMove(opt.target);
-        this.handleShapeImageHover(opt.target);
+        const pointer =
+          (opt as any).scenePoint ||
+          ((opt as any).e ? (this.canvas as any).getScenePoint?.((opt as any).e) : undefined);
+        this.handleShapeImageHover(opt.target, pointer);
       }
     });
     this.canvas.on('object:scaling', (opt: any) => {

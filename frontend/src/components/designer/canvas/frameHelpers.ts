@@ -192,6 +192,24 @@ export function createFrameClipPath(
       );
     }
 
+    case 'pentagon': {
+      const halfW = w / 2;
+      const halfH = h / 2;
+      return new Polygon(
+        [
+          new Point(0, -halfH),
+          new Point(halfW * 0.95, -halfH * 0.31),
+          new Point(halfW * 0.59, halfH),
+          new Point(-halfW * 0.59, halfH),
+          new Point(-halfW * 0.95, -halfH * 0.31),
+        ],
+        {
+          originX: 'center',
+          originY: 'center',
+        }
+      );
+    }
+
     case 'octagon': {
       const s = minDim / 240;
       return new Polygon(
