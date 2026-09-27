@@ -3639,6 +3639,7 @@ export class CanvasManager {
     metadata?: ImageMetadata
   ): Promise<FabricImage | null> {
     if (!this.canvas || !frameObj) return null;
+    if (Boolean(frameObj.get('isLocked' as any)) || Boolean((frameObj as any).isLocked)) return null;
 
     try {
       const customShapeUrl = frameObj.get('customShapeUrl' as any) as string;
@@ -4200,6 +4201,7 @@ export class CanvasManager {
       photoShapeGroup.set('isFrame' as any, true);
       photoShapeGroup.set('isShape' as any, true);
       photoShapeGroup.set('isPhotoShapeGroup' as any, true);
+      photoShapeGroup.set('allowPhotoDrop' as any, true);
       photoShapeGroup.set('frameShape' as any, shapeType);
       photoShapeGroup.set('shapeType' as any, shapeType);
       photoShapeGroup.set('sourceType' as any, 'shape');
@@ -4628,6 +4630,7 @@ export class CanvasManager {
 
     const frame = targetFrame || this.canvas.getActiveObject();
     if (!frame || !frame.get('isFrame' as any)) return;
+    if (Boolean(frame.get('isLocked' as any)) || Boolean((frame as any).isLocked)) return;
 
     const currentFit = (frame.get('photoFit' as any) as 'cover' | 'contain') || 'cover';
     const nextFit = currentFit === 'cover' ? 'contain' : 'cover';
@@ -4751,6 +4754,7 @@ export class CanvasManager {
 
     const frameObj = targetFrame || this.canvas.getActiveObject();
     if (!frameObj) return;
+    if (Boolean(frameObj.get('isLocked' as any)) || Boolean((frameObj as any).isLocked)) return;
 
     const isFrameObj =
       Boolean(frameObj.get('isFrame' as any)) ||
@@ -5181,6 +5185,7 @@ export class CanvasManager {
 
     const frame = targetFrame || this.canvas.getActiveObject();
     if (!frame || !frame.get('isFrame' as any)) return;
+    if (Boolean(frame.get('isLocked' as any)) || Boolean((frame as any).isLocked)) return;
 
     const isPlaceholder = Boolean(frame.get('isCanvaPlaceholder' as any));
     const currentSrc =
@@ -5317,6 +5322,7 @@ export class CanvasManager {
 
     const frame = targetFrame || this.canvas.getActiveObject();
     if (!frame || !frame.get('isFrame' as any)) return;
+    if (Boolean(frame.get('isLocked' as any)) || Boolean((frame as any).isLocked)) return;
 
     await this.slotImageIntoFrame(frame, CANVA_FRAME_PLACEHOLDER_SVG);
     const active = this.canvas.getActiveObject();
@@ -5357,6 +5363,45 @@ export class CanvasManager {
   }
 
   /**
+   * Identifies whether a canvas object is any kind of photo frame, custom SVG frame,
+   * preset frame, or group containing framed photo elements.
+   */
+  public isAnyFrameObject(obj?: FabricObject | null): boolean {
+    if (!obj) return false;
+    if (obj.get('isGuide' as any) || (obj as any).excludeFromExport) return false;
+
+    if (
+      Boolean(obj.get('isFrame' as any)) ||
+      Boolean((obj as any).isFrame) ||
+      Boolean(obj.get('isPhotoShapeGroup' as any)) ||
+      Boolean((obj as any).isPhotoShapeGroup) ||
+      Boolean(obj.get('isCustomFrame' as any)) ||
+      Boolean((obj as any).isCustomFrame) ||
+      Boolean(obj.get('customShapeUrl' as any)) ||
+      Boolean((obj as any).customShapeUrl) ||
+      (Boolean(obj.get('frameShape' as any)) && obj.get('frameShape' as any) !== 'none') ||
+      (Boolean((obj as any).frameShape) && (obj as any).frameShape !== 'none')
+    ) {
+      return true;
+    }
+
+    if (obj instanceof Group) {
+      return obj.getObjects().some(
+        (c: any) =>
+          c.get('frameRole') === 'photo' ||
+          c.get('frameRole') === 'shape-outline' ||
+          c.get('frameRole') === 'overlay' ||
+          Boolean(c.get('isFrame' as any)) ||
+          Boolean((c as any).isFrame) ||
+          Boolean(c.get('isPhotoShapeGroup' as any)) ||
+          Boolean((c as any).isPhotoShapeGroup)
+      );
+    }
+
+    return false;
+  }
+
+  /**
    * Identifies whether a canvas object is an image (and not an empty placeholder frame).
    */
   public isImageObject(obj?: FabricObject | null): boolean {
@@ -5369,8 +5414,10 @@ export class CanvasManager {
     // HARD RULE: Frames accept only actual raster/photo FabricImage objects.
     // SVG shapes/elements/groups/text/other frames are never valid frame content.
     if (
+      this.isAnyFrameObject(obj) ||
       this.isPhotoDropFrame(obj) ||
       Boolean(obj.get('isShape' as any)) ||
+      Boolean((obj as any).isShape) ||
       sourceType === 'shape' ||
       sourceType === 'frame' ||
       type === 'group' ||
@@ -5452,13 +5499,14 @@ export class CanvasManager {
   public isPhotoDropFrame(obj?: FabricObject | null): boolean {
     if (!obj) return false;
     if (obj.get('isGuide' as any) || (obj as any).excludeFromExport) return false;
+    if (Boolean(obj.get('isLocked' as any)) || Boolean((obj as any).isLocked)) return false;
 
-    // Only real FramesPanel/admin frames can receive photos.
-    // Normal Shapes have isFrame=false and are therefore excluded.
-    const isFrame = Boolean(obj.get('isFrame' as any));
+    // Normal non-frame shapes have isShape=true without any frame markers
+    const isFrame = this.isAnyFrameObject(obj);
+    if (!isFrame) return false;
+
     const allowPhotoDrop = obj.get('allowPhotoDrop' as any);
-
-    return isFrame && allowPhotoDrop !== false;
+    return allowPhotoDrop !== false;
   }
 
   /**
@@ -5474,8 +5522,8 @@ export class CanvasManager {
     if (!obj) return null;
     if (obj.get('isGuide' as any) || (obj as any).excludeFromExport) return null;
 
-    // Case 1: Standalone image (FabricImage or type === 'image')
-    if (this.isImageObject(obj)) {
+    // Case 1: Standalone image (FabricImage or type === 'image') - NEVER a frame!
+    if (this.isImageObject(obj) && !this.isAnyFrameObject(obj)) {
       const url =
         (obj as any).getSrc?.() ||
         (obj as any)._element?.currentSrc ||
@@ -5494,8 +5542,8 @@ export class CanvasManager {
       return { url, metadata, isFromFrame: false };
     }
 
-    // Case 2: Frame containing an image (isPhotoDropFrame)
-    if (this.isPhotoDropFrame(obj)) {
+    // Case 2: ANY frame containing an image (isAnyFrameObject)
+    if (this.isAnyFrameObject(obj)) {
       const isPlaceholder = Boolean(obj.get('isCanvaPlaceholder' as any));
       const explicitSrc = (obj.get('originalSrc' as any) as string) || '';
 
@@ -5511,7 +5559,8 @@ export class CanvasManager {
             (c: any) =>
               c.get('frameRole') === 'photo' ||
               c instanceof FabricImage ||
-              c.type === 'image'
+              c.type === 'image' ||
+              c.type === 'fabricImage'
           ) as FabricImage) || null;
       }
 
@@ -5545,9 +5594,11 @@ export class CanvasManager {
     }
 
     // Case 3: Group that contains a FabricImage child (e.g. grouped element)
+    // IMPORTANT: A Group on canvas must NEVER be treated as a loose photo that deletes the group!
+    // It is marked isFromFrame: true so it never triggers hover translucency or canvas.remove(group).
     if (obj instanceof Group) {
       const imgChild = obj.getObjects().find(
-        (c: any) => c instanceof FabricImage || c.type === 'image'
+        (c: any) => c instanceof FabricImage || c.type === 'image' || c.type === 'fabricImage'
       ) as FabricImage | undefined;
       if (imgChild) {
         const url =
@@ -5564,7 +5615,8 @@ export class CanvasManager {
               naturalHeight: Number(imgChild.get('naturalHeight' as any)) || imgChild.height || undefined,
               originalSrc: url,
             },
-            isFromFrame: false,
+            isFromFrame: true,
+            sourceFrame: obj,
           };
         }
       }
@@ -5583,6 +5635,17 @@ export class CanvasManager {
     pointer?: { x: number; y: number }
   ): FabricObject | null {
     if (!this.canvas || !movingObj) return null;
+
+    // A frame that already contains a photo is an independent design object
+    // and must NEVER interact with or be absorbed by other frames.
+    if (this.isAnyFrameObject(movingObj)) {
+      const isPlaceholder =
+        Boolean(movingObj.get('isCanvaPlaceholder' as any)) ||
+        (movingObj.get('originalSrc' as any) as string) === CANVA_FRAME_PLACEHOLDER_SVG;
+      if (!isPlaceholder) {
+        return null;
+      }
+    }
 
     const photoSource = this.getPhotoSourceFromObject(movingObj);
     const isMovingEmptyFrame =
@@ -5711,7 +5774,20 @@ export class CanvasManager {
     movingObj: FabricObject,
     pointer?: { x: number; y: number }
   ): void {
-    if (!this.canvas || this.isProcessingShapeFit) return;
+    if (!this.canvas || this.isProcessingShapeFit || !movingObj) return;
+
+    // A frame that already contains a photo must NEVER become translucent or trigger hover-glow on other frames
+    if (this.isAnyFrameObject(movingObj)) {
+      const isPlaceholder =
+        Boolean(movingObj.get('isCanvaPlaceholder' as any)) ||
+        (movingObj.get('originalSrc' as any) as string) === CANVA_FRAME_PLACEHOLDER_SVG;
+      if (!isPlaceholder) {
+        if (this.currentHoverFitTarget) {
+          this.clearHoverFitHighlight();
+        }
+        return;
+      }
+    }
 
     // An existing framed photo must NEVER become translucent or trigger hover-glow on other frames
     const photoSource = this.getPhotoSourceFromObject(movingObj);
@@ -5943,6 +6019,16 @@ export class CanvasManager {
     }
 
     // Existing framed photos must NEVER drop or transfer photos into other frames
+    if (this.isAnyFrameObject(movingObj)) {
+      const isPlaceholder =
+        Boolean(movingObj.get('isCanvaPlaceholder' as any)) ||
+        (movingObj.get('originalSrc' as any) as string) === CANVA_FRAME_PLACEHOLDER_SVG;
+      if (!isPlaceholder) {
+        this.clearHoverFitHighlight();
+        return false;
+      }
+    }
+
     const photoSource = this.getPhotoSourceFromObject(movingObj);
     if (photoSource?.isFromFrame) {
       this.clearHoverFitHighlight();
@@ -6038,6 +6124,7 @@ export class CanvasManager {
     metadata?: ImageMetadata
   ): Promise<FabricImage | null> {
     if (!this.canvas || !shapeObj) return null;
+    if (Boolean(shapeObj.get('isLocked' as any)) || Boolean((shapeObj as any).isLocked)) return null;
 
     // A frame can contain ONLY an image. Never slot shapes/elements/text/groups.
     if (!this.isPhotoDropFrame(shapeObj)) return null;
@@ -11233,9 +11320,9 @@ export class CanvasManager {
         this.smartSpacingManager.clear();
       }
 
-      if (this.currentHoverFitTarget || this.pendingDropFrame) {
+      if (this.currentHoverFitTarget || this.pendingDropFrame || this.origMovingObj) {
         const active = this.canvas?.getActiveObject() || opt?.target;
-        if (active) {
+        if (active && (this.currentHoverFitTarget || this.pendingDropFrame)) {
           const pointer =
             (opt as any).scenePoint ||
             ((opt as any).e ? (this.canvas as any).getScenePoint?.((opt as any).e) : undefined);
@@ -11328,6 +11415,8 @@ export class CanvasManager {
         this.notifySelection();
       } else if (
         target &&
+        !Boolean(target.get('isLocked' as any)) &&
+        !Boolean((target as any).isLocked) &&
         (Boolean(target.get('isFrame' as any)) ||
           Boolean(target.get('isPhotoShapeGroup' as any)) ||
           Boolean(target.get('isCustomFrame' as any)))

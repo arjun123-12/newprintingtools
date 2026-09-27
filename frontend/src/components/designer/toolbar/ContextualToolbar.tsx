@@ -958,6 +958,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 const reader = new FileReader();
                 reader.onload = async () => {
                   const dataUrl = reader.result as string;
+                  if (selected?.isLocked) return;
                   const activeObj = canvasManager.getCanvas()?.getActiveObject();
                   const isFrameTarget = selected.isFrame || (activeObj ? canvasManager.isPhotoDropFrame(activeObj) || Boolean(activeObj.get('isFrame' as any)) : false);
                   if (activeObj && isFrameTarget) {
@@ -987,7 +988,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           />
 
           {/* Canva Photo Frame Specific Actions */}
-          {selected.isFrame && (
+          {selected.isFrame && !selected.isLocked && (
             <>
               {/* Replace Photo in Frame */}
               <button
@@ -1118,7 +1119,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 </svg>
               </button>
 
-              {(!selected.isFrame || selected.frameShape === 'rect') && (
+              {selected.frameShape !== 'circle' && selected.frameShape !== 'oval' && selected.shapeType !== 'circle' && selected.shapeType !== 'oval' && (
                 /* Canva Corner Rounding Icon Button */
                 <div className="relative">
                   <button
@@ -1224,7 +1225,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           {/* Canva Corner Rounding Icon Button (for Rect / Shapes / Polygons / Triangles / Stars / SVGs) */}
           {(isShape || selected.type === 'rect' || selected.type === 'shape' || selected.type === 'triangle' || selected.type === 'polygon' || selected.type === 'path') &&
             selected.type !== 'circle' &&
-            selected.shapeType !== 'circle' && (
+            selected.shapeType !== 'circle' &&
+            selected.shapeType !== 'oval' &&
+            selected.frameShape !== 'circle' &&
+            selected.frameShape !== 'oval' && (
               <div className="relative">
                 <button
                   type="button"

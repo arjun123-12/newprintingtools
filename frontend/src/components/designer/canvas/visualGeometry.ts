@@ -7,6 +7,7 @@ import {
   Polygon,
   Path,
   Group,
+  Point,
 } from 'fabric';
 
 export interface Point2D {
@@ -370,15 +371,35 @@ export function extractPolygonPoints(object: FabricObject): {
   if (object instanceof Path || (object as any).type === 'path') {
     const pathCommands: any[] = (object as any).path;
     if (Array.isArray(pathCommands) && pathCommands.length >= 3) {
-      const isStraight = pathCommands.every(
-        (cmd) => cmd[0] === 'M' || cmd[0] === 'L' || cmd[0] === 'Z' || cmd[0] === 'z'
-      );
+      const straightTypes = new Set(['M', 'L', 'H', 'V', 'Z', 'm', 'l', 'h', 'v', 'z']);
+      const isStraight = pathCommands.every((cmd) => straightTypes.has(cmd[0]));
       if (isStraight) {
         const pts: Point2D[] = [];
         const offset = (object as any).pathOffset || { x: 0, y: 0 };
+        let curX = 0;
+        let curY = 0;
         for (const cmd of pathCommands) {
-          if (cmd[0] === 'M' || cmd[0] === 'L') {
-            pts.push({ x: cmd[1] - offset.x, y: cmd[2] - offset.y });
+          const type = cmd[0];
+          if (type === 'M' || type === 'L') {
+            curX = Number(cmd[1]) || 0;
+            curY = Number(cmd[2]) || 0;
+            pts.push({ x: curX - offset.x, y: curY - offset.y });
+          } else if (type === 'H') {
+            curX = Number(cmd[1]) || 0;
+            pts.push({ x: curX - offset.x, y: curY - offset.y });
+          } else if (type === 'V') {
+            curY = Number(cmd[1]) || 0;
+            pts.push({ x: curX - offset.x, y: curY - offset.y });
+          } else if (type === 'm' || type === 'l') {
+            curX += Number(cmd[1]) || 0;
+            curY += Number(cmd[2]) || 0;
+            pts.push({ x: curX - offset.x, y: curY - offset.y });
+          } else if (type === 'h') {
+            curX += Number(cmd[1]) || 0;
+            pts.push({ x: curX - offset.x, y: curY - offset.y });
+          } else if (type === 'v') {
+            curY += Number(cmd[1]) || 0;
+            pts.push({ x: curX - offset.x, y: curY - offset.y });
           }
         }
         const cleaned = cleanPoints(pts);
@@ -574,12 +595,14 @@ export function applyCornerRadiusToObject(
     ) as FabricImage | undefined;
 
     // If rectangular frame: round the outline & the photo's clipPath
-    if (
+    const isRectFrame =
       shapeOutline &&
       (shapeOutline instanceof Rect ||
         (shapeOutline as any).type === 'rect' ||
-        (object as any).frameShape === 'rect')
-    ) {
+        (object as any).frameShape === 'rect' ||
+        (object as any).shapeType === 'rect');
+
+    if (isRectFrame) {
       const { rx: localRx, ry: localRy } = getEffectiveCornerRadius(
         shapeOutline,
         clampedRadius
@@ -590,15 +613,128 @@ export function applyCornerRadiusToObject(
       (shapeOutline as any)._requestedRadius = clampedRadius;
       shapeOutline.set({ rx: localRx, ry: localRy, dirty: true });
 
-      if (photo && photo.clipPath && photo.clipPath instanceof Rect) {
-        photo.clipPath.set({ rx: localRx, ry: localRy, dirty: true });
+      if (photo && photo.clipPath && (photo.clipPath instanceof Rect || (photo.clipPath as any).type === 'rect')) {
+        const pScaleX = Math.max(Math.abs(photo.scaleX || 1), 0.0001);
+        const pScaleY = Math.max(Math.abs(photo.scaleY || 1), 0.0001);
+        photo.clipPath.set({ rx: localRx / pScaleX, ry: localRy / pScaleY, dirty: true });
         photo.set('dirty', true);
       }
     } else if (shapeOutline) {
-      // Non-rectangular frame (heart, star, circle, custom SVG):
-      // Preserve actual shape geometry! Do NOT convert to rounded rectangle!
-      (shapeOutline as any).cornerRadius = clampedRadius;
-      (shapeOutline as any)._requestedRadius = clampedRadius;
+      const outlinePolyData = extractPolygonPoints(shapeOutline);
+      if (outlinePolyData && outlinePolyData.points.length >= 3) {
+        const originalPoints = outlinePolyData.points;
+        (shapeOutline as any).originalShapePoints = originalPoints.map((p) => ({ ...p }));
+        (shapeOutline as any).originalShapeType = outlinePolyData.shapeType;
+        (shapeOutline as any).cornerRadius = clampedRadius;
+        (shapeOutline as any)._requestedRadius = clampedRadius;
+
+        // Group & outline scaling
+        const groupScaleX = Math.max(Math.abs(object.scaleX || 1), 0.0001);
+        const groupScaleY = Math.max(Math.abs(object.scaleY || 1), 0.0001);
+        const outlineScaleX = Math.max(Math.abs(shapeOutline.scaleX || 1), 0.0001) * groupScaleX;
+        const outlineScaleY = Math.max(Math.abs(shapeOutline.scaleY || 1), 0.0001) * groupScaleY;
+        const avgOutlineScale = (outlineScaleX + outlineScaleY) / 2;
+        const outlineLocalRadius = clampedRadius / avgOutlineScale;
+
+        const outlinePathString = createRoundedPolygonPath(originalPoints, outlineLocalRadius);
+
+        // Update or replace shapeOutline with rounded Path
+        if (shapeOutline instanceof Path) {
+          (shapeOutline as any)._setPath(outlinePathString);
+          shapeOutline.setPositionByOrigin(new Point(0, 0), 'center', 'center');
+          shapeOutline.setCoords();
+          shapeOutline.set('dirty', true);
+        } else {
+          // Polygon or other shape -> convert to Path inside the group
+          const newOutline = new Path(outlinePathString, {
+            originX: 'center',
+            originY: 'center',
+            left: shapeOutline.left || 0,
+            top: shapeOutline.top || 0,
+            scaleX: shapeOutline.scaleX || 1,
+            scaleY: shapeOutline.scaleY || 1,
+            angle: shapeOutline.angle || 0,
+            flipX: shapeOutline.flipX,
+            flipY: shapeOutline.flipY,
+            fill: shapeOutline.fill,
+            stroke: shapeOutline.stroke,
+            strokeWidth: shapeOutline.strokeWidth,
+            strokeUniform: shapeOutline.strokeUniform,
+            paintFirst: shapeOutline.paintFirst,
+            strokeDashArray: shapeOutline.strokeDashArray,
+            strokeLineCap: shapeOutline.strokeLineCap,
+            strokeLineJoin: shapeOutline.strokeLineJoin,
+            opacity: shapeOutline.opacity,
+            visible: shapeOutline.visible,
+            selectable: false,
+            evented: false,
+            objectCaching: false,
+          });
+          (newOutline as any).frameRole = 'shape-outline';
+          (newOutline as any).originalShapePoints = originalPoints.map((p) => ({ ...p }));
+          (newOutline as any).originalShapeType = outlinePolyData.shapeType;
+          (newOutline as any).cornerRadius = clampedRadius;
+          (newOutline as any)._requestedRadius = clampedRadius;
+
+          const groupObjects = (object as any)._objects as FabricObject[];
+          const outlineIdx = groupObjects ? groupObjects.indexOf(shapeOutline) : -1;
+          if (outlineIdx !== -1) {
+            groupObjects[outlineIdx] = newOutline;
+            newOutline.group = object as any;
+          }
+        }
+
+        // Now round photo.clipPath
+        if (photo && photo.clipPath) {
+          let clipPolyData = extractPolygonPoints(photo.clipPath as any);
+          const clipOriginalPoints =
+            clipPolyData && clipPolyData.points.length >= 3
+              ? clipPolyData.points
+              : originalPoints.map((p) => {
+                  const pScaleX = Math.max(Math.abs(photo.scaleX || 1), 0.0001);
+                  const pScaleY = Math.max(Math.abs(photo.scaleY || 1), 0.0001);
+                  return { x: p.x / pScaleX, y: p.y / pScaleY };
+                });
+
+          (photo.clipPath as any).originalShapePoints = clipOriginalPoints.map((p) => ({ ...p }));
+
+          const photoScaleX = Math.max(Math.abs(photo.scaleX || 1), 0.0001);
+          const photoScaleY = Math.max(Math.abs(photo.scaleY || 1), 0.0001);
+          const clipScaleX = Math.max(Math.abs((photo.clipPath as any).scaleX || 1), 0.0001);
+          const clipScaleY = Math.max(Math.abs((photo.clipPath as any).scaleY || 1), 0.0001);
+          const totalClipScale =
+            ((photoScaleX * clipScaleX * groupScaleX) + (photoScaleY * clipScaleY * groupScaleY)) / 2;
+          const clipLocalRadius = clampedRadius / totalClipScale;
+
+          const clipPathString = createRoundedPolygonPath(clipOriginalPoints, clipLocalRadius);
+
+          if (photo.clipPath instanceof Path) {
+            (photo.clipPath as any)._setPath(clipPathString);
+            photo.clipPath.setPositionByOrigin(new Point(0, 0), 'center', 'center');
+            photo.clipPath.setCoords();
+            photo.clipPath.set('dirty', true);
+          } else {
+            const newClip = new Path(clipPathString, {
+              originX: 'center',
+              originY: 'center',
+              left: 0,
+              top: 0,
+              scaleX: (photo.clipPath as any).scaleX || 1,
+              scaleY: (photo.clipPath as any).scaleY || 1,
+              absolutePositioned: false,
+              objectCaching: false,
+            });
+            (newClip as any).originalShapePoints = clipOriginalPoints.map((p) => ({ ...p }));
+            (newClip as any).originalShapeType = clipPolyData ? clipPolyData.shapeType : outlinePolyData.shapeType;
+            (newClip as any).isFrameClip = true;
+            photo.clipPath = newClip;
+          }
+          photo.set('dirty', true);
+        }
+      } else {
+        (shapeOutline as any).cornerRadius = clampedRadius;
+        (shapeOutline as any)._requestedRadius = clampedRadius;
+      }
     }
 
     (object as any).cornerRadius = clampedRadius;

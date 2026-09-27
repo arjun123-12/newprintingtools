@@ -136,7 +136,8 @@ export const FramesPanel: React.FC<FramesPanelProps> = ({
       const isPlaceholder = Boolean(
         active?.get?.('isCanvaPlaceholder' as any)
       );
-      setCanDetach(isFrame && !isPlaceholder);
+      const isLocked = Boolean(active?.get?.('isLocked' as any)) || Boolean((active as any)?.isLocked);
+      setCanDetach(isFrame && !isPlaceholder && !isLocked);
     };
 
     updateDetachState();
@@ -154,6 +155,7 @@ export const FramesPanel: React.FC<FramesPanelProps> = ({
 
     const active = canvasManager.getCanvas()?.getActiveObject();
     if (!active?.get?.('isFrame' as any)) return;
+    if (Boolean(active?.get?.('isLocked' as any)) || Boolean((active as any)?.isLocked)) return;
 
     void canvasManager.detachImageFromFrame(active);
   };

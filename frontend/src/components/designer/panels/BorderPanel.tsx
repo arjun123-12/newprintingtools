@@ -131,19 +131,26 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
   };
 
   const canRoundCorners =
-    Boolean(selected.isShape) ||
-    Boolean(selected.isMultiple) ||
-    selected.type === 'rect' ||
-    selected.type === 'shape' ||
-    selected.type === 'triangle' ||
-    selected.type === 'polygon' ||
-    selected.type === 'path' ||
-    selected.type === 'image' ||
-    selected.type === 'fabricImage' ||
-    selected.type === 'group' ||
-    selected.type === 'activeSelection' ||
-    Boolean(selected.src) ||
-    (Boolean(selected.isFrame) && (!selected.frameShape || selected.frameShape === 'rect'));
+    selected.shapeType !== 'circle' &&
+    selected.frameShape !== 'circle' &&
+    selected.shapeType !== 'oval' &&
+    selected.frameShape !== 'oval' &&
+    selected.type !== 'circle' &&
+    (
+      Boolean(selected.isShape) ||
+      Boolean(selected.isMultiple) ||
+      Boolean(selected.isFrame) ||
+      selected.type === 'rect' ||
+      selected.type === 'shape' ||
+      selected.type === 'triangle' ||
+      selected.type === 'polygon' ||
+      selected.type === 'path' ||
+      selected.type === 'image' ||
+      selected.type === 'fabricImage' ||
+      selected.type === 'group' ||
+      selected.type === 'activeSelection' ||
+      Boolean(selected.src)
+    );
 
   const styles: { key: StrokeStyle; label: string; preview: React.ReactNode }[] = [
     {
