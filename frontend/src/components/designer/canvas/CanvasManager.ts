@@ -61,6 +61,10 @@ import {
   getHexagonPoints,
   STAR_POINTS,
 } from './visualGeometry';
+import { installHollowTextRenderer } from './hollowTextRenderer';
+
+// Initialize clean hollow text renderer
+installHollowTextRenderer();
 import { CANVA_FRAME_PLACEHOLDER_SVG, FRAME_PRESETS } from '../data/framesData';
 import { POPULAR_FONTS, loadFont } from '../utils/fonts';
 import { calculateImageQuality, calculateFabricImageEffectiveDpi } from '../utils/imageQuality';
@@ -8167,6 +8171,7 @@ export class CanvasManager {
     if ((obj as any)._originalFill !== undefined) {
       obj.set('fill', (obj as any)._originalFill);
     }
+    (obj as any)._isHollow = false;
     obj.set('shadow', null);
     (obj as any)._secondaryShadow = null;
     (obj as any)._secondaryShadows = [];
@@ -8253,11 +8258,13 @@ export class CanvasManager {
       obj.set('strokeLineJoin', 'round');
       obj.set('strokeLineCap', 'round');
       if (isText) {
+        (obj as any)._isHollow = true;
         (obj as any).set?.('strokePosition', 'outside');
         (obj as any).set?.('baseStrokeWidth', strokeThickness);
         (obj as any).initDimensions?.();
       }
     } else if (isOutline) {
+      (obj as any)._isHollow = false;
       if ((obj as any)._originalCharStyles) {
         (obj as any).styles = JSON.parse(JSON.stringify((obj as any)._originalCharStyles));
         delete (obj as any)._originalCharStyles;
@@ -8288,6 +8295,7 @@ export class CanvasManager {
         (obj as any).initDimensions?.();
       }
     } else if (isNeon) {
+      (obj as any)._isHollow = false;
       if ((obj as any)._originalCharStyles) {
         (obj as any).styles = JSON.parse(JSON.stringify((obj as any)._originalCharStyles));
         delete (obj as any)._originalCharStyles;
@@ -8312,6 +8320,7 @@ export class CanvasManager {
         (obj as any).initDimensions?.();
       }
     } else {
+      (obj as any)._isHollow = false;
       if ((obj as any)._originalCharStyles) {
         (obj as any).styles = JSON.parse(JSON.stringify((obj as any)._originalCharStyles));
         delete (obj as any)._originalCharStyles;
@@ -8430,7 +8439,10 @@ export class CanvasManager {
 
     let primaryShadow: Shadow | null = null;
     if (allLighting.length > 0) {
-      primaryShadow = new Shadow(allLighting[0]);
+      primaryShadow = new Shadow({
+        ...allLighting[0],
+        affectStroke: true,
+      });
       obj.set('shadow', primaryShadow);
       (obj as any)._secondaryShadows = allLighting.slice(1);
       (obj as any)._secondaryShadow = allLighting[1] || null;

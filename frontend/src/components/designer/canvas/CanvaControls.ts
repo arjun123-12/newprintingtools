@@ -21,6 +21,7 @@ import {
   renderSilhouetteShadowPass,
   requiresSilhouetteShadow,
 } from './visualGeometry';
+import { installHollowTextRenderer } from './hollowTextRenderer';
 
 export const CANVA_PURPLE = '#8b3dff';
 
@@ -1968,4 +1969,5 @@ export function applyCanvaControlsGlobal(): void {
   };
 
   installShadowSilhouetteHook();
+  installHollowTextRenderer();
 }

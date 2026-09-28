@@ -24,6 +24,7 @@ import {
   embedFontsInSvgDefs,
   expandSvgFilterRegions,
   injectSilhouetteShadowsInSvg,
+  preserveHollowTextInSvg,
   rasterizeFramesForVectorPdf,
   validateSvgExport,
 } from '../utils/svgExportHelpers';
@@ -1523,10 +1524,13 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           // 4. Inject visual silhouette shadows for clipped images and frames
           injectSilhouetteShadowsInSvg(svgDoc, canvasManager);
 
-          // 5. Embed true font files as base64 @font-face rules directly in SVG defs
+          // 5. Knock out inner laps on hollow text elements in SVG
+          preserveHollowTextInSvg(svgDoc, canvasManager);
+
+          // 6. Embed true font files as base64 @font-face rules directly in SVG defs
           await embedFontsInSvgDefs(svgDoc, canvasManager);
 
-          // 6. Validate output
+          // 7. Validate output
           validateSvgExport(svgDoc, canvasManager);
 
           const finalSvgMarkup = new XMLSerializer().serializeToString(svgDoc);
@@ -1883,6 +1887,11 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
           expandSvgFilterRegions(svgDoc);
           injectSilhouetteShadowsInSvg(
+            svgDoc,
+            canvasManager
+          );
+
+          preserveHollowTextInSvg(
             svgDoc,
             canvasManager
           );

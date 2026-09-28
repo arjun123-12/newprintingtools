@@ -1138,3 +1138,92 @@ export function validateSvgExport(
     svgFilters: svgFilters.length,
   };
 }
+
+/**
+ * Ensures hollow text objects in exported SVG do not render internal contour overlap lines (inner laps).
+ * Applies an SVG vector knockout mask that erases the glyph interior with solid black fill while passing
+ * through the outer stroke in pure white.
+ */
+export function preserveHollowTextInSvg(
+  svgDoc: Document,
+  canvasManager: CanvasManager | null
+): void {
+  if (!canvasManager) return;
+  const canvas = canvasManager.getCanvas();
+  if (!canvas) return;
+
+  const allObjects = collectFabricObjectsRecursively(canvas);
+  const hollowTexts = allObjects.filter((obj: any) =>
+    isFabricText(obj) &&
+    Boolean(
+      obj._isHollow ||
+      obj.isHollow ||
+      obj._activeEffects?.hollow ||
+      (obj.fill === 'transparent' && obj.stroke && (obj.strokeWidth || 0) > 0 && obj.paintFirst === 'stroke')
+    )
+  );
+
+  if (hollowTexts.length === 0) return;
+
+  let defs = svgDoc.querySelector('defs');
+  if (!defs) {
+    defs = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    svgDoc.documentElement.insertBefore(defs, svgDoc.documentElement.firstChild);
+  }
+
+  let counter = 0;
+  for (const textObj of hollowTexts) {
+    const targetEl = findSvgElementForFabricObject(svgDoc, textObj, allObjects);
+    if (!targetEl) continue;
+
+    const textEl =
+      targetEl.tagName.toLowerCase() === 'text'
+        ? targetEl
+        : targetEl.querySelector('text');
+    if (!textEl) continue;
+
+    counter++;
+    const maskId = `export_hollow_mask_${counter}`;
+    const maskEl = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'mask');
+    maskEl.setAttribute('id', maskId);
+    maskEl.setAttribute('maskUnits', 'userSpaceOnUse');
+
+    // White rect passes through all outer strokes
+    const rect = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', '-50000');
+    rect.setAttribute('y', '-50000');
+    rect.setAttribute('width', '100000');
+    rect.setAttribute('height', '100000');
+    rect.setAttribute('fill', 'white');
+    maskEl.appendChild(rect);
+
+    // Clone the text element to serve as the solid black knockout mask
+    const cloneText = textEl.cloneNode(true) as Element;
+    cloneText.removeAttribute('id');
+    cloneText.removeAttribute('filter');
+    cloneText.removeAttribute('mask');
+    cloneText.setAttribute('fill', 'black');
+    cloneText.setAttribute('stroke', 'none');
+    cloneText.setAttribute(
+      'style',
+      `${cloneText.getAttribute('style') || ''}; fill: black !important; stroke: none !important;`
+    );
+
+    const tspans = Array.from(cloneText.querySelectorAll('tspan'));
+    for (const tspan of tspans) {
+      tspan.setAttribute('fill', 'black');
+      tspan.setAttribute('stroke', 'none');
+      tspan.setAttribute(
+        'style',
+        `${tspan.getAttribute('style') || ''}; fill: black !important; stroke: none !important;`
+      );
+    }
+
+    maskEl.appendChild(cloneText);
+    defs.appendChild(maskEl);
+
+    // Apply knockout mask to the stroked text element
+    textEl.setAttribute('mask', `url(#${maskId})`);
+  }
+}
+
