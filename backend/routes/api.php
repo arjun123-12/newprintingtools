@@ -16,6 +16,8 @@ use App\Http\Controllers\Api\V1\Freepik\UseAssetController;
 use App\Http\Controllers\Api\V1\Freepik\UseIconController;
 use App\Http\Controllers\Api\V1\ImageQualityController;
 use App\Http\Controllers\Api\V1\Designer\ExportController;
+use App\Http\Controllers\Api\V1\ClientBriefController;
+use App\Http\Controllers\Api\V1\Admin\ClientBriefController as AdminClientBriefController;
 use Illuminate\Support\Facades\Route;
 /*
 |--------------------------------------------------------------------------
@@ -84,6 +86,25 @@ Route::prefix('designer')->group(function () {
 // ==========================================
 // PUBLIC ROUTES
 // ==========================================
+
+// Client Brief - private token link used by customers.
+// NOTE: This routes file already uses /api/v1 as its base URI, so do not
+// add another "v1" prefix here.
+Route::prefix('client-brief')
+    ->middleware('throttle:60,1')
+    ->group(function () {
+        Route::get('/{token}', [
+            ClientBriefController::class,
+            'show',
+        ])->where('token', '[A-Za-z0-9]+');
+
+        Route::post('/{token}/submit', [
+            ClientBriefController::class,
+            'submit',
+        ])
+            ->where('token', '[A-Za-z0-9]+')
+            ->middleware('throttle:20,1');
+    });
 
 // Catalog
 Route::prefix('products')->group(function () {

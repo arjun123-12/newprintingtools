@@ -360,14 +360,17 @@ export async function exportLayeredPsd(
     if (marksCtx) {
       const pxPerMm = targetDpi / 25.4;
       const slugMarginPx = geometry.slugMarginPx;
-      const markLen = Math.round(4 * pxPerMm);
-      const markGap = Math.round(1.5 * pxPerMm);
-
-      // Crop marks target the inner black cut line:
       const trimLeft = slugMarginPx + geometry.targetBleedPx;
       const trimTop = slugMarginPx + geometry.targetBleedPx;
       const trimRight = trimLeft + geometry.targetTrimWidthPx;
       const trimBottom = trimTop + geometry.targetTrimHeightPx;
+
+      const redTop = slugMarginPx;
+      const redLeft = slugMarginPx;
+      const redRight = slugMarginPx + geometry.artworkWidthPx;
+      const redBottom = slugMarginPx + geometry.artworkHeightPx;
+
+      const markLen = Math.round(4 * pxPerMm);
 
       marksCtx.strokeStyle = '#000000';
       marksCtx.lineWidth = Math.max(1, Math.round(pxPerMm * 0.25));
@@ -375,28 +378,28 @@ export async function exportLayeredPsd(
       marksCtx.beginPath();
 
       // Top-Left
-      marksCtx.moveTo(trimLeft, trimTop - markGap);
-      marksCtx.lineTo(trimLeft, Math.max(0, trimTop - markGap - markLen));
-      marksCtx.moveTo(trimLeft - markGap, trimTop);
-      marksCtx.lineTo(Math.max(0, trimLeft - markGap - markLen), trimTop);
+      marksCtx.moveTo(trimLeft, redTop);
+      marksCtx.lineTo(trimLeft, Math.max(0, redTop - markLen));
+      marksCtx.moveTo(redLeft, trimTop);
+      marksCtx.lineTo(Math.max(0, redLeft - markLen), trimTop);
 
       // Top-Right
-      marksCtx.moveTo(trimRight, trimTop - markGap);
-      marksCtx.lineTo(trimRight, Math.max(0, trimTop - markGap - markLen));
-      marksCtx.moveTo(trimRight + markGap, trimTop);
-      marksCtx.lineTo(Math.min(width, trimRight + markGap + markLen), trimTop);
+      marksCtx.moveTo(trimRight, redTop);
+      marksCtx.lineTo(trimRight, Math.max(0, redTop - markLen));
+      marksCtx.moveTo(redRight, trimTop);
+      marksCtx.lineTo(Math.min(width, redRight + markLen), trimTop);
 
       // Bottom-Left
-      marksCtx.moveTo(trimLeft, trimBottom + markGap);
-      marksCtx.lineTo(trimLeft, Math.min(height, trimBottom + markGap + markLen));
-      marksCtx.moveTo(trimLeft - markGap, trimBottom);
-      marksCtx.lineTo(Math.max(0, trimLeft - markGap - markLen), trimBottom);
+      marksCtx.moveTo(trimLeft, redBottom);
+      marksCtx.lineTo(trimLeft, Math.min(height, redBottom + markLen));
+      marksCtx.moveTo(redLeft, trimBottom);
+      marksCtx.lineTo(Math.max(0, redLeft - markLen), trimBottom);
 
       // Bottom-Right
-      marksCtx.moveTo(trimRight, trimBottom + markGap);
-      marksCtx.lineTo(trimRight, Math.min(height, trimBottom + markGap + markLen));
-      marksCtx.moveTo(trimRight + markGap, trimBottom);
-      marksCtx.lineTo(Math.min(width, trimRight + markGap + markLen), trimBottom);
+      marksCtx.moveTo(trimRight, redBottom);
+      marksCtx.lineTo(trimRight, Math.min(height, redBottom + markLen));
+      marksCtx.moveTo(redRight, trimBottom);
+      marksCtx.lineTo(Math.min(width, redRight + markLen), trimBottom);
 
       marksCtx.stroke();
 

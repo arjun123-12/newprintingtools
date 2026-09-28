@@ -936,37 +936,43 @@ function renderCanvasWithTrimMarks(
   ctx.lineWidth = lineWidth;
   ctx.lineCap = 'square';
 
-  // Crop marks point to the inner black trim cut line:
+  // Crop marks point to the inner black trim cut line, starting exactly at the
+  // outer red bleed edge (slugMarginPx) so they never cut into the printable artwork:
   const trimLeft = slugMarginPx + geometry.targetBleedPx;
   const trimTop = slugMarginPx + geometry.targetBleedPx;
   const trimRight = trimLeft + geometry.targetTrimWidthPx;
   const trimBottom = trimTop + geometry.targetTrimHeightPx;
 
+  const redTop = slugMarginPx;
+  const redLeft = slugMarginPx;
+  const redRight = slugMarginPx + artW;
+  const redBottom = slugMarginPx + artH;
+
   ctx.beginPath();
 
   // Top-Left Corner
-  ctx.moveTo(trimLeft, trimTop - markGapPx);
-  ctx.lineTo(trimLeft, Math.max(0, trimTop - markGapPx - markLengthPx));
-  ctx.moveTo(trimLeft - markGapPx, trimTop);
-  ctx.lineTo(Math.max(0, trimLeft - markGapPx - markLengthPx), trimTop);
+  ctx.moveTo(trimLeft, redTop);
+  ctx.lineTo(trimLeft, Math.max(0, redTop - markLengthPx));
+  ctx.moveTo(redLeft, trimTop);
+  ctx.lineTo(Math.max(0, redLeft - markLengthPx), trimTop);
 
   // Top-Right Corner
-  ctx.moveTo(trimRight, trimTop - markGapPx);
-  ctx.lineTo(trimRight, Math.max(0, trimTop - markGapPx - markLengthPx));
-  ctx.moveTo(trimRight + markGapPx, trimTop);
-  ctx.lineTo(Math.min(totalW, trimRight + markGapPx + markLengthPx), trimTop);
+  ctx.moveTo(trimRight, redTop);
+  ctx.lineTo(trimRight, Math.max(0, redTop - markLengthPx));
+  ctx.moveTo(redRight, trimTop);
+  ctx.lineTo(Math.min(totalW, redRight + markLengthPx), trimTop);
 
   // Bottom-Left Corner
-  ctx.moveTo(trimLeft, trimBottom + markGapPx);
-  ctx.lineTo(trimLeft, Math.min(totalH, trimBottom + markGapPx + markLengthPx));
-  ctx.moveTo(trimLeft - markGapPx, trimBottom);
-  ctx.lineTo(Math.max(0, trimLeft - markGapPx - markLengthPx), trimBottom);
+  ctx.moveTo(trimLeft, redBottom);
+  ctx.lineTo(trimLeft, Math.min(totalH, redBottom + markLengthPx));
+  ctx.moveTo(redLeft, trimBottom);
+  ctx.lineTo(Math.max(0, redLeft - markLengthPx), trimBottom);
 
   // Bottom-Right Corner
-  ctx.moveTo(trimRight, trimBottom + markGapPx);
-  ctx.lineTo(trimRight, Math.min(totalH, trimBottom + markGapPx + markLengthPx));
-  ctx.moveTo(trimRight + markGapPx, trimBottom);
-  ctx.lineTo(Math.min(totalW, trimRight + markGapPx + markLengthPx), trimBottom);
+  ctx.moveTo(trimRight, redBottom);
+  ctx.lineTo(trimRight, Math.min(totalH, redBottom + markLengthPx));
+  ctx.moveTo(redRight, trimBottom);
+  ctx.lineTo(Math.min(totalW, redRight + markLengthPx), trimBottom);
 
   ctx.stroke();
 
@@ -1425,24 +1431,28 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             const trimRight = trimLeft + geometry.trimWidthPx;
             const trimBottom = trimTop + geometry.trimHeightPx;
 
+            const redTop = slugMarginPx;
+            const redLeft = slugMarginPx;
+            const redRight = slugMarginPx + geometry.artworkWidthPx;
+            const redBottom = slugMarginPx + geometry.artworkHeightPx;
+
             const markLen = Math.round(4 * pxPerMm);
-            const markGap = Math.round(1.5 * pxPerMm);
 
             const trimMarksSvg = `
   <!-- Prepress Trim Marks pointing to the Black Trim Cut Line -->
   <g stroke="#000000" stroke-width="0.75" stroke-linecap="square">
     <!-- Top-Left -->
-    <line x1="${trimLeft}" y1="${trimTop - markGap}" x2="${trimLeft}" y2="${trimTop - markGap - markLen}" />
-    <line x1="${trimLeft - markGap}" y1="${trimTop}" x2="${trimLeft - markGap - markLen}" y2="${trimTop}" />
+    <line x1="${trimLeft}" y1="${redTop}" x2="${trimLeft}" y2="${redTop - markLen}" />
+    <line x1="${redLeft}" y1="${trimTop}" x2="${redLeft - markLen}" y2="${trimTop}" />
     <!-- Top-Right -->
-    <line x1="${trimRight}" y1="${trimTop - markGap}" x2="${trimRight}" y2="${trimTop - markGap - markLen}" />
-    <line x1="${trimRight + markGap}" y1="${trimTop}" x2="${trimRight + markGap + markLen}" y2="${trimTop}" />
+    <line x1="${trimRight}" y1="${redTop}" x2="${trimRight}" y2="${redTop - markLen}" />
+    <line x1="${redRight}" y1="${trimTop}" x2="${redRight + markLen}" y2="${trimTop}" />
     <!-- Bottom-Left -->
-    <line x1="${trimLeft}" y1="${trimBottom + markGap}" x2="${trimLeft}" y2="${trimBottom + markGap + markLen}" />
-    <line x1="${trimLeft - markGap}" y1="${trimBottom}" x2="${trimLeft - markGap - markLen}" y2="${trimBottom}" />
+    <line x1="${trimLeft}" y1="${redBottom}" x2="${trimLeft}" y2="${redBottom + markLen}" />
+    <line x1="${redLeft}" y1="${trimBottom}" x2="${redLeft - markLen}" y2="${trimBottom}" />
     <!-- Bottom-Right -->
-    <line x1="${trimRight}" y1="${trimBottom + markGap}" x2="${trimRight}" y2="${trimBottom + markGap + markLen}" />
-    <line x1="${trimRight + markGap}" y1="${trimBottom}" x2="${trimRight + markGap + markLen}" y2="${trimBottom}" />
+    <line x1="${trimRight}" y1="${redBottom}" x2="${trimRight}" y2="${redBottom + markLen}" />
+    <line x1="${redRight}" y1="${trimBottom}" x2="${redRight + markLen}" y2="${trimBottom}" />
   </g>
 `;
 
@@ -1454,10 +1464,37 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
               fabricSvg = `${newOpenTag}
   <!-- Slug background -->
   <rect x="0" y="0" width="${totalW}" height="${totalH}" fill="#ffffff" />
-  <g transform="translate(${slugMarginPx}, ${slugMarginPx})">
+  <defs>
+    <clipPath id="artwork-redline-bleed-clip">
+      <rect x="0" y="0" width="${geometry.artworkWidthPx}" height="${geometry.artworkHeightPx}" />
+    </clipPath>
+  </defs>
+  <g transform="translate(${slugMarginPx}, ${slugMarginPx})" clip-path="url(#artwork-redline-bleed-clip)">
     ${innerContent}
   </g>
   ${trimMarksSvg}
+</svg>`;
+            }
+          } else {
+            // Strictly clip to red line area [0, 0, canvasWidth, canvasHeight]
+            // so content outside the red line does not show in the downloaded SVG/PDF
+            const svgOpenMatch = fabricSvg.match(/<svg[^>]*>/);
+            if (svgOpenMatch) {
+              const openTag = svgOpenMatch[0];
+              const innerContent = fabricSvg.slice(openTag.length, fabricSvg.lastIndexOf('</svg>'));
+              const clipId = `artwork-redline-clip-${Date.now()}`;
+              const cleanOpenTag = openTag
+                .replace(/\s*overflow=["'][^"']*["']/i, '')
+                .replace('<svg', '<svg overflow="hidden"');
+              fabricSvg = `${cleanOpenTag}
+  <defs>
+    <clipPath id="${clipId}">
+      <rect x="0" y="0" width="${canvasWidth}" height="${canvasHeight}" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#${clipId})">
+    ${innerContent}
+  </g>
 </svg>`;
             }
           }

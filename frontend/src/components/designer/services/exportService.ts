@@ -2,7 +2,8 @@ import { DocumentSettings, CanvasDimensions } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { urlToSafeDataUrl } from '@/utils/imageUrl';
 import { getArtworkExportGeometry } from '../utils/exportGeometry';
-import { collectFabricObjectsRecursively } from '../utils/svgExportHelpers';
+import { collectFabricObjectsRecursively, findSvgElementForFabricObject } from '../utils/svgExportHelpers';
+import { Shadow } from 'fabric';
 
 import PDFDocument from 'pdfkit';
 import * as PDFKitModule from 'pdfkit';
@@ -494,47 +495,84 @@ export async function exportHighResolutionImage(
  * pure soft drop shadow. Vector text, shapes, and photos remain resolution-independent
  * vectors drawn above this layer in the PDF.
  */
-export async function createPdfShadowLayerFromFabric(
+export interface FabricPdfShadowResult {
+  combinedShadowUrl: string | null;
+  perObjectShadows: Map<any, string>;
+}
+
+/**
+ * Generates transparent high-resolution PNG shadow layers directly from Fabric
+ * canvas objects and their Fabric shadow properties (color, blur, offsetX, offsetY).
+ *
+ * Supports shapes, text, images, photo frames, SVG graphics, icons, and groups.
+ * Excludes all source fill/stroke/image pixels via destination-out so the layer
+ * contains ONLY the pure soft drop shadow.
+ */
+export async function createPdfShadowsFromFabric(
   canvasManager: CanvasManager | null | undefined,
   geometry?: any,
   options?: {
     includeTrimMarks?: boolean;
     scale?: number;
   }
-): Promise<string | null> {
+): Promise<FabricPdfShadowResult> {
+  const emptyResult: FabricPdfShadowResult = {
+    combinedShadowUrl: null,
+    perObjectShadows: new Map(),
+  };
+
   if (!canvasManager || typeof document === 'undefined') {
-    return null;
+    return emptyResult;
   }
 
   const canvas = canvasManager.getCanvas();
   if (!canvas) {
-    return null;
+    return emptyResult;
   }
 
   const allObjects = collectFabricObjectsRecursively(canvas);
+
+  // Normalize and detect all objects with shadows
   const shadowObjects = allObjects.filter((o) => {
     if (!o || o.isGuide || o.isPrintGuide || o.isRulerGuide || o.isCropOverlayPhoto) {
       return false;
     }
-    const s = o.shadow;
-    if (!s || !s.color || s.color === 'transparent') {
-      return false;
+    let s = o.shadow;
+    if (!s) return false;
+    if (typeof s === 'string') {
+      const trimmed = s.trim().toLowerCase();
+      if (trimmed === '' || trimmed === 'none' || trimmed === 'transparent') {
+        return false;
+      }
+      try {
+        s = new Shadow(s);
+        o.shadow = s;
+      } catch {
+        return false;
+      }
     }
-    const blur = Number(s.blur) || 0;
-    const offsetX = Number(s.offsetX) || 0;
-    const offsetY = Number(s.offsetY) || 0;
-    return blur > 0 || offsetX !== 0 || offsetY !== 0;
+    if (typeof s === 'object') {
+      const color = String(s.color || '').trim().toLowerCase();
+      if (!color || color === 'transparent' || color === 'none' || color === 'rgba(0,0,0,0)') {
+        return false;
+      }
+      const blur = Number(s.blur) || 0;
+      const offsetX = Number(s.offsetX) || 0;
+      const offsetY = Number(s.offsetY) || 0;
+      return blur > 0 || offsetX !== 0 || offsetY !== 0;
+    }
+    return false;
   });
 
   console.info(`[PDF Shadow] Fabric shadow objects: ${shadowObjects.length}`);
 
   if (shadowObjects.length === 0) {
     console.info('[PDF Shadow] Shadow layer generated: no');
-    return null;
+    return emptyResult;
   }
 
-  const artworkWidthPx = geometry?.artworkWidthPx || canvas.width || 800;
-  const artworkHeightPx = geometry?.artworkHeightPx || canvas.height || 600;
+  const artworkWidthPx = geometry?.artworkWidthPx || geometry?.widthPx || canvas.width || 800;
+  const artworkHeightPx = geometry?.artworkHeightPx || geometry?.heightPx || canvas.height || 600;
 
   let slugMarginPx = 0;
   let totalW = artworkWidthPx;
@@ -543,9 +581,10 @@ export async function createPdfShadowLayerFromFabric(
   if (
     options?.includeTrimMarks &&
     geometry?.slugMarginMm &&
-    geometry?.artworkWidthMm
+    (geometry?.artworkWidthMm || geometry?.widthMm)
   ) {
-    const pxPerMm = geometry.artworkWidthPx / geometry.artworkWidthMm;
+    const artWidthMm = geometry.artworkWidthMm || geometry.widthMm;
+    const pxPerMm = artworkWidthPx / artWidthMm;
     slugMarginPx = Math.round(geometry.slugMarginMm * pxPerMm);
     totalW = artworkWidthPx + slugMarginPx * 2;
     totalH = artworkHeightPx + slugMarginPx * 2;
@@ -567,7 +606,7 @@ export async function createPdfShadowLayerFromFabric(
   const finalShadowCtx = finalShadowCanvas.getContext('2d');
   if (!finalShadowCtx) {
     console.warn('[PDF Shadow] Canvas 2D context unavailable');
-    return null;
+    return emptyResult;
   }
 
   // Preserve live canvas states
@@ -591,6 +630,29 @@ export async function createPdfShadowLayerFromFabric(
     });
   });
 
+  const perObjectShadows = new Map<any, string>();
+
+  // Helper to check if o is related to target (self, ancestor, or descendant)
+  const isDescendantOf = (parent: any, child: any): boolean => {
+    if (!parent || !child) return false;
+    const children = Array.isArray(parent._objects)
+      ? parent._objects
+      : typeof parent.getObjects === 'function'
+        ? parent.getObjects()
+        : null;
+    if (!Array.isArray(children)) return false;
+    for (const c of children) {
+      if (c === child || isDescendantOf(c, child)) return true;
+    }
+    return false;
+  };
+
+  const isSelfOrRelated = (o: any, target: any): boolean => {
+    if (o === target) return true;
+    if (!o || !target) return false;
+    return isDescendantOf(o, target) || isDescendantOf(target, o);
+  };
+
   try {
     canvas.backgroundColor = 'transparent';
     canvas.backgroundImage = undefined;
@@ -600,16 +662,9 @@ export async function createPdfShadowLayerFromFabric(
     }
 
     for (const obj of shadowObjects) {
-      // Isolate this object (and its ancestors if inside groups)
+      // Isolate this object (and its ancestors and descendants if group/frame)
       allObjects.forEach((o) => {
-        const isSelfOrAncestor =
-          o === obj ||
-          (Array.isArray((o as any)._objects) &&
-            (o as any)._objects.some(
-              (c: any) =>
-                c === obj || (Array.isArray(c._objects) && c._objects.includes(obj))
-            ));
-        if (isSelfOrAncestor) {
+        if (isSelfOrRelated(o, obj)) {
           const st = originalStates.get(o);
           o.opacity = st?.opacity ?? 1;
           o.visible = true;
@@ -621,14 +676,28 @@ export async function createPdfShadowLayerFromFabric(
       // 1. Render object WITH shadow at high resolution
       const withShadowCanvas = canvas.toCanvasElement(scale);
 
-      // 2. Render silhouette WITHOUT shadow (with opacity 1 so destination-out cleanly erases the body)
-      const s = obj.shadow;
-      const prevOpacity = obj.opacity;
-      obj.shadow = null;
-      obj.opacity = 1;
+      // 2. Render silhouette WITHOUT shadow (clearing shadow on obj and all descendants)
+      const clearedShadows = new Map<any, any>();
+      const clearShadowRecursive = (node: any) => {
+        if (!node) return;
+        clearedShadows.set(node, node.shadow);
+        node.shadow = null;
+        const children = Array.isArray(node._objects)
+          ? node._objects
+          : typeof node.getObjects === 'function'
+            ? node.getObjects()
+            : null;
+        if (Array.isArray(children)) {
+          children.forEach(clearShadowRecursive);
+        }
+      };
+      clearShadowRecursive(obj);
+
       const noShadowCanvas = canvas.toCanvasElement(scale);
-      obj.shadow = s;
-      obj.opacity = prevOpacity;
+
+      clearedShadows.forEach((origShadow, node) => {
+        node.shadow = origShadow;
+      });
 
       if (withShadowCanvas && noShadowCanvas) {
         const itemCanvas = document.createElement('canvas');
@@ -642,25 +711,25 @@ export async function createPdfShadowLayerFromFabric(
           // A. Draw with shadow intact
           itemCtx.drawImage(withShadowCanvas, drawX, drawY);
 
-          // B. Erase object body using destination-out ONLY for semi-transparent objects.
-          // For opaque objects, keeping the body prevents any white hole or subpixel fringe,
-          // because Layer 3 vector artwork will sit directly on top at identical 1:1 scale.
-          const objAlpha = Number(originalStates.get(obj)?.opacity ?? 1);
-          if (objAlpha < 0.98) {
-            itemCtx.save();
-            itemCtx.globalCompositeOperation = 'destination-out';
-            itemCtx.drawImage(noShadowCanvas, drawX, drawY);
-            itemCtx.restore();
-          }
+          // B. Erase object body using destination-out
+          // This strips all fill/stroke/photo pixels, leaving ONLY the pure soft drop shadow!
+          itemCtx.save();
+          itemCtx.globalCompositeOperation = 'destination-out';
+          itemCtx.drawImage(noShadowCanvas, drawX, drawY);
+          itemCtx.restore();
 
-          // C. Blend onto final shadow canvas
+          // C. Blend onto combined shadow canvas (global fallback)
           finalShadowCtx.drawImage(itemCanvas, 0, 0);
+
+          // D. Store individual shadow PNG data URL for exact Z-index injection
+          const perObjUrl = itemCanvas.toDataURL('image/png');
+          perObjectShadows.set(obj, perObjUrl);
         }
       }
     }
   } catch (error) {
     console.warn('[PDF Shadow] Failed to generate Fabric shadow layer:', error);
-    return null;
+    return emptyResult;
   } finally {
     // Restore all original canvas and object states in finally block
     allObjects.forEach((o) => {
@@ -682,8 +751,26 @@ export async function createPdfShadowLayerFromFabric(
 
   const shadowDataUrl = finalShadowCanvas.toDataURL('image/png');
   console.info('[PDF Shadow] Shadow layer generated: yes');
-  console.info(`[PDF Shadow] Layer size: ${pixelWidth} x ${pixelHeight}`);
-  return shadowDataUrl;
+  console.info(
+    `[PDF Shadow] Layer size: ${pixelWidth} x ${pixelHeight}, per-object shadows: ${perObjectShadows.size}`
+  );
+
+  return {
+    combinedShadowUrl: shadowDataUrl,
+    perObjectShadows,
+  };
+}
+
+export async function createPdfShadowLayerFromFabric(
+  canvasManager: CanvasManager | null | undefined,
+  geometry?: any,
+  options?: {
+    includeTrimMarks?: boolean;
+    scale?: number;
+  }
+): Promise<string | null> {
+  const result = await createPdfShadowsFromFabric(canvasManager, geometry, options);
+  return result.combinedShadowUrl;
 }
 
 /**
@@ -702,24 +789,27 @@ export async function createPdfShadowLayerFromFabric(
 async function prepareSvgFiltersForVectorPdf(
   svg: string,
   rasterScale: number = 2,
-  skipShadowRasterization: boolean = false
+  skipShadowRasterization: boolean = false,
+  perObjectShadows?: Map<any, string>,
+  canvasManager?: CanvasManager | null
 ): Promise<{
   backgroundSvg: string | null;
   vectorSvg: string;
   shadowDataUrl: string | null;
+  injectedShadowsCount: number;
 }> {
   if (
     typeof window === 'undefined' ||
     typeof DOMParser === 'undefined' ||
     typeof XMLSerializer === 'undefined'
   ) {
-    return { backgroundSvg: null, vectorSvg: svg, shadowDataUrl: null };
+    return { backgroundSvg: null, vectorSvg: svg, shadowDataUrl: null, injectedShadowsCount: 0 };
   }
 
   const parser = new DOMParser();
   const sourceDoc = parser.parseFromString(svg, 'image/svg+xml');
   if (sourceDoc.querySelector('parsererror')) {
-    return { backgroundSvg: null, vectorSvg: svg, shadowDataUrl: null };
+    return { backgroundSvg: null, vectorSvg: svg, shadowDataUrl: null, injectedShadowsCount: 0 };
   }
 
   const filtered = Array.from(
@@ -751,6 +841,7 @@ async function prepareSvgFiltersForVectorPdf(
       backgroundSvg: null,
       vectorSvg: new XMLSerializer().serializeToString(vectorDoc.documentElement),
       shadowDataUrl: null,
+      injectedShadowsCount: 0,
     };
   }
 
@@ -779,6 +870,7 @@ async function prepareSvgFiltersForVectorPdf(
     }
     if (el.tagName.toLowerCase() === 'rect') {
       const hasFilter =
+        Boolean(el.closest?.('[filter], [style*="filter"], [data-shadow-element="true"]')) ||
         el.hasAttribute('filter') ||
         (el.getAttribute('style') || '').includes('filter') ||
         el.getAttribute('data-shadow-element') === 'true';
@@ -801,7 +893,7 @@ async function prepareSvgFiltersForVectorPdf(
         if ((x === 0 || xAttr === '0%') && (y === 0 || yAttr === '0%')) {
           if (wAttr.includes('%') && parseFloat(wAttr) >= 95) return true;
           // Matches total width OR canvas artwork width
-          if (w >= logicalWidth * 0.45 && h >= logicalHeight * 0.45) return true;
+          if (w >= logicalWidth * 0.85 && h >= logicalHeight * 0.85) return true;
         }
       }
     }
@@ -849,6 +941,47 @@ async function prepareSvgFiltersForVectorPdf(
     removeFilterFromNode(node as Element);
   });
 
+  // Inject per-object Fabric shadows directly into the vector document at each object's exact Z-index!
+  let injectedShadowsCount = 0;
+  if (perObjectShadows && perObjectShadows.size > 0 && canvasManager) {
+    const canvas = canvasManager.getCanvas();
+    if (canvas) {
+      const allObjects = collectFabricObjectsRecursively(canvas);
+      for (const [obj, shadowUrl] of perObjectShadows.entries()) {
+        const targetEl = findSvgElementForFabricObject(vectorDoc, obj, allObjects);
+        if (targetEl && targetEl.parentNode) {
+          // Traverse up to the direct child of <svg> so the full-canvas shadow image is rendered in root coordinate space
+          let insertionTarget: Element = targetEl;
+          while (
+            insertionTarget.parentNode &&
+            insertionTarget.parentNode !== vectorDoc.documentElement
+          ) {
+            insertionTarget = insertionTarget.parentNode as Element;
+          }
+
+          const shadowImg = vectorDoc.createElementNS('http://www.w3.org/2000/svg', 'image');
+          shadowImg.setAttribute('x', '0');
+          shadowImg.setAttribute('y', '0');
+          shadowImg.setAttribute('width', String(logicalWidth));
+          shadowImg.setAttribute('height', String(logicalHeight));
+          shadowImg.setAttribute('href', shadowUrl);
+          shadowImg.setAttribute('xlink:href', shadowUrl);
+          shadowImg.setAttribute('preserveAspectRatio', 'none');
+          shadowImg.setAttribute('data-fabric-shadow-layer', 'true');
+
+          vectorDoc.documentElement.insertBefore(shadowImg, insertionTarget);
+          injectedShadowsCount++;
+
+          targetEl.removeAttribute('filter');
+          targetEl.querySelectorAll('[filter]').forEach((el) => el.removeAttribute('filter'));
+        }
+      }
+      console.info(
+        `[PDF Shadow] Injected ${injectedShadowsCount}/${perObjectShadows.size} shadows at exact Z-index into vector SVG`
+      );
+    }
+  }
+
   const vectorSvgString = new XMLSerializer().serializeToString(
     vectorDoc.documentElement
   );
@@ -858,6 +991,7 @@ async function prepareSvgFiltersForVectorPdf(
       backgroundSvg,
       vectorSvg: vectorSvgString,
       shadowDataUrl: null,
+      injectedShadowsCount,
     };
   }
 
@@ -965,6 +1099,7 @@ async function prepareSvgFiltersForVectorPdf(
       backgroundSvg,
       vectorSvg: vectorSvgString,
       shadowDataUrl,
+      injectedShadowsCount,
     };
   } catch (error) {
     console.warn(
@@ -976,6 +1111,7 @@ async function prepareSvgFiltersForVectorPdf(
       backgroundSvg: null,
       vectorSvg: new XMLSerializer().serializeToString(sourceDoc.documentElement),
       shadowDataUrl: null,
+      injectedShadowsCount: 0,
     };
   }
 }
@@ -2003,10 +2139,10 @@ export async function exportPreparedVectorPdf(
     });
   });
 
-  // 1. Generate shadow layer directly from Fabric canvas objects if canvasManager is provided
-  let directFabricShadowUrl: string | null = options.shadowDataUrl || null;
-  if (!directFabricShadowUrl && canvasManager) {
-    directFabricShadowUrl = await createPdfShadowLayerFromFabric(
+  // 1. Generate shadow layers directly from Fabric canvas objects if canvasManager is provided
+  let fabricShadowResult: FabricPdfShadowResult | null = null;
+  if (canvasManager) {
+    fabricShadowResult = await createPdfShadowsFromFabric(
       canvasManager,
       geometry,
       {
@@ -2016,15 +2152,27 @@ export async function exportPreparedVectorPdf(
     );
   }
 
-  // 2. Prepare SVG layers (background and vector artwork)
+  const directFabricShadowUrl = options.shadowDataUrl || fabricShadowResult?.combinedShadowUrl || null;
+
+  // 2. Prepare SVG layers (background and vector artwork, injecting shadows at exact Z-index)
   const preparedPdfSvg = await prepareSvgFiltersForVectorPdf(
     embeddedSvg,
     2,
-    Boolean(directFabricShadowUrl)
+    Boolean(directFabricShadowUrl),
+    fabricShadowResult?.perObjectShadows,
+    canvasManager
   );
 
-  // Prefer direct Fabric shadow layer; fallback to SVG filter shadow if needed
-  const finalShadowDataUrl = directFabricShadowUrl || preparedPdfSvg.shadowDataUrl;
+  // If all shadows were injected directly into vectorSvg at exact Z-index,
+  // do not draw flat background-level shadow layer to avoid double shadows.
+  const hasInjectedAll =
+    fabricShadowResult &&
+    fabricShadowResult.perObjectShadows.size > 0 &&
+    preparedPdfSvg.injectedShadowsCount >= fabricShadowResult.perObjectShadows.size;
+
+  const finalShadowDataUrl = hasInjectedAll
+    ? null
+    : directFabricShadowUrl || preparedPdfSvg.shadowDataUrl;
 
   pdf.addPage({
     size: [widthPt, heightPt],
@@ -2050,6 +2198,10 @@ export async function exportPreparedVectorPdf(
 
     return getStandardPdfFontName(family, bold, italic);
   };
+
+  // Clip strictly to page bounds (red line area) so nothing outside renders
+  pdf.save();
+  pdf.rect(0, 0, widthPt, heightPt).clip();
 
   // 1. Draw background layer FIRST below everything else
   if (preparedPdfSvg.backgroundSvg) {
@@ -2084,6 +2236,8 @@ export async function exportPreparedVectorPdf(
       console.warn('[PDF Export] SVG-to-PDFKit warning:', warning);
     },
   });
+
+  pdf.restore();
 
   console.info('[PDF Shadow] Vector artwork rendered above shadow layer');
 
@@ -2176,9 +2330,9 @@ export async function exportVectorPdf(
 
       const embeddedSvg = await inlineExternalSvgImages(svg);
 
-      let directFabricShadowUrl: string | null = null;
+      let fabricShadowResult: FabricPdfShadowResult | null = null;
       if (options.canvasManager) {
-        directFabricShadowUrl = await createPdfShadowLayerFromFabric(
+        fabricShadowResult = await createPdfShadowsFromFabric(
           options.canvasManager,
           options.geometry,
           {
@@ -2188,13 +2342,24 @@ export async function exportVectorPdf(
         );
       }
 
+      const directFabricShadowUrl = fabricShadowResult?.combinedShadowUrl || null;
+
       const preparedPdfSvg = await prepareSvgFiltersForVectorPdf(
         embeddedSvg,
-        2
+        2,
+        Boolean(directFabricShadowUrl),
+        fabricShadowResult?.perObjectShadows,
+        options.canvasManager
       );
 
-      const finalShadowDataUrl =
-        directFabricShadowUrl || preparedPdfSvg.shadowDataUrl;
+      const hasInjectedAll =
+        fabricShadowResult &&
+        fabricShadowResult.perObjectShadows.size > 0 &&
+        preparedPdfSvg.injectedShadowsCount >= fabricShadowResult.perObjectShadows.size;
+
+      const finalShadowDataUrl = hasInjectedAll
+        ? null
+        : directFabricShadowUrl || preparedPdfSvg.shadowDataUrl;
 
       pdf.addPage({
         size: [width, height],
@@ -2222,6 +2387,10 @@ export async function exportVectorPdf(
 
         return getStandardPdfFontName(family, bold, italic);
       };
+
+      // Clip strictly to page bounds (red line area) so nothing outside renders
+      pdf.save();
+      pdf.rect(0, 0, width, height).clip();
 
       // 1. Draw background layer below everything else
       if (preparedPdfSvg.backgroundSvg) {
@@ -2256,6 +2425,8 @@ export async function exportVectorPdf(
           console.warn('SVG-to-PDFKit warning:', warning);
         },
       });
+
+      pdf.restore();
 
       console.info('[PDF Shadow] Vector artwork rendered above shadow layer');
     }

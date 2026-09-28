@@ -362,7 +362,7 @@ function parseColorAndOpacity(cssColor: string): { color: string; opacity: numbe
  * Fabric does not always serialize custom object IDs as SVG id attributes,
  * so this first tries explicit IDs and then safely falls back to top-level order.
  */
-function findSvgElementForFabricObject(
+export function findSvgElementForFabricObject(
   svgDoc: Document,
   obj: any,
   allObjects: any[]
@@ -701,7 +701,21 @@ export function injectSilhouetteShadowsInSvg(
       continue;
     }
 
-    if (requiresSilhouetteShadow(obj)) {
+    const isImg =
+      obj.type === 'image' ||
+      obj.type === 'fabricImage' ||
+      obj.type === 'FabricImage';
+
+    const isFrame =
+      Boolean((obj as any).isFrame) ||
+      Boolean((obj as any).isPhotoShapeGroup) ||
+      Boolean((obj as any).isCustomFrame);
+
+    const requiresSpecialSilhouetteInjection =
+      (isImg && (obj.clipPath || Number((obj as any).cornerRadius) > 0)) ||
+      (isFrame && typeof (obj as any).getObjects === 'function');
+
+    if (requiresSpecialSilhouetteInjection) {
       shadowCounter++;
       const filterId = `export_sil_shadow_${shadowCounter}`;
       const { color, opacity } = parseColorAndOpacity(String(shadow.color));
@@ -727,16 +741,6 @@ export function injectSilhouetteShadowsInSvg(
         </feMerge>
       `;
       defs.appendChild(filter);
-
-      const isImg =
-        obj.type === 'image' ||
-        obj.type === 'fabricImage' ||
-        obj.type === 'FabricImage';
-
-      const isFrame =
-        Boolean((obj as any).isFrame) ||
-        Boolean((obj as any).isPhotoShapeGroup) ||
-        Boolean((obj as any).isCustomFrame);
 
       if (isImg && (obj.clipPath || Number((obj as any).cornerRadius) > 0)) {
         // Rounded image: emit silhouette rect matching effective corner radius
