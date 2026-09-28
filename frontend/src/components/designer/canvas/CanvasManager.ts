@@ -10211,6 +10211,9 @@ export class CanvasManager {
       transparentCorners: false,
       padding: 6,
       splitByGrapheme: false,
+      selectionColor: 'rgba(139, 61, 255, 0.35)',
+      cursorColor: '#000000',
+      cursorWidth: 2,
       hoverCursor: 'move',
       moveCursor: 'move',
       // Render directly from vector glyphs so text stays sharp across zooms and retina displays
@@ -10475,7 +10478,7 @@ export class CanvasManager {
     return runPreflightCheck(this.canvas, this.dimensions);
   }
 
-  private notifySelection(): void {
+  public notifySelection(): void {
     const state = this.extractSelectedState();
     this.selectionListeners.forEach((cb) => cb(state));
   }
@@ -10521,7 +10524,7 @@ export class CanvasManager {
     }, 250);
   }
 
-  private notifyChange(): void {
+  public notifyChange(): void {
     this.changeListeners.forEach((cb) => cb());
     this.notifyPreflight();
     this.scheduleHistorySave();
@@ -11318,6 +11321,17 @@ export class CanvasManager {
         this.smartSpacingManager.handleObjectFixed(activeObj);
       } else {
         this.smartSpacingManager.clear();
+      }
+
+      if (activeObj && this.isTextObject(activeObj) && (activeObj as any).isEditing) {
+        const textarea = (activeObj as any).hiddenTextarea as HTMLTextAreaElement | undefined;
+        if (textarea && typeof document !== 'undefined' && document.activeElement !== textarea) {
+          try {
+            textarea.focus({ preventScroll: true });
+          } catch {
+            textarea.focus();
+          }
+        }
       }
 
       if (this.currentHoverFitTarget || this.pendingDropFrame || this.origMovingObj) {

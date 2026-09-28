@@ -2172,23 +2172,28 @@ export default function Designer({
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const manager = canvasManagerRef.current;
+      if (!manager) return;
 
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
-        if ((e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) && manager) {
-          const canvas = manager.getCanvas();
-          const active = canvas?.getActiveObject() as any;
-          if (active?.isEditing) {
-            e.preventDefault();
-            active.exitEditing?.();
-            active.set?.('hoverCursor', 'move');
-            canvas?.setCursor('move');
-            canvas?.requestRenderAll();
-          }
+      const canvas = manager.getCanvas();
+      const active = canvas?.getActiveObject() as any;
+      const isFabricTextEditing = Boolean(active?.isEditing);
+
+      if (
+        (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || (target as any).isContentEditable)) ||
+        isFabricTextEditing
+      ) {
+        if ((e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) && isFabricTextEditing) {
+          e.preventDefault();
+          e.stopPropagation();
+          active.exitEditing?.();
+          active.hiddenTextarea?.blur?.();
+          active.set?.('hoverCursor', 'move');
+          canvas?.setCursor('move');
+          canvas?.requestRenderAll();
+          manager.notifySelection();
         }
         return;
       }
-
-      if (!manager) return;
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         manager.deleteSelected();

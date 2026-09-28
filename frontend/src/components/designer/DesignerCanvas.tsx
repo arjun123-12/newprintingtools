@@ -332,10 +332,21 @@ export function DesignerCanvas({
     const handleKeyDown = (event: KeyboardEvent) => {
       const targetElement = event.target as HTMLElement | null;
 
+      const canvas = canvasManager.getCanvas();
+      if (!canvas) return;
+
+      const activeObject = canvas.getActiveObject();
+      const isFabricHiddenTextarea = Boolean(
+        targetElement &&
+        activeObject &&
+        (activeObject as any).hiddenTextarea === targetElement
+      );
+
       if (
-        targetElement instanceof HTMLInputElement ||
-        targetElement instanceof HTMLTextAreaElement ||
-        targetElement?.isContentEditable
+        (targetElement instanceof HTMLInputElement ||
+          targetElement instanceof HTMLTextAreaElement ||
+          targetElement?.isContentEditable) &&
+        !isFabricHiddenTextarea
       ) {
         return;
       }
@@ -352,14 +363,8 @@ export function DesignerCanvas({
         return;
       }
 
-      const canvas = canvasManager.getCanvas();
-
-      if (!canvas) return;
-
-      const activeObject = canvas.getActiveObject();
-
       /*
-       * Do not run canvas shortcuts while editing text.
+       * When editing text: handle text shortcuts and forward navigation/selection keys.
        */
       if (
         activeObject &&
@@ -369,11 +374,75 @@ export function DesignerCanvas({
       ) {
         if (event.key === 'Escape' || (event.key === 'Enter' && (event.ctrlKey || event.metaKey))) {
           event.preventDefault();
+          event.stopPropagation();
           (activeObject as any).exitEditing?.();
+          (activeObject as any).hiddenTextarea?.blur?.();
           activeObject.set?.('hoverCursor', 'move');
           canvas.setCursor('move');
           canvas.requestRenderAll();
+          canvasManager.notifySelection();
+          return;
         }
+
+        const isNavOrSelectionKey =
+          event.key === 'ArrowLeft' ||
+          event.key === 'ArrowRight' ||
+          event.key === 'ArrowUp' ||
+          event.key === 'ArrowDown' ||
+          event.key === 'Home' ||
+          event.key === 'End' ||
+          event.key === 'PageUp' ||
+          event.key === 'PageDown' ||
+          (event.key.toLowerCase() === 'a' && (event.ctrlKey || event.metaKey));
+
+        const textarea = (activeObject as any).hiddenTextarea as HTMLTextAreaElement | undefined;
+        if (textarea && document.activeElement !== textarea) {
+          try {
+            textarea.focus({ preventScroll: true });
+          } catch {
+            textarea.focus();
+          }
+        }
+
+        if (isNavOrSelectionKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (typeof (activeObject as any).onKeyDown === 'function') {
+            (activeObject as any).onKeyDown(event);
+          }
+          canvas.requestRenderAll();
+          return;
+        }
+
+        return;
+      }
+
+      /*
+       * Canva-style: Press Enter on a selected text element to enter editing mode.
+       */
+      if (
+        activeObject &&
+        event.key === 'Enter' &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        !event.altKey &&
+        canvasManager.isTextObject(activeObject) &&
+        !(activeObject as any).isEditing &&
+        (activeObject as any).editable !== false &&
+        (activeObject as any).get?.('isLocked') !== true
+      ) {
+        event.preventDefault();
+        (activeObject as any).enterEditing?.();
+        const textarea = (activeObject as any).hiddenTextarea as HTMLTextAreaElement | undefined;
+        if (textarea) {
+          try {
+            textarea.focus({ preventScroll: true });
+          } catch {
+            textarea.focus();
+          }
+        }
+        canvas.requestRenderAll();
         return;
       }
 
@@ -615,6 +684,10 @@ export function DesignerCanvas({
 
       if (!activeObject || !isArrowKey) return;
 
+      if ((activeObject as any).get?.('isLocked') === true || (activeObject as any).isLocked === true) {
+        return;
+      }
+
       event.preventDefault();
 
       const step = event.shiftKey ? 10 : 1;
@@ -623,22 +696,20 @@ export function DesignerCanvas({
 
       if (event.key === 'ArrowLeft') {
         activeObject.set('left', currentLeft - step);
-      }
-
-      if (event.key === 'ArrowRight') {
+      } else if (event.key === 'ArrowRight') {
         activeObject.set('left', currentLeft + step);
-      }
-
-      if (event.key === 'ArrowUp') {
+      } else if (event.key === 'ArrowUp') {
         activeObject.set('top', currentTop - step);
-      }
-
-      if (event.key === 'ArrowDown') {
+      } else if (event.key === 'ArrowDown') {
         activeObject.set('top', currentTop + step);
       }
 
       activeObject.setCoords();
+      if (typeof (activeObject as any).getObjects === 'function') {
+        (activeObject as any).getObjects().forEach((o: any) => o.setCoords?.());
+      }
       canvas.requestRenderAll();
+      canvasManager.notifySelection();
 
       movedViaKeys = true;
 
@@ -651,11 +722,11 @@ export function DesignerCanvas({
 
         movedViaKeys = false;
 
-        canvasManager.updateSelectedProperty(
-          'left',
-          activeObject.left
-        );
-      }, 300);
+        (canvas as any).fire('object:modified', { target: activeObject });
+        canvasManager.notifySelection();
+        canvasManager.notifyChange();
+        canvasManager.saveHistoryState();
+      }, 250);
     };
 
     const stopTemporaryPan = () => {

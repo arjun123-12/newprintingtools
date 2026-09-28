@@ -1468,6 +1468,7 @@ export function applyCanvaControlsGlobal(): void {
     prototype.splitByGrapheme = false;
     prototype.cursorColor = '#000000';
     prototype.cursorWidth = 2;
+    prototype.selectionColor = 'rgba(139, 61, 255, 0.35)';
 
     prototype.dynamicMinWidth = function () {
       return Math.max(24, Number((this as any).fontSize || 16) * 0.8);
@@ -1485,7 +1486,15 @@ export function applyCanvaControlsGlobal(): void {
       if (!this.isEditing) {
         return;
       }
-      return origMouseDownHandler?.call(this, options);
+      const res = origMouseDownHandler?.call(this, options);
+      if (this.isEditing && this.hiddenTextarea) {
+        try {
+          this.hiddenTextarea.focus({ preventScroll: true });
+        } catch {
+          this.hiddenTextarea.focus();
+        }
+      }
+      return res;
     };
 
     // Single-click on text selects or drags the text box.
@@ -1501,7 +1510,26 @@ export function applyCanvaControlsGlobal(): void {
         }
         return;
       }
-      return origMouseUpHandler?.call(this, options);
+      const res = origMouseUpHandler?.call(this, options);
+      if (this.isEditing && this.hiddenTextarea) {
+        try {
+          this.hiddenTextarea.focus({ preventScroll: true });
+        } catch {
+          this.hiddenTextarea.focus();
+        }
+        this.canvas?.requestRenderAll();
+      }
+      return res;
+    };
+
+    // Ensure keyboard navigation & selection immediately triggers render on canvas
+    const origOnKeyDown = prototype.onKeyDown;
+    prototype.onKeyDown = function (e: KeyboardEvent) {
+      if (!this.isEditing) return;
+      origOnKeyDown.call(this, e);
+      if (this.canvas) {
+        this.canvas.requestRenderAll();
+      }
     };
 
     // Draw custom selection frame for curved text, or default for straight text.
@@ -1657,6 +1685,7 @@ export function applyCanvaControlsGlobal(): void {
     prototype.enterEditing = function (e?: any) {
       const res = origEnterEditing.call(this, e);
       this.hoverCursor = 'text';
+      this.selectionColor = 'rgba(139, 61, 255, 0.35)';
       if (this.canvas) {
         this.canvas.setCursor('text');
       }
