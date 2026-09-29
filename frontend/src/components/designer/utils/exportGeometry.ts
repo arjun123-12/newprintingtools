@@ -552,3 +552,250 @@ function getFinitePositiveNumber(
 
   return fallback;
 }
+
+// =========================================================
+// CANONICAL ARTWORK EXPORT BOUNDS & VISIBLE TRIM LINE
+// =========================================================
+
+export interface ArtworkExportBounds {
+  /** Outer RED boundary width in document px (at document DPI, e.g. 300) */
+  widthPx: number;
+  /** Outer RED boundary height in document px */
+  heightPx: number;
+  /** Outer RED boundary width in physical mm */
+  widthMm: number;
+  /** Outer RED boundary height in physical mm */
+  heightMm: number;
+  /** Outer RED boundary width in PDF points (72 points / inch) */
+  widthPt: number;
+  /** Outer RED boundary height in PDF points */
+  heightPt: number;
+  /** Document coordinate of BLACK trim line left (bleedPx) */
+  trimLeftPx: number;
+  /** Document coordinate of BLACK trim line top (bleedPx) */
+  trimTopPx: number;
+  /** Width of the BLACK trim line in document px */
+  trimWidthPx: number;
+  /** Height of the BLACK trim line in document px */
+  trimHeightPx: number;
+  /** Physical trim width in mm */
+  trimWidthMm: number;
+  /** Physical trim height in mm */
+  trimHeightMm: number;
+  /** Bleed in px */
+  bleedPx: number;
+  /** Bleed in mm */
+  bleedMm: number;
+  /** Multiplier from document base DPI to target export DPI */
+  exportMultiplier: number;
+  /** Target resolution in px at targetDpi */
+  targetWidthPx: number;
+  targetHeightPx: number;
+  /** Base document DPI */
+  documentDpi: number;
+  /** Target export DPI */
+  targetDpi: number;
+}
+
+/**
+ * Calculates the canonical RED outer export boundary and inner BLACK trim/cut line
+ * coordinates from existing document dimensions.
+ *
+ * Rules:
+ * - RED = outer export boundary (viewBox / page size / image bounds).
+ * - BLACK = visible trim/cut line positioned at (trimLeftPx, trimTopPx, trimWidthPx, trimHeightPx).
+ * - Never depends on browser size, viewport dimensions, DOM scaling, or current zoom.
+ */
+export function getArtworkExportBounds(
+  dimensions: CanvasDimensions,
+  targetDpi: number = 300
+): ArtworkExportBounds {
+  const geom = getArtworkExportGeometry(dimensions, targetDpi, 0);
+  const ptPerMm = 72 / 25.4;
+  return {
+    widthPx: geom.artworkWidthPx,
+    heightPx: geom.artworkHeightPx,
+    widthMm: geom.artworkWidthMm,
+    heightMm: geom.artworkHeightMm,
+    widthPt: geom.artworkWidthMm * ptPerMm,
+    heightPt: geom.artworkHeightMm * ptPerMm,
+    trimLeftPx: geom.trimLeftPx,
+    trimTopPx: geom.trimTopPx,
+    trimWidthPx: geom.trimWidthPx,
+    trimHeightPx: geom.trimHeightPx,
+    trimWidthMm: geom.trimWidthMm,
+    trimHeightMm: geom.trimHeightMm,
+    bleedPx: geom.bleedPx,
+    bleedMm: geom.bleedMm,
+    exportMultiplier: geom.exportMultiplier,
+    targetWidthPx: geom.targetArtworkWidthPx,
+    targetHeightPx: geom.targetArtworkHeightPx,
+    documentDpi: geom.documentDpi,
+    targetDpi: geom.targetDpi,
+  };
+}
+
+/**
+ * Draws visible TRIM MARKS (corner cut marks) onto a 2D canvas context.
+ * Replaces the full black rectangle line with corner trim marks at the trim boundary.
+ * Uses a subtle white casing so the trim marks are clearly visible over any artwork.
+ */
+export function renderVisibleTrimLineOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  bounds: ArtworkExportBounds,
+  scale: number = 1
+): void {
+  const xLeft = bounds.trimLeftPx * scale;
+  const yTop = bounds.trimTopPx * scale;
+  const xRight = (bounds.trimLeftPx + bounds.trimWidthPx) * scale;
+  const yBottom = (bounds.trimTopPx + bounds.trimHeightPx) * scale;
+  const totalW = bounds.widthPx * scale;
+  const totalH = bounds.heightPx * scale;
+
+  const markLen = bounds.bleedPx > 0
+    ? bounds.bleedPx * scale
+    : Math.round(18 * scale * (bounds.documentDpi / 300));
+
+  // 8 trim mark segments: 2 at each of the 4 corners
+  const lines: Array<[number, number, number, number]> = bounds.bleedPx > 0
+    ? [
+        // Top-Left corner
+        [xLeft, 0, xLeft, yTop],
+        [0, yTop, xLeft, yTop],
+        // Top-Right corner
+        [xRight, 0, xRight, yTop],
+        [totalW, yTop, xRight, yTop],
+        // Bottom-Left corner
+        [xLeft, totalH, xLeft, yBottom],
+        [0, yBottom, xLeft, yBottom],
+        // Bottom-Right corner
+        [xRight, totalH, xRight, yBottom],
+        [totalW, yBottom, xRight, yBottom],
+      ]
+    : [
+        // Top-Left corner (no bleed)
+        [0, 0, 0, markLen],
+        [0, 0, markLen, 0],
+        // Top-Right corner (no bleed)
+        [totalW, 0, totalW, markLen],
+        [totalW, 0, totalW - markLen, 0],
+        // Bottom-Left corner (no bleed)
+        [0, totalH, 0, totalH - markLen],
+        [0, totalH, markLen, totalH],
+        // Bottom-Right corner (no bleed)
+        [totalW, totalH, totalW, totalH - markLen],
+        [totalW, totalH, totalW - markLen, totalH],
+      ];
+
+  ctx.save();
+  ctx.lineCap = 'square';
+
+  // White casing for maximum contrast against any background
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.lineWidth = Math.max(1.5, 3 * scale);
+  ctx.beginPath();
+  for (const [x1, y1, x2, y2] of lines) {
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+  }
+  ctx.stroke();
+
+  // Crisp black trim mark lines
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = Math.max(0.75, 1.25 * scale);
+  ctx.beginPath();
+  for (const [x1, y1, x2, y2] of lines) {
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+  }
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/**
+ * Injects visible TRIM MARKS (corner cut marks) into an SVG document.
+ * Replaces the full black rectangle line with corner trim marks at the trim boundary.
+ */
+export function injectVisibleTrimLineInSvg(
+  svgDoc: Document,
+  bounds: ArtworkExportBounds
+): void {
+  if (svgDoc.querySelector('[data-print-trim-line="true"]')) {
+    return;
+  }
+  const xLeft = bounds.trimLeftPx;
+  const yTop = bounds.trimTopPx;
+  const xRight = bounds.trimLeftPx + bounds.trimWidthPx;
+  const yBottom = bounds.trimTopPx + bounds.trimHeightPx;
+  const totalW = bounds.widthPx;
+  const totalH = bounds.heightPx;
+
+  const markLen = bounds.bleedPx > 0
+    ? bounds.bleedPx
+    : Math.round(18 * (bounds.documentDpi / 300));
+
+  const lines: Array<[number, number, number, number]> = bounds.bleedPx > 0
+    ? [
+        // Top-Left corner
+        [xLeft, 0, xLeft, yTop],
+        [0, yTop, xLeft, yTop],
+        // Top-Right corner
+        [xRight, 0, xRight, yTop],
+        [totalW, yTop, xRight, yTop],
+        // Bottom-Left corner
+        [xLeft, totalH, xLeft, yBottom],
+        [0, yBottom, xLeft, yBottom],
+        // Bottom-Right corner
+        [xRight, totalH, xRight, yBottom],
+        [totalW, yBottom, xRight, yBottom],
+      ]
+    : [
+        // Top-Left corner (no bleed)
+        [0, 0, 0, markLen],
+        [0, 0, markLen, 0],
+        // Top-Right corner (no bleed)
+        [totalW, 0, totalW, markLen],
+        [totalW, 0, totalW - markLen, 0],
+        // Bottom-Left corner (no bleed)
+        [0, totalH, 0, totalH - markLen],
+        [0, totalH, markLen, totalH],
+        // Bottom-Right corner (no bleed)
+        [totalW, totalH, totalW, totalH - markLen],
+        [totalW, totalH, totalW - markLen, totalH],
+      ];
+
+  const g = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.setAttribute('id', 'export-visible-trim-marks');
+  g.setAttribute('data-print-trim-line', 'true');
+
+  const casingGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  casingGroup.setAttribute('stroke', 'rgba(255, 255, 255, 0.85)');
+  casingGroup.setAttribute('stroke-width', '3');
+  casingGroup.setAttribute('stroke-linecap', 'square');
+
+  const blackGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  blackGroup.setAttribute('stroke', '#000000');
+  blackGroup.setAttribute('stroke-width', '1.25');
+  blackGroup.setAttribute('stroke-linecap', 'square');
+
+  for (const [x1, y1, x2, y2] of lines) {
+    const casingLine = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'line');
+    casingLine.setAttribute('x1', String(x1));
+    casingLine.setAttribute('y1', String(y1));
+    casingLine.setAttribute('x2', String(x2));
+    casingLine.setAttribute('y2', String(y2));
+    casingGroup.appendChild(casingLine);
+
+    const blackLine = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'line');
+    blackLine.setAttribute('x1', String(x1));
+    blackLine.setAttribute('y1', String(y1));
+    blackLine.setAttribute('x2', String(x2));
+    blackLine.setAttribute('y2', String(y2));
+    blackGroup.appendChild(blackLine);
+  }
+
+  g.appendChild(casingGroup);
+  g.appendChild(blackGroup);
+  svgDoc.documentElement.appendChild(g);
+}

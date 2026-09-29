@@ -418,6 +418,23 @@ export function DesignerCanvas({
       }
 
       /*
+       * Canva-style: Pressing Alt while an element is active switches cursor to 'copy'
+       */
+      if (event.key === 'Alt' && canvas) {
+        const activeObj = canvas.getActiveObject();
+        if (
+          activeObj &&
+          !activeObj.get?.('isGuide' as any) &&
+          !activeObj.get?.('isPrintGuide' as any) &&
+          !activeObj.get?.('isRulerGuide' as any) &&
+          !activeObj.get?.('isBackground' as any) &&
+          !(activeObj as any).isEditing
+        ) {
+          canvas.setCursor('copy');
+        }
+      }
+
+      /*
        * Canva-style: Press Enter on a selected text element to enter editing mode.
        */
       if (
@@ -737,6 +754,15 @@ export function DesignerCanvas({
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
+      const canvas = canvasManager.getCanvas();
+      if (event.key === 'Alt' && canvas) {
+        const activeObj = canvas.getActiveObject();
+        if (activeObj) {
+          canvas.setCursor('move');
+        } else {
+          canvas.setCursor('default');
+        }
+      }
       if (event.code !== 'Space') return;
       event.preventDefault();
       stopTemporaryPan();

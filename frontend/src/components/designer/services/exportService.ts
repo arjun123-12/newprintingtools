@@ -1,8 +1,18 @@
 import { DocumentSettings, CanvasDimensions } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { urlToSafeDataUrl } from '@/utils/imageUrl';
-import { getArtworkExportGeometry } from '../utils/exportGeometry';
-import { collectFabricObjectsRecursively, findSvgElementForFabricObject } from '../utils/svgExportHelpers';
+import {
+  getArtworkExportGeometry,
+  getArtworkExportBounds,
+  renderVisibleTrimLineOnCanvas,
+  injectVisibleTrimLineInSvg,
+} from '../utils/exportGeometry';
+import {
+  collectFabricObjectsRecursively,
+  findSvgElementForFabricObject,
+  rasterizeHollowTextForExport,
+  rasterizeFramesForVectorPdf,
+} from '../utils/svgExportHelpers';
 import { Shadow } from 'fabric';
 
 import PDFDocument from 'pdfkit';
@@ -400,10 +410,16 @@ export async function exportHighResolutionImage(
   const wereGuidesVisible = canvasManager.getGuidesVisible();
   const previousZoom = canvasManager.getZoom();
   const previousBackground = canvas.backgroundColor;
+  const previousVpt = canvas.viewportTransform
+    ? ([...canvas.viewportTransform] as [number, number, number, number, number, number])
+    : null;
 
   canvasManager.setGuidesVisible(false);
   canvas.discardActiveObject();
   canvasManager.setZoom(1);
+  if (canvas.viewportTransform) {
+    canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+  }
 
   if (backgroundColor) {
     canvas.backgroundColor = backgroundColor;
@@ -431,29 +447,55 @@ export async function exportHighResolutionImage(
         ? selectedDpi
         : 300;
 
-    const geometry = getArtworkExportGeometry(dimensions, dpi);
+    const bounds = getArtworkExportBounds(dimensions, dpi);
 
-    const mimeFormat: 'png' | 'jpeg' | 'webp' =
-      format === 'jpeg'
-        ? 'jpeg'
-        : format === 'webp'
-          ? 'webp'
-          : 'png';
-
-    const dataUrl = canvas.toDataURL({
-      format: mimeFormat,
-      quality: normalizedQuality,
-      multiplier: geometry.exportMultiplier,
+    const rawDataUrl = canvas.toDataURL({
+      format: 'png',
+      multiplier: bounds.exportMultiplier,
       left: 0,
       top: 0,
-      width: geometry.artworkWidthPx,
-      height: geometry.artworkHeightPx,
+      width: bounds.widthPx,
+      height: bounds.heightPx,
       enableRetinaScaling: false,
     });
 
-    if (!dataUrl || !dataUrl.startsWith('data:image/')) {
+    if (!rawDataUrl || !rawDataUrl.startsWith('data:image/')) {
       throw new Error('Fabric canvas did not produce a valid image');
     }
+
+    const img = new Image();
+    img.src = rawDataUrl;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Failed to load intermediate export image'));
+    });
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = bounds.targetWidthPx;
+    offscreen.height = bounds.targetHeightPx;
+    const ctx = offscreen.getContext('2d');
+    if (!ctx) {
+      throw new Error('Could not create offscreen canvas context');
+    }
+
+    if (format === 'jpeg' || (backgroundColor && backgroundColor !== 'transparent')) {
+      ctx.fillStyle = backgroundColor || documentSettings.backgroundColor || '#ffffff';
+      ctx.fillRect(0, 0, bounds.targetWidthPx, bounds.targetHeightPx);
+    }
+
+    ctx.drawImage(img, 0, 0, bounds.targetWidthPx, bounds.targetHeightPx);
+
+    // Visible BLACK trim/cut line inside the RED export boundary
+    renderVisibleTrimLineOnCanvas(ctx, bounds, bounds.exportMultiplier);
+
+    const mimeType =
+      format === 'jpeg'
+        ? 'image/jpeg'
+        : format === 'webp'
+          ? 'image/webp'
+          : 'image/png';
+
+    const finalDataUrl = offscreen.toDataURL(mimeType, normalizedQuality);
 
     const safeName = createSafeFilename(documentSettings.name);
 
@@ -468,15 +510,20 @@ export async function exportHighResolutionImage(
       options.filename ||
       `${safeName}_${dpi}dpi.${extension}`;
 
-    downloadFile(dataUrl, filename);
+    downloadFile(finalDataUrl, filename);
   } finally {
     canvas.backgroundColor = previousBackground;
 
+    if (previousVpt) {
+      canvas.setViewportTransform(previousVpt);
+    }
     canvasManager.setZoom(previousZoom);
     canvasManager.setGuidesVisible(wereGuidesVisible);
 
     if (activeObject) {
-      canvas.setActiveObject(activeObject);
+      try {
+        canvas.setActiveObject(activeObject);
+      } catch {}
     }
 
     canvas.requestRenderAll();
@@ -574,21 +621,10 @@ export async function createPdfShadowsFromFabric(
   const artworkWidthPx = geometry?.artworkWidthPx || geometry?.widthPx || canvas.width || 800;
   const artworkHeightPx = geometry?.artworkHeightPx || geometry?.heightPx || canvas.height || 600;
 
-  let slugMarginPx = 0;
-  let totalW = artworkWidthPx;
-  let totalH = artworkHeightPx;
-
-  if (
-    options?.includeTrimMarks &&
-    geometry?.slugMarginMm &&
-    (geometry?.artworkWidthMm || geometry?.widthMm)
-  ) {
-    const artWidthMm = geometry.artworkWidthMm || geometry.widthMm;
-    const pxPerMm = artworkWidthPx / artWidthMm;
-    slugMarginPx = Math.round(geometry.slugMarginMm * pxPerMm);
-    totalW = artworkWidthPx + slugMarginPx * 2;
-    totalH = artworkHeightPx + slugMarginPx * 2;
-  }
+  // The RED boundary is the outer export boundary (no slug margin)
+  const slugMarginPx = 0;
+  const totalW = artworkWidthPx;
+  const totalH = artworkHeightPx;
 
   const maxDim = 4096;
   const longestEdge = Math.max(totalW, totalH);
@@ -2323,9 +2359,23 @@ export async function exportVectorPdf(
       });
     });
 
-    for (const svg of svgs) {
+    for (let svg of svgs) {
       if (typeof svg !== 'string' || svg.trim() === '') {
         throw new Error('An empty or invalid SVG page was provided');
+      }
+
+      if (options.canvasManager && typeof DOMParser !== 'undefined') {
+        const parser = new DOMParser();
+        const svgDoc = parser.parseFromString(svg, 'image/svg+xml');
+        if (!svgDoc.querySelector('parsererror')) {
+          await rasterizeHollowTextForExport(svgDoc, options.canvasManager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
+          await rasterizeFramesForVectorPdf(svgDoc, options.canvasManager, { preferredMultiplier: 2, maxLongEdgePx: 4096 });
+          if (options.geometry) {
+            const bounds = getArtworkExportBounds(options.geometry, 300);
+            injectVisibleTrimLineInSvg(svgDoc, bounds);
+          }
+          svg = new XMLSerializer().serializeToString(svgDoc);
+        }
       }
 
       const embeddedSvg = await inlineExternalSvgImages(svg);

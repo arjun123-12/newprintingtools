@@ -4,6 +4,7 @@ import {
   requiresSilhouetteShadow,
   getEffectiveCornerRadius,
 } from '../canvas/visualGeometry';
+import { isHollowTextObject } from '../canvas/hollowTextRenderer';
 import {
   LOCAL_PDF_FONT_FAMILIES,
   pdfWeightStyleName,
@@ -1140,6 +1141,115 @@ export function validateSvgExport(
 }
 
 /**
+ * Rasterizes hollow text objects in exported SVG documents into high-resolution transparent PNG images.
+ *
+ * Why this is needed:
+ * Native PDF and SVG renderers (such as SVG-to-PDFKit, svg2pdf.js, Adobe Acrobat, and standalone SVG viewers)
+ * draw stroked text by stroking each glyph contour individually. This inevitably causes internal
+ * crossbars and stem intersections ("inner laps") to show through, and turns drop shadows into
+ * overlapping stroke outlines. SVG masks (<mask id="...">) are completely ignored by PDF vector engines.
+ *
+ * By rasterizing the hollow text object using the canvas's clean destination-out knockout renderer at
+ * ultra-high resolution (4x / 300+ DPI) and embedding it as a lossless transparent PNG <image> element:
+ * 1. The downloaded file matches the on-screen canvas 100% identically with crisp borders and transparent centers.
+ * 2. Inner contour overlap lines and crossbar intersections are completely eliminated.
+ * 3. All other normal text objects remain genuine vector fonts.
+ */
+export async function rasterizeHollowTextForExport(
+  svgDoc: Document,
+  canvasManager: CanvasManager | null,
+  options?: {
+    preferredMultiplier?: number;
+    maxLongEdgePx?: number;
+  }
+): Promise<number> {
+  if (!canvasManager) return 0;
+  const canvas = canvasManager.getCanvas();
+  if (!canvas) return 0;
+
+  const allObjects = collectFabricObjectsRecursively(canvas);
+  const hollowTexts = allObjects.filter((obj: any) => isFabricText(obj) && isHollowTextObject(obj));
+
+  if (hollowTexts.length === 0) return 0;
+
+  const preferredMultiplier = Math.max(2, Math.min(6, options?.preferredMultiplier ?? 4));
+  const maxLongEdgePx = Math.max(1024, options?.maxLongEdgePx ?? 8192);
+
+  let replacedCount = 0;
+
+  for (const textObj of hollowTexts) {
+    const targetEl = findSvgElementForFabricObject(svgDoc, textObj, allObjects);
+    if (!targetEl) continue;
+
+    const localWidth = Math.max(1, Number(textObj.width) || 1);
+    const localHeight = Math.max(1, Number(textObj.height) || 1);
+    const strokeWidth = Number(textObj.strokeWidth) || 0;
+    const sourceLongEdge = Math.max(localWidth + strokeWidth, localHeight + strokeWidth);
+
+    const safeMultiplier = Math.max(
+      1,
+      Math.min(preferredMultiplier, maxLongEdgePx / sourceLongEdge)
+    );
+
+    let rasterCanvas: HTMLCanvasElement | null = null;
+    if (typeof textObj.toCanvasElement === 'function') {
+      rasterCanvas = textObj.toCanvasElement({
+        multiplier: safeMultiplier,
+        withoutTransform: true,
+        withoutShadow: true,
+        enableRetinaScaling: false,
+      } as any);
+    }
+
+    if (!rasterCanvas) continue;
+
+    const dataUrl = rasterCanvas.toDataURL('image/png');
+    if (!dataUrl || !dataUrl.startsWith('data:image/png')) continue;
+
+    const renderWidth = rasterCanvas.width / safeMultiplier;
+    const renderHeight = rasterCanvas.height / safeMultiplier;
+    const x = -renderWidth / 2;
+    const y = -renderHeight / 2;
+
+    const imageEl = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'image');
+    imageEl.setAttribute('x', `${x}`);
+    imageEl.setAttribute('y', `${y}`);
+    imageEl.setAttribute('width', `${renderWidth}`);
+    imageEl.setAttribute('height', `${renderHeight}`);
+    imageEl.setAttribute('preserveAspectRatio', 'none');
+    imageEl.setAttribute('href', dataUrl);
+    imageEl.setAttribute('xlink:href', dataUrl);
+
+    // Remove any previously applied SVG mask or clip-path from preserveHollowTextInSvg
+    targetEl.removeAttribute('mask');
+    targetEl.removeAttribute('clip-path');
+
+    if (targetEl.tagName.toLowerCase() === 'g') {
+      const textChildren = Array.from(targetEl.querySelectorAll('text'));
+      textChildren.forEach((child) => child.remove());
+      targetEl.appendChild(imageEl);
+      replacedCount++;
+    } else if (targetEl.parentNode) {
+      const groupEl = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+      const transform = targetEl.getAttribute('transform');
+      if (transform) groupEl.setAttribute('transform', transform);
+      const filter = targetEl.getAttribute('filter');
+      if (filter) groupEl.setAttribute('filter', filter);
+      const style = targetEl.getAttribute('style');
+      if (style) groupEl.setAttribute('style', style);
+      const id = targetEl.getAttribute('id');
+      if (id) groupEl.setAttribute('id', id);
+
+      groupEl.appendChild(imageEl);
+      targetEl.parentNode.replaceChild(groupEl, targetEl);
+      replacedCount++;
+    }
+  }
+
+  return replacedCount;
+}
+
+/**
  * Ensures hollow text objects in exported SVG do not render internal contour overlap lines (inner laps).
  * Applies an SVG vector knockout mask that erases the glyph interior with solid black fill while passing
  * through the outer stroke in pure white.
@@ -1154,13 +1264,7 @@ export function preserveHollowTextInSvg(
 
   const allObjects = collectFabricObjectsRecursively(canvas);
   const hollowTexts = allObjects.filter((obj: any) =>
-    isFabricText(obj) &&
-    Boolean(
-      obj._isHollow ||
-      obj.isHollow ||
-      obj._activeEffects?.hollow ||
-      (obj.fill === 'transparent' && obj.stroke && (obj.strokeWidth || 0) > 0 && obj.paintFirst === 'stroke')
-    )
+    isFabricText(obj) && isHollowTextObject(obj)
   );
 
   if (hollowTexts.length === 0) return;
@@ -1175,6 +1279,9 @@ export function preserveHollowTextInSvg(
   for (const textObj of hollowTexts) {
     const targetEl = findSvgElementForFabricObject(svgDoc, textObj, allObjects);
     if (!targetEl) continue;
+
+    // If targetEl already has an image replacement (from rasterizeHollowTextForExport), skip
+    if (targetEl.querySelector('image[href^="data:image/png"]')) continue;
 
     const textEl =
       targetEl.tagName.toLowerCase() === 'text'
@@ -1204,18 +1311,20 @@ export function preserveHollowTextInSvg(
     cloneText.removeAttribute('mask');
     cloneText.setAttribute('fill', 'black');
     cloneText.setAttribute('stroke', 'none');
+    cloneText.setAttribute('fill-opacity', '1');
     cloneText.setAttribute(
       'style',
-      `${cloneText.getAttribute('style') || ''}; fill: black !important; stroke: none !important;`
+      `${cloneText.getAttribute('style') || ''}; fill: black !important; fill-opacity: 1 !important; stroke: none !important;`
     );
 
     const tspans = Array.from(cloneText.querySelectorAll('tspan'));
     for (const tspan of tspans) {
       tspan.setAttribute('fill', 'black');
       tspan.setAttribute('stroke', 'none');
+      tspan.setAttribute('fill-opacity', '1');
       tspan.setAttribute(
         'style',
-        `${tspan.getAttribute('style') || ''}; fill: black !important; stroke: none !important;`
+        `${tspan.getAttribute('style') || ''}; fill: black !important; fill-opacity: 1 !important; stroke: none !important;`
       );
     }
 
@@ -1226,4 +1335,5 @@ export function preserveHollowTextInSvg(
     textEl.setAttribute('mask', `url(#${maskId})`);
   }
 }
+
 

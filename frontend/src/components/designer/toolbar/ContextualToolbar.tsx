@@ -49,6 +49,7 @@ import { BrushSizePopover } from './BrushSizePopover';
 import { BrushCapsPopover } from './BrushCapsPopover';
 import { CornerRoundingPopover } from './CornerRoundingPopover';
 import { BorderStylePopover } from './BorderStylePopover';
+import { ImageCropModal } from '../controls/ImageCropModal';
 import { removeImageBackground } from '@/services/backgroundRemoval';
 import { colorOrGradientToCss, normalizeHexColor } from '@/utils/colorUtils';
 
@@ -137,6 +138,15 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
 
   const [isRemovingBg, setIsRemovingBg] = useState(false);
   const [removeBgError, setRemoveBgError] = useState<string | null>(null);
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!canvasManager) return;
+    const unsub = canvasManager.onCropRequest(() => {
+      setIsCropModalOpen(true);
+    });
+    return () => unsub();
+  }, [canvasManager]);
 
   const handleRemoveBackground = async () => {
     if (!canvasManager || isRemovingBg) {
@@ -1043,6 +1053,23 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </>
           )}
 
+          {/* Canva Crop Button for Image / Frame */}
+          <button
+            type="button"
+            onClick={() => {
+              if (selected.isFrame) {
+                canvasManager?.enterFrameCropMode();
+              } else {
+                setIsCropModalOpen(true);
+              }
+            }}
+            title={selected.isFrame ? 'Crop / Adjust Photo in Frame' : 'Crop Image'}
+            className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+          >
+            <Crop className="w-3.5 h-3.5 text-blue-600" />
+            <span>Crop</span>
+          </button>
+
           {/* Magnific AI Remove Background Button */}
           <button
             type="button"
@@ -1222,6 +1249,17 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           </button>
           */}
 
+          {/* Canva Crop Button for Shape */}
+          <button
+            type="button"
+            onClick={() => setIsCropModalOpen(true)}
+            title="Crop Shape / Element"
+            className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+          >
+            <Crop className="w-3.5 h-3.5 text-blue-600" />
+            <span>Crop</span>
+          </button>
+
           {/* Canva Corner Rounding Icon Button (for Rect / Shapes / Polygons / Triangles / Stars / SVGs) */}
           {(isShape || selected.type === 'rect' || selected.type === 'shape' || selected.type === 'triangle' || selected.type === 'polygon' || selected.type === 'path') &&
             selected.type !== 'circle' &&
@@ -1364,6 +1402,17 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }`}
           >
             <FlipVertical className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Canva Crop Button for Group */}
+          <button
+            type="button"
+            onClick={() => setIsCropModalOpen(true)}
+            title="Crop Group"
+            className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+          >
+            <Crop className="w-3.5 h-3.5 text-blue-600" />
+            <span>Crop</span>
           </button>
         </>
       )}
@@ -1551,6 +1600,19 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </button>
           </div>
 
+          {/* Canva Crop Button for other elements (text, complex SVGs, graphics) */}
+          {!isImage && !isShape && !isGroupedSelection && (
+            <button
+              type="button"
+              onClick={() => setIsCropModalOpen(true)}
+              title="Crop Element"
+              className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+            >
+              <Crop className="w-3.5 h-3.5 text-blue-600" />
+              <span>Crop</span>
+            </button>
+          )}
+
           {/* Rotate Popover Button */}
           <div className="relative">
             <button
@@ -1656,6 +1718,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             )}
           </div>
         </>
+      )}
+
+      {isCropModalOpen && selected && (
+        <ImageCropModal
+          selected={selected}
+          canvasManager={canvasManager}
+          onClose={() => setIsCropModalOpen(false)}
+        />
       )}
     </div>
   );

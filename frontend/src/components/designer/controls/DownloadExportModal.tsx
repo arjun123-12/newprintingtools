@@ -18,13 +18,20 @@ import {
   exportPreparedVectorPdf,
 } from '../services/exportService';
 import { urlToSafeDataUrl } from '@/utils/imageUrl';
-import { getArtworkExportGeometry, ArtworkExportGeometry } from '../utils/exportGeometry';
+import {
+  getArtworkExportGeometry,
+  ArtworkExportGeometry,
+  getArtworkExportBounds,
+  renderVisibleTrimLineOnCanvas,
+  injectVisibleTrimLineInSvg,
+} from '../utils/exportGeometry';
 import {
   collectFabricObjectsRecursively,
   embedFontsInSvgDefs,
   expandSvgFilterRegions,
   injectSilhouetteShadowsInSvg,
   preserveHollowTextInSvg,
+  rasterizeHollowTextForExport,
   rasterizeFramesForVectorPdf,
   validateSvgExport,
 } from '../utils/svgExportHelpers';
@@ -1201,9 +1208,9 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
         setExportProgress(25);
 
         const targetDpiVal = 300;
-        const geom = getArtworkExportGeometry({ ...dimensions, bleedMm: includeBleed ? bleedMm : 0 }, targetDpiVal, 6);
-        const widthPx = includeTrimMarks ? geom.totalTrimMarksWidthPx : geom.targetArtworkWidthPx;
-        const heightPx = includeTrimMarks ? geom.totalTrimMarksHeightPx : geom.targetArtworkHeightPx;
+        const bounds = getArtworkExportBounds(dimensions, targetDpiVal);
+        const widthPx = bounds.targetWidthPx;
+        const heightPx = bounds.targetHeightPx;
 
         const offscreen = document.createElement('canvas');
         offscreen.width = widthPx;
@@ -1214,12 +1221,19 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
         const dataUrl = canvas.toDataURL({
           format: 'png',
-          multiplier: widthPx / canvas.getWidth(),
+          multiplier: bounds.exportMultiplier,
+          left: 0,
+          top: 0,
+          width: bounds.widthPx,
+          height: bounds.heightPx,
         });
         const img = new Image();
         img.src = dataUrl;
         await new Promise((r) => (img.onload = r));
         ctx.drawImage(img, 0, 0, widthPx, heightPx);
+
+        // Visible BLACK trim/cut line inside RED boundary
+        renderVisibleTrimLineOnCanvas(ctx, bounds, bounds.exportMultiplier);
 
         const renderedBase64 = offscreen.toDataURL('image/jpeg', 0.95);
 
@@ -1363,11 +1377,12 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             requestAnimationFrame(() => resolve());
           });
 
-          // Full artwork dimensions including bleed
-          const canvasWidth = geometry.artworkWidthPx;
-          const canvasHeight = geometry.artworkHeightPx;
-          const physicalWidthMm = geometry.artworkWidthMm;
-          const physicalHeightMm = geometry.artworkHeightMm;
+          // Canonical RED outer export boundary
+          const bounds = getArtworkExportBounds(dimensions, 300);
+          const canvasWidth = bounds.widthPx;
+          const canvasHeight = bounds.heightPx;
+          const physicalWidthMm = bounds.widthMm;
+          const physicalHeightMm = bounds.heightMm;
 
           let fabricSvg = canvas.toSVG({
             suppressPreamble: true,
@@ -1416,78 +1431,14 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             fabricSvg = fabricSvg.slice(0, svgOpenTagEnd) + '\n' + bgSvgElements + fabricSvg.slice(svgOpenTagEnd);
           }
 
-          // When trim marks are enabled, expand SVG viewBox only for the outside slug margin
-          if (includeTrimMarks) {
-            const slugMarginMm = geometry.slugMarginMm;
-            const pxPerMm = geometry.artworkWidthPx / geometry.artworkWidthMm;
-            const slugMarginPx = Math.round(slugMarginMm * pxPerMm);
-            const totalW = geometry.artworkWidthPx + slugMarginPx * 2;
-            const totalH = geometry.artworkHeightPx + slugMarginPx * 2;
-            const totalMmW = geometry.totalTrimMarksWidthMm;
-            const totalMmH = geometry.totalTrimMarksHeightMm;
-
-            // Crop marks point to the inner black cut line (inset by bleedPx):
-            const trimLeft = slugMarginPx + geometry.bleedPx;
-            const trimTop = slugMarginPx + geometry.bleedPx;
-            const trimRight = trimLeft + geometry.trimWidthPx;
-            const trimBottom = trimTop + geometry.trimHeightPx;
-
-            const redTop = slugMarginPx;
-            const redLeft = slugMarginPx;
-            const redRight = slugMarginPx + geometry.artworkWidthPx;
-            const redBottom = slugMarginPx + geometry.artworkHeightPx;
-
-            const markLen = Math.round(4 * pxPerMm);
-
-            const trimMarksSvg = `
-  <!-- Prepress Trim Marks pointing to the Black Trim Cut Line -->
-  <g stroke="#000000" stroke-width="0.75" stroke-linecap="square">
-    <!-- Top-Left -->
-    <line x1="${trimLeft}" y1="${redTop}" x2="${trimLeft}" y2="${redTop - markLen}" />
-    <line x1="${redLeft}" y1="${trimTop}" x2="${redLeft - markLen}" y2="${trimTop}" />
-    <!-- Top-Right -->
-    <line x1="${trimRight}" y1="${redTop}" x2="${trimRight}" y2="${redTop - markLen}" />
-    <line x1="${redRight}" y1="${trimTop}" x2="${redRight + markLen}" y2="${trimTop}" />
-    <!-- Bottom-Left -->
-    <line x1="${trimLeft}" y1="${redBottom}" x2="${trimLeft}" y2="${redBottom + markLen}" />
-    <line x1="${redLeft}" y1="${trimBottom}" x2="${redLeft - markLen}" y2="${trimBottom}" />
-    <!-- Bottom-Right -->
-    <line x1="${trimRight}" y1="${redBottom}" x2="${trimRight}" y2="${redBottom + markLen}" />
-    <line x1="${redRight}" y1="${trimBottom}" x2="${redRight + markLen}" y2="${trimBottom}" />
-  </g>
-`;
-
-            const svgOpenMatch = fabricSvg.match(/<svg[^>]*>/);
-            if (svgOpenMatch) {
-              const openTag = svgOpenMatch[0];
-              const innerContent = fabricSvg.slice(openTag.length, fabricSvg.lastIndexOf('</svg>'));
-              const newOpenTag = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="${totalMmW}mm" height="${totalMmH}mm" viewBox="0 0 ${totalW} ${totalH}">`;
-              fabricSvg = `${newOpenTag}
-  <!-- Slug background -->
-  <rect x="0" y="0" width="${totalW}" height="${totalH}" fill="#ffffff" />
-  <defs>
-    <clipPath id="artwork-redline-bleed-clip">
-      <rect x="0" y="0" width="${geometry.artworkWidthPx}" height="${geometry.artworkHeightPx}" />
-    </clipPath>
-  </defs>
-  <g transform="translate(${slugMarginPx}, ${slugMarginPx})" clip-path="url(#artwork-redline-bleed-clip)">
-    ${innerContent}
-  </g>
-  ${trimMarksSvg}
-</svg>`;
-            }
-          } else {
-            // Strictly clip to red line area [0, 0, canvasWidth, canvasHeight]
-            // so content outside the red line does not show in the downloaded SVG/PDF
-            const svgOpenMatch = fabricSvg.match(/<svg[^>]*>/);
-            if (svgOpenMatch) {
-              const openTag = svgOpenMatch[0];
-              const innerContent = fabricSvg.slice(openTag.length, fabricSvg.lastIndexOf('</svg>'));
-              const clipId = `artwork-redline-clip-${Date.now()}`;
-              const cleanOpenTag = openTag
-                .replace(/\s*overflow=["'][^"']*["']/i, '')
-                .replace('<svg', '<svg overflow="hidden"');
-              fabricSvg = `${cleanOpenTag}
+          // Strictly clip all artwork inside the RED outer export boundary [0, 0, canvasWidth, canvasHeight]
+          const svgOpenMatch = fabricSvg.match(/<svg[^>]*>/);
+          if (svgOpenMatch) {
+            const openTag = svgOpenMatch[0];
+            const innerContent = fabricSvg.slice(openTag.length, fabricSvg.lastIndexOf('</svg>'));
+            const clipId = `artwork-redline-clip-${Date.now()}`;
+            const cleanOpenTag = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="${physicalWidthMm}mm" height="${physicalHeightMm}mm" viewBox="0 0 ${canvasWidth} ${canvasHeight}" overflow="hidden">`;
+            fabricSvg = `${cleanOpenTag}
   <defs>
     <clipPath id="${clipId}">
       <rect x="0" y="0" width="${canvasWidth}" height="${canvasHeight}" />
@@ -1497,7 +1448,6 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
     ${innerContent}
   </g>
 </svg>`;
-            }
           }
 
           setExportProgress(70);
@@ -1524,13 +1474,17 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           // 4. Inject visual silhouette shadows for clipped images and frames
           injectSilhouetteShadowsInSvg(svgDoc, canvasManager);
 
-          // 5. Knock out inner laps on hollow text elements in SVG
+          // 5. Knock out inner laps on hollow text elements in SVG via high-resolution rasterization
+          await rasterizeHollowTextForExport(svgDoc, canvasManager);
           preserveHollowTextInSvg(svgDoc, canvasManager);
 
           // 6. Embed true font files as base64 @font-face rules directly in SVG defs
           await embedFontsInSvgDefs(svgDoc, canvasManager);
 
-          // 7. Validate output
+          // 7. Inject visible BLACK trim/cut line inside RED export boundary
+          injectVisibleTrimLineInSvg(svgDoc, bounds);
+
+          // 8. Validate output
           validateSvgExport(svgDoc, canvasManager);
 
           const finalSvgMarkup = new XMLSerializer().serializeToString(svgDoc);
@@ -1673,10 +1627,16 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             requestAnimationFrame(() => resolve());
           });
 
-          const canvasWidth = geometry.artworkWidthPx;
-          const canvasHeight = geometry.artworkHeightPx;
-          const physicalWidthMm = geometry.artworkWidthMm;
-          const physicalHeightMm = geometry.artworkHeightMm;
+          // Canonical RED outer export boundary
+          const bounds = getArtworkExportBounds(dimensions, 300);
+          const canvasWidth = bounds.widthPx;
+          const canvasHeight = bounds.heightPx;
+          const physicalWidthMm = bounds.widthMm;
+          const physicalHeightMm = bounds.heightMm;
+          const pdfWidthMm = bounds.widthMm;
+          const pdfHeightMm = bounds.heightMm;
+          const widthPt = bounds.widthPt;
+          const heightPt = bounds.heightPt;
 
           // Fabric keeps text, paths and shapes as SVG vectors here.
           let fabricSvg = canvas.toSVG({
@@ -1777,77 +1737,23 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             }
           );
 
-          // ----------------------------------------------------------
-          // Prepress trim marks remain vector lines in the PDF.
-          // ----------------------------------------------------------
-          if (includeTrimMarks) {
-            const slugMarginMm = geometry.slugMarginMm;
-            const pxPerMm =
-              geometry.artworkWidthPx / geometry.artworkWidthMm;
-            const slugMarginPx = Math.round(
-              slugMarginMm * pxPerMm
-            );
-
-            const totalW =
-              geometry.artworkWidthPx + slugMarginPx * 2;
-            const totalH =
-              geometry.artworkHeightPx + slugMarginPx * 2;
-
-            const totalMmW = geometry.totalTrimMarksWidthMm;
-            const totalMmH = geometry.totalTrimMarksHeightMm;
-
-            const trimLeft =
-              slugMarginPx + geometry.bleedPx;
-            const trimTop =
-              slugMarginPx + geometry.bleedPx;
-            const trimRight =
-              trimLeft + geometry.trimWidthPx;
-            const trimBottom =
-              trimTop + geometry.trimHeightPx;
-
-            const markLen = Math.round(4 * pxPerMm);
-            const markGap = Math.round(1.5 * pxPerMm);
-
-            const trimMarksSvg = `
-  <g stroke="#000000" stroke-width="0.75" stroke-linecap="square">
-    <line x1="${trimLeft}" y1="${trimTop - markGap}" x2="${trimLeft}" y2="${trimTop - markGap - markLen}" />
-    <line x1="${trimLeft - markGap}" y1="${trimTop}" x2="${trimLeft - markGap - markLen}" y2="${trimTop}" />
-
-    <line x1="${trimRight}" y1="${trimTop - markGap}" x2="${trimRight}" y2="${trimTop - markGap - markLen}" />
-    <line x1="${trimRight + markGap}" y1="${trimTop}" x2="${trimRight + markGap + markLen}" y2="${trimTop}" />
-
-    <line x1="${trimLeft}" y1="${trimBottom + markGap}" x2="${trimLeft}" y2="${trimBottom + markGap + markLen}" />
-    <line x1="${trimLeft - markGap}" y1="${trimBottom}" x2="${trimLeft - markGap - markLen}" y2="${trimBottom}" />
-
-    <line x1="${trimRight}" y1="${trimBottom + markGap}" x2="${trimRight}" y2="${trimBottom + markGap + markLen}" />
-    <line x1="${trimRight + markGap}" y1="${trimBottom}" x2="${trimRight + markGap + markLen}" y2="${trimBottom}" />
-  </g>
-`;
-
-            const svgOpenMatch = fabricSvg.match(/<svg[^>]*>/);
-
-            if (svgOpenMatch) {
-              const openTag = svgOpenMatch[0];
-              const innerContent = fabricSvg.slice(
-                openTag.length,
-                fabricSvg.lastIndexOf('</svg>')
-              );
-
-              const newOpenTag =
-                `<svg xmlns="http://www.w3.org/2000/svg" ` +
-                `xmlns:xlink="http://www.w3.org/1999/xlink" ` +
-                `version="1.1" width="${totalMmW}mm" ` +
-                `height="${totalMmH}mm" ` +
-                `viewBox="0 0 ${totalW} ${totalH}">`;
-
-              fabricSvg = `${newOpenTag}
-  <rect data-pdf-background="true" x="0" y="0" width="${totalW}" height="${totalH}" fill="#ffffff" />
-  <g transform="translate(${slugMarginPx}, ${slugMarginPx})">
+          // Strictly clip all artwork inside the RED outer export boundary [0, 0, canvasWidth, canvasHeight]
+          const svgOpenMatch = fabricSvg.match(/<svg[^>]*>/);
+          if (svgOpenMatch) {
+            const openTag = svgOpenMatch[0];
+            const innerContent = fabricSvg.slice(openTag.length, fabricSvg.lastIndexOf('</svg>'));
+            const clipId = `artwork-redline-clip-${Date.now()}`;
+            const cleanOpenTag = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="${physicalWidthMm}mm" height="${physicalHeightMm}mm" viewBox="0 0 ${canvasWidth} ${canvasHeight}" overflow="hidden">`;
+            fabricSvg = `${cleanOpenTag}
+  <defs>
+    <clipPath id="${clipId}">
+      <rect x="0" y="0" width="${canvasWidth}" height="${canvasHeight}" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#${clipId})">
     ${innerContent}
   </g>
-  ${trimMarksSvg}
 </svg>`;
-            }
           }
 
           setProgressMessage(
@@ -1891,6 +1797,15 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             canvasManager
           );
 
+          await rasterizeHollowTextForExport(
+            svgDoc,
+            canvasManager,
+            {
+              preferredMultiplier: 4,
+              maxLongEdgePx: 8192,
+            }
+          );
+
           preserveHollowTextInSvg(
             svgDoc,
             canvasManager
@@ -1900,6 +1815,9 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             svgDoc,
             canvasManager
           );
+
+          // Inject visible BLACK trim/cut line inside RED export boundary
+          injectVisibleTrimLineInSvg(svgDoc, bounds);
 
           validateSvgExport(
             svgDoc,
@@ -1940,21 +1858,6 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           // ----------------------------------------------------------
           // SVG -> PDF, WITHOUT rasterizing the SVG.
           // ----------------------------------------------------------
-          const pdfWidthMm = includeTrimMarks
-            ? geometry.totalTrimMarksWidthMm
-            : geometry.artworkWidthMm;
-
-          const pdfHeightMm = includeTrimMarks
-            ? geometry.totalTrimMarksHeightMm
-            : geometry.artworkHeightMm;
-
-          // PDFKit + SVG-to-PDFKit is used here instead of svg2pdf.js.
-          //
-          // Why:
-          // - custom web fonts can be registered directly into the PDF
-          // - unsupported SVG blur/drop-shadow filters are supplied as a
-          //   transparent high-resolution effect layer
-          // - the main text/paths/shapes remain true vectors
           const pdfFilename = isCmykPrint
             ? `${sanitizedDocName}-print-cmyk${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`
             : `${sanitizedDocName}-vector${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`;
@@ -1966,19 +1869,15 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
               : 'Embedding Acrobat-safe fonts, shadows and vector artwork...'
           );
 
-          const ptPerMm = 72 / 25.4;
-
           await exportPreparedVectorPdf(
             exportSvgMarkup,
             {
-              widthPt:
-                pdfWidthMm * ptPerMm,
-              heightPt:
-                pdfHeightMm * ptPerMm,
+              widthPt,
+              heightPt,
               filename: pdfFilename,
               canvasManager,
-              geometry,
-              includeTrimMarks,
+              geometry: bounds,
+              includeTrimMarks: false,
             }
           );
 
@@ -2123,48 +2022,50 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           requestAnimationFrame(() => resolve());
         });
 
-        // Exact export region: 0, 0, artworkWidthPx, artworkHeightPx with multiplier
-        renderedDataUrl = canvas.toDataURL({
-          format: mimeFormat,
-          quality: jpegQuality / 100,
-          multiplier: geometry.exportMultiplier,
+        const bounds = getArtworkExportBounds(dimensions, targetDpi);
+
+        // Exact export region: 0, 0, bounds.widthPx, bounds.heightPx with multiplier
+        const rawDataUrl = canvas.toDataURL({
+          format: 'png',
+          multiplier: bounds.exportMultiplier,
           left: 0,
           top: 0,
-          width: geometry.artworkWidthPx,
-          height: geometry.artworkHeightPx,
+          width: bounds.widthPx,
+          height: bounds.heightPx,
           enableRetinaScaling: false,
         });
 
         setExportProgress(75);
 
-        // ADD TRIM MARKS & BLEED TO RASTER CANVAS IF REQUESTED
-        if (includeTrimMarks) {
-          setProgressMessage('Adding precision trim marks and bleed...');
-          const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-            const i = new Image();
-            i.onload = () => resolve(i);
-            i.onerror = () => reject(new Error('Failed to load rendered artwork for trim marks'));
-            i.src = renderedDataUrl;
-          });
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = () => reject(new Error('Failed to load rendered artwork'));
+          i.src = rawDataUrl;
+        });
 
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = img.naturalWidth || img.width;
-          tempCanvas.height = img.naturalHeight || img.height;
-          const tempCtx = tempCanvas.getContext('2d');
-          if (tempCtx) {
-            tempCtx.drawImage(img, 0, 0);
-            const withMarksCanvas = renderCanvasWithTrimMarks(
-              tempCanvas,
-              geometry,
-              6,
-              transparentBackground ? 'transparent' : '#ffffff'
-            );
-            renderedDataUrl = withMarksCanvas.toDataURL(
-              mimeFormat === 'jpeg' ? 'image/jpeg' : 'image/png',
-              jpegQuality / 100
-            );
-          }
+        const offscreenCanvas = document.createElement('canvas');
+        offscreenCanvas.width = bounds.targetWidthPx;
+        offscreenCanvas.height = bounds.targetHeightPx;
+        const tempCtx = offscreenCanvas.getContext('2d');
+        if (!tempCtx) {
+          throw new Error('Failed to create 2D canvas context for export');
         }
+
+        if (!transparentBackground || format === 'jpeg') {
+          tempCtx.fillStyle = effBgColor;
+          tempCtx.fillRect(0, 0, bounds.targetWidthPx, bounds.targetHeightPx);
+        }
+
+        tempCtx.drawImage(img, 0, 0, bounds.targetWidthPx, bounds.targetHeightPx);
+
+        // Render visible BLACK trim/cut line inside RED export boundary
+        renderVisibleTrimLineOnCanvas(tempCtx, bounds, bounds.exportMultiplier);
+
+        renderedDataUrl = offscreenCanvas.toDataURL(
+          mimeFormat === 'jpeg' ? 'image/jpeg' : mimeFormat === 'webp' ? 'image/webp' : 'image/png',
+          jpegQuality / 100
+        );
       } finally {
         canvas.backgroundColor = prevBg;
         if (prevVpt) {
@@ -2234,10 +2135,10 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
         quality: jpegQuality,
         background_color: effBgColor,
         dimensions: {
-          width_mm: includeTrimMarks ? geometry.totalTrimMarksWidthMm : geometry.artworkWidthMm,
-          height_mm: includeTrimMarks ? geometry.totalTrimMarksHeightMm : geometry.artworkHeightMm,
-          width_px: includeTrimMarks ? geometry.totalTrimMarksWidthPx : geometry.targetArtworkWidthPx,
-          height_px: includeTrimMarks ? geometry.totalTrimMarksHeightPx : geometry.targetArtworkHeightPx,
+          width_mm: getArtworkExportBounds(dimensions, targetDpi).widthMm,
+          height_mm: getArtworkExportBounds(dimensions, targetDpi).heightMm,
+          width_px: getArtworkExportBounds(dimensions, targetDpi).targetWidthPx,
+          height_px: getArtworkExportBounds(dimensions, targetDpi).targetHeightPx,
         },
         pages: serializablePages,
       });

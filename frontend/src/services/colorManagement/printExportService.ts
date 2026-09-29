@@ -2,7 +2,12 @@ import { CanvasManager } from '@/components/designer/canvas/CanvasManager';
 import { CanvasDimensions, DocumentSettings } from '@/types/designer';
 import { colorConversionService } from './colorConversionService';
 import { iccProfileService } from './iccProfileService';
-import { getArtworkExportGeometry } from '@/components/designer/utils/exportGeometry';
+import {
+  getArtworkExportGeometry,
+  getArtworkExportBounds,
+  renderVisibleTrimLineOnCanvas,
+  injectVisibleTrimLineInSvg,
+} from '@/components/designer/utils/exportGeometry';
 import { exportPreparedVectorPdf } from '@/components/designer/services/exportService';
 
 /**
@@ -173,22 +178,28 @@ class PrintExportService {
     const canvas = canvasManager.getCanvas();
     if (!canvas) throw new Error('Canvas not available');
 
-    const geom = getArtworkExportGeometry({ ...dimensions, bleedMm: includeBleed ? bleedMm : 0 }, 300, 6);
-    const ptPerMm = 72 / 25.4;
-    const widthMm = includeTrimMarks ? geom.totalTrimMarksWidthMm : geom.artworkWidthMm;
-    const heightMm = includeTrimMarks ? geom.totalTrimMarksHeightMm : geom.artworkHeightMm;
+    const bounds = getArtworkExportBounds(dimensions, 300);
+    const widthMm = bounds.widthMm;
+    const heightMm = bounds.heightMm;
 
-    const svgMarkup = canvas.toSVG({
+    let svgMarkup = canvas.toSVG({
       suppressPreamble: true,
       width: `${widthMm}mm`,
       height: `${heightMm}mm`,
       viewBox: {
         x: 0,
         y: 0,
-        width: includeTrimMarks ? geom.totalTrimMarksWidthPx : geom.artworkWidthPx,
-        height: includeTrimMarks ? geom.totalTrimMarksHeightPx : geom.artworkHeightPx,
+        width: bounds.widthPx,
+        height: bounds.heightPx,
       },
     });
+
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgMarkup, 'image/svg+xml');
+    if (!svgDoc.querySelector('parsererror')) {
+      injectVisibleTrimLineInSvg(svgDoc, bounds);
+      svgMarkup = new XMLSerializer().serializeToString(svgDoc);
+    }
 
     onProgress?.(50, 'Converting vector colors and assigning CMYK profile...');
     const proofRes = await this.exportPrintPreviewSvg({
@@ -199,12 +210,12 @@ class PrintExportService {
 
     onProgress?.(75, 'Embedding fonts and generating PDF vectors...');
     await exportPreparedVectorPdf(proofRes.svg, {
-      widthPt: widthMm * ptPerMm,
-      heightPt: heightMm * ptPerMm,
+      widthPt: bounds.widthPt,
+      heightPt: bounds.heightPt,
       filename: `${designName}_CMYK_Print_Ready.pdf`,
       canvasManager,
-      geometry: geom,
-      includeTrimMarks,
+      geometry: bounds,
+      includeTrimMarks: false,
     });
 
     onProgress?.(100, 'Print Ready CMYK PDF generation complete.');
@@ -240,10 +251,10 @@ class PrintExportService {
 
     onProgress?.(25, 'Rendering high-resolution 300 DPI artwork...');
     const targetDpi = 300;
-    const geom = getArtworkExportGeometry({ ...dimensions, bleedMm: includeBleed ? bleedMm : 0 }, targetDpi, 6);
+    const bounds = getArtworkExportBounds(dimensions, targetDpi);
 
-    const widthPx = includeTrimMarks ? geom.totalTrimMarksWidthPx : geom.targetArtworkWidthPx;
-    const heightPx = includeTrimMarks ? geom.totalTrimMarksHeightPx : geom.targetArtworkHeightPx;
+    const widthPx = bounds.targetWidthPx;
+    const heightPx = bounds.targetHeightPx;
 
     const canvas = canvasManager.getCanvas();
     if (!canvas) {
@@ -263,7 +274,11 @@ class PrintExportService {
 
     const dataUrl = canvas.toDataURL({
       format: 'png',
-      multiplier: widthPx / canvas.getWidth(),
+      multiplier: bounds.exportMultiplier,
+      left: 0,
+      top: 0,
+      width: bounds.widthPx,
+      height: bounds.heightPx,
     });
 
     const img = new Image();
@@ -273,6 +288,10 @@ class PrintExportService {
     });
 
     ctx.drawImage(img, 0, 0, widthPx, heightPx);
+
+    // Visible BLACK trim line inside RED export boundary
+    renderVisibleTrimLineOnCanvas(ctx, bounds, bounds.exportMultiplier);
+
     const imageData = ctx.getImageData(0, 0, widthPx, heightPx);
 
     onProgress?.(55, `Converting pixels to 4-channel CMYK through ${iccProfileService.getProfile(profileId).name}...`);
@@ -307,16 +326,24 @@ class PrintExportService {
     const canvas = canvasManager.getCanvas();
     if (!canvas) throw new Error('Canvas not found');
 
-    const dataUrl = canvas.toDataURL({ format: 'png', multiplier: 2 });
+    const bounds = getArtworkExportBounds(params.dimensions, 300);
+    const dataUrl = canvas.toDataURL({
+      format: 'png',
+      multiplier: bounds.exportMultiplier,
+      left: 0,
+      top: 0,
+      width: bounds.widthPx,
+      height: bounds.heightPx,
+    });
     const img = new Image();
     img.src = dataUrl;
     await new Promise((r) => (img.onload = r));
 
     const temp = document.createElement('canvas');
-    temp.width = img.width;
-    temp.height = img.height;
+    temp.width = bounds.targetWidthPx;
+    temp.height = bounds.targetHeightPx;
     const ctx = temp.getContext('2d', { willReadFrequently: true })!;
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, 0, 0, bounds.targetWidthPx, bounds.targetHeightPx);
 
     const imgData = ctx.getImageData(0, 0, temp.width, temp.height);
     const transformed = await colorConversionService.transformPixelsRgbaToSoftProof(
@@ -327,6 +354,9 @@ class PrintExportService {
     );
     imgData.data.set(transformed);
     ctx.putImageData(imgData, 0, 0);
+
+    // Visible BLACK trim line inside RED export boundary
+    renderVisibleTrimLineOnCanvas(ctx, bounds, bounds.exportMultiplier);
 
     const outDataUrl = temp.toDataURL('image/png');
     return { dataUrl: outDataUrl, filename: `${designName}_Print_Preview.png` };

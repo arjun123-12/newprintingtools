@@ -173,6 +173,16 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
   const isEditableText = ['itext', 'textbox', 'text'].includes(
     normalizedSelectedType
   );
+  const isImageOrPhoto = Boolean(
+    !selected?.isShape &&
+    !isEditableText &&
+    !selected?.text &&
+    (selected?.src ||
+      selected?.originalSrc ||
+      selected?.isFrame ||
+      ['image', 'fabricimage'].includes(normalizedSelectedType))
+  );
+  const maxOffset = isImageOrPhoto ? 400 : 100;
   const [activeTab, setActiveTab] = useState<'styles' | 'filters' | 'adjust'>('styles');
   const [activeFilter, setActiveFilter] = useState<string>('none');
   const [filterIntensity, setFilterIntensity] = useState<number>(100);
@@ -747,9 +757,9 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
               />
               <ShadowSlider
                 label="Offset"
-                value={shadowSettings.offset}
+                value={Math.min(shadowSettings.offset, maxOffset)}
                 min={0}
-                max={200}
+                max={maxOffset}
                 onChange={(value) => handleShadowSettingChange('offset', value)}
               />
               <ShadowSlider

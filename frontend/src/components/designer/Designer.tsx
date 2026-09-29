@@ -19,8 +19,16 @@ import { DesignerProperties } from './DesignerProperties';
 import { DesignerBottomBar } from './DesignerBottomBar';
 import { designerService } from './services/designerService';
 import { exportHighResolutionImage, exportVectorPdf } from './services/exportService';
-import { collectFabricObjectsRecursively } from './utils/svgExportHelpers';
-import { getArtworkExportGeometry } from './utils/exportGeometry';
+import {
+  collectFabricObjectsRecursively,
+  rasterizeHollowTextForExport,
+  rasterizeFramesForVectorPdf,
+} from './utils/svgExportHelpers';
+import {
+  getArtworkExportGeometry,
+  getArtworkExportBounds,
+  injectVisibleTrimLineInSvg,
+} from './utils/exportGeometry';
 import { exportLayeredPsd } from './services/psdExportService';
 import { preloadPopularFonts } from './utils/fonts';
 import { PreflightReport } from './utils/preflightCheck';
@@ -2025,6 +2033,9 @@ export default function Designer({
 
     const wasGuidesVisible = manager.getGuidesVisible();
     const prevZoom = manager.getZoom();
+    const prevVpt = canvas.viewportTransform
+      ? ([...canvas.viewportTransform] as [number, number, number, number, number, number])
+      : null;
 
     const allCanvasObjs = collectFabricObjectsRecursively(canvas);
     const originalIds = new Map<any, string | undefined>();
@@ -2040,24 +2051,23 @@ export default function Designer({
       manager.setGuidesVisible(false);
       canvas.discardActiveObject();
       manager.setZoom(1.0);
+      if (canvas.viewportTransform) {
+        canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+      }
       canvas.requestRenderAll();
 
-      const geometry = getArtworkExportGeometry(dimensionsRef.current, 300);
-      const canvasWidth = geometry.artworkWidthPx;
-      const canvasHeight = geometry.artworkHeightPx;
-
-      const slugMarginMm = 6;
-      const pxPerMm = geometry.artworkWidthPx / geometry.artworkWidthMm;
-      const slugMarginPx = Math.round(slugMarginMm * pxPerMm);
-      const totalW = geometry.artworkWidthPx + slugMarginPx * 2;
-      const totalH = geometry.artworkHeightPx + slugMarginPx * 2;
-      const totalMmW = geometry.artworkWidthMm + slugMarginMm * 2;
-      const totalMmH = geometry.artworkHeightMm + slugMarginMm * 2;
+      const bounds = getArtworkExportBounds(dimensionsRef.current, 300);
+      const canvasWidth = bounds.widthPx;
+      const canvasHeight = bounds.heightPx;
+      const widthMm = bounds.widthMm;
+      const heightMm = bounds.heightMm;
+      const widthPt = bounds.widthPt;
+      const heightPt = bounds.heightPt;
 
       let svg = canvas.toSVG({
         suppressPreamble: true,
-        width: `${geometry.artworkWidthMm}mm`,
-        height: `${geometry.artworkHeightMm}mm`,
+        width: `${widthMm}mm`,
+        height: `${heightMm}mm`,
         viewBox: {
           x: 0,
           y: 0,
@@ -2066,64 +2076,38 @@ export default function Designer({
         },
       });
 
-      // Crop marks point to the inner black cut line, starting at the outer red bleed line:
-      const trimLeft = slugMarginPx + geometry.bleedPx;
-      const trimTop = slugMarginPx + geometry.bleedPx;
-      const trimRight = trimLeft + geometry.trimWidthPx;
-      const trimBottom = trimTop + geometry.trimHeightPx;
+      // Process SVG for hollow text, photo frames, and visible BLACK trim line
+      const parser = new DOMParser();
+      let svgDoc = parser.parseFromString(svg, 'image/svg+xml');
+      if (!svgDoc.querySelector('parsererror')) {
+        await rasterizeHollowTextForExport(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
+        await rasterizeFramesForVectorPdf(svgDoc, manager, { preferredMultiplier: 2, maxLongEdgePx: 4096 });
+        injectVisibleTrimLineInSvg(svgDoc, bounds);
+        svg = new XMLSerializer().serializeToString(svgDoc);
+      }
 
-      const redTop = slugMarginPx;
-      const redLeft = slugMarginPx;
-      const redRight = slugMarginPx + geometry.artworkWidthPx;
-      const redBottom = slugMarginPx + geometry.artworkHeightPx;
-
-      const markLen = Math.round(4 * pxPerMm);
-
-      const trimMarksSvg = `
-  <!-- Prepress Trim Marks pointing to the Black Trim Cut Line -->
-  <g stroke="#000000" stroke-width="0.75" stroke-linecap="square">
-    <!-- Top-Left -->
-    <line x1="${trimLeft}" y1="${redTop}" x2="${trimLeft}" y2="${redTop - markLen}" />
-    <line x1="${redLeft}" y1="${trimTop}" x2="${redLeft - markLen}" y2="${trimTop}" />
-    <!-- Top-Right -->
-    <line x1="${trimRight}" y1="${redTop}" x2="${trimRight}" y2="${redTop - markLen}" />
-    <line x1="${redRight}" y1="${trimTop}" x2="${redRight + markLen}" y2="${trimTop}" />
-    <!-- Bottom-Left -->
-    <line x1="${trimLeft}" y1="${redBottom}" x2="${trimLeft}" y2="${redBottom + markLen}" />
-    <line x1="${redLeft}" y1="${trimBottom}" x2="${redLeft - markLen}" y2="${trimBottom}" />
-    <!-- Bottom-Right -->
-    <line x1="${trimRight}" y1="${redBottom}" x2="${trimRight}" y2="${redBottom + markLen}" />
-    <line x1="${redRight}" y1="${trimBottom}" x2="${redRight + markLen}" y2="${trimBottom}" />
-  </g>
-`;
-
+      // Strictly clip all artwork inside the RED outer export boundary [0, 0, canvasWidth, canvasHeight]
       const svgOpenMatch = svg.match(/<svg[^>]*>/);
       if (svgOpenMatch) {
         const openTag = svgOpenMatch[0];
         const innerContent = svg.slice(openTag.length, svg.lastIndexOf('</svg>'));
-        const newOpenTag = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="${totalMmW}mm" height="${totalMmH}mm" viewBox="0 0 ${totalW} ${totalH}">`;
+        const clipId = `artwork-redline-clip-${Date.now()}`;
+        const newOpenTag = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="${widthMm}mm" height="${heightMm}mm" viewBox="0 0 ${canvasWidth} ${canvasHeight}">`;
         svg = `${newOpenTag}
-  <!-- Slug background -->
-  <rect x="0" y="0" width="${totalW}" height="${totalH}" fill="#ffffff" />
   <defs>
-    <clipPath id="artwork-redline-bleed-clip">
-      <rect x="0" y="0" width="${geometry.artworkWidthPx}" height="${geometry.artworkHeightPx}" />
+    <clipPath id="${clipId}">
+      <rect x="0" y="0" width="${canvasWidth}" height="${canvasHeight}" />
     </clipPath>
   </defs>
-  <g transform="translate(${slugMarginPx}, ${slugMarginPx})" clip-path="url(#artwork-redline-bleed-clip)">
+  <g clip-path="url(#${clipId})">
     ${innerContent}
   </g>
-  ${trimMarksSvg}
 </svg>`;
       }
 
       manager.setZoom(prevZoom);
       manager.setGuidesVisible(wasGuidesVisible);
       canvas.requestRenderAll();
-
-      const ptPerMm = 72 / 25.4;
-      const widthPt = totalMmW * ptPerMm;
-      const heightPt = totalMmH * ptPerMm;
 
       await exportVectorPdf(
         [svg],
@@ -2133,8 +2117,8 @@ export default function Designer({
         {
           filename: `${(documentSettings.name || 'artwork').toLowerCase().replace(/[^a-z0-9_-]/g, '_')}_vector.pdf`,
           canvasManager: manager,
-          geometry,
-          includeTrimMarks: true,
+          geometry: getArtworkExportGeometry(dimensionsRef.current, 300, 0),
+          includeTrimMarks: false,
         }
       );
     } catch (err) {
@@ -2149,6 +2133,9 @@ export default function Designer({
           obj.id = orig;
         }
       });
+      if (prevVpt) {
+        canvas.viewportTransform = prevVpt;
+      }
       manager.setZoom(prevZoom);
       manager.setGuidesVisible(wasGuidesVisible);
       canvas.requestRenderAll();

@@ -2,7 +2,11 @@ import { type FabricObject } from 'fabric';
 import { CanvasDimensions, DocumentSettings } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { downloadFile } from './exportService';
-import { getArtworkExportGeometry } from '../utils/exportGeometry';
+import {
+  getArtworkExportGeometry,
+  getArtworkExportBounds,
+  renderVisibleTrimLineOnCanvas,
+} from '../utils/exportGeometry';
 
 type AgPsdLayer = import('ag-psd').Layer;
 type AgPsdPsd = import('ag-psd').Psd;
@@ -256,10 +260,10 @@ export async function exportLayeredPsd(
   if (!fabricCanvas) throw new Error('Canvas is not initialized');
 
   const targetDpi = Math.max(1, documentSettings.dpi || dimensions.dpi || 300);
-  const geometry = getArtworkExportGeometry(dimensions, targetDpi, 6);
-  const width = includeTrimMarks ? geometry.totalTrimMarksWidthPx : geometry.artworkWidthPx;
-  const height = includeTrimMarks ? geometry.totalTrimMarksHeightPx : geometry.artworkHeightPx;
-  const layerOffset = includeTrimMarks ? geometry.slugMarginPx : 0;
+  const bounds = getArtworkExportBounds(dimensions, targetDpi);
+  const width = bounds.targetWidthPx;
+  const height = bounds.targetHeightPx;
+  const layerOffset = 0;
 
   if (width > 30000 || height > 30000) {
     throw new Error(
@@ -312,8 +316,8 @@ export async function exportLayeredPsd(
   if (fabricCanvas.backgroundImage) {
     const renderedBackground = renderFabricObjectLayer(
       fabricCanvas.backgroundImage,
-      geometry.artworkWidthPx,
-      geometry.artworkHeightPx
+      bounds.widthPx,
+      bounds.heightPx
     );
     if (renderedBackground) {
       backgroundContext.drawImage(
@@ -339,8 +343,8 @@ export async function exportLayeredPsd(
       const layer = convertFabricObjectToPsdLayer(
         obj,
         index,
-        geometry.artworkWidthPx,
-        geometry.artworkHeightPx
+        bounds.widthPx,
+        bounds.heightPx
       );
       if (layer) {
         if (layerOffset > 0) {
@@ -354,63 +358,18 @@ export async function exportLayeredPsd(
     }
   }
 
-  if (includeTrimMarks) {
-    const marksCanvas = createCanvas(width, height);
-    const marksCtx = marksCanvas.getContext('2d');
-    if (marksCtx) {
-      const pxPerMm = targetDpi / 25.4;
-      const slugMarginPx = geometry.slugMarginPx;
-      const trimLeft = slugMarginPx + geometry.targetBleedPx;
-      const trimTop = slugMarginPx + geometry.targetBleedPx;
-      const trimRight = trimLeft + geometry.targetTrimWidthPx;
-      const trimBottom = trimTop + geometry.targetTrimHeightPx;
-
-      const redTop = slugMarginPx;
-      const redLeft = slugMarginPx;
-      const redRight = slugMarginPx + geometry.artworkWidthPx;
-      const redBottom = slugMarginPx + geometry.artworkHeightPx;
-
-      const markLen = Math.round(4 * pxPerMm);
-
-      marksCtx.strokeStyle = '#000000';
-      marksCtx.lineWidth = Math.max(1, Math.round(pxPerMm * 0.25));
-      marksCtx.lineCap = 'square';
-      marksCtx.beginPath();
-
-      // Top-Left
-      marksCtx.moveTo(trimLeft, redTop);
-      marksCtx.lineTo(trimLeft, Math.max(0, redTop - markLen));
-      marksCtx.moveTo(redLeft, trimTop);
-      marksCtx.lineTo(Math.max(0, redLeft - markLen), trimTop);
-
-      // Top-Right
-      marksCtx.moveTo(trimRight, redTop);
-      marksCtx.lineTo(trimRight, Math.max(0, redTop - markLen));
-      marksCtx.moveTo(redRight, trimTop);
-      marksCtx.lineTo(Math.min(width, redRight + markLen), trimTop);
-
-      // Bottom-Left
-      marksCtx.moveTo(trimLeft, redBottom);
-      marksCtx.lineTo(trimLeft, Math.min(height, redBottom + markLen));
-      marksCtx.moveTo(redLeft, trimBottom);
-      marksCtx.lineTo(Math.max(0, redLeft - markLen), trimBottom);
-
-      // Bottom-Right
-      marksCtx.moveTo(trimRight, redBottom);
-      marksCtx.lineTo(trimRight, Math.min(height, redBottom + markLen));
-      marksCtx.moveTo(redRight, trimBottom);
-      marksCtx.lineTo(Math.min(width, redRight + markLen), trimBottom);
-
-      marksCtx.stroke();
-
-      layers.push({
-        name: 'Trim Marks',
-        canvas: marksCanvas,
-        left: 0,
-        top: 0,
-        opacity: 1,
-      });
-    }
+  // Visible TRIM MARKS layer
+  const marksCanvas = createCanvas(width, height);
+  const marksCtx = marksCanvas.getContext('2d');
+  if (marksCtx) {
+    renderVisibleTrimLineOnCanvas(marksCtx, bounds, bounds.exportMultiplier);
+    layers.push({
+      name: 'Trim Marks',
+      canvas: marksCanvas,
+      left: 0,
+      top: 0,
+      opacity: 1,
+    });
   }
 
   /*
@@ -429,6 +388,7 @@ export async function exportLayeredPsd(
     throw new Error('Unable to create the PSD composite preview');
   }
   compositeContext.drawImage(compositeImage, 0, 0, width, height);
+  renderVisibleTrimLineOnCanvas(compositeContext, bounds, bounds.exportMultiplier);
 
   const psd: AgPsdPsd = {
     width,

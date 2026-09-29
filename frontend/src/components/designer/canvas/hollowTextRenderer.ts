@@ -30,6 +30,37 @@ function getHollowScratchCanvas(
 let isInstalled = false;
 
 /**
+ * Detects whether a Fabric text object has the Hollow effect active.
+ */
+export function isHollowTextObject(obj: any): boolean {
+  if (!obj) return false;
+  const isText =
+    obj instanceof FabricText ||
+    obj instanceof IText ||
+    obj instanceof Textbox ||
+    obj.type === 'textbox' ||
+    obj.type === 'itext' ||
+    obj.type === 'text' ||
+    typeof obj._renderText === 'function';
+
+  if (!isText) return false;
+
+  const fill = obj.fill;
+  const isTransparentFill =
+    fill === 'transparent' ||
+    !fill ||
+    fill === 'rgba(0,0,0,0)' ||
+    fill === 'none';
+
+  return Boolean(
+    obj._isHollow ||
+    obj.isHollow ||
+    obj._activeEffects?.hollow ||
+    (isTransparentFill && obj.stroke && (obj.strokeWidth || 0) > 0 && obj.paintFirst === 'stroke')
+  );
+}
+
+/**
  * Installs the clean hollow text renderer on Fabric's Text classes (FabricText, IText, Textbox).
  *
  * Problem:
@@ -56,12 +87,7 @@ export function installHollowTextRenderer(): void {
     this: any,
     ctx: CanvasRenderingContext2D
   ): void {
-    const isHollow = Boolean(
-      this._isHollow ||
-      this.isHollow ||
-      this._activeEffects?.hollow ||
-      (this.fill === 'transparent' && this.stroke && (this.strokeWidth || 0) > 0 && this.paintFirst === 'stroke')
-    );
+    const isHollow = isHollowTextObject(this);
 
     if (!isHollow) {
       origRenderText.call(this, ctx);
@@ -127,6 +153,14 @@ export function installHollowTextRenderer(): void {
       };
     }
 
+    const origGetStyleDeclaration = this._getStyleDeclaration;
+    if (typeof origGetStyleDeclaration === 'function') {
+      this._getStyleDeclaration = function (lineIndex: number, charIndex: number) {
+        const decl = origGetStyleDeclaration.call(this, lineIndex, charIndex);
+        return { ...decl, fill: '#000000' };
+      };
+    }
+
     if (typeof this._setTextStyles === 'function') {
       this._setTextStyles(sCtx);
     }
@@ -139,6 +173,9 @@ export function installHollowTextRenderer(): void {
     this.fill = origFill;
     if (typeof origGetCompleteStyleDeclaration === 'function') {
       this.getCompleteStyleDeclaration = origGetCompleteStyleDeclaration;
+    }
+    if (typeof origGetStyleDeclaration === 'function') {
+      this._getStyleDeclaration = origGetStyleDeclaration;
     }
     sCtx.restore();
 

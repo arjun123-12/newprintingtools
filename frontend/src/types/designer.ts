@@ -190,6 +190,8 @@ export interface SelectedObjectState {
   cropY?: number;
   cropWidth?: number;
   cropHeight?: number;
+  isElementCropped?: boolean;
+  previewSrc?: string;
   qualityInfo?: ArtworkQualityInfo;
   backgroundRemoved?: boolean;
   originalUrl?: string;

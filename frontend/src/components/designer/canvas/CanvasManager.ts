@@ -185,6 +185,19 @@ interface FrameResizeSnapshot {
   anchorOriginY?: 'top' | 'center' | 'bottom';
 }
 
+export interface AltDragState {
+  target: FabricObject;
+  startX: number;
+  startY: number;
+  initialLeft: number;
+  initialTop: number;
+  initialIndex: number;
+  clonePromise: Promise<FabricObject>;
+  clonedPlaced: boolean;
+  hasMoved: boolean;
+  altKeyDownAtStart: boolean;
+}
+
 export type ImagePlacementOptions = Partial<FabricObject> & {
   skipFrameSlotting?: boolean;
   /**
@@ -302,6 +315,7 @@ export const CUSTOM_CANVAS_PROPERTIES = [
   '_blurAmount',
   '_effectSettings',
   '_userStrokeEnabled',
+  'isElementCropped',
   'cropX',
   'cropY',
   'cropWidth',
@@ -440,6 +454,7 @@ export class CanvasManager {
     initialPhotoScale: number;
     currentCropState?: FrameCropState;
   } | null = null;
+  private altDragState: AltDragState | null = null;
 
   // Event Listeners
   private selectionListeners: Set<SelectionEventCallback> = new Set();
@@ -453,6 +468,7 @@ export class CanvasManager {
   private brushSettingsListeners: Set<BrushSettingsEventCallback> = new Set();
   private backgroundListeners: Set<BackgroundEventCallback> = new Set();
   private historyListeners: Set<(canUndo: boolean, canRedo: boolean) => void> = new Set();
+  private cropRequestListeners: Set<(target: FabricObject) => void> = new Set();
   private isPreflightScheduled: boolean = false;
   private preflightDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private textSelectionThrottleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2557,21 +2573,25 @@ export class CanvasManager {
     this.deleteSelected();
   }
 
-  public async duplicateSelected(): Promise<void> {
-    if (!this.canvas) return;
-    const active = this.canvas.getActiveObject();
-    if (!active) return;
+  public async duplicateSelected(
+    targetObj?: FabricObject,
+    offset: { x: number; y: number } = { x: 20, y: 20 },
+    preloadedClone?: Promise<FabricObject> | FabricObject
+  ): Promise<FabricObject | null> {
+    if (!this.canvas) return null;
+    const active = targetObj || this.canvas.getActiveObject();
+    if (!active) return null;
 
     try {
-      const cloned = await this.cloneCanvasObject(active);
-      if (!this.canvas) return;
+      const cloned = preloadedClone ? await preloadedClone : await this.cloneCanvasObject(active);
+      if (!this.canvas) return null;
 
       this.canvas.discardActiveObject();
       this.ensureObjectId(cloned, `${active.get('name' as any) || 'Object'} (Copy)`, true);
 
       cloned.set({
-        left: (cloned.left || 0) + 20,
-        top: (cloned.top || 0) + 20,
+        left: (cloned.left || 0) + offset.x,
+        top: (cloned.top || 0) + offset.y,
         evented: true,
         selectable: true,
       });
@@ -2581,8 +2601,8 @@ export class CanvasManager {
         cloned.forEachObject((obj) => {
           this.ensureObjectId(obj, `${obj.get('name' as any) || 'Object'} (Copy)`, true);
           obj.set({
-            left: (obj.left || 0) + 20,
-            top: (obj.top || 0) + 20,
+            left: (obj.left || 0) + offset.x,
+            top: (obj.top || 0) + offset.y,
             evented: true,
             selectable: true,
           });
@@ -2606,8 +2626,10 @@ export class CanvasManager {
       this.notifySelection();
       this.notifyLayers();
       this.saveHistoryState();
+      return cloned;
     } catch (error) {
       console.error('Could not duplicate selected object:', error);
+      return null;
     }
   }
 
@@ -6963,43 +6985,119 @@ export class CanvasManager {
     cropWidth: number;
     cropHeight: number;
   }): void {
+    this.applyCropToActiveElement(cropData);
+  }
+
+  public applyCropToActiveElement(cropData: {
+    cropX: number;
+    cropY: number;
+    cropWidth: number;
+    cropHeight: number;
+  }): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
-    if (!active || !(active instanceof FabricImage)) return;
+    if (!active || this.isNonInteractiveObject(active)) return;
 
-    active.set({
-      cropX: cropData.cropX,
-      cropY: cropData.cropY,
+    if (active instanceof FabricImage) {
+      active.set({
+        cropX: cropData.cropX,
+        cropY: cropData.cropY,
+        width: cropData.cropWidth,
+        height: cropData.cropHeight,
+      });
+
+      active.set('cropX' as any, cropData.cropX);
+      active.set('cropY' as any, cropData.cropY);
+      active.set('cropWidth' as any, cropData.cropWidth);
+      active.set('cropHeight' as any, cropData.cropHeight);
+      active.set('isElementCropped' as any, true);
+
+      active.setCoords();
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+      this.saveHistoryState();
+      return;
+    }
+
+    // For all other elements (Shapes, Polygons, Groups, SVGs, Paths, Text, etc.):
+    // Non-destructive rectangular clipPath cropping in local coordinate space
+    const baseW = (active.get('naturalWidth' as any) as number) || (active.width || 200);
+    const baseH = (active.get('naturalHeight' as any) as number) || (active.height || 200);
+
+    const clipCenterX = -baseW / 2 + cropData.cropX + cropData.cropWidth / 2;
+    const clipCenterY = -baseH / 2 + cropData.cropY + cropData.cropHeight / 2;
+
+    const cropClipRect = new Rect({
+      left: clipCenterX,
+      top: clipCenterY,
       width: cropData.cropWidth,
       height: cropData.cropHeight,
+      originX: 'center',
+      originY: 'center',
+      absolutePositioned: false,
     });
 
+    active.set('clipPath', cropClipRect);
+    active.set('isElementCropped' as any, true);
     active.set('cropX' as any, cropData.cropX);
     active.set('cropY' as any, cropData.cropY);
     active.set('cropWidth' as any, cropData.cropWidth);
     active.set('cropHeight' as any, cropData.cropHeight);
+    if (!active.get('naturalWidth' as any)) {
+      active.set('naturalWidth' as any, baseW);
+    }
+    if (!active.get('naturalHeight' as any)) {
+      active.set('naturalHeight' as any, baseH);
+    }
 
     active.setCoords();
     this.canvas.requestRenderAll();
     this.notifyChange();
     this.notifySelection();
+    this.notifyLayers();
+    this.saveHistoryState();
   }
 
   public resetCropOnActiveImage(): void {
+    this.resetCropOnActiveElement();
+  }
+
+  public resetCropOnActiveElement(): void {
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
-    if (!active || !(active instanceof FabricImage)) return;
+    if (!active) return;
 
-    const naturalW = (active.get('naturalWidth' as any) as number) || (active.getOriginalSize().width as number) || 400;
-    const naturalH = (active.get('naturalHeight' as any) as number) || (active.getOriginalSize().height as number) || 300;
+    if (active instanceof FabricImage) {
+      const naturalW = (active.get('naturalWidth' as any) as number) || (active.getOriginalSize().width as number) || 400;
+      const naturalH = (active.get('naturalHeight' as any) as number) || (active.getOriginalSize().height as number) || 300;
 
-    active.set({
-      cropX: 0,
-      cropY: 0,
-      width: naturalW,
-      height: naturalH,
-    });
+      active.set({
+        cropX: 0,
+        cropY: 0,
+        width: naturalW,
+        height: naturalH,
+      });
 
+      active.set('cropX' as any, 0);
+      active.set('cropY' as any, 0);
+      active.set('cropWidth' as any, naturalW);
+      active.set('cropHeight' as any, naturalH);
+      active.set('isElementCropped' as any, false);
+
+      active.setCoords();
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+      this.saveHistoryState();
+      return;
+    }
+
+    const naturalW = (active.get('naturalWidth' as any) as number) || (active.width || 200);
+    const naturalH = (active.get('naturalHeight' as any) as number) || (active.height || 200);
+
+    active.set('clipPath', undefined);
+    active.set('isElementCropped' as any, false);
     active.set('cropX' as any, 0);
     active.set('cropY' as any, 0);
     active.set('cropWidth' as any, naturalW);
@@ -7009,6 +7107,63 @@ export class CanvasManager {
     this.canvas.requestRenderAll();
     this.notifyChange();
     this.notifySelection();
+    this.notifyLayers();
+    this.saveHistoryState();
+  }
+
+  public getActiveObjectPreviewUrl(): string | null {
+    if (!this.canvas) return null;
+    const active = this.canvas.getActiveObject();
+    if (!active) return null;
+
+    if (active instanceof FabricImage) {
+      const src = (active.get('originalSrc' as any) as string) || (active.getSrc ? active.getSrc() : null);
+      if (src) return src;
+    }
+
+    // For other elements: temporarily hide clipPath if cropped to preview uncropped full source
+    const existingClip = active.clipPath;
+    const isCropped = Boolean(active.get('isElementCropped' as any));
+    if (isCropped && existingClip) {
+      active.set('clipPath', undefined);
+    }
+
+    let url: string | null = null;
+    try {
+      url = active.toDataURL({
+        format: 'png',
+        multiplier: 2,
+        enableRetinaScaling: false,
+      });
+    } catch (e) {
+      console.warn('Could not generate dataURL for active element:', e);
+    }
+
+    if (isCropped && existingClip) {
+      active.set('clipPath', existingClip);
+      active.setCoords();
+      this.canvas.requestRenderAll();
+    }
+
+    return url;
+  }
+
+  public onCropRequest(cb: (target: FabricObject) => void): () => void {
+    this.cropRequestListeners.add(cb);
+    return () => this.cropRequestListeners.delete(cb);
+  }
+
+  public requestCrop(target?: FabricObject): void {
+    if (!this.canvas) return;
+    const obj = target || this.canvas.getActiveObject();
+    if (!obj || this.isNonInteractiveObject(obj)) return;
+
+    if (this.isPhotoDropFrame(obj) || Boolean(obj.get('isFrame' as any))) {
+      void this.enterFrameCropMode(obj);
+      return;
+    }
+
+    this.cropRequestListeners.forEach((cb) => cb(obj));
   }
 
   // --- Bi-Directional Synchronized Layers Engine ---
@@ -10793,6 +10948,13 @@ export class CanvasManager {
         fileSizeBytes,
         this.dimensions.dpi || 300
       );
+    } else {
+      naturalWidth = (active.get('naturalWidth' as any) as number) || Math.round(active.width || 400);
+      naturalHeight = (active.get('naturalHeight' as any) as number) || Math.round(active.height || 300);
+      cropX = (active.get('cropX' as any) as number) || 0;
+      cropY = (active.get('cropY' as any) as number) || 0;
+      cropWidth = (active.get('cropWidth' as any) as number) || naturalWidth;
+      cropHeight = (active.get('cropHeight' as any) as number) || naturalHeight;
     }
 
     const imageDpiCalc = imageObj ? this.calculateImageDpi(imageObj) : null;
@@ -10947,6 +11109,7 @@ export class CanvasManager {
       cropY,
       cropWidth,
       cropHeight,
+      isElementCropped: Boolean(active.get('isElementCropped' as any) || (active.clipPath && !isFrame)),
       qualityInfo,
       backgroundRemoved: imageObj ? Boolean(imageObj.get('backgroundRemoved' as any)) : undefined,
       originalUrl: imageObj ? (imageObj.get('originalUrl' as any) as string) : undefined,
@@ -11147,6 +11310,61 @@ export class CanvasManager {
         }
       }
 
+      // Canva-style Alt-click and Alt-drag duplicate feature for text and elements
+      this.altDragState = null;
+      const corner =
+        opt?.transform?.corner ||
+        (rawTarget as any)?.__corner ||
+        (this.canvas.getActiveObject() as any)?.__corner;
+
+      if (
+        opt.e?.altKey &&
+        !corner &&
+        !this.isPanMode &&
+        !this.isDrawing &&
+        !this.isFrameCropping() &&
+        target &&
+        !this.isNonInteractiveObject(target) &&
+        !target.get('isGuide' as any) &&
+        !target.get('isPrintGuide' as any) &&
+        !target.get('isRulerGuide' as any) &&
+        !target.get('isBackground' as any) &&
+        !(target as any).isEditing &&
+        !(target.lockMovementX && target.lockMovementY)
+      ) {
+        if (opt.e && typeof opt.e.preventDefault === 'function') {
+          opt.e.preventDefault();
+        }
+
+        const currentActive = this.canvas.getActiveObject();
+        const effectiveTarget =
+          currentActive instanceof ActiveSelection && currentActive.contains(target)
+            ? currentActive
+            : target;
+
+        if (this.canvas.getActiveObject() !== effectiveTarget) {
+          this.canvas.setActiveObject(effectiveTarget);
+          this.canvas.requestRenderAll();
+        }
+
+        const initialLeft = effectiveTarget.left || 0;
+        const initialTop = effectiveTarget.top || 0;
+        const initialIndex = this.canvas.getObjects().indexOf(effectiveTarget);
+
+        this.altDragState = {
+          target: effectiveTarget,
+          startX: opt.e.clientX,
+          startY: opt.e.clientY,
+          initialLeft,
+          initialTop,
+          initialIndex: initialIndex >= 0 ? initialIndex : this.canvas.getObjects().length,
+          clonePromise: this.cloneCanvasObject(effectiveTarget),
+          clonedPlaced: false,
+          hasMoved: false,
+          altKeyDownAtStart: true,
+        };
+      }
+
       if (target && typeof target.get === 'function') {
         const activeCorner =
           opt?.transform?.corner ||
@@ -11288,6 +11506,26 @@ export class CanvasManager {
         }
       }
 
+      // Canva-style copy cursor when holding Alt over an interactive canvas object
+      if (opt.e?.altKey && !this.isPanMode && !this.isDrawing) {
+        const hoverTarget =
+          opt.target ||
+          (typeof (this.canvas as any).findTarget === 'function'
+            ? (this.canvas as any).findTarget(opt.e)
+            : null);
+        if (
+          hoverTarget &&
+          !this.isNonInteractiveObject(hoverTarget) &&
+          !hoverTarget.get('isGuide' as any) &&
+          !hoverTarget.get('isPrintGuide' as any) &&
+          !hoverTarget.get('isRulerGuide' as any) &&
+          !hoverTarget.get('isBackground' as any) &&
+          !(hoverTarget as any).isEditing
+        ) {
+          this.canvas?.setCursor('copy');
+        }
+      }
+
       if (this.isErasing && this.isDrawing && this.brushSettings.tool === 'eraser') {
         const pointer = opt.scenePoint || (this.canvas && opt.e ? (this.canvas as any).getScenePoint?.(opt.e) : null);
         if (pointer && this.lastErasePoint) {
@@ -11327,6 +11565,76 @@ export class CanvasManager {
           this.notifyPreflight();
         }
       }
+
+      // Canva-style Alt-click & Alt-drag completion
+      if (this.altDragState) {
+        const state = this.altDragState;
+        this.altDragState = null;
+
+        if (state.clonedPlaced) {
+          // Alt-drag completed: finalize history and layer updates
+          void state.clonePromise.then(() => {
+            if (!this.canvas) return;
+            this.canvas.requestRenderAll();
+            this.notifyChange();
+            this.notifySelection();
+            this.notifyLayers();
+            this.saveHistoryState();
+          });
+        } else {
+          // Alt-click completed (no drag): duplicate element with +20, +20 offset like Canva
+          void (async () => {
+            try {
+              const cloned = await state.clonePromise;
+              if (!this.canvas) return;
+              this.canvas.discardActiveObject();
+              this.ensureObjectId(cloned, `${state.target.get('name' as any) || 'Object'} (Copy)`, true);
+
+              const offset = 20;
+              cloned.set({
+                left: (cloned.left || 0) + offset,
+                top: (cloned.top || 0) + offset,
+                evented: true,
+                selectable: true,
+              });
+
+              if (cloned instanceof ActiveSelection) {
+                cloned.canvas = this.canvas;
+                cloned.forEachObject((obj) => {
+                  this.ensureObjectId(obj, `${obj.get('name' as any) || 'Object'} (Copy)`, true);
+                  obj.set({
+                    left: (obj.left || 0) + offset,
+                    top: (obj.top || 0) + offset,
+                    evented: true,
+                    selectable: true,
+                  });
+                  applyCanvaControlsToObject(obj);
+                  this.restoreObjectInteractivity(obj);
+                  obj.setCoords();
+                  this.canvas?.add(obj);
+                });
+                cloned.setCoords();
+              } else {
+                applyCanvaControlsToObject(cloned);
+                this.restoreObjectInteractivity(cloned);
+                cloned.setCoords();
+                this.canvas.add(cloned);
+              }
+
+              this.canvas.setActiveObject(cloned);
+              this.syncVisualEffectsGeometry(cloned);
+              this.canvas.requestRenderAll();
+              this.notifyChange();
+              this.notifySelection();
+              this.notifyLayers();
+              this.saveHistoryState();
+            } catch (err) {
+              console.error('Failed to duplicate on Alt-click:', err);
+            }
+          })();
+        }
+      }
+
       this.snapping.clearGuides();
       const activeObj = this.canvas?.getActiveObject();
       if (activeObj && !this.isPanMode && !this.isDrawing) {
@@ -11448,6 +11756,15 @@ export class CanvasManager {
           Boolean(target.get('isCustomFrame' as any)))
       ) {
         this.enterFrameCropMode(target);
+      } else if (
+        target &&
+        !Boolean(target.get('isLocked' as any)) &&
+        !Boolean((target as any).isLocked) &&
+        !this.isNonInteractiveObject(target) &&
+        !(target as any).isEditing
+      ) {
+        // Canva-style: Double-click any element or image to trigger crop
+        this.requestCrop(target);
       } else if (!target && this.canvas?.backgroundImage) {
         // Canva-style: Double-click empty canvas background to detach & edit background
         this.convertBackgroundToLayer();
@@ -11668,6 +11985,112 @@ export class CanvasManager {
           (opt as any).scenePoint ||
           ((opt as any).e ? (this.canvas as any).getScenePoint?.((opt as any).e) : undefined);
         this.handleShapeImageHover(opt.target, pointer);
+
+        // Canva-style Alt-drag duplication: place stationary clone at starting position
+        if (this.altDragState && !this.altDragState.clonedPlaced) {
+          const dist = Math.hypot(
+            (opt.target.left || 0) - this.altDragState.initialLeft,
+            (opt.target.top || 0) - this.altDragState.initialTop
+          );
+          if (dist >= 3) {
+            this.altDragState.clonedPlaced = true;
+            this.altDragState.hasMoved = true;
+            const state = this.altDragState;
+            void state.clonePromise.then((cloned) => {
+              if (!this.canvas) return;
+              this.ensureObjectId(cloned, `${state.target.get('name' as any) || 'Object'} (Original)`, true);
+              cloned.set({
+                left: state.initialLeft,
+                top: state.initialTop,
+                evented: true,
+                selectable: true,
+              });
+
+              if (cloned instanceof ActiveSelection) {
+                cloned.canvas = this.canvas;
+                let idx = state.initialIndex >= 0 ? state.initialIndex : 0;
+                cloned.forEachObject((obj) => {
+                  this.ensureObjectId(obj, `${obj.get('name' as any) || 'Object'} (Original)`, true);
+                  applyCanvaControlsToObject(obj);
+                  this.restoreObjectInteractivity(obj);
+                  obj.setCoords();
+                  this.canvas?.insertAt(idx++, obj);
+                });
+              } else {
+                applyCanvaControlsToObject(cloned);
+                this.restoreObjectInteractivity(cloned);
+                cloned.setCoords();
+                const idx = state.initialIndex >= 0 ? state.initialIndex : this.canvas.getObjects().length;
+                this.canvas.insertAt(idx, cloned);
+              }
+
+              this.syncVisualEffectsGeometry(cloned);
+              this.canvas.requestRenderAll();
+            });
+          }
+        } else if (
+          !this.altDragState &&
+          (opt as any).e?.altKey &&
+          opt.target &&
+          !this.isNonInteractiveObject(opt.target)
+        ) {
+          // User pressed Alt mid-drag: initiate duplication from original drag position
+          const target = opt.target;
+          if (
+            !target.get('isGuide' as any) &&
+            !target.get('isBackground' as any) &&
+            !(target as any).isEditing &&
+            !this.isPanMode &&
+            !this.isDrawing
+          ) {
+            const origTransform = (opt as any).transform?.original;
+            const initialLeft = origTransform?.left ?? target.left ?? 0;
+            const initialTop = origTransform?.top ?? target.top ?? 0;
+            const initialIndex = this.canvas ? this.canvas.getObjects().indexOf(target) : 0;
+            this.altDragState = {
+              target,
+              startX: (opt as any).e?.clientX || 0,
+              startY: (opt as any).e?.clientY || 0,
+              initialLeft,
+              initialTop,
+              initialIndex: initialIndex >= 0 ? initialIndex : 0,
+              clonePromise: this.cloneCanvasObject(target),
+              clonedPlaced: true,
+              hasMoved: true,
+              altKeyDownAtStart: false,
+            };
+            const state = this.altDragState;
+            void state.clonePromise.then((cloned) => {
+              if (!this.canvas) return;
+              this.ensureObjectId(cloned, `${target.get('name' as any) || 'Object'} (Original)`, true);
+              cloned.set({
+                left: state.initialLeft,
+                top: state.initialTop,
+                evented: true,
+                selectable: true,
+              });
+              if (cloned instanceof ActiveSelection) {
+                cloned.canvas = this.canvas;
+                let idx = state.initialIndex >= 0 ? state.initialIndex : 0;
+                cloned.forEachObject((obj) => {
+                  this.ensureObjectId(obj, `${obj.get('name' as any) || 'Object'} (Original)`, true);
+                  applyCanvaControlsToObject(obj);
+                  this.restoreObjectInteractivity(obj);
+                  obj.setCoords();
+                  this.canvas?.insertAt(idx++, obj);
+                });
+              } else {
+                applyCanvaControlsToObject(cloned);
+                this.restoreObjectInteractivity(cloned);
+                cloned.setCoords();
+                const idx = state.initialIndex >= 0 ? state.initialIndex : this.canvas.getObjects().length;
+                this.canvas.insertAt(idx, cloned);
+              }
+              this.syncVisualEffectsGeometry(cloned);
+              this.canvas.requestRenderAll();
+            });
+          }
+        }
       }
     });
     this.canvas.on('object:scaling', (opt: any) => {
