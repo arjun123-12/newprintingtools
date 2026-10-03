@@ -1,3 +1,5 @@
+import { getAuthToken } from '@/utils/storageHelper';
+
 export interface BackgroundRemovalProgress {
   stage: 'processing' | 'downloading' | 'complete';
   progress?: number;
@@ -106,7 +108,7 @@ async function ensurePublicImageUrl(sourceUrl: string): Promise<string> {
     formData.append('image', file);
     formData.append('source_provider', 'designer');
 
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    const token = getAuthToken();
     const uploadRes = await fetch(`${API_URL}/designer/uploads/canvas-image`, {
       method: 'POST',
       credentials: 'include',
@@ -208,7 +210,7 @@ export async function removeImageBackground(
   }
 
   // 2. Fallback to Laravel backend API
-  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  const token = getAuthToken();
   const backendResponse = await fetch(
     `${API_URL}/freepik/remove-background`,
     {

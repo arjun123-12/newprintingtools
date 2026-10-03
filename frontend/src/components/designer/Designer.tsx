@@ -44,6 +44,12 @@ import {
 } from '@/services/designTemplateService';
 import { formatImageUrl, urlToSafeDataUrl } from '@/utils/imageUrl';
 import { AlertTriangle } from 'lucide-react';
+import {
+  getAuthToken,
+  safeLocalStorage,
+  safeSessionStorage,
+  cleanupLegacyArtworkStorage,
+} from '@/utils/storageHelper';
 
 const API_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -418,23 +424,19 @@ export default function Designer({
   const handleToggleRulers = useCallback(() => {
     setShowRulers((previous) => {
       const next = !previous;
-
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(
-          'print_designer_show_rulers',
-          next ? '1' : '0'
-        );
-      }
-
+      safeLocalStorage.setItem(
+        'print_designer_show_rulers',
+        next ? '1' : '0'
+      );
       return next;
     });
   }, []);
 
   // Restore the user's ruler preference when the designer opens again.
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    cleanupLegacyArtworkStorage();
 
-    const stored = window.localStorage.getItem(
+    const stored = safeLocalStorage.getItem<string>(
       'print_designer_show_rulers'
     );
 
@@ -487,7 +489,7 @@ export default function Designer({
     formData.append('image', file);
     formData.append('source_provider', 'designer');
 
-    const token = localStorage.getItem('auth_token');
+    const token = getAuthToken();
     const uploadResponse = await fetch(
       `${API_URL}/designer/uploads/canvas-image`,
       {
@@ -1218,7 +1220,7 @@ export default function Designer({
         const updatedPages = await uploadBase64ImagesInPages(currentPages);
         const allPagesJson = updatedPages.map(p => p.canvasJson);
 
-        // Always keep a local recovery copy, even if the API is unavailable.
+        // Keep lightweight temporary recovery metadata in session storage (never heavy canvas JSON)
         designerService.saveDraftLocally(currentProductId || 'default', {
           version: '1.0',
           product_id: currentProductId,
@@ -1226,7 +1228,7 @@ export default function Designer({
           dimensions: currentDimensions,
           document: currentDocument,
           background_color: currentDocument.backgroundColor || '#ffffff',
-          canvas_json: allPagesJson,
+          canvas_json: [],
         });
 
         // Laravel requires a real product UUID. Custom/no-product canvases stay local.
@@ -1288,8 +1290,7 @@ export default function Designer({
           setSaveStatus('error');
           setSaveError(message);
 
-          // The current state is already safe in localStorage. Stop retrying
-          // until the user makes another change or manually presses Save.
+          // Stop retrying until the user makes another change or manually presses Save.
           saveQueuedRef.current = false;
           break;
         }
@@ -1321,20 +1322,9 @@ export default function Designer({
     if (!canvas) return;
 
     await uploadBase64ImagesInCanvas(canvas);
-    const currentPages = await getCurrentPagesState();
-    const updatedPages = await uploadBase64ImagesInPages(currentPages);
-    const allPagesJson = updatedPages.map(p => p.canvasJson);
-    const versionTimestamp = new Date().toISOString();
-    designerService.saveDraftLocally(`${productId || 'default'}_v_${Date.now()}`, {
-      version: versionTimestamp,
-      product_id: productId,
-      name: `${designName} (Version ${new Date().toLocaleTimeString()})`,
-      dimensions: dimensionsRef.current,
-      document: documentSettings,
-      background_color: documentSettings.backgroundColor || '#ffffff',
-      canvas_json: allPagesJson,
-    });
-  }, [designName, documentSettings, productId, getCurrentPagesState, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages]);
+    // Trigger save to backend draft
+    await handleSaveDraft();
+  }, [handleSaveDraft, uploadBase64ImagesInCanvas]);
 
   /**
    * Debounce rapid Fabric events (moving, typing, scaling) into one API save.
@@ -1424,7 +1414,7 @@ export default function Designer({
 
     const fetchTemplate = async () => {
       try {
-        const authToken = localStorage.getItem('auth_token') || localStorage.getItem('token');
+        const authToken = getAuthToken();
         const isAdminMode =
           mode === 'admin-template' ||
           (typeof window !== 'undefined' &&

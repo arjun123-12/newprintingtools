@@ -1,4 +1,5 @@
 import { UploadedAsset } from '@/types/designer';
+import { safeLocalStorage } from '@/utils/storageHelper';
 
 const ASSETS_STORAGE_KEY = 'print_designer_uploaded_assets';
 
@@ -9,27 +10,19 @@ class AssetService {
   private listeners: Set<AssetListener> = new Set();
 
   constructor() {
-    this.loadFromStorage();
+    this.cleanLegacyStorage();
   }
 
-  private loadFromStorage(): void {
+  /**
+   * Safely purges legacy base64 image strings from browser localStorage
+   * to guarantee zero quota consumption.
+   */
+  private cleanLegacyStorage(): void {
     if (typeof window === 'undefined') return;
     try {
-      const raw = localStorage.getItem(ASSETS_STORAGE_KEY);
-      if (raw) {
-        this.assets = JSON.parse(raw);
-      }
+      safeLocalStorage.removeItem(ASSETS_STORAGE_KEY);
     } catch (err) {
-      console.warn('Failed to load assets from storage:', err);
-    }
-  }
-
-  private saveToStorage(): void {
-    if (typeof window === 'undefined') return;
-    try {
-      localStorage.setItem(ASSETS_STORAGE_KEY, JSON.stringify(this.assets));
-    } catch (err) {
-      console.warn('Failed to save assets to storage:', err);
+      console.warn('Failed to cleanup legacy asset storage:', err);
     }
   }
 
@@ -49,7 +42,8 @@ class AssetService {
   }
 
   /**
-   * Reads a File object, measures its natural dimensions, and adds it to the asset library
+   * Reads a File object, measures its natural dimensions, and adds it to the runtime asset library.
+   * Binary image data stays in runtime memory and is uploaded to persistent backend storage upon save.
    */
   public async uploadFile(file: File): Promise<UploadedAsset> {
     if (
@@ -71,7 +65,6 @@ class AssetService {
         };
 
         this.assets = [asset, ...this.assets];
-        this.saveToStorage();
         this.notify();
         return asset;
       } catch (err) {
@@ -99,7 +92,6 @@ class AssetService {
           };
 
           this.assets = [asset, ...this.assets];
-          this.saveToStorage();
           this.notify();
           resolve(asset);
         };
@@ -148,11 +140,10 @@ class AssetService {
   }
 
   /**
-   * Removes an asset from the local library
+   * Removes an asset from the runtime asset library
    */
   public deleteAsset(id: string): void {
     this.assets = this.assets.filter((a) => a.id !== id);
-    this.saveToStorage();
     this.notify();
   }
 }

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { getAuthToken } from '@/utils/storageHelper';
 import { FormActions, LoadingState } from '@/components/admin/shared';
 import { BasicInformation } from './BasicInformation';
 import { ProductContent } from './ProductContent';
@@ -152,7 +153,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     const fetchCategories = async () => {
       try {
         setCategoriesLoading(true);
-        const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+        const token = getAuthToken();
         const res = await fetch(`${API_URL}/admin/categories`, {
           headers: {
             Accept: 'application/json',
@@ -273,7 +274,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       }
 
       setLoading(true);
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getAuthToken();
 
       fetch(`${API_URL}/admin/products/${productId}`, {
         headers: {
@@ -359,7 +360,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
 
     const isDataUri = formData.featured_image_url?.startsWith('data:');
     const featuredUrlToSend = isDataUri ? null : formData.featured_image_url || null;
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+    const token = getAuthToken();
 
     // Helper to detect correct file extension from blob MIME type
     const getExtFromMime = (mime: string) => {

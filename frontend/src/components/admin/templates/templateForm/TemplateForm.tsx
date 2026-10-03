@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { getAuthToken } from '@/utils/storageHelper';
 import { LoadingState } from '@/components/admin/shared';
 import { BasicTemplateInfo } from './BasicTemplateInfo';
 import { TemplatePrintDimensions } from './TemplatePrintDimensions';
@@ -206,7 +207,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
           ),
           ...(formData.back_canvas_json ? { back_canvas_json: sanitizeCanvasJson(formData.back_canvas_json) } : {}),
         };
-        const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+        const token = getAuthToken();
         const res = await fetch(`${API_URL}/admin/design-templates/${templateId}`, {
           method: 'PUT',
           headers: {
@@ -276,7 +277,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
     const fetchProducts = async () => {
       try {
         setProductsLoading(true);
-        const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+        const token = getAuthToken();
         const res = await fetch(`${API_URL}/admin/products`, {
           headers: { 
             Accept: 'application/json',
@@ -360,7 +361,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
       }
 
       setLoading(true);
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getAuthToken();
 
       fetch(
         `${API_URL}/admin/design-templates/${templateId}`,
@@ -440,7 +441,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         ...(formData.back_canvas_json ? { back_canvas_json: formData.back_canvas_json } : {}),
       };
 
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getAuthToken();
       const res = await fetch(`${API_URL}/admin/design-templates/${templateId}`, {
         method: 'PUT',
         headers: {

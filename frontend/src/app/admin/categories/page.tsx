@@ -1,6 +1,7 @@
 'use client';
 
 import React, { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { getAuthToken } from '@/utils/storageHelper';
 import {
   FolderTree,
   Plus,
@@ -100,7 +101,7 @@ export default function AdminCategoriesPage() {
       setMessage(null);
       setSelectedCategoryIds(new Set());
 
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getAuthToken();
 
       const response = await fetch(`${API_URL}/admin/categories`, {
         headers: {
@@ -191,7 +192,7 @@ export default function AdminCategoriesPage() {
       setMessage(null);
       setErrors({});
 
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getAuthToken();
 
       const payload = {
         name: form.name.trim(),
@@ -262,7 +263,7 @@ export default function AdminCategoriesPage() {
     setCategories((prev) => prev.map((c) => (c.id === cat.id ? { ...c, is_active: nextState } : c)));
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getAuthToken();
 
       await fetch(`${API_URL}/admin/categories/${cat.id}`, {
         method: 'PATCH',
@@ -285,7 +286,7 @@ export default function AdminCategoriesPage() {
     setCategories((prev) => prev.filter((c) => c.id !== id));
 
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getAuthToken();
 
       await fetch(`${API_URL}/admin/categories/${id}`, {
         method: 'DELETE',
@@ -327,7 +328,7 @@ export default function AdminCategoriesPage() {
 
     try {
       setIsBulkDeleting(true);
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getAuthToken();
 
       const response = await fetch(`${API_URL}/admin/categories/bulk-delete`, {
         method: 'POST',

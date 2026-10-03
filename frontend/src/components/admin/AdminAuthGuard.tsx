@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { getAuthToken, removeAuthToken } from '@/utils/storageHelper';
 
 interface AdminAuthGuardProps {
     children: ReactNode;
@@ -31,7 +32,7 @@ export default function AdminAuthGuard({
 
         setAuthStatus('checking');
 
-        const token = localStorage.getItem('auth_token');
+        const token = getAuthToken();
 
         if (!token) {
             setAuthStatus('unauthorized');
@@ -73,7 +74,7 @@ export default function AdminAuthGuard({
                     return;
                 }
 
-                localStorage.removeItem('auth_token');
+                removeAuthToken();
                 setAuthStatus('unauthorized');
                 router.replace('/admin/login');
             }

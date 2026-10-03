@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { getAuthToken } from '@/utils/storageHelper';
 import {
   ProductTable,
   ProductListItem,
@@ -73,7 +74,7 @@ export default function AdminProductsPage() {
       setError(null);
       setSelectedProductIds(new Set());
 
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getAuthToken();
       const authHeaders = {
         Accept: 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -124,10 +125,7 @@ export default function AdminProductsPage() {
     );
 
     try {
-      const token =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('token') || localStorage.getItem('auth_token')
-          : null;
+      const token = getAuthToken();
 
       const res = await fetch(`${API_URL}/admin/products/${product.id}`, {
         method: 'PATCH',
@@ -181,10 +179,7 @@ export default function AdminProductsPage() {
       message: 'Are you sure you want to permanently delete this product? This action cannot be undone.',
       onConfirm: async () => {
         try {
-          const token =
-            typeof window !== 'undefined'
-              ? localStorage.getItem('token') || localStorage.getItem('auth_token')
-              : null;
+          const token = getAuthToken();
 
           const response = await fetch(`${API_URL}/admin/products/${productId}`, {
             method: 'DELETE',
@@ -220,10 +215,7 @@ export default function AdminProductsPage() {
       onConfirm: async () => {
         try {
           setIsBulkDeleting(true);
-          const token =
-            typeof window !== 'undefined'
-              ? localStorage.getItem('token') || localStorage.getItem('auth_token')
-              : null;
+          const token = getAuthToken();
 
           const response = await fetch(`${API_URL}/admin/products/bulk-delete`, {
             method: 'POST',

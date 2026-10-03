@@ -58,14 +58,14 @@ interface ApiResponse<T> {
 
 type JsonRecord = Record<string, unknown>;
 
+import { getAuthToken } from '@/utils/storageHelper';
+
 function getAuthHeaders(): HeadersInit {
     if (typeof window === 'undefined') {
         return {};
     }
 
-    const token =
-        localStorage.getItem('auth_token') ||
-        localStorage.getItem('token');
+    const token = getAuthToken();
 
     return token
         ? {

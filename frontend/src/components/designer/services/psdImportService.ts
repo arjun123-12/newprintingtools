@@ -9,6 +9,7 @@
  */
 
 import { formatImageUrl } from '@/utils/imageUrl';
+import { getAuthToken } from '@/utils/storageHelper';
 
 export interface ImportedPsdTextData {
   text: string;
@@ -552,10 +553,7 @@ export async function uploadPsdLayerAssets(
   document: ImportedPsdDocument,
   onProgress?: (current: number, total: number) => void
 ): Promise<ImportedPsdDocument> {
-  const token =
-    typeof window !== 'undefined'
-      ? localStorage.getItem('auth_token')
-      : null;
+  const token = getAuthToken();
 
   // Flatten layers to find all blobs needing upload
   const blobLayers: ImportedPsdLayer[] = [];

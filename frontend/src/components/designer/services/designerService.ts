@@ -4,6 +4,12 @@ import {
   ProductPrintPreset,
 } from '@/types/designer';
 import { PRINT_PRODUCT_PRESETS } from '../utils/dimensions';
+import {
+  getAuthToken,
+  safeSessionStorage,
+  safeLocalStorage,
+  cleanupLegacyArtworkStorage,
+} from '@/utils/storageHelper';
 
 const LOCAL_STORAGE_KEY_PREFIX = 'print_artwork_draft_';
 const REMOTE_ARTWORK_ID_KEY_PREFIX = 'print_artwork_remote_id_';
@@ -122,19 +128,13 @@ export class DesignerService {
       ? `${API_URL}/artworks/${artworkId}`
       : `${API_URL}/artworks`;
 
-    const token =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('token') || localStorage.getItem('auth_token')
-        : null;
+    const token = getAuthToken();
 
-    let sessionId =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('designer_session_id')
-        : null;
+    let sessionId = safeLocalStorage.getItem<string>('designer_session_id');
 
     if (typeof window !== 'undefined' && !sessionId && !token) {
       sessionId = 'guest_' + Math.random().toString(36).substring(2) + Date.now();
-      localStorage.setItem('designer_session_id', sessionId);
+      safeLocalStorage.setItem('designer_session_id', sessionId);
     }
 
     // Product/template identity is immutable after the artwork is created.
@@ -204,10 +204,7 @@ export class DesignerService {
   }
 
   public async completeArtwork(artworkId: string): Promise<SavedArtwork> {
-    const token =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('token')
-        : null;
+    const token = getAuthToken();
 
     const response = await fetch(
       `${API_URL}/artworks/${artworkId}/complete`,
@@ -239,7 +236,9 @@ export class DesignerService {
   }
 
   /**
-   * Local storage remains a fast offline/recovery backup.
+   * Temporary lightweight session metadata only.
+   * Large canvas JSON and image data are NEVER written to browser storage;
+   * they are saved to the backend database via saveArtworkDraft.
    */
   public saveDraftLocally(
     productId: string,
@@ -249,55 +248,69 @@ export class DesignerService {
 
     try {
       const key = `${LOCAL_STORAGE_KEY_PREFIX}${productId || 'default'}`;
-      localStorage.setItem(key, JSON.stringify(state));
+      // Clean up any obsolete bulky localStorage copy
+      safeLocalStorage.removeItem(key);
+
+      // Only keep small temporary session metadata (never full canvas_json)
+      const lightweightMeta = {
+        product_id: state.product_id,
+        name: state.name,
+        dimensions: state.dimensions,
+        updated_at: new Date().toISOString(),
+      };
+      safeSessionStorage.setItem(key, lightweightMeta, 16384);
     } catch (error) {
-      console.warn('Failed to save artwork draft locally:', error);
+      console.warn('Failed to save draft metadata in session:', error);
     }
   }
 
   public loadDraftLocally(
-    productId: string
+    _productId: string
   ): DesignerCanvasState | null {
-    if (typeof window === 'undefined') return null;
-
-    try {
-      const key = `${LOCAL_STORAGE_KEY_PREFIX}${productId || 'default'}`;
-      const raw = localStorage.getItem(key);
-
-      return raw
-        ? (JSON.parse(raw) as DesignerCanvasState)
-        : null;
-    } catch (error) {
-      console.warn('Failed to load artwork draft locally:', error);
-      return null;
-    }
+    // Authoritative drafts come from backend API/database
+    return null;
   }
 
   public clearLocalDraft(productId: string): void {
     if (typeof window === 'undefined') return;
 
     const key = `${LOCAL_STORAGE_KEY_PREFIX}${productId || 'default'}`;
-    localStorage.removeItem(key);
+    safeSessionStorage.removeItem(key);
+    safeLocalStorage.removeItem(key);
   }
 
   /**
-   * Remembers the backend row so a page refresh updates instead of duplicating.
+   * Remembers the backend row in sessionStorage so a page refresh updates instead of duplicating.
+   * Authoritative artwork ID comes from backend database.
    */
   public rememberArtworkId(productId: string, artworkId: string): void {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !productId || !artworkId) return;
 
-    localStorage.setItem(
-      `${REMOTE_ARTWORK_ID_KEY_PREFIX}${productId}`,
-      artworkId
-    );
+    const key = `${REMOTE_ARTWORK_ID_KEY_PREFIX}${productId}`;
+    safeSessionStorage.setItem(key, String(artworkId).trim(), 512);
+    // Remove obsolete localStorage key to reclaim quota
+    safeLocalStorage.removeItem(key);
   }
 
   public loadRememberedArtworkId(productId: string): string | null {
-    if (typeof window === 'undefined') return null;
+    if (typeof window === 'undefined' || !productId) return null;
 
-    return localStorage.getItem(
-      `${REMOTE_ARTWORK_ID_KEY_PREFIX}${productId}`
-    );
+    const key = `${REMOTE_ARTWORK_ID_KEY_PREFIX}${productId}`;
+    const sessionVal = safeSessionStorage.getItem<string>(key);
+    if (sessionVal && typeof sessionVal === 'string' && !sessionVal.trim().startsWith('{')) {
+      return sessionVal.trim();
+    }
+
+    // Backward compatibility: read legacy localStorage, migrate to sessionStorage, remove from localStorage
+    const legacyVal = safeLocalStorage.getItem<string>(key);
+    if (legacyVal && typeof legacyVal === 'string' && !legacyVal.trim().startsWith('{')) {
+      const cleanId = legacyVal.trim();
+      safeSessionStorage.setItem(key, cleanId, 512);
+      safeLocalStorage.removeItem(key);
+      return cleanId;
+    }
+
+    return null;
   }
 
   public async saveAsDesignTemplate(payload: {
@@ -311,10 +324,7 @@ export class DesignerService {
     thumbnail_url?: string | null;
     is_active?: boolean;
   }): Promise<{ id: string; name: string; product_id: string; message?: string }> {
-    const token =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('token') || localStorage.getItem('auth_token')
-        : null;
+    const token = getAuthToken();
 
     const isUpdate = Boolean(payload.template_id);
     const url = isUpdate
@@ -366,15 +376,9 @@ export class DesignerService {
    * Fetch a saved artwork by ID with fallback.
    */
   public async fetchArtwork(artworkId: string): Promise<SavedArtwork> {
-    const token =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('token') || localStorage.getItem('auth_token')
-        : null;
+    const token = getAuthToken();
 
-    const sessionId =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('designer_session_id')
-        : null;
+    const sessionId = safeLocalStorage.getItem<string>('designer_session_id');
 
     let response = await fetch(`${API_URL}/artworks/${artworkId}`, {
       method: 'GET',
@@ -450,7 +454,8 @@ export class DesignerService {
     if (typeof window === 'undefined') return;
 
     const key = `${REMOTE_ARTWORK_ID_KEY_PREFIX}${productId}`;
-    localStorage.removeItem(key);
+    safeSessionStorage.removeItem(key);
+    safeLocalStorage.removeItem(key);
   }
 }
 

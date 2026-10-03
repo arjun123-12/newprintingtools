@@ -2,6 +2,8 @@
  * Centralized Artwork Configuration & Format Helpers for Admin Panel
  */
 
+import { getAuthToken } from '@/utils/storageHelper';
+
 export const SUPPORTED_ARTWORK_EXTENSIONS = [
   'jpg',
   'jpeg',
@@ -242,10 +244,7 @@ async function renderTiffPreview(file: File): Promise<string> {
   try {
     const formData = new FormData();
     formData.append('image', file);
-    const token =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('token') || localStorage.getItem('auth_token')
-        : null;
+    const token = getAuthToken();
 
     const res = await fetch(`${API_URL}/designer/uploads/convert-image`, {
       method: 'POST',

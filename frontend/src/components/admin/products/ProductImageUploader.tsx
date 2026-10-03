@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import ArtworkFileUpload from '@/components/admin/forms/ArtworkFileUpload';
+import { getAuthToken } from '@/utils/storageHelper';
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -34,7 +35,7 @@ export default function ProductImageUploader({ productId }: ProductImageUploader
     formData.append('is_featured', isFeatured ? '1' : '0');
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const response = await fetch(`${API_URL}/admin/products/${productId}/images`, {
         method: 'POST',
         credentials: 'include',

@@ -23,6 +23,7 @@ import {
   DesignerTemplate,
   SelectedObjectState,
 } from '@/types/designer';
+import { safeLocalStorage } from '@/utils/storageHelper';
 import { CanvasManager } from './canvas/CanvasManager';
 import { TemplatesPanel } from './panels/TemplatesPanel';
 import { ElementsPanel } from './panels/ElementsPanel';
@@ -96,27 +97,19 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   } | null>(null);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const raw = window.localStorage.getItem(
+    const parsed = safeLocalStorage.getItem<{ x: number; y: number }>(
       'print_designer_floating_frames_position'
     );
 
-    if (!raw) return;
-
-    try {
-      const parsed = JSON.parse(raw);
-      if (
-        Number.isFinite(parsed?.x) &&
-        Number.isFinite(parsed?.y)
-      ) {
-        setFloatingPosition({
-          x: Math.max(0, parsed.x),
-          y: Math.max(0, parsed.y),
-        });
-      }
-    } catch {
-      // Ignore malformed saved panel position.
+    if (
+      parsed &&
+      Number.isFinite(parsed.x) &&
+      Number.isFinite(parsed.y)
+    ) {
+      setFloatingPosition({
+        x: Math.max(0, parsed.x),
+        y: Math.max(0, parsed.y),
+      });
     }
   }, []);
 
@@ -235,12 +228,10 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
 
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(
-        'print_designer_floating_frames_position',
-        JSON.stringify(floatingPosition)
-      );
-    }
+    safeLocalStorage.setItem(
+      'print_designer_floating_frames_position',
+      floatingPosition
+    );
   };
 
   const shouldShowDockedPanel =

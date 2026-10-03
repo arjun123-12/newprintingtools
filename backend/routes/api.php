@@ -18,6 +18,8 @@ use App\Http\Controllers\Api\V1\ImageQualityController;
 use App\Http\Controllers\Api\V1\Designer\ExportController;
 use App\Http\Controllers\Api\V1\ClientBriefController;
 use App\Http\Controllers\Api\V1\Admin\ClientBriefController as AdminClientBriefController;
+use App\Http\Controllers\Api\V1\ClientBriefAuthController;
+use App\Http\Controllers\Api\V1\Payments\PaymentController;
 use Illuminate\Support\Facades\Route;
 /*
 |--------------------------------------------------------------------------
@@ -292,16 +294,55 @@ Route::middleware(['auth:sanctum'])->group(function () {
             'index',
         ]);
 
+        Route::post('/', [
+            App\Http\Controllers\Api\V1\Orders\OrderController::class,
+            'store',
+        ]);
+
         Route::get('/{orderNumber}', [
             App\Http\Controllers\Api\V1\Orders\OrderController::class,
             'show',
         ]);
+
+        Route::post(
+            '/{orderNumber}/payment-session',
+            [PaymentController::class, 'createSession']
+        );
+
+        Route::post(
+            '/{orderNumber}/process-payment',
+            [PaymentController::class, 'processPayment']
+        );
     });
 
-    Route::post('/checkout/process', [
-        App\Http\Controllers\Api\V1\Checkout\CheckoutController::class,
-        'process',
-    ]);
+    Route::prefix('checkout')->group(function () {
+        Route::get('/data', [
+            App\Http\Controllers\Api\V1\Checkout\CheckoutController::class,
+            'getCheckoutData',
+        ]);
+
+        Route::post('/validate', [
+            App\Http\Controllers\Api\V1\Checkout\CheckoutController::class,
+            'validateCheckout',
+        ]);
+
+        Route::post('/process', [
+            App\Http\Controllers\Api\V1\Checkout\CheckoutController::class,
+            'process',
+        ]);
+    });
+
+    Route::prefix('addresses')->group(function () {
+        Route::get('/', [
+            App\Http\Controllers\Api\V1\Checkout\CheckoutController::class,
+            'getAddresses',
+        ]);
+
+        Route::post('/', [
+            App\Http\Controllers\Api\V1\Checkout\CheckoutController::class,
+            'saveAddress',
+        ]);
+    });
 });
 
 // ==========================================
@@ -448,3 +489,61 @@ Route::middleware(['auth:sanctum'])
             'queue',
         ]);
     });
+Route::prefix('client-brief-auth')->group(function () {
+
+    Route::post('/login', [
+        ClientBriefAuthController::class,
+        'login',
+    ])->middleware('throttle:10,1');
+
+});
+Route::middleware([
+    'auth:sanctum',
+    'client.brief.admin',
+])
+    ->prefix('client-brief-auth')
+    ->group(function () {
+
+        Route::get('/me', [
+            ClientBriefAuthController::class,
+            'me',
+        ]);
+
+        Route::post('/logout', [
+            ClientBriefAuthController::class,
+            'logout',
+        ]);
+    });
+
+// ==========================================
+// CLIENT BRIEF ADMIN ROUTES
+// ==========================================
+
+Route::middleware([
+    'auth:sanctum',
+    'client.brief.admin',
+])
+    ->prefix('admin/client-briefs')
+    ->group(function () {
+
+        Route::get('/', [
+            AdminClientBriefController::class,
+            'index',
+        ]);
+
+        Route::post('/', [
+            AdminClientBriefController::class,
+            'store',
+        ]);
+
+        Route::get('/{id}', [
+            AdminClientBriefController::class,
+            'show',
+        ])->whereNumber('id');
+
+        Route::patch('/{id}', [
+            AdminClientBriefController::class,
+            'update',
+        ])->whereNumber('id');
+    });
+

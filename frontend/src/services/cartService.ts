@@ -57,12 +57,14 @@ export interface AddToCartPayload {
   design_canvas_json?: any;
 }
 
+import { safeLocalStorage } from '@/utils/storageHelper';
+
 function getSessionHeader(): Record<string, string> {
   if (typeof window === 'undefined') return {};
-  let sessionId = localStorage.getItem('designer_session_id');
+  let sessionId = safeLocalStorage.getItem<string>('designer_session_id');
   if (!sessionId) {
     sessionId = 'guest_' + Math.random().toString(36).substring(2) + Date.now();
-    localStorage.setItem('designer_session_id', sessionId);
+    safeLocalStorage.setItem('designer_session_id', sessionId);
   }
   return { 'X-Session-ID': sessionId };
 }

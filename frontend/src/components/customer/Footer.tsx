@@ -142,6 +142,8 @@ export default function Footer() {
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <p>© {new Date().getFullYear()} PrintStore  Pty Ltd. ABN 00 000 000 000. All prices in AUD include 10% GST.</p>
           <div className="flex items-center gap-4">
+            <Link href="/about" className="hover:text-slate-400 transition-colors">About Us</Link>
+            <span>•</span>
             <Link href="/privacy" className="hover:text-slate-400 transition-colors">Privacy Policy</Link>
             <span>•</span>
             <Link href="/terms" className="hover:text-slate-400 transition-colors">Terms of Service</Link>

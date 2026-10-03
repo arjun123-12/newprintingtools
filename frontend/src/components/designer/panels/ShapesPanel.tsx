@@ -10,6 +10,7 @@ import {
   designAssetService,
 } from '@/services/designAssetService';
 import { formatImageUrl } from '@/utils/imageUrl';
+import { safeLocalStorage } from '@/utils/storageHelper';
 
 interface ShapesPanelProps {
   canvasManager: CanvasManager | null;
@@ -181,7 +182,7 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
 
   useEffect(() => {
     try {
-      const parsed = JSON.parse(localStorage.getItem(RECENT_SHAPES_KEY) || '[]');
+      const parsed = safeLocalStorage.getItem<string[]>(RECENT_SHAPES_KEY);
       if (Array.isArray(parsed)) {
         setRecentIds(parsed.filter((id): id is string => typeof id === 'string'));
       }
@@ -299,11 +300,7 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
   const rememberShape = useCallback((id: string) => {
     setRecentIds((previous) => {
       const next = [id, ...previous.filter((item) => item !== id)].slice(0, 12);
-      try {
-        localStorage.setItem(RECENT_SHAPES_KEY, JSON.stringify(next));
-      } catch {
-        // Recent history is optional.
-      }
+      safeLocalStorage.setItem(RECENT_SHAPES_KEY, next);
       return next;
     });
   }, []);

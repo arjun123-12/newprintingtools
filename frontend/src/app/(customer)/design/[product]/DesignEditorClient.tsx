@@ -7,6 +7,7 @@ import {
   useRouter,
   useSearchParams,
 } from 'next/navigation';
+import { getAuthToken, removeAuthToken } from '@/utils/storageHelper';
 
 const API_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -123,7 +124,7 @@ export default function DesignEditorClient({
       return;
     }
 
-    const token = localStorage.getItem('auth_token');
+    const token = getAuthToken();
 
     if (!token) {
       setTemplateError('Please log in to edit an admin template.');
@@ -156,7 +157,7 @@ export default function DesignEditorClient({
           .catch(() => null)) as TemplateApiResponse | null;
 
         if (response.status === 401) {
-          localStorage.removeItem('auth_token');
+          removeAuthToken();
           router.replace('/admin/login');
           throw new Error('Your login session has expired.');
         }

@@ -1,4 +1,5 @@
 import api from '@/services/api/client';
+import briefApiClient from '@/services/api/briefClient';
 
 export interface ClientBrief {
     id: number;
@@ -31,10 +32,13 @@ export interface CreateClientBriefPayload {
 export interface CreatedClientBrief {
     id: number;
     uuid: string;
+
     client_name: string | null;
     email: string | null;
+
     status: string;
     expires_at: string | null;
+
     client_url: string;
 }
 
@@ -47,8 +51,16 @@ export interface ClientBriefListResponse {
 }
 
 export const clientBriefService = {
+    // ==========================================
+    // CLIENT BRIEF ADMIN
+    // Uses brief_auth_token
+    // ==========================================
+
     async getAdminBriefs(): Promise<ClientBriefListResponse> {
-        const response = await api.get('/admin/client-briefs');
+        const response =
+            await briefApiClient.get(
+                '/admin/client-briefs'
+            );
 
         return response.data.data;
     },
@@ -56,18 +68,20 @@ export const clientBriefService = {
     async createBrief(
         payload: CreateClientBriefPayload
     ): Promise<CreatedClientBrief> {
-        const response = await api.post(
-            '/admin/client-briefs',
-            payload
-        );
+        const response =
+            await briefApiClient.post(
+                '/admin/client-briefs',
+                payload
+            );
 
         return response.data.data;
     },
 
     async getAdminBrief(id: number) {
-        const response = await api.get(
-            `/admin/client-briefs/${id}`
-        );
+        const response =
+            await briefApiClient.get(
+                `/admin/client-briefs/${id}`
+            );
 
         return response.data.data;
     },
@@ -80,18 +94,27 @@ export const clientBriefService = {
             expires_at?: string | null;
         }
     ) {
-        const response = await api.patch(
-            `/admin/client-briefs/${id}`,
-            payload
-        );
+        const response =
+            await briefApiClient.patch(
+                `/admin/client-briefs/${id}`,
+                payload
+            );
 
         return response.data.data;
     },
 
+    // ==========================================
+    // PUBLIC CLIENT FORM
+    // No Client Brief admin token required
+    // ==========================================
+
     async getPublicBrief(token: string) {
-        const response = await api.get(
-            `/client-brief/${encodeURIComponent(token)}`
-        );
+        const response =
+            await api.get(
+                `/client-brief/${encodeURIComponent(
+                    token
+                )}`
+            );
 
         return response.data.data;
     },

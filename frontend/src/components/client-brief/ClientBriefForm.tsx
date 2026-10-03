@@ -3,6 +3,7 @@
 import React, {
     ChangeEvent,
     FormEvent,
+    useEffect,
     useMemo,
     useState,
 } from 'react';
@@ -148,6 +149,95 @@ export default function ClientBriefForm({
 
     const [reference, setReference] =
         useState<string | null>(null);
+
+    const [checkingLink, setCheckingLink] =
+        useState(true);
+
+    const [linkError, setLinkError] =
+        useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const validatePrivateLink = async () => {
+            try {
+                setCheckingLink(true);
+                setLinkError(null);
+
+                const response = await fetch(
+                    `${API_URL}/client-brief/${encodeURIComponent(
+                        token
+                    )}`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            Accept: 'application/json',
+                        },
+                    }
+                );
+
+                const result = await response
+                    .json()
+                    .catch(() => null);
+
+                if (!response.ok) {
+                    throw new Error(
+                        result?.message ??
+                        'This private client link is invalid or expired.'
+                    );
+                }
+
+                if (cancelled) {
+                    return;
+                }
+
+                const brief = result?.data;
+
+                if (brief?.submitted) {
+                    setLinkError(
+                        'This client brief has already been submitted.'
+                    );
+                    return;
+                }
+
+                setForm((current) => ({
+                    ...current,
+                    contact:
+                        current.contact ||
+                        brief?.client_name ||
+                        '',
+                    company:
+                        current.company ||
+                        brief?.company_name ||
+                        '',
+                    email:
+                        current.email ||
+                        brief?.email ||
+                        '',
+                }));
+            } catch (linkValidationError) {
+                if (cancelled) {
+                    return;
+                }
+
+                setLinkError(
+                    linkValidationError instanceof Error
+                        ? linkValidationError.message
+                        : 'This private client link is unavailable.'
+                );
+            } finally {
+                if (!cancelled) {
+                    setCheckingLink(false);
+                }
+            }
+        };
+
+        void validatePrivateLink();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [token]);
 
     const totalUploadSize =
         useMemo(
@@ -454,6 +544,40 @@ export default function ClientBriefForm({
             setSubmitting(false);
         }
     };
+
+    if (checkingLink) {
+        return (
+            <main className="flex min-h-screen items-center justify-center bg-[#f5f8f5] px-4">
+                <div className="text-center">
+                    <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-[#dce6e3] border-t-[#154e45]" />
+
+                    <p className="mt-4 text-sm text-[#647577]">
+                        Checking your private request link...
+                    </p>
+                </div>
+            </main>
+        );
+    }
+
+    if (linkError) {
+        return (
+            <main className="flex min-h-screen items-center justify-center bg-[#f5f8f5] px-4">
+                <div className="w-full max-w-lg rounded-3xl border border-red-200 bg-white p-8 text-center shadow-sm">
+                    <h1 className="text-2xl font-bold text-[#172e32]">
+                        This link is unavailable
+                    </h1>
+
+                    <p className="mt-3 text-sm leading-6 text-red-600">
+                        {linkError}
+                    </p>
+
+                    <p className="mt-5 text-xs leading-5 text-[#647577]">
+                        Please contact us for a new private project request link.
+                    </p>
+                </div>
+            </main>
+        );
+    }
 
     if (success) {
         return (
@@ -1346,14 +1470,14 @@ function RequestChoice({
             type="button"
             onClick={onClick}
             className={`rounded-2xl border p-4 text-left transition ${checked
-                    ? 'border-[#6a9275] bg-[#f0f7ed] ring-2 ring-[#aacdbf]/25'
-                    : 'border-[#dce6e3] bg-white hover:border-[#a8beb6] hover:bg-[#fafcfb]'
+                ? 'border-[#6a9275] bg-[#f0f7ed] ring-2 ring-[#aacdbf]/25'
+                : 'border-[#dce6e3] bg-white hover:border-[#a8beb6] hover:bg-[#fafcfb]'
                 }`}
         >
             <div
                 className={`flex h-9 w-9 items-center justify-center rounded-xl ${checked
-                        ? 'bg-[#154e45] text-white'
-                        : 'bg-[#edf3ef] text-[#45665c]'
+                    ? 'bg-[#154e45] text-white'
+                    : 'bg-[#edf3ef] text-[#45665c]'
                     }`}
             >
                 <Icon className="h-4 w-4" />

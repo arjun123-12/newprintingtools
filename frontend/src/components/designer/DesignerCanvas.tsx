@@ -22,6 +22,7 @@ import { ElementActionBar } from './toolbar/ElementActionBar';
 import { RotationBadge } from './toolbar/RotationBadge';
 import { ResizeBadge } from './toolbar/ResizeBadge';
 import { BLACK_ARTWORK_CURSOR } from './canvas/CanvaControls';
+import { getAuthToken } from '@/utils/storageHelper';
 
 const API_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -788,10 +789,7 @@ export function DesignerCanvas({
    */
   const storeFreepikImage = useCallback(
     async (freepikId: string): Promise<string> => {
-      const token =
-        typeof window !== 'undefined'
-          ? localStorage.getItem('auth_token')
-          : null;
+      const token = getAuthToken();
 
       const productIdFromUrl =
         typeof window !== 'undefined'

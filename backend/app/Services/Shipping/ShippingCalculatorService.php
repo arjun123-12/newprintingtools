@@ -12,13 +12,13 @@ class ShippingCalculatorService
         return [
             [
                 'id' => 'auspost_standard',
-                'name' => ' Post Standard',
+                'name' => 'Australia Post Standard',
                 'price_inc_gst' => 12.50,
                 'estimated_days' => '3-5 Business Days',
             ],
             [
                 'id' => 'auspost_express',
-                'name' => ' Post Express',
+                'name' => 'Australia Post Express',
                 'price_inc_gst' => 22.00,
                 'estimated_days' => '1-2 Business Days',
             ],

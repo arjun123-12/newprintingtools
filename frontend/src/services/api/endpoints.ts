@@ -19,11 +19,20 @@ export const API_ENDPOINTS = {
   // Cart & Checkout
   CART: '/cart',
   CART_ITEMS: '/cart/items',
+  CHECKOUT_DATA: '/checkout/data',
+  CHECKOUT_VALIDATE: '/checkout/validate',
   CHECKOUT_PROCESS: '/checkout/process',
+  ADDRESSES: '/addresses',
 
   // Orders
   ORDERS: '/orders',
   ORDER_DETAIL: (orderNumber: string) => `/orders/${orderNumber}`,
+
+
+  ORDER_PAYMENT_SESSION: (orderNumber: string) =>
+    `/orders/${encodeURIComponent(orderNumber)}/payment-session`,
+  ORDER_PROCESS_PAYMENT: (orderNumber: string) =>
+    `/orders/${encodeURIComponent(orderNumber)}/process-payment`,
 
   // Admin
   ADMIN_METRICS: '/admin/metrics',

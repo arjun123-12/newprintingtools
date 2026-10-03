@@ -1,3 +1,4 @@
+
 import axios, {
   AxiosHeaders,
   AxiosInstance,
@@ -18,18 +19,17 @@ export const apiClient: AxiosInstance = axios.create({
   withCredentials: true,
 });
 
+import { getAuthToken, removeAuthToken } from '@/utils/storageHelper';
+
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     if (!(config.headers instanceof AxiosHeaders)) {
       config.headers = new AxiosHeaders(config.headers);
     }
 
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('auth_token');
-
-      if (token) {
-        config.headers.set('Authorization', `Bearer ${token}`);
-      }
+    const token = getAuthToken();
+    if (token) {
+      config.headers.set('Authorization', `Bearer ${token}`);
     }
 
     const isFormData =
@@ -37,6 +37,8 @@ apiClient.interceptors.request.use(
       config.data instanceof FormData;
 
     if (isFormData) {
+      // Let the browser automatically set multipart/form-data
+      // with the correct boundary.
       config.headers.delete('Content-Type');
     } else if (config.data !== undefined && config.data !== null) {
       config.headers.set('Content-Type', 'application/json');
@@ -50,11 +52,9 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => response,
   (error) => {
-    if (
-      error.response?.status === 401 &&
-      typeof window !== 'undefined'
-    ) {
-      localStorage.removeItem('auth_token');
+    if (error.response?.status === 401) {
+      // Remove invalid/expired token from the current session.
+      removeAuthToken();
     }
 
     return Promise.reject(error);

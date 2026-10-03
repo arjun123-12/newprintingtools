@@ -1,4 +1,5 @@
 import { DesignerGradientValue, DesignerGradientStop } from '@/types/designer';
+import { safeLocalStorage } from '@/utils/storageHelper';
 
 export interface RgbColor {
   r: number;
@@ -210,16 +211,13 @@ const MAX_RECENT_COLORS = 12;
  * Loads recent solid colors from localStorage.
  */
 export function getRecentColors(): string[] {
-  if (typeof window === 'undefined') return [];
   try {
-    const stored = localStorage.getItem(RECENT_COLORS_KEY);
-    if (!stored) return [];
-    const parsed = JSON.parse(stored);
+    const parsed = safeLocalStorage.getItem<string[]>(RECENT_COLORS_KEY);
     if (Array.isArray(parsed)) {
       return parsed.filter((c) => typeof c === 'string' && isValidHex(c));
     }
   } catch {
-    // Ignore localStorage parse errors
+    // Ignore parse errors
   }
   return [];
 }
@@ -233,13 +231,12 @@ export function addRecentColor(color: string): string[] {
   if (!clean.startsWith('#')) clean = '#' + clean;
   if (!isValidHex(clean)) return getRecentColors();
 
-  if (typeof window === 'undefined') return [];
   try {
     const existing = getRecentColors();
     const normalized = clean.toLowerCase();
     const filtered = existing.filter((c) => c.toLowerCase() !== normalized);
     const updated = [clean, ...filtered].slice(0, MAX_RECENT_COLORS);
-    localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(updated));
+    safeLocalStorage.setItem(RECENT_COLORS_KEY, updated);
     return updated;
   } catch {
     return [];

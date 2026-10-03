@@ -9,6 +9,7 @@ import { CanvasManager } from '../canvas/CanvasManager';
 import { DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
 import { externalAssetService } from '@/services/externalAssetService';
 import { formatImageUrl } from '@/utils/imageUrl';
+import { safeLocalStorage } from '@/utils/storageHelper';
 
 import { ActiveSidebarTab } from '@/types/designer';
 
@@ -183,7 +184,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
 
   useEffect(() => {
     try {
-      const parsed = JSON.parse(localStorage.getItem(RECENT_SHAPES_KEY) || '[]');
+      const parsed = safeLocalStorage.getItem<string[]>(RECENT_SHAPES_KEY);
       if (Array.isArray(parsed)) {
         setRecentShapeIds(parsed.filter((id): id is string => typeof id === 'string'));
       }
@@ -195,11 +196,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
   const rememberShape = useCallback((id: string) => {
     setRecentShapeIds((prev) => {
       const next = [id, ...prev.filter((item) => item !== id)].slice(0, 12);
-      try {
-        localStorage.setItem(RECENT_SHAPES_KEY, JSON.stringify(next));
-      } catch {
-        // ignore
-      }
+      safeLocalStorage.setItem(RECENT_SHAPES_KEY, next);
       return next;
     });
   }, []);

@@ -15,6 +15,7 @@ import { CanvasManager } from '../canvas/CanvasManager';
 import { assetService } from '../services/assetService';
 import { formatFileSize } from '../utils/imageQuality';
 import { PsdImportButton } from '../import/PsdImportButton';
+import { getAuthToken } from '@/utils/storageHelper';
 
 interface UploadsPanelProps {
   canvasManager: CanvasManager | null;
@@ -67,10 +68,7 @@ async function uploadOriginalArtworkFile(file: File): Promise<string> {
   formData.append('source_provider', 'designer-upload');
   formData.append('source_provider_asset_id', file.name.slice(0, 255));
 
-  const token =
-    typeof window !== 'undefined'
-      ? localStorage.getItem('auth_token')
-      : null;
+  const token = getAuthToken();
 
   const response = await fetch(`${API_URL}/designer/uploads/canvas-image`, {
     method: 'POST',
@@ -190,10 +188,7 @@ async function convertTiffToPng(file: File): Promise<File> {
   const formData = new FormData();
   formData.append('image', file);
 
-  const token =
-    typeof window !== 'undefined'
-      ? localStorage.getItem('auth_token')
-      : null;
+  const token = getAuthToken();
 
   try {
     const response = await fetch(
@@ -242,10 +237,7 @@ async function convertPsdToPng(file: File): Promise<File> {
     const formData = new FormData();
     formData.append('image', file);
 
-    const token =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('auth_token')
-        : null;
+    const token = getAuthToken();
 
     const response = await fetch(`${API_URL}/designer/uploads/convert-image`, {
       method: 'POST',

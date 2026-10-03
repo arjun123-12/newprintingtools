@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { removeAuthToken } from '@/utils/storageHelper';
 
 const NAV_ITEMS = [
   {
@@ -120,8 +121,7 @@ export default function AdminSidebar() {
   const router = useRouter();
 
   function handleLogout() {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('token');
+    removeAuthToken();
     router.push('/admin/login');
   }
 

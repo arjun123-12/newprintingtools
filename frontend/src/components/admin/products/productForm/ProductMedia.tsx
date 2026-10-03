@@ -5,6 +5,7 @@ import { FormSection, ArtworkFileUpload } from '@/components/admin/shared';
 import { ProductFormData, ProductSideItem } from './types';
 import { ProductSidesPreview } from './ProductSidesPreview';
 import { Layers, Plus, Loader2, Sparkles, AlertCircle } from 'lucide-react';
+import { getAuthToken } from '@/utils/storageHelper';
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -55,7 +56,7 @@ export const ProductMedia: React.FC<ProductMediaProps> = ({
       const uploadFormData = new FormData();
       uploadFormData.append('image', file);
 
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('auth_token') : null;
+      const token = getAuthToken();
 
       const res = await fetch(`${API_URL}/designer/uploads/canvas-image`, {
         method: 'POST',

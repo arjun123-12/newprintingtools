@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, type FormEvent } from 'react';
@@ -63,8 +64,9 @@ export default function AdminLoginPage() {
         throw new Error('User information was not returned.');
       }
 
+      // Only admin users can access the admin panel.
       if (user.role !== 'admin' || user.is_admin !== true) {
-        localStorage.removeItem('auth_token');
+        sessionStorage.removeItem('auth_token');
 
         setError(
           'Only administrator accounts can access the admin panel.'
@@ -73,12 +75,14 @@ export default function AdminLoginPage() {
         return;
       }
 
-      localStorage.setItem('auth_token', token);
+      // Store authentication token only for the current browser tab/session.
+      sessionStorage.setItem('auth_token', token);
 
       router.replace('/admin/dashboard');
       router.refresh();
     } catch (error: unknown) {
-      localStorage.removeItem('auth_token');
+      // Remove any invalid/stale authentication token.
+      sessionStorage.removeItem('auth_token');
 
       if (axios.isAxiosError(error)) {
         setError(

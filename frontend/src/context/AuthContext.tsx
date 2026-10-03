@@ -1,8 +1,20 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+} from 'react';
 import { apiClient } from '@/services/api/client';
 import { API_ENDPOINTS } from '@/services/api/endpoints';
+import {
+  getAuthToken,
+  setAuthToken,
+  removeAuthToken,
+  safeLocalStorage,
+} from '@/utils/storageHelper';
 
 export interface CustomerUser {
   id: string | number;
@@ -20,7 +32,10 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (credentials: { email: string; password: string }) => Promise<CustomerUser>;
+  login: (credentials: {
+    email: string;
+    password: string;
+  }) => Promise<CustomerUser>;
   register: (data: {
     name: string;
     email: string;
@@ -35,28 +50,39 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [user, setUser] = useState<CustomerUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchCurrentUser = useCallback(async (authToken: string): Promise<CustomerUser | null> => {
-    try {
-      const response = await apiClient.get(API_ENDPOINTS.AUTH_ME, {
-        headers: { Authorization: `Bearer ${authToken}` },
-      });
+  const fetchCurrentUser = useCallback(
+    async (authToken: string): Promise<CustomerUser | null> => {
+      try {
+        const response = await apiClient.get(API_ENDPOINTS.AUTH_ME, {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        });
 
-      if (response.data?.success && response.data?.data) {
-        return response.data.data as CustomerUser;
+        if (response.data?.success && response.data?.data) {
+          return response.data.data as CustomerUser;
+        }
+
+        return null;
+      } catch {
+        return null;
       }
-      return null;
-    } catch {
-      return null;
-    }
-  }, []);
+    },
+    []
+  );
 
   const refreshUser = useCallback(async () => {
-    const storedToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    const storedToken = getAuthToken();
+
     if (!storedToken) {
       setUser(null);
       setToken(null);
@@ -65,14 +91,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setToken(storedToken);
+
     const currentUser = await fetchCurrentUser(storedToken);
+
     if (currentUser) {
       setUser(currentUser);
     } else {
-      localStorage.removeItem('auth_token');
+      removeAuthToken();
       setUser(null);
       setToken(null);
     }
+
     setIsLoading(false);
   }, [fetchCurrentUser]);
 
@@ -80,26 +109,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void refreshUser();
   }, [refreshUser]);
 
-  const login = async (credentials: { email: string; password: string }): Promise<CustomerUser> => {
+  const login = async (
+    credentials: {
+      email: string;
+      password: string;
+    }
+  ): Promise<CustomerUser> => {
     setIsLoading(true);
+
     try {
-      const sessionId = typeof window !== 'undefined' ? localStorage.getItem('designer_session_id') : null;
+      const sessionId = safeLocalStorage.getItem<string>('designer_session_id');
 
       const response = await apiClient.post(
         API_ENDPOINTS.AUTH_LOGIN,
         credentials,
-        sessionId ? { headers: { 'X-Session-ID': sessionId } } : {}
+        sessionId
+          ? {
+            headers: {
+              'X-Session-ID': sessionId,
+            },
+          }
+          : {}
       );
 
-      const data = response.data?.data;
-      const receivedToken = data?.token;
-      const receivedUser = data?.user;
+      const responseData = response.data?.data;
+      const receivedToken = responseData?.token;
+      const receivedUser = responseData?.user;
 
       if (!receivedToken || !receivedUser) {
-        throw new Error('Login succeeded but authentication token was missing.');
+        throw new Error(
+          'Login succeeded but authentication token was missing.'
+        );
       }
 
-      localStorage.setItem('auth_token', receivedToken);
+      // Authentication token is session-only.
+      setAuthToken(receivedToken);
+
       setToken(receivedToken);
       setUser(receivedUser);
 
@@ -123,13 +168,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     company_name?: string;
   }): Promise<CustomerUser> => {
     setIsLoading(true);
+
     try {
-      const sessionId = typeof window !== 'undefined' ? localStorage.getItem('designer_session_id') : null;
+      const sessionId = safeLocalStorage.getItem<string>('designer_session_id');
 
       const response = await apiClient.post(
         API_ENDPOINTS.AUTH_REGISTER,
         data,
-        sessionId ? { headers: { 'X-Session-ID': sessionId } } : {}
+        sessionId
+          ? {
+            headers: {
+              'X-Session-ID': sessionId,
+            },
+          }
+          : {}
       );
 
       const responseData = response.data?.data;
@@ -137,13 +189,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const receivedUser = responseData?.user;
 
       if (!receivedToken || !receivedUser) {
-        throw new Error('Registration succeeded but authentication token was missing.');
+        throw new Error(
+          'Registration succeeded but authentication token was missing.'
+        );
       }
 
-      localStorage.setItem('auth_token', receivedToken);
+      // Authentication token is session-only.
+      setAuthToken(receivedToken);
+
       setToken(receivedToken);
       setUser(receivedUser);
 
+      // Trigger cart reload after registration
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('cart-updated'));
       }
@@ -156,12 +213,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async (): Promise<void> => {
     setIsLoading(true);
+
     try {
       if (token) {
-        await apiClient.post(API_ENDPOINTS.AUTH_LOGOUT).catch(() => {});
+        await apiClient
+          .post(API_ENDPOINTS.AUTH_LOGOUT)
+          .catch(() => { });
       }
     } finally {
-      localStorage.removeItem('auth_token');
+      // Authentication token is session-only.
+      removeAuthToken();
+
       setUser(null);
       setToken(null);
       setIsLoading(false);
@@ -192,8 +254,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
+
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error(
+      'useAuth must be used within an AuthProvider'
+    );
   }
+
   return context;
 }

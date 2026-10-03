@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   ShoppingCart,
@@ -63,63 +64,21 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full bg-white transition-shadow duration-200">
-      {/* Top Announcement & Quick Contact Bar */}
-      <div className="bg-slate-900 text-slate-200 text-xs border-b border-slate-800">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <span className="inline-flex items-center gap-1.5 text-amber-400 font-medium">
-              <Truck className="w-3.5 h-3.5" />
-              <span>Free Delivery on AU Orders over $150</span>
-            </span>
-            <span className="hidden md:inline-block text-slate-500">|</span>
-            <span className="hidden md:inline-flex items-center gap-1 text-slate-300">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>100% Quality & Reprint Guarantee</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-5 text-slate-300">
-            <a
-              href="tel:1300000000"
-              className="flex items-center gap-1 hover:text-sky-400 transition-colors"
-            >
-              <Phone className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">1300 000 000</span>
-            </a>
-            <a
-              href="mailto:orders@printstore.com.au"
-              className="hidden lg:flex items-center gap-1 hover:text-sky-400 transition-colors"
-            >
-              <Mail className="w-3.5 h-3.5" />
-              <span>orders@printstore.com.au</span>
-            </a>
-            <Link
-              href="/admin"
-              className="text-xs text-slate-400 hover:text-white transition-colors"
-            >
-              Admin Portal
-            </Link>
-          </div>
-        </div>
-      </div>
 
       {/* Main Header */}
       <div className={`border-b border-slate-200 transition-all ${isScrolled ? 'shadow-md bg-white/95 backdrop-blur-md' : 'bg-white'}`}>
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-20 items-center justify-between gap-4 md:gap-8">
             {/* Logo */}
-            <Link href="/" className="flex items-center gap-2 shrink-0 group">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 via-indigo-600 to-cyan-500 flex items-center justify-center text-white shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform">
-                <Layers className="w-6 h-6" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-2xl font-black tracking-tight text-slate-900 leading-none">
-                  Print<span className="text-sky-600">Store</span>
-                </span>
-                <span className="text-[10px] tracking-widest uppercase font-semibold text-slate-400">
-
-                </span>
-              </div>
+            <Link href="/" className="flex items-center shrink-0 group">
+              <Image
+                src="/assets/images/erry_imprints_logo.png"
+                alt="Erry Imprints"
+                width={220}
+                height={52}
+                className="h-10 sm:h-12 w-auto object-contain transition-transform duration-200 group-hover:scale-105"
+                priority
+              />
             </Link>
 
             {/* Search Bar */}
@@ -152,14 +111,7 @@ export default function Header() {
 
             {/* Action Buttons */}
             <div className="flex items-center gap-2 sm:gap-3">
-              {/* Online Designer CTA (Hidden on small mobile) */}
-              <Link
-                href="/design"
-                className="hidden lg:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100 transition-colors"
-              >
-                <Palette className="w-3.5 h-3.5 text-sky-600" />
-                <span>Design Studio</span>
-              </Link>
+
 
               {/* Account Link */}
               {isAuthenticated && user ? (
@@ -235,43 +187,8 @@ export default function Header() {
           </div>
         </div>
 
-        {/* Secondary Navigation Bar (Desktop) */}
-        <nav className="hidden md:block bg-slate-900 text-slate-100 border-t border-slate-800">
-          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-1">
-                {navCategories.map((item) => {
-                  const isActive = pathname === item.href;
-                  return (
-                    <Link
-                      key={item.name}
-                      href={item.href}
-                      className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider transition-colors inline-flex items-center gap-1.5 ${item.highlight
-                          ? 'text-amber-400 hover:text-amber-300'
-                          : isActive
-                            ? 'text-sky-400 bg-slate-800'
-                            : 'text-slate-200 hover:text-white hover:bg-slate-800/80'
-                        }`}
-                    >
-                      {item.highlight && <Sparkles className="w-3.5 h-3.5" />}
-                      {item.name}
-                    </Link>
-                  );
-                })}
-              </div>
 
-              <div className="flex items-center gap-4 text-xs">
-                <Link
-                  href="/categories"
-                  className="text-slate-300 hover:text-white flex items-center gap-1 font-medium"
-                >
-                  <FileCheck className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Free Artwork Proofing</span>
-                </Link>
-              </div>
-            </div>
-          </div>
-        </nav>
+
       </div>
 
       {/* Mobile Drawer Menu */}

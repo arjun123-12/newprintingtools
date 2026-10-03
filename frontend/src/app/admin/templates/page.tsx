@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { getAuthToken, removeAuthToken } from '@/utils/storageHelper';
 import {
   TemplateTable,
 } from '@/components/admin/templates/TemplateTable';
@@ -108,12 +109,11 @@ export default function AdminTemplatesPage() {
   });
 
   const getToken = useCallback(() => {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem('auth_token');
+    return getAuthToken();
   }, []);
 
   const handleUnauthorized = useCallback(() => {
-    localStorage.removeItem('auth_token');
+    removeAuthToken();
     router.replace('/admin/login');
   }, [router]);
 
