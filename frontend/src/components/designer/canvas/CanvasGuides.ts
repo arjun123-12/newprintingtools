@@ -33,6 +33,7 @@ export class CanvasGuides {
   private userGuides: UserRulerGuide[] = [];
   private printLayout: PrintLayoutConfig | null = null;
   private activeSide: 'front' | 'back' = 'front';
+  private cachedSideLayout: SideFoldingLayout | null = null;
 
   constructor(
     dimensions: CanvasDimensions,
@@ -67,6 +68,7 @@ export class CanvasGuides {
     } else {
       this.printLayout = layout;
     }
+    this.recomputeSideFoldingLayout();
     this.canvas?.requestRenderAll();
   }
 
@@ -77,6 +79,7 @@ export class CanvasGuides {
   public setActiveSide(side: 'front' | 'back'): void {
     if (this.activeSide !== side) {
       this.activeSide = side;
+      this.recomputeSideFoldingLayout();
       this.canvas?.requestRenderAll();
     }
   }
@@ -90,6 +93,7 @@ export class CanvasGuides {
     if (dims.printLayout !== undefined) {
       this.printLayout = dims.printLayout;
     }
+    this.recomputeSideFoldingLayout();
 
     const dpi = dims.dpi || 300;
     const bleedPx = Math.max(0, Number(dims.bleedPx) || 0);
@@ -100,6 +104,21 @@ export class CanvasGuides {
     }));
 
     this.canvas?.requestRenderAll();
+  }
+
+  private recomputeSideFoldingLayout(): void {
+    if (this.printLayout?.folding?.enabled) {
+      try {
+        this.cachedSideLayout = resolveSideFoldingLayout(
+          this.printLayout.folding,
+          this.activeSide
+        );
+      } catch {
+        this.cachedSideLayout = null;
+      }
+    } else {
+      this.cachedSideLayout = null;
+    }
   }
 
   public setVisible(visible: boolean): void {
@@ -375,10 +394,11 @@ export class CanvasGuides {
       this.printLayout?.folding?.enabled &&
       this.settings.showFolds !== false
     ) {
-      const sideLayout: SideFoldingLayout = resolveSideFoldingLayout(
-        this.printLayout.folding,
-        this.activeSide
-      );
+      if (!this.cachedSideLayout) {
+        this.recomputeSideFoldingLayout();
+      }
+      const sideLayout: SideFoldingLayout | null = this.cachedSideLayout;
+      if (!sideLayout) return;
 
       const isVertical =
         this.printLayout.folding.panelOrientation !== 'horizontal';

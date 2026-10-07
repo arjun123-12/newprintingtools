@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class CategoryController extends Controller
@@ -157,11 +158,23 @@ class CategoryController extends Controller
     }
 
     /**
-     * Delete a category.
+     * Delete a category only when no products use it.
      */
     public function destroy(string $id): JsonResponse
     {
         $category = Category::findOrFail($id);
+
+        $hasProducts = DB::table('products')
+            ->where('category_id', $category->id)
+            ->exists();
+
+        if ($hasProducts) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This category still has products. Reassign them before deleting the category.',
+            ], 409);
+        }
+
         $category->delete();
 
         return response()->json([
@@ -171,7 +184,7 @@ class CategoryController extends Controller
     }
 
     /**
-     * Delete multiple categories in bulk.
+     * Delete multiple categories only when none are used by products.
      */
     public function bulkDestroy(Request $request): JsonResponse
     {
@@ -180,7 +193,22 @@ class CategoryController extends Controller
             'ids.*' => ['required', 'string'],
         ]);
 
-        $count = Category::whereIn('id', $validated['ids'])->delete();
+        $ids = array_values(array_unique($validated['ids']));
+
+        $categoriesInUse = DB::table('products')
+            ->whereIn('category_id', $ids)
+            ->distinct()
+            ->pluck('category_id');
+
+        if ($categoriesInUse->isNotEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Some selected categories still have products. Reassign those products before deleting.',
+                'categories_in_use' => $categoriesInUse,
+            ], 409);
+        }
+
+        $count = Category::whereIn('id', $ids)->delete();
 
         return response()->json([
             'success' => true,

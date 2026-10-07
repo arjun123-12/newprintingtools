@@ -112,15 +112,22 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
     if (!canvas) return;
 
     // Immediately hide when movement or transform begins
+    let isTransformingLocal = false;
     const handleTransformStart = () => {
-      setIsTransforming(true);
-      setIsMoreOpen(false);
+      if (!isTransformingLocal) {
+        isTransformingLocal = true;
+        setIsTransforming(true);
+        setIsMoreOpen(false);
+      }
     };
 
     // When movement finishes (object modified, mouse released, or selection settled),
     // show bar at the new fixed/stationary position
     const handleTransformEnd = () => {
-      setIsTransforming(false);
+      if (isTransformingLocal) {
+        isTransformingLocal = false;
+        setIsTransforming(false);
+      }
       if (animFrameRef.current !== null) {
         cancelAnimationFrame(animFrameRef.current);
       }

@@ -503,6 +503,12 @@ export class CanvasManager {
   private isNormalizingFrameTransform: boolean = false;
   private frameResizeSnapshots = new WeakMap<FabricObject, FrameResizeSnapshot>();
 
+  // High-performance live drag batching with requestAnimationFrame
+  private dragMoveRaf: number | null = null;
+  private pendingMoveTarget: FabricObject | null = null;
+  private pendingMovePointer: { x: number; y: number } | undefined = undefined;
+  private pendingMoveOpt: any = null;
+
   // Print-boundary warning state.
   // Warnings are evaluated after the user finishes moving/resizing an object,
   // so dragging stays smooth and browser alerts do not fire on every pointer move.
@@ -11546,6 +11552,8 @@ export class CanvasManager {
       const target = transform?.target;
       if (!target || this.isNonInteractiveObject(target)) return;
 
+      this.snapping.beginDrag(target);
+
       const corner = transform?.corner;
       if (corner) {
         this.rememberFrameResizeState(target, corner);
@@ -11713,6 +11721,15 @@ export class CanvasManager {
     });
 
     this.canvas.on('mouse:up', (opt: any) => {
+      if (this.dragMoveRaf !== null) {
+        cancelAnimationFrame(this.dragMoveRaf);
+        this.dragMoveRaf = null;
+      }
+      this.pendingMoveTarget = null;
+      this.pendingMoveOpt = null;
+      this.pendingMovePointer = undefined;
+      this.snapping.endDrag();
+
       if (this.isErasing) {
         this.isErasing = false;
         this.lastErasePoint = null;
@@ -12064,6 +12081,15 @@ export class CanvasManager {
     this.canvas.on('object:removed', () => this.notifyLayers());
 
     this.canvas.on('object:modified', async (opt: any) => {
+      if (this.dragMoveRaf !== null) {
+        cancelAnimationFrame(this.dragMoveRaf);
+        this.dragMoveRaf = null;
+      }
+      this.pendingMoveTarget = null;
+      this.pendingMoveOpt = null;
+      this.pendingMovePointer = undefined;
+      this.snapping.endDrag();
+
       this.snapping.clearGuides();
       if (opt?.target) {
         this.smartSpacingManager.handleObjectFixed(opt.target);
@@ -12137,19 +12163,36 @@ export class CanvasManager {
     });
 
     this.canvas.on('object:moving', (opt) => {
-      if (opt.target) {
-        this.snapping.handleObjectMove(opt.target);
-        this.smartSpacingManager.handleObjectMove(opt.target);
-        const pointer =
-          (opt as any).scenePoint ||
-          ((opt as any).e ? (this.canvas as any).getScenePoint?.((opt as any).e) : undefined);
-        this.handleShapeImageHover(opt.target, pointer);
+      if (!opt.target) return;
+
+      if (!this.snapping.getIsDragging()) {
+        this.snapping.beginDrag(opt.target);
+      }
+
+      this.pendingMoveTarget = opt.target;
+      this.pendingMoveOpt = opt;
+      this.pendingMovePointer =
+        (opt as any).scenePoint ||
+        ((opt as any).e ? (this.canvas as any).getScenePoint?.((opt as any).e) : undefined);
+
+      if (this.dragMoveRaf !== null) return;
+
+      this.dragMoveRaf = requestAnimationFrame(() => {
+        this.dragMoveRaf = null;
+        const target = this.pendingMoveTarget;
+        const pointer = this.pendingMovePointer;
+        const currentOpt = this.pendingMoveOpt;
+        if (!target || !this.canvas) return;
+
+        this.snapping.handleObjectMove(target);
+        this.smartSpacingManager.handleObjectMove(target);
+        this.handleShapeImageHover(target, pointer);
 
         // Canva-style Alt-drag duplication: place stationary clone at starting position
         if (this.altDragState && !this.altDragState.clonedPlaced) {
           const dist = Math.hypot(
-            (opt.target.left || 0) - this.altDragState.initialLeft,
-            (opt.target.top || 0) - this.altDragState.initialTop
+            (target.left || 0) - this.altDragState.initialLeft,
+            (target.top || 0) - this.altDragState.initialTop
           );
           if (dist >= 3) {
             this.altDragState.clonedPlaced = true;
@@ -12189,12 +12232,11 @@ export class CanvasManager {
           }
         } else if (
           !this.altDragState &&
-          (opt as any).e?.altKey &&
-          opt.target &&
-          !this.isNonInteractiveObject(opt.target)
+          currentOpt?.e?.altKey &&
+          target &&
+          !this.isNonInteractiveObject(target)
         ) {
           // User pressed Alt mid-drag: initiate duplication from original drag position
-          const target = opt.target;
           if (
             !target.get('isGuide' as any) &&
             !target.get('isBackground' as any) &&
@@ -12202,14 +12244,14 @@ export class CanvasManager {
             !this.isPanMode &&
             !this.isDrawing
           ) {
-            const origTransform = (opt as any).transform?.original;
+            const origTransform = currentOpt?.transform?.original;
             const initialLeft = origTransform?.left ?? target.left ?? 0;
             const initialTop = origTransform?.top ?? target.top ?? 0;
             const initialIndex = this.canvas ? this.canvas.getObjects().indexOf(target) : 0;
             this.altDragState = {
               target,
-              startX: (opt as any).e?.clientX || 0,
-              startY: (opt as any).e?.clientY || 0,
+              startX: currentOpt?.e?.clientX || 0,
+              startY: currentOpt?.e?.clientY || 0,
               initialLeft,
               initialTop,
               initialIndex: initialIndex >= 0 ? initialIndex : 0,
@@ -12250,7 +12292,9 @@ export class CanvasManager {
             });
           }
         }
-      }
+
+        this.canvas.requestRenderAll();
+      });
     });
     this.canvas.on('object:scaling', (opt: any) => {
       const target = opt.target;
@@ -12315,7 +12359,6 @@ export class CanvasManager {
 
       this.canvas.on('mouse:down', (opt: any) => logDiag('mouse:down', opt.target));
       this.canvas.on('selection:created', (opt: any) => logDiag('selection:created', opt.selected?.[0] || opt.target));
-      this.canvas.on('object:moving', (opt: any) => logDiag('object:moving', opt.target));
       this.canvas.on('object:modified', (opt: any) => logDiag('object:modified', opt.target));
     }
 

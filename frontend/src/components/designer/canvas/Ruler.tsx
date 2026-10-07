@@ -129,14 +129,11 @@ export const Ruler: React.FC<RulerProps> = ({
   const cursorAnimationFrameRef = useRef<number | null>(null);
 
   const pendingCursorRef = useRef<{ x: number; y: number } | null>(null);
+  const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  const liveDrawFrameRef = useRef<number | null>(null);
 
   const [geometry, setGeometry] =
     useState<Geometry>(INITIAL_GEOMETRY);
-
-  const [cursor, setCursor] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
 
   const [draggingGuide, setDraggingGuide] =
     useState<DraggingGuide | null>(null);
@@ -291,115 +288,7 @@ export const Ruler: React.FC<RulerProps> = ({
     scheduleGeometryRead,
   ]);
 
-  useEffect(() => {
-    const canvas =
-      canvasManager?.getCanvas();
 
-    if (!canvas) return;
-
-    const refresh = () => {
-      if (
-        selectionAnimationFrameRef.current !==
-        null
-      ) {
-        return;
-      }
-
-      selectionAnimationFrameRef.current =
-        window.requestAnimationFrame(() => {
-          selectionAnimationFrameRef.current =
-            null;
-
-          setSelectionRevision(
-            (value) => value + 1
-          );
-        });
-    };
-
-    canvas.on(
-      'selection:created',
-      refresh
-    );
-
-    canvas.on(
-      'selection:updated',
-      refresh
-    );
-
-    canvas.on(
-      'selection:cleared',
-      refresh
-    );
-
-    canvas.on(
-      'object:moving',
-      refresh
-    );
-
-    canvas.on(
-      'object:scaling',
-      refresh
-    );
-
-    canvas.on(
-      'object:rotating',
-      refresh
-    );
-
-    canvas.on(
-      'object:modified',
-      refresh
-    );
-
-    return () => {
-      canvas.off(
-        'selection:created',
-        refresh
-      );
-
-      canvas.off(
-        'selection:updated',
-        refresh
-      );
-
-      canvas.off(
-        'selection:cleared',
-        refresh
-      );
-
-      canvas.off(
-        'object:moving',
-        refresh
-      );
-
-      canvas.off(
-        'object:scaling',
-        refresh
-      );
-
-      canvas.off(
-        'object:rotating',
-        refresh
-      );
-
-      canvas.off(
-        'object:modified',
-        refresh
-      );
-
-      if (
-        selectionAnimationFrameRef.current !==
-        null
-      ) {
-        window.cancelAnimationFrame(
-          selectionAnimationFrameRef.current
-        );
-
-        selectionAnimationFrameRef.current =
-          null;
-      }
-    };
-  }, [canvasManager]);
 
   /**
    * RULER COORDINATE MODEL
@@ -611,20 +500,24 @@ export const Ruler: React.FC<RulerProps> = ({
 
       ctx.stroke();
 
-      // Selected object highlight
-      if (selectedBounds) {
+      // Selected object highlight (uses live Fabric bounds during drag, or committed bounds)
+      const currentBounds =
+        canvasManager?.getCanvas()?.getActiveObject()?.getBoundingRect() ||
+        selectedBounds;
+
+      if (currentBounds) {
         const scale =
           geometry.paperWidth /
           Math.max(artworkWidthPx, 1);
 
         const start =
           geometry.originX +
-          selectedBounds.left *
+          currentBounds.left *
           scale;
 
         const end =
           start +
-          selectedBounds.width *
+          currentBounds.width *
           scale;
 
         if (end > start) {
@@ -1064,7 +957,8 @@ export const Ruler: React.FC<RulerProps> = ({
       }
 
       // Cursor tracking indicator (distinct from guidelines)
-      if (cursor && !draggingGuide) {
+      const currentCursor = cursorRef.current;
+      if (currentCursor && !draggingGuide) {
         ctx.strokeStyle =
           CURSOR_COLOR;
 
@@ -1073,12 +967,12 @@ export const Ruler: React.FC<RulerProps> = ({
         ctx.beginPath();
 
         ctx.moveTo(
-          cursor.x + 0.5,
+          currentCursor.x + 0.5,
           0
         );
 
         ctx.lineTo(
-          cursor.x + 0.5,
+          currentCursor.x + 0.5,
           RULER_SIZE
         );
 
@@ -1086,7 +980,6 @@ export const Ruler: React.FC<RulerProps> = ({
       }
     },
       [
-        cursor,
         draggingGuide,
         geometry,
         prepareCanvas,
@@ -1098,6 +991,7 @@ export const Ruler: React.FC<RulerProps> = ({
         trimOriginX,
         xPxPerMm,
         canvasPxToRulerMm,
+        canvasManager,
       ]
     );
 
@@ -1155,20 +1049,24 @@ export const Ruler: React.FC<RulerProps> = ({
 
       ctx.stroke();
 
-      // Selected object highlight
-      if (selectedBounds) {
+      // Selected object highlight (uses live Fabric bounds during drag, or committed bounds)
+      const currentBounds =
+        canvasManager?.getCanvas()?.getActiveObject()?.getBoundingRect() ||
+        selectedBounds;
+
+      if (currentBounds) {
         const scale =
           geometry.paperHeight /
           Math.max(artworkHeightPx, 1);
 
         const start =
           geometry.originY +
-          selectedBounds.top *
+          currentBounds.top *
           scale;
 
         const end =
           start +
-          selectedBounds.height *
+          currentBounds.height *
           scale;
 
         if (end > start) {
@@ -1615,7 +1513,8 @@ export const Ruler: React.FC<RulerProps> = ({
       }
 
       // Cursor tracking indicator (distinct from guidelines)
-      if (cursor && !draggingGuide) {
+      const currentCursor = cursorRef.current;
+      if (currentCursor && !draggingGuide) {
         ctx.strokeStyle =
           CURSOR_COLOR;
 
@@ -1625,19 +1524,18 @@ export const Ruler: React.FC<RulerProps> = ({
 
         ctx.moveTo(
           0,
-          cursor.y + 0.5
+          currentCursor.y + 0.5
         );
 
         ctx.lineTo(
           RULER_SIZE,
-          cursor.y + 0.5
+          currentCursor.y + 0.5
         );
 
         ctx.stroke();
       }
     },
       [
-        cursor,
         draggingGuide,
         geometry,
         heightMm,
@@ -1649,6 +1547,7 @@ export const Ruler: React.FC<RulerProps> = ({
         userGuides,
         yPxPerMm,
         canvasPxToRulerMm,
+        canvasManager,
       ]
     );
 
@@ -1659,6 +1558,68 @@ export const Ruler: React.FC<RulerProps> = ({
     drawHorizontalRuler,
     drawVerticalRuler,
   ]);
+
+  useEffect(() => {
+    const canvas =
+      canvasManager?.getCanvas();
+
+    if (!canvas) return;
+
+    // Direct rAF redraw for continuous events (moving, scaling, rotating)
+    // Avoids triggering React component re-renders on every pointer move!
+    const handleLiveTransform = () => {
+      if (liveDrawFrameRef.current !== null) {
+        return;
+      }
+      liveDrawFrameRef.current = window.requestAnimationFrame(() => {
+        liveDrawFrameRef.current = null;
+        drawHorizontalRuler();
+        drawVerticalRuler();
+      });
+    };
+
+    // Revision bump when transforms finish or selections change
+    const handleSelectionCommitted = () => {
+      if (selectionAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectionAnimationFrameRef.current);
+      }
+      selectionAnimationFrameRef.current = window.requestAnimationFrame(() => {
+        selectionAnimationFrameRef.current = null;
+        setSelectionRevision((value) => value + 1);
+        drawHorizontalRuler();
+        drawVerticalRuler();
+      });
+    };
+
+    canvas.on('selection:created', handleSelectionCommitted);
+    canvas.on('selection:updated', handleSelectionCommitted);
+    canvas.on('selection:cleared', handleSelectionCommitted);
+    canvas.on('object:modified', handleSelectionCommitted);
+
+    canvas.on('object:moving', handleLiveTransform);
+    canvas.on('object:scaling', handleLiveTransform);
+    canvas.on('object:rotating', handleLiveTransform);
+
+    return () => {
+      canvas.off('selection:created', handleSelectionCommitted);
+      canvas.off('selection:updated', handleSelectionCommitted);
+      canvas.off('selection:cleared', handleSelectionCommitted);
+      canvas.off('object:modified', handleSelectionCommitted);
+
+      canvas.off('object:moving', handleLiveTransform);
+      canvas.off('object:scaling', handleLiveTransform);
+      canvas.off('object:rotating', handleLiveTransform);
+
+      if (selectionAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectionAnimationFrameRef.current);
+        selectionAnimationFrameRef.current = null;
+      }
+      if (liveDrawFrameRef.current !== null) {
+        window.cancelAnimationFrame(liveDrawFrameRef.current);
+        liveDrawFrameRef.current = null;
+      }
+    };
+  }, [canvasManager, drawHorizontalRuler, drawVerticalRuler]);
 
   // ----------------------------------------------------
   // Cursor tracking
@@ -1701,10 +1662,9 @@ export const Ruler: React.FC<RulerProps> = ({
           if (
             pendingCursorRef.current
           ) {
-            setCursor(
-              pendingCursorRef.current
-            );
-
+            cursorRef.current = pendingCursorRef.current;
+            drawHorizontalRuler();
+            drawVerticalRuler();
             pendingCursorRef.current =
               null;
           }
@@ -1726,7 +1686,9 @@ export const Ruler: React.FC<RulerProps> = ({
           null;
       }
 
-      setCursor(null);
+      cursorRef.current = null;
+      drawHorizontalRuler();
+      drawVerticalRuler();
     };
 
     viewport.addEventListener(
@@ -1775,6 +1737,8 @@ export const Ruler: React.FC<RulerProps> = ({
   }, [
     containerRef,
     viewportRef,
+    drawHorizontalRuler,
+    drawVerticalRuler,
   ]);
 
   // ----------------------------------------------------

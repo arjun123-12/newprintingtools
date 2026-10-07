@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Admin\Products;
 use App\Http\Requests\Admin\Products\UpdateProductRequest;
 use App\Models\Product;
-
+use App\Services\Product\ProductService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\Products\StoreProductRequest;
 use App\Http\Resources\Admin\Products\ProductResource;
