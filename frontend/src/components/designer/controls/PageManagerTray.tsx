@@ -9,6 +9,8 @@ export interface PageData {
   id: string;
   thumbnail: string | null;
   canvasJson: Record<string, any>;
+  side?: string;
+  name?: string;
 }
 
 interface PageManagerTrayProps {
@@ -16,6 +18,7 @@ interface PageManagerTrayProps {
   activePageIndex: number;
   onPageSelect: (index: number) => void;
   onAddPage: () => void;
+  canAddPage?: boolean;
   onDuplicatePage: (index: number) => void;
   onDeletePage: (index: number) => void;
   onUpdatePageThumbnail?: (index: number, thumb: string) => void;
@@ -31,6 +34,7 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
   activePageIndex,
   onPageSelect,
   onAddPage,
+  canAddPage = pages.length < 2,
   onDuplicatePage,
   onDeletePage,
   onUpdatePageThumbnail,
@@ -194,11 +198,10 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
                       onPageSelect(idx);
                     }
                   }}
-                  className={`relative flex h-[84px] w-[124px] items-center justify-center overflow-hidden rounded-lg bg-white transition-all cursor-pointer ${
-                    isActive
+                  className={`relative flex h-[84px] w-[124px] items-center justify-center overflow-hidden rounded-lg bg-white transition-all cursor-pointer ${isActive
                       ? 'border-2 border-sky-500 shadow-md ring-2 ring-sky-500/20'
                       : 'border-2 border-gray-200 hover:border-gray-400 shadow-2xs'
-                  }`}
+                    }`}
                   title={`Switch to ${label}`}
                 >
                   {thumbSrc ? (
@@ -264,11 +267,10 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
                 {/* Page Label */}
                 <div className="flex items-center justify-center gap-1 w-full">
                   <span
-                    className={`text-[11px] leading-tight transition ${
-                      isActive
+                    className={`text-[11px] leading-tight transition ${isActive
                         ? 'font-bold text-sky-600'
                         : 'font-medium text-gray-700 group-hover:text-gray-900'
-                    }`}
+                      }`}
                   >
                     {label}
                   </span>
@@ -296,15 +298,17 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
 
         {/* Canva-like "Add Page" Button */}
         <div className="w-full pt-1 border-t border-gray-100 flex flex-col items-center gap-1.5">
-          <button
-            type="button"
-            onClick={onAddPage}
-            className="flex items-center justify-center gap-1.5 w-[124px] py-2 px-2 rounded-xl border-2 border-dashed border-gray-300 hover:border-sky-500 hover:bg-sky-50/60 text-gray-600 hover:text-sky-700 transition cursor-pointer shadow-2xs group"
-            title="Add a new blank page with matching dimensions and bleed settings"
-          >
-            <Plus className="w-3.5 h-3.5 text-gray-400 group-hover:text-sky-600 transition" />
-            <span className="text-[11px] font-semibold">Add page</span>
-          </button>
+          {canAddPage && (
+            <button
+              type="button"
+              onClick={onAddPage}
+              className="flex items-center justify-center gap-1.5 w-[124px] py-2 px-2 rounded-xl border-2 border-dashed border-gray-300 hover:border-sky-500 hover:bg-sky-50/60 text-gray-600 hover:text-sky-700 transition cursor-pointer shadow-2xs group"
+              title="Add a new blank page with matching dimensions and bleed settings"
+            >
+              <Plus className="w-3.5 h-3.5 text-gray-400 group-hover:text-sky-600 transition" />
+              <span className="text-[11px] font-semibold">Add page</span>
+            </button>
+          )}
 
           {/* Quick Preview Toggle if handler provided */}
           {onOpenPreview && (
@@ -325,3 +329,4 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
 };
 
 export default PageManagerTray;
+

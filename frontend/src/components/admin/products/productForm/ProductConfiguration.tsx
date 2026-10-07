@@ -100,12 +100,12 @@ export const ProductConfiguration: React.FC<ProductConfigurationProps> = ({
           <AdminNumberInput
             label="Turnaround Time"
             suffix="Business Days"
-            placeholder="3"
+            placeholder="5"
             min={1}
             value={formData.turnaround_days}
             required
             error={errors.turnaround_days}
-            onChange={(val) => setFormData((prev) => ({ ...prev, turnaround_days: typeof val === 'number' ? val : 3 }))}
+            onChange={(val) => setFormData((prev) => ({ ...prev, turnaround_days: typeof val === 'number' ? val : 5 }))}
             helperText="Standard production lead time required before dispatch."
           />
         </FormGrid>

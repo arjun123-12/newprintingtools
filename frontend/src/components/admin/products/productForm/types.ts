@@ -112,6 +112,7 @@ export interface ProductFormData {
   margin_mm: number;
   bleed_mm: number;
   safe_area_mm: number;
+  print_layout?: import('@/types/folding').PrintLayoutConfig | null;
 
   // 8. Design Templates
   design_template_ids: string[];

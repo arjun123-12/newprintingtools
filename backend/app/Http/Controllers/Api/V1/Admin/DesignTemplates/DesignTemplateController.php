@@ -39,7 +39,7 @@ class DesignTemplateController extends Controller
                 'created_at',
                 'updated_at',
             ])
-            ->with('product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm')
+            ->with('product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout')
             ->when(
                 $request->filled('product_id'),
                 function ($query) use ($request) {
@@ -187,7 +187,7 @@ class DesignTemplateController extends Controller
                 $validated['is_active'] ?? false,
         ]);
 
-        $template->load('product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm');
+        $template->load('product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout');
         $this->appendDocumentSettings($template);
 
         return response()->json([
@@ -204,7 +204,7 @@ class DesignTemplateController extends Controller
         DesignTemplate $template
     ): JsonResponse {
         $template->load(
-            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm'
+            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout'
         );
         $this->appendDocumentSettings($template);
 
@@ -346,7 +346,7 @@ class DesignTemplateController extends Controller
 
         $template->refresh();
         $template->load(
-            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm'
+            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout'
         );
         $this->appendDocumentSettings($template);
 
@@ -566,6 +566,9 @@ class DesignTemplateController extends Controller
             'printSides' => $template->print_sides
                 ?? $product?->print_sides
                 ?? 'front',
+            'print_layout' => $artwork['print_layout']
+                ?? $product?->print_layout
+                ?? null,
         ]);
     }
 }

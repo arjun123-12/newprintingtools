@@ -776,10 +776,15 @@ export class CanvasManager {
       showGuides,
       orientation,
       name: config.name,
+      printLayout: config.print_layout || config.printLayout || null,
     };
 
     const newDims = calculateCanvasDimensions(docSettings);
+    if (docSettings.printLayout) {
+      newDims.printLayout = docSettings.printLayout;
+    }
     this.dimensions = newDims;
+    this.guides.setPrintLayout(docSettings.printLayout || null);
     this.guides.updateDimensions(newDims);
     this.snapping.updateDimensions(newDims);
     this.smartSpacingManager.updateDimensions(newDims);
@@ -1340,6 +1345,28 @@ export class CanvasManager {
   public updateGuidesSettings(settings: Partial<PrintGuidesSettings>): void {
     this.guides.updateSettings(settings);
     this.syncArtworkBoundaryLines();
+  }
+
+  public setPrintLayout(layout: any): void {
+    this.guides.setPrintLayout(layout);
+    if (this.canvas) {
+      this.canvas.requestRenderAll();
+    }
+  }
+
+  public getPrintLayout(): any {
+    return this.guides.getPrintLayout();
+  }
+
+  public setActiveSide(side: 'front' | 'back'): void {
+    this.guides.setActiveSide(side);
+    if (this.canvas) {
+      this.canvas.requestRenderAll();
+    }
+  }
+
+  public getActiveSide(): 'front' | 'back' {
+    return this.guides.getActiveSide();
   }
 
   // --- Zoom & Viewport Sizing (10% to 800%) ---
@@ -7884,8 +7911,13 @@ export class CanvasManager {
       angle: number;
       stops: Array<{ offset: number; color: string }>;
     },
-    isLivePreview: boolean = false
+    isLivePreview: boolean = false,
+    target: 'fill' | 'stroke' = 'fill'
   ): void {
+    if (target === 'stroke') {
+      this.setSelectedStrokeGradient(config, isLivePreview);
+      return;
+    }
     if (!this.canvas) return;
     const active = this.canvas.getActiveObject();
     if (!active) return;
@@ -7953,6 +7985,127 @@ export class CanvasManager {
     };
 
     applyGradient(active);
+    active.set('dirty', true);
+    active.setCoords();
+    this.canvas.requestRenderAll();
+    this.notifyChange();
+    this.notifySelection();
+    if (!isLivePreview) {
+      this.notifyLayers();
+      this.saveHistoryState();
+    }
+  }
+
+  /**
+   * Applies gradient exclusively to the selected element's border (stroke).
+   * Ensures the element's body (fill) color remains completely untouched.
+   */
+  public setSelectedStrokeGradient(
+    config: {
+      type: 'linear' | 'radial';
+      angle: number;
+      stops: Array<{ offset: number; color: string }>;
+    },
+    isLivePreview: boolean = false
+  ): void {
+    if (!this.canvas) return;
+    const active = this.canvas.getActiveObject();
+    if (!active) return;
+    if (active instanceof FabricImage || active.type === 'image') return;
+    const isPhotoFrame = Boolean(active.get('isPhotoShapeGroup' as any)) && !Boolean(active.get('isCanvaPlaceholder' as any));
+    if (isPhotoFrame) return;
+
+    const safeStops = config.stops
+      .filter((stop) => typeof stop.color === 'string')
+      .map((stop) => ({
+        offset: Math.max(0, Math.min(1, Number(stop.offset) || 0)),
+        color: stop.color,
+      }))
+      .sort((a, b) => a.offset - b.offset);
+
+    if (safeStops.length < 2) return;
+
+    const applyStrokeGradient = (object: FabricObject): void => {
+      if (object instanceof Group || object instanceof ActiveSelection) {
+        object.getObjects().forEach(applyStrokeGradient);
+        object.set('dirty', true);
+        return;
+      }
+
+      if (object instanceof FabricImage || object.type === 'image') return;
+      if (object.get('frameRole' as any) === 'photo') return;
+
+      const width = Math.max(object.width || 1, 1);
+      const height = Math.max(object.height || 1, 1);
+      const centerX = width / 2;
+      const centerY = height / 2;
+      const angleRadians = ((Number(config.angle) || 0) - 90) * Math.PI / 180;
+      const radius = Math.sqrt(width * width + height * height) / 2;
+
+      const gradient = config.type === 'radial'
+        ? new Gradient({
+          type: 'radial',
+          gradientUnits: 'pixels',
+          coords: {
+            x1: centerX,
+            y1: centerY,
+            r1: 0,
+            x2: centerX,
+            y2: centerY,
+            r2: radius,
+          },
+          colorStops: safeStops,
+        })
+        : new Gradient({
+          type: 'linear',
+          gradientUnits: 'pixels',
+          coords: {
+            x1: centerX - Math.cos(angleRadians) * radius,
+            y1: centerY - Math.sin(angleRadians) * radius,
+            x2: centerX + Math.cos(angleRadians) * radius,
+            y2: centerY + Math.sin(angleRadians) * radius,
+          },
+          colorStops: safeStops,
+        });
+
+      // Enable user stroke and ensure at least 2px width if currently none
+      object.set('_userStrokeEnabled' as any, true);
+      const currentStrokeWidth = Number(object.strokeWidth || 0);
+      const baseW = Number(object.get('baseStrokeWidth' as any) || currentStrokeWidth);
+      const newStrokeWidth = baseW > 0 ? baseW : (currentStrokeWidth > 0 ? currentStrokeWidth : 2);
+
+      const isText = object instanceof Textbox || object.type === 'textbox' || object.type === 'i-text' || object.type === 'text';
+
+      if (isText) {
+        object.set({
+          stroke: gradient,
+          strokeWidth: newStrokeWidth * 2,
+          strokeUniform: true,
+          paintFirst: 'stroke',
+          strokeLineJoin: 'round',
+          strokeLineCap: 'round',
+          dirty: true,
+        });
+        object.set('baseStrokeWidth' as any, newStrokeWidth);
+        object.set('strokePosition' as any, 'outside');
+      } else {
+        object.set({
+          stroke: gradient,
+          strokeWidth: newStrokeWidth,
+          strokeUniform: true,
+          strokePosition: 'inside',
+          paintFirst: 'fill',
+          dirty: true,
+        });
+        object.set('baseStrokeWidth' as any, newStrokeWidth);
+      }
+
+      object.setCoords();
+      syncObjectCornerGeometry(object);
+      syncVisualEffectsGeometry(object);
+    };
+
+    applyStrokeGradient(active);
     active.set('dirty', true);
     active.setCoords();
     this.canvas.requestRenderAll();
@@ -8057,6 +8210,10 @@ export class CanvasManager {
       active.set('fill', value as string);
     }
     else if (prop === 'stroke') {
+      if (typeof value === 'object' && value !== null && 'stops' in value) {
+        this.setSelectedStrokeGradient(value as any, false);
+        return;
+      }
       const nextStroke = String(value ?? '');
       if (isText) {
         const textObj = active as Textbox | IText;
@@ -11012,17 +11169,19 @@ export class CanvasManager {
         const rawFill = usesChildStyles ? styleSource.fill : active.fill;
         return fabricGradientToDesignerGradient(rawFill) || undefined;
       })(),
-      stroke: active.get('_userStrokeEnabled' as any) === false
-        ? 'transparent'
-        : frameOutline && typeof frameOutline.stroke === 'string' && frameOutline.stroke !== 'transparent'
-          ? frameOutline.stroke
-          : typeof active.stroke === 'string' && active.stroke !== 'transparent'
-            ? active.stroke
-            : usesChildStyles && typeof styleSource.stroke === 'string'
-              ? styleSource.stroke
-              : typeof active.stroke === 'string'
-                ? active.stroke
-                : 'transparent',
+      stroke: (() => {
+        if (active.get('_userStrokeEnabled' as any) === false) return 'transparent';
+        const rawStroke = frameOutline ? frameOutline.stroke : (usesChildStyles ? styleSource.stroke : active.stroke);
+        const designerGrad = fabricGradientToDesignerGradient(rawStroke);
+        if (designerGrad) return designerGrad;
+        if (typeof rawStroke === 'string' && rawStroke !== 'transparent') return rawStroke;
+        return typeof active.stroke === 'string' ? active.stroke : 'transparent';
+      })(),
+      strokeGradient: (() => {
+        if (active.get('_userStrokeEnabled' as any) === false) return undefined;
+        const rawStroke = frameOutline ? frameOutline.stroke : (usesChildStyles ? styleSource.stroke : active.stroke);
+        return fabricGradientToDesignerGradient(rawStroke) || undefined;
+      })(),
       strokeWidth: (() => {
         if (active.get('_userStrokeEnabled' as any) === false) return 0;
         if (frameOutline && (frameOutline.strokeWidth || 0) > 0) {

@@ -34,6 +34,45 @@ export const AdminInput = forwardRef<HTMLInputElement, AdminInputProps>(
   ) => {
     const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
 
+    const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+    React.useEffect(() => {
+      const el = inputRef.current;
+      if (!el || props.type !== 'number') return;
+
+      const handleWheel = (e: WheelEvent) => {
+        // Prevent laptop trackpad / mouse wheel from accidentally incrementing or decrementing value
+        e.preventDefault();
+        if (document.activeElement === el) {
+          el.blur();
+        }
+        // Allow the page or container to scroll smoothly
+        const scrollParent = el.closest('.overflow-y-auto, .overflow-auto') || window;
+        if (scrollParent === window) {
+          window.scrollBy({ top: e.deltaY, left: e.deltaX, behavior: 'auto' });
+        } else {
+          (scrollParent as HTMLElement).scrollBy({ top: e.deltaY, left: e.deltaX, behavior: 'auto' });
+        }
+      };
+
+      el.addEventListener('wheel', handleWheel, { passive: false });
+      return () => {
+        el.removeEventListener('wheel', handleWheel);
+      };
+    }, [props.type]);
+
+    const setRef = React.useCallback(
+      (node: HTMLInputElement | null) => {
+        inputRef.current = node;
+        if (typeof ref === 'function') {
+          ref(node);
+        } else if (ref) {
+          (ref as React.MutableRefObject<HTMLInputElement | null>).current = node;
+        }
+      },
+      [ref]
+    );
+
     return (
       <div className={`w-full space-y-1.5 ${containerClassName}`}>
         {label && (
@@ -60,10 +99,16 @@ export const AdminInput = forwardRef<HTMLInputElement, AdminInputProps>(
           )}
 
           <input
-            ref={ref}
+            ref={setRef}
             id={inputId}
             disabled={disabled}
             required={required}
+            onWheel={(e) => {
+              if (props.type === 'number') {
+                e.currentTarget.blur();
+              }
+              props.onWheel?.(e);
+            }}
             className={`
               w-full h-[38px] px-3 text-sm text-gray-900 bg-white border rounded-lg
               placeholder:text-gray-400 transition-colors duration-150

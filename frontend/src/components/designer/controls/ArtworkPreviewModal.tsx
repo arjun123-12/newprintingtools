@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  FileCheck,
 } from 'lucide-react';
 import { DocumentSettings, CanvasDimensions } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -23,6 +24,8 @@ import { PreflightReport } from '../utils/preflightCheck';
 import { Artwork3DViewer } from './Artwork3DViewer';
 import { PageData } from './PageManagerTray';
 import { renderCanvasJsonToThumbnail, renderCanvasJsonToPrintPreview } from '../utils/canvasThumbnail';
+import { FoldingPreviewOverlay } from './FoldingPreviewOverlay';
+import { resolveSideFoldingLayout } from '@/utils/foldingLayout';
 
 interface ArtworkPreviewModalProps {
   isOpen: boolean;
@@ -40,7 +43,7 @@ interface ArtworkPreviewModalProps {
   onExportPsd: () => void;
 }
 
-export type PreviewMode = '3d' | 'spread' | 'trimmed' | 'bleed' | 'grid';
+export type PreviewMode = '3d' | 'spread' | 'trimmed' | 'bleed' | 'grid' | 'print';
 
 const LIVE_PREVIEW_INTERVAL_MS = 120;
 
@@ -72,6 +75,7 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
   const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(null);
   const [resolvedPageThumbs, setResolvedPageThumbs] = useState<Record<number, string>>({});
   const [viewMode, setViewMode] = useState<PreviewMode>('3d');
+  const [showProductionGuides, setShowProductionGuides] = useState<boolean>(true);
   const [selectedPageIndex, setSelectedPageIndex] = useState<number>(activePageIndex || 0);
   const [currentSpreadIndex, setCurrentSpreadIndex] = useState<number>(0);
   const [selected3dPairIndex, setSelected3dPairIndex] = useState<number>(0);
@@ -202,6 +206,10 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
   const totalWidthPx = Number(dimensions?.totalWidthPx) || (trimWidthPx + bleedPx * 2);
   const totalHeightPx = Number(dimensions?.totalHeightPx) || (trimHeightPx + bleedPx * 2);
 
+  const trimWidthMm = Number(dimensions?.widthMm) || Number(documentSettings?.width) || 297;
+  const trimHeightMm = Number(dimensions?.heightMm) || Number(documentSettings?.height) || 210;
+  const bleedMm = Number(dimensions?.bleedMm ?? documentSettings?.bleed ?? 3);
+
   // Compute fit-to-viewport scale
   useEffect(() => {
     if (!isOpen || !dimensions) return;
@@ -213,10 +221,10 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
       const targetW =
         viewMode === 'spread'
           ? trimWidthPx * 2 + 50
-          : viewMode === 'bleed'
+          : viewMode === 'bleed' || viewMode === 'print'
           ? totalWidthPx
           : trimWidthPx;
-      const targetH = viewMode === 'bleed' ? totalHeightPx : trimHeightPx;
+      const targetH = viewMode === 'bleed' || viewMode === 'print' ? totalHeightPx : trimHeightPx;
       const scaleX = (containerW - padding) / targetW;
       const scaleY = (containerH - padding) / targetH;
       const fit = Math.min(1.0, Math.max(0.08, Math.min(scaleX, scaleY)));
@@ -282,6 +290,19 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
   const pair3dBackIdx = selected3dPairIndex * 2 + 1;
   const front3dUrl = getPageUrl(pair3dFrontIdx);
   const back3dUrl = pair3dBackIdx < totalPages ? getPageUrl(pair3dBackIdx) : null;
+
+  const printLayout = dimensions.printLayout || documentSettings.printLayout || canvasManager?.getPrintLayout() || null;
+  const foldingConfig = printLayout?.folding;
+  const hasFolding = Boolean(foldingConfig?.enabled && (foldingConfig.folds?.length || foldingConfig.panels?.length));
+
+  const currentSide: 'front' | 'back' =
+    displayPages[selectedPageIndex]?.side === 'back' || (totalPages === 2 && selectedPageIndex === 1)
+      ? 'back'
+      : 'front';
+
+  const sideLayout = hasFolding && foldingConfig
+    ? resolveSideFoldingLayout(foldingConfig, currentSide)
+    : { panels: [], folds: [] };
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 text-white backdrop-blur-md animate-in fade-in duration-200 select-none">
@@ -367,6 +388,29 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
             >
               <Layers className="w-3.5 h-3.5" />
               <span>Full Bleed</span>
+            </button>
+
+            {/* Print Proof & Folds */}
+            <button
+              type="button"
+              onClick={() => {
+                setViewMode('print');
+                setShowProductionGuides(true);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                viewMode === 'print'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Print Proof with folding, bleed, safe margins, and trim cut lines"
+            >
+              <FileCheck className="w-3.5 h-3.5" />
+              <span>Print Proof</span>
+              {hasFolding && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/30 text-blue-300 font-bold">
+                  Folds
+                </span>
+              )}
             </button>
 
             {/* All Pages Grid */}
@@ -537,7 +581,7 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
           </div>
         )}
 
-        {(viewMode === 'trimmed' || viewMode === 'bleed') && (
+        {(viewMode === 'trimmed' || viewMode === 'bleed' || viewMode === 'print') && (
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-2">
               <span className="text-slate-400 font-medium">Select Page:</span>
@@ -582,8 +626,24 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
               </button>
             </div>
 
-            <div className="text-slate-400 text-xs">
-              Page {selectedPageIndex + 1} of {totalPages} ({viewMode === 'trimmed' ? 'Trimmed Cut' : 'Full Bleed'})
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowProductionGuides(!showProductionGuides)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                  showProductionGuides
+                    ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-600/30'
+                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                }`}
+                title="Toggle print trim lines, outer bleeds, safe margins, and fold crease guides"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>{showProductionGuides ? 'Guides Active' : 'Show Guides'}</span>
+              </button>
+
+              <div className="text-slate-400 text-xs">
+                Page {selectedPageIndex + 1} of {totalPages} ({viewMode === 'trimmed' ? 'Trimmed Cut' : viewMode === 'print' ? 'Print Proof & Folds' : 'Full Bleed Sheet'})
+              </div>
             </div>
           </div>
         )}
@@ -665,6 +725,31 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
                               Blank Page
                             </div>
                           )}
+
+                          {showProductionGuides && hasFolding && (
+                            <div
+                              className="absolute pointer-events-none"
+                              style={{
+                                top: `-${bleedPx}px`,
+                                left: `-${bleedPx}px`,
+                                width: `${totalWidthPx}px`,
+                                height: `${totalHeightPx}px`,
+                              }}
+                            >
+                              <FoldingPreviewOverlay
+                                dimensions={dimensions}
+                                documentSettings={documentSettings}
+                                side={displayPages[leftPageIndex]?.side === 'back' ? 'back' : 'front'}
+                                showBleed={false}
+                                showTrim={false}
+                                showSafeZone={true}
+                                showFolds={true}
+                                showMarginGuides={true}
+                                showBleedGuides={true}
+                                showPanelLabels={true}
+                              />
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -701,6 +786,31 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
                             <div className="h-full w-full bg-slate-900/50 border border-dashed border-slate-700 flex flex-col items-center justify-center text-slate-500 text-xs gap-1">
                               <span>No Page</span>
                               <span className="text-[10px] text-slate-600">Single side</span>
+                            </div>
+                          )}
+
+                          {showProductionGuides && hasFolding && rightPageUrl && (
+                            <div
+                              className="absolute pointer-events-none"
+                              style={{
+                                top: `-${bleedPx}px`,
+                                left: `-${bleedPx}px`,
+                                width: `${totalWidthPx}px`,
+                                height: `${totalHeightPx}px`,
+                              }}
+                            >
+                              <FoldingPreviewOverlay
+                                dimensions={dimensions}
+                                documentSettings={documentSettings}
+                                side={displayPages[rightPageIndex]?.side === 'back' || (totalPages === 2 && rightPageIndex === 1) ? 'back' : 'front'}
+                                showBleed={false}
+                                showTrim={false}
+                                showSafeZone={true}
+                                showFolds={true}
+                                showMarginGuides={true}
+                                showBleedGuides={true}
+                                showPanelLabels={true}
+                              />
                             </div>
                           )}
                         </div>
@@ -833,9 +943,35 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
                           Blank Page
                         </div>
                       )}
+
+                      {/* Optional Guides inside Trimmed Cut */}
+                      {showProductionGuides && (
+                        <div
+                          className="absolute pointer-events-none"
+                          style={{
+                            top: `-${bleedPx}px`,
+                            left: `-${bleedPx}px`,
+                            width: `${totalWidthPx}px`,
+                            height: `${totalHeightPx}px`,
+                          }}
+                        >
+                          <FoldingPreviewOverlay
+                            dimensions={dimensions}
+                            documentSettings={documentSettings}
+                            side={currentSide}
+                            showBleed={false}
+                            showTrim={false}
+                            showSafeZone={true}
+                            showFolds={true}
+                            showMarginGuides={true}
+                            showBleedGuides={true}
+                            showPanelLabels={true}
+                          />
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    /* Full Bleed Sheet Mode */
+                    /* Full Bleed & Print Proof Sheet Mode */
                     <div
                       className="relative bg-white shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] overflow-hidden rounded-xs ring-1 ring-white/20"
                       style={{
@@ -861,16 +997,19 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
                         </div>
                       )}
 
-                      {/* Clean Commercial Trim Cut Marks on Full Bleed Sheet */}
-                      {bleedPx > 0 && (
-                        <div
-                          className="absolute pointer-events-none border border-red-500/80 border-dashed"
-                          style={{
-                            top: `${bleedPx}px`,
-                            left: `${bleedPx}px`,
-                            width: `${trimWidthPx}px`,
-                            height: `${trimHeightPx}px`,
-                          }}
+                      {/* Interactive Folding, Trim, Bleed & Safe Guides Overlay */}
+                      {(viewMode === 'print' || showProductionGuides) && (
+                        <FoldingPreviewOverlay
+                          dimensions={dimensions}
+                          documentSettings={documentSettings}
+                          side={currentSide}
+                          showBleed={true}
+                          showTrim={true}
+                          showSafeZone={true}
+                          showFolds={true}
+                          showMarginGuides={true}
+                          showBleedGuides={true}
+                          showPanelLabels={true}
                         />
                       )}
                     </div>
@@ -881,8 +1020,59 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
           })()
         )}
       </div>
+
+      {/* Production Legend & Info Bar */}
+      {(viewMode === 'print' || (showProductionGuides && (viewMode === 'bleed' || viewMode === 'trimmed'))) && (
+        <div className="h-10 px-6 border-t border-slate-800 bg-slate-900/95 flex items-center justify-between text-[11px] text-slate-300 shrink-0 select-none overflow-x-auto">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="w-3 h-0.5 bg-black border border-white/60 inline-block" />
+              <span className="font-semibold text-slate-200">Trim Cut</span>
+              <span className="text-slate-400">({trimWidthMm} × {trimHeightMm} mm)</span>
+            </div>
+            {bleedPx > 0 && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="w-3 h-0.5 border-t border-dashed border-red-500 inline-block" />
+                <span className="font-semibold text-red-400">Bleed</span>
+                <span className="text-slate-400">({bleedMm} mm)</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="w-3 h-0.5 border-t border-dashed border-emerald-400 inline-block" />
+              <span className="font-semibold text-emerald-400">Safe Margin</span>
+              <span className="text-slate-400">({printLayout?.safeMargin ? `${printLayout.safeMargin.left}L / ${printLayout.safeMargin.right}R mm` : `${documentSettings.safeArea || 5} mm`})</span>
+            </div>
+            {hasFolding && (
+              <>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="w-3 h-0.5 border-t border-dashed border-blue-400 inline-block" />
+                  <span className="font-semibold text-blue-400">Fold Crease</span>
+                  <span className="text-slate-400">({sideLayout.folds.length} {sideLayout.folds.length === 1 ? 'Fold' : 'Folds'})</span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="w-2.5 h-2.5 bg-emerald-500/20 border border-emerald-400/60 rounded-xs inline-block" />
+                  <span className="font-semibold text-emerald-300">Fold Margin</span>
+                  <span className="text-slate-400">(Safe Zone)</span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="w-3 h-0.5 border-t border-dashed border-pink-400 inline-block" />
+                  <span className="font-semibold text-pink-400">Fold Bleed</span>
+                  <span className="text-slate-400">(Crossover Zone)</span>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-slate-400">Proof Sheet:</span>
+            <span className="font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-800 text-sky-400 border border-slate-700">
+              {getPageLabel(selectedPageIndex)} ({currentSide === 'front' ? 'Front' : 'Back Mirrored'})
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default ArtworkPreviewModal;
+

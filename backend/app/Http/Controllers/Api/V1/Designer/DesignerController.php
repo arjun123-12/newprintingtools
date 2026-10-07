@@ -35,7 +35,7 @@ class DesignerController extends Controller
         }
 
         $templates = $query->with([
-            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm',
+            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
             'pages.productSide',
         ])->latest()->get();
 
@@ -67,7 +67,7 @@ class DesignerController extends Controller
             ->where('product_id', $product->id)
             ->where('is_active', true)
             ->with([
-                'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm',
+                'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
                 'pages.productSide',
             ])
             ->first();

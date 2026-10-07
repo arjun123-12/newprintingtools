@@ -28,6 +28,7 @@ import {
   getArtworkExportGeometry,
   getArtworkExportBounds,
   injectVisibleTrimLineInSvg,
+  injectVisibleFoldMarksInSvg,
 } from './utils/exportGeometry';
 import { exportLayeredPsd } from './services/psdExportService';
 import { preloadPopularFonts } from './utils/fonts';
@@ -131,7 +132,8 @@ const AUTOSAVE_DELAY_MS = 1500;
 
 function extractTemplatePages(
   template: any,
-  defaultBackgroundColor: string = '#ffffff'
+  defaultBackgroundColor: string = '#ffffff',
+  overridePrintSides?: PrintSides
 ): { pages: PageData[]; sideNames: string[]; printSides: PrintSides } {
   const defaultEmptyCanvas = {
     version: '6.0.0',
@@ -188,7 +190,7 @@ function extractTemplatePages(
     sideNames.push('Front', 'Back');
   }
   // 4. Check if print_sides is explicitly 'both' (2 sides: Front & Back)
-  else if (template.print_sides === 'both') {
+  else if (overridePrintSides === 'both' || template.print_sides === 'both') {
     const frontJson = template.canvas_json ?? template.template_json ?? defaultEmptyCanvas;
     const backJson = template.back_canvas_json || defaultEmptyCanvas;
     const parsedFront = typeof frontJson === 'string' ? JSON.parse(frontJson) : frontJson;
@@ -308,7 +310,7 @@ export default function Designer({
   const loadedTemplateKeyRef = useRef<string | null>(null);
   const loadSequenceRef = useRef<number>(0);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleAutosaveRef = useRef<() => void>(() => {});
+  const scheduleAutosaveRef = useRef<() => void>(() => { });
   const saveInProgressRef = useRef<boolean>(false);
   const saveQueuedRef = useRef<boolean>(false);
   const metadataAutosaveReadyRef = useRef<boolean>(false);
@@ -749,6 +751,7 @@ export default function Designer({
       pagesRef.current = updated;
       setSideNames(['Front', 'Back']);
       setActiveSide('back');
+      canvasManagerRef.current.setActiveSide('back');
       activePageIndexRef.current = 1;
       setActivePageIndex(1);
       await canvasManagerRef.current.loadTemplate({
@@ -760,6 +763,7 @@ export default function Designer({
 
     if (targetIndex === activePageIndex) return;
     setActiveSide(targetSide);
+    canvasManagerRef.current.setActiveSide(targetSide);
     activePageIndexRef.current = targetIndex;
     setActivePageIndex(targetIndex);
 
@@ -1140,6 +1144,7 @@ export default function Designer({
       },
       backgroundColor: currentDoc.backgroundColor || '#ffffff',
       name: currentDoc.name || designNameRef.current,
+      print_layout: currentDoc.printLayout || null,
     };
 
     const printSettings = {
@@ -1149,6 +1154,7 @@ export default function Designer({
       margin_mm: currentDoc.margin ?? 0,
       bleed_mm: currentDoc.bleed ?? 0,
       safe_area_mm: currentDoc.safeArea ?? 0,
+      print_layout: currentDoc.printLayout || null,
     };
 
     // updateTemplateDesign sanitizes the JSON and stores artwork configuration.
@@ -1469,37 +1475,48 @@ export default function Designer({
           }
 
           const t = result.data;
-          const p = t.product || null;
+          let p = t.product || null;
 
-          // Priority resolution:
-          // 1. Template-specific saved value
-          // 2. Related product saved value
-          // 3. Safe fallback value
-          const resolvedSides = (t.print_sides || p?.print_sides || 'front') as PrintSides;
-          const resolvedWidth = t.width_mm !== null && t.width_mm !== undefined && t.width_mm !== ''
-            ? Number(t.width_mm)
-            : (p?.width_mm !== null && p?.width_mm !== undefined && p?.width_mm !== ''
-              ? Number(p.width_mm)
+          if (!p && loadedProductId && loadedProductId !== 'default') {
+            try {
+              const prodRes = await fetch(`${API_URL}/products/${encodeURIComponent(String(loadedProductId))}`, {
+                headers: { Accept: 'application/json' },
+              });
+              if (prodRes.ok) {
+                const prodJson = await prodRes.json();
+                p = prodJson.data || null;
+              }
+            } catch (err) {
+              console.warn('Could not fetch template product:', err);
+            }
+          }
+
+          // Priority resolution: Product is the source of truth for physical print dimensions & layout
+          const resolvedSides = (p?.print_sides || t.print_sides || 'front') as PrintSides;
+          const resolvedWidth = p?.width_mm !== null && p?.width_mm !== undefined && p?.width_mm !== ''
+            ? Number(p.width_mm)
+            : (t.width_mm !== null && t.width_mm !== undefined && t.width_mm !== ''
+              ? Number(t.width_mm)
               : (t.artwork_config?.width || t.widthMm || 90));
-          const resolvedHeight = t.height_mm !== null && t.height_mm !== undefined && t.height_mm !== ''
-            ? Number(t.height_mm)
-            : (p?.height_mm !== null && p?.height_mm !== undefined && p?.height_mm !== ''
-              ? Number(p.height_mm)
+          const resolvedHeight = p?.height_mm !== null && p?.height_mm !== undefined && p?.height_mm !== ''
+            ? Number(p.height_mm)
+            : (t.height_mm !== null && t.height_mm !== undefined && t.height_mm !== ''
+              ? Number(t.height_mm)
               : (t.artwork_config?.height || t.heightMm || 50));
-          const resolvedMargin = t.margin_mm !== null && t.margin_mm !== undefined && t.margin_mm !== ''
-            ? Number(t.margin_mm)
-            : (p?.margin_mm !== null && p?.margin_mm !== undefined && p?.margin_mm !== ''
-              ? Number(p.margin_mm)
+          const resolvedMargin = p?.margin_mm !== null && p?.margin_mm !== undefined && p?.margin_mm !== ''
+            ? Number(p.margin_mm)
+            : (t.margin_mm !== null && t.margin_mm !== undefined && t.margin_mm !== ''
+              ? Number(t.margin_mm)
               : (t.artwork_config?.margin ?? 2));
-          const resolvedBleed = t.bleed_mm !== null && t.bleed_mm !== undefined && t.bleed_mm !== ''
-            ? Number(t.bleed_mm)
-            : (p?.bleed_mm !== null && p?.bleed_mm !== undefined && p?.bleed_mm !== ''
-              ? Number(p.bleed_mm)
+          const resolvedBleed = p?.bleed_mm !== null && p?.bleed_mm !== undefined && p?.bleed_mm !== ''
+            ? Number(p.bleed_mm)
+            : (t.bleed_mm !== null && t.bleed_mm !== undefined && t.bleed_mm !== ''
+              ? Number(t.bleed_mm)
               : (t.artwork_config?.bleed ?? 3));
-          const resolvedSafeArea = t.safe_area_mm !== null && t.safe_area_mm !== undefined && t.safe_area_mm !== ''
-            ? Number(t.safe_area_mm)
-            : (p?.safe_area_mm !== null && p?.safe_area_mm !== undefined && p?.safe_area_mm !== ''
-              ? Number(p.safe_area_mm)
+          const resolvedSafeArea = p?.safe_area_mm !== null && p?.safe_area_mm !== undefined && p?.safe_area_mm !== ''
+            ? Number(p.safe_area_mm)
+            : (t.safe_area_mm !== null && t.safe_area_mm !== undefined && t.safe_area_mm !== ''
+              ? Number(t.safe_area_mm)
               : (t.artwork_config?.safeArea ?? t.artwork_config?.safe_area ?? 3));
 
           setPrintSides(resolvedSides);
@@ -1510,6 +1527,13 @@ export default function Designer({
           }
 
           // 1. Dynamically initialize artwork canvas using resolved settings
+          const resolvedPrintLayout =
+            p?.print_layout ||
+            t.print_layout ||
+            t.artwork_config?.print_layout ||
+            t.artwork_config?.printLayout ||
+            null;
+
           const templateArtworkConfig = {
             width: resolvedWidth,
             height: resolvedHeight,
@@ -1521,14 +1545,23 @@ export default function Designer({
             dpi: t.artwork_config?.dpi || 300,
             backgroundColor: t.artwork_config?.backgroundColor || t.backgroundColor || '#ffffff',
             name: t.name || designNameRef.current,
+            print_layout: resolvedPrintLayout,
+            printLayout: resolvedPrintLayout,
           };
 
           const newDocSettings = canvasManager.initializeArtwork(templateArtworkConfig);
-          setDocumentSettings((prev) => ({ ...prev, ...newDocSettings }));
+          if (resolvedPrintLayout) {
+            newDocSettings.printLayout = resolvedPrintLayout;
+            canvasManager.setPrintLayout(resolvedPrintLayout);
+          }
+          setDocumentSettings((prev) => ({ ...prev, ...newDocSettings, printLayout: resolvedPrintLayout }));
           const newDims = calculateCanvasDimensions(newDocSettings);
+          if (resolvedPrintLayout) {
+            newDims.printLayout = resolvedPrintLayout;
+          }
           setDimensions(newDims);
           dimensionsRef.current = newDims;
-          documentSettingsRef.current = { ...documentSettingsRef.current, ...newDocSettings };
+          documentSettingsRef.current = { ...documentSettingsRef.current, ...newDocSettings, printLayout: resolvedPrintLayout };
 
           const { w, h } = containerDimensionsRef.current;
           if (w > 0 && h > 0) {
@@ -1539,7 +1572,8 @@ export default function Designer({
           // 2. Load template pages dynamically using extractTemplatePages
           const extracted = extractTemplatePages(
             t,
-            templateArtworkConfig.backgroundColor
+            templateArtworkConfig.backgroundColor,
+            resolvedSides
           );
           setPages(extracted.pages);
           setSideNames(extracted.sideNames);
@@ -1625,8 +1659,13 @@ export default function Designer({
         // Restore document settings
         let currentDims = dimensionsRef.current;
         if (artwork.document_settings) {
+          const layout = artwork.document_settings.printLayout || (artwork.document_settings as any).print_layout || null;
           setDocumentSettings(artwork.document_settings);
           const newDims = calculateCanvasDimensions(artwork.document_settings);
+          if (layout) {
+            newDims.printLayout = layout;
+            canvasManager.setPrintLayout(layout);
+          }
           setDimensions(newDims);
           canvasManager.setDimensions(newDims);
           currentDims = newDims;
@@ -1742,6 +1781,107 @@ export default function Designer({
       isMounted = false;
     };
   }, [artworkIdProp, canvasManager]);
+
+  // Synchronize active canvas side with CanvasGuides
+  useEffect(() => {
+    if (canvasManager) {
+      canvasManager.setActiveSide(activeSide);
+    }
+  }, [canvasManager, activeSide]);
+
+  // Load product print & folding settings when opening a product without a pre-saved template or artwork
+  useEffect(() => {
+    if (!productId || templateId || artworkIdProp || !canvasManager) return;
+    if (productId === 'default') return;
+
+    let isMounted = true;
+    const fetchProductDetails = async () => {
+      try {
+        const authToken = getAuthToken();
+        const res = await fetch(`${API_URL}/products/${encodeURIComponent(productId)}`, {
+          headers: {
+            Accept: 'application/json',
+            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          },
+        });
+
+        if (!res.ok) return;
+        const json = await res.json();
+        const prod = json?.data || json;
+        if (!prod || !isMounted) return;
+
+        const resolvedWidth = prod.width_mm ? Number(prod.width_mm) : (prod.print_layout?.width || 90);
+        const resolvedHeight = prod.height_mm ? Number(prod.height_mm) : (prod.print_layout?.height || 50);
+        const resolvedBleed = prod.bleed_mm !== undefined ? Number(prod.bleed_mm) : (prod.print_layout?.outerBleed?.top ?? 3);
+        const resolvedSafe = prod.safe_area_mm !== undefined ? Number(prod.safe_area_mm) : (prod.print_layout?.safeMargin?.top ?? 3);
+        const resolvedMargin = prod.margin_mm !== undefined ? Number(prod.margin_mm) : resolvedSafe;
+        const resolvedSides = (prod.print_sides || 'front') as PrintSides;
+        const resolvedPrintLayout = prod.print_layout || null;
+
+        const docConfig = {
+          width: resolvedWidth,
+          height: resolvedHeight,
+          unit: 'mm' as const,
+          bleed: resolvedBleed,
+          safeArea: resolvedSafe,
+          safe_area: resolvedSafe,
+          margin: resolvedMargin,
+          dpi: 300,
+          backgroundColor: '#ffffff',
+          name: prod.name || designNameRef.current,
+          print_layout: resolvedPrintLayout,
+          printLayout: resolvedPrintLayout,
+        };
+
+        const newDoc = canvasManager.initializeArtwork(docConfig);
+        if (resolvedPrintLayout) {
+          newDoc.printLayout = resolvedPrintLayout;
+          canvasManager.setPrintLayout(resolvedPrintLayout);
+        }
+        setDocumentSettings((prev) => ({ ...prev, ...newDoc, printLayout: resolvedPrintLayout }));
+        const newDims = calculateCanvasDimensions(newDoc);
+        if (resolvedPrintLayout) {
+          newDims.printLayout = resolvedPrintLayout;
+        }
+        setDimensions(newDims);
+        dimensionsRef.current = newDims;
+        documentSettingsRef.current = { ...documentSettingsRef.current, ...newDoc, printLayout: resolvedPrintLayout };
+
+        if (resolvedSides === 'both' && pagesRef.current.length < 2) {
+          setPages([
+            {
+              id: 'page-front-1',
+              thumbnail: null,
+              canvasJson: { version: '6.0.0', objects: [], background: '#ffffff' },
+            },
+            {
+              id: 'page-back-2',
+              thumbnail: null,
+              canvasJson: { version: '6.0.0', objects: [], background: '#ffffff' },
+            },
+          ]);
+          setSideNames(['Front', 'Back']);
+          setPrintSides('both');
+        } else {
+          setPrintSides(resolvedSides);
+        }
+
+        const { w, h } = containerDimensionsRef.current;
+        if (w > 0 && h > 0) {
+          canvasManager.fitToViewport(w, h, 32, 48);
+          setIsAutoFit(true);
+        }
+      } catch (err) {
+        console.warn('Could not load product layout settings:', err);
+      }
+    };
+
+    void fetchProductDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [productId, templateId, artworkIdProp, canvasManager]);
 
   const handleSaveAsTemplate = useCallback(async () => {
     // If we're in admin-template mode, delegate to the admin template publish logic
@@ -1971,10 +2111,28 @@ export default function Designer({
       }
     });
 
+    const resolvedPrintLayout =
+      product?.print_layout ||
+      template.print_layout ||
+      template.artwork_config?.print_layout ||
+      template.artwork_config?.printLayout ||
+      null;
+
     if (canvasManagerRef.current) {
+      if (resolvedPrintLayout) {
+        templateArtworkConfig.print_layout = resolvedPrintLayout;
+        templateArtworkConfig.printLayout = resolvedPrintLayout;
+        canvasManagerRef.current.setPrintLayout(resolvedPrintLayout);
+      }
       const newDocSettings = canvasManagerRef.current.initializeArtwork(templateArtworkConfig);
-      setDocumentSettings((prev) => ({ ...prev, ...newDocSettings }));
+      if (resolvedPrintLayout) {
+        newDocSettings.printLayout = resolvedPrintLayout;
+      }
+      setDocumentSettings((prev) => ({ ...prev, ...newDocSettings, printLayout: resolvedPrintLayout }));
       const newDims = calculateCanvasDimensions(newDocSettings);
+      if (resolvedPrintLayout) {
+        newDims.printLayout = resolvedPrintLayout;
+      }
       setDimensions(newDims);
       dimensionsRef.current = newDims;
       documentSettingsRef.current = { ...documentSettingsRef.current, ...newDocSettings };
@@ -2073,6 +2231,10 @@ export default function Designer({
         await rasterizeHollowTextForExport(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
         await rasterizeFramesForVectorPdf(svgDoc, manager, { preferredMultiplier: 2, maxLongEdgePx: 4096 });
         injectVisibleTrimLineInSvg(svgDoc, bounds);
+        const foldingConfig = dimensionsRef.current.printLayout?.folding || documentSettings.printLayout?.folding || manager.getPrintLayout()?.folding;
+        if (foldingConfig?.enabled) {
+          injectVisibleFoldMarksInSvg(svgDoc, bounds, foldingConfig, 'front');
+        }
         svg = new XMLSerializer().serializeToString(svgDoc);
       }
 

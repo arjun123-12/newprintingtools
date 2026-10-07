@@ -72,6 +72,7 @@ class DesignTemplate extends Model
             'margin_mm' => $resolveGuide($this->margin_mm, $product?->margin_mm),
             'bleed_mm' => $resolveGuide($this->bleed_mm, $product?->bleed_mm),
             'safe_area_mm' => $resolveGuide($this->safe_area_mm, $product?->safe_area_mm),
+            'print_layout' => $this->artwork_config['print_layout'] ?? $product?->print_layout ?? null,
         ];
     }
 

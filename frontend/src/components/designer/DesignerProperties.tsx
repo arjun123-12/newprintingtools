@@ -113,6 +113,8 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
     if (!canvasManager) return;
     if (typeof val === 'string') {
       canvasManager.updateSelectedProperty('stroke', val);
+    } else if (typeof val === 'object' && val !== null) {
+      canvasManager.setSelectedStrokeGradient(val, false);
     }
   };
 
@@ -396,11 +398,17 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
                 />
                 <ColorPicker
                   label="Border / Stroke Color"
-                  value={selected.stroke || '#000000'}
+                  value={selected.strokeGradient || selected.stroke || '#000000'}
                   onChange={handleStrokeChange}
+                  onGradientChange={(grad) => {
+                    if (canvasManager) {
+                      canvasManager.setSelectedStrokeGradient(grad, false);
+                    }
+                  }}
                   canvasManager={canvasManager}
                   allowGradient={true}
                   embedded={true}
+                  targetProperty="stroke"
                 />
                 <div className="pt-2">
                   <button

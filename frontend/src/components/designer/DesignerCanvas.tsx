@@ -1417,6 +1417,7 @@ export function DesignerCanvas({
                   canvasManager={canvasManager ?? null}
                   selected={selected}
                   zoom={zoom}
+                  dimensions={dimensions}
                 />
               </div>
             </div>

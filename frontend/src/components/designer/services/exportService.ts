@@ -5,6 +5,7 @@ import {
   getArtworkExportGeometry,
   getArtworkExportBounds,
   renderVisibleTrimLineOnCanvas,
+  renderVisibleFoldMarksOnCanvas,
   injectVisibleTrimLineInSvg,
 } from '../utils/exportGeometry';
 import {
@@ -487,6 +488,11 @@ export async function exportHighResolutionImage(
 
     // Visible BLACK trim/cut line inside the RED export boundary
     renderVisibleTrimLineOnCanvas(ctx, bounds, bounds.exportMultiplier);
+
+    const foldingConfig = (dimensions as any)?.printLayout?.folding || documentSettings.printLayout?.folding || canvasManager.getPrintLayout()?.folding;
+    if (foldingConfig?.enabled) {
+      renderVisibleFoldMarksOnCanvas(ctx, bounds, foldingConfig, 'front', bounds.exportMultiplier);
+    }
 
     const mimeType =
       format === 'jpeg'

@@ -6,6 +6,7 @@ import {
   getArtworkExportGeometry,
   getArtworkExportBounds,
   renderVisibleTrimLineOnCanvas,
+  renderVisibleFoldMarksOnCanvas,
 } from '../utils/exportGeometry';
 
 type AgPsdLayer = import('ag-psd').Layer;
@@ -254,7 +255,10 @@ export async function exportLayeredPsd(
   documentSettings: DocumentSettings,
   dimensions: CanvasDimensions,
   filename?: string,
-  includeTrimMarks: boolean = false
+  includeTrimMarks: boolean = false,
+  includeFoldingMarks: boolean = false,
+  foldingConfig?: any,
+  side: 'front' | 'back' = 'front'
 ): Promise<void> {
   const fabricCanvas = canvasManager.getCanvas();
   if (!fabricCanvas) throw new Error('Canvas is not initialized');
@@ -358,18 +362,26 @@ export async function exportLayeredPsd(
     }
   }
 
-  // Visible TRIM MARKS layer
-  const marksCanvas = createCanvas(width, height);
-  const marksCtx = marksCanvas.getContext('2d');
-  if (marksCtx) {
-    renderVisibleTrimLineOnCanvas(marksCtx, bounds, bounds.exportMultiplier);
-    layers.push({
-      name: 'Trim Marks',
-      canvas: marksCanvas,
-      left: 0,
-      top: 0,
-      opacity: 1,
-    });
+  // Visible TRIM / FOLD MARKS layer
+  const hasFoldMarks = Boolean(includeFoldingMarks && foldingConfig?.enabled);
+  if (includeTrimMarks || hasFoldMarks) {
+    const marksCanvas = createCanvas(width, height);
+    const marksCtx = marksCanvas.getContext('2d');
+    if (marksCtx) {
+      if (includeTrimMarks) {
+        renderVisibleTrimLineOnCanvas(marksCtx, bounds, bounds.exportMultiplier);
+      }
+      if (hasFoldMarks) {
+        renderVisibleFoldMarksOnCanvas(marksCtx, bounds, foldingConfig, side, bounds.exportMultiplier);
+      }
+      layers.push({
+        name: includeTrimMarks && hasFoldMarks ? 'Trim & Fold Marks' : hasFoldMarks ? 'Fold Marks' : 'Trim Marks',
+        canvas: marksCanvas,
+        left: 0,
+        top: 0,
+        opacity: 1,
+      });
+    }
   }
 
   /*
@@ -388,7 +400,12 @@ export async function exportLayeredPsd(
     throw new Error('Unable to create the PSD composite preview');
   }
   compositeContext.drawImage(compositeImage, 0, 0, width, height);
-  renderVisibleTrimLineOnCanvas(compositeContext, bounds, bounds.exportMultiplier);
+  if (includeTrimMarks) {
+    renderVisibleTrimLineOnCanvas(compositeContext, bounds, bounds.exportMultiplier);
+  }
+  if (hasFoldMarks) {
+    renderVisibleFoldMarksOnCanvas(compositeContext, bounds, foldingConfig, side, bounds.exportMultiplier);
+  }
 
   const psd: AgPsdPsd = {
     width,

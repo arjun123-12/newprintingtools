@@ -1,4 +1,5 @@
 import { PrintSides, PrintSettings } from '@/types/designer';
+import { PrintLayoutConfig } from '@/types/folding';
 
 export interface TemplateFormData {
   name: string;
@@ -46,6 +47,7 @@ export interface TemplateListItem {
     margin_mm?: number;
     bleed_mm?: number;
     safe_area_mm?: number;
+    print_layout?: PrintLayoutConfig | null;
   } | null;
 }
 
@@ -59,6 +61,7 @@ export interface ProductOption {
   margin_mm?: number;
   bleed_mm?: number;
   safe_area_mm?: number;
+  print_layout?: PrintLayoutConfig | null;
 }
 
 export type TemplateFormErrors = Record<string, string>;

@@ -3,8 +3,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Plus, Minus, Pen } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
-import { SelectedObjectState } from '@/types/designer';
+import { SelectedObjectState, DesignerGradientValue } from '@/types/designer';
 import { ColorPicker } from '../controls/ColorPicker';
+import { colorOrGradientToCss } from '@/utils/colorUtils';
 
 interface BorderPanelProps {
   canvasManager: CanvasManager | null;
@@ -48,13 +49,17 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
   }
 
   const strokeWidth = selected.strokeWidth || 0;
-  const stroke = selected.stroke && selected.stroke !== 'transparent' ? selected.stroke : '#000000';
+  const strokeGradient = selected.strokeGradient || (typeof selected.stroke === 'object' && selected.stroke !== null ? selected.stroke : undefined);
+  const strokeDisplayColor = strokeGradient
+    ? colorOrGradientToCss(strokeGradient)
+    : (typeof selected.stroke === 'string' && selected.stroke !== 'transparent' && selected.stroke !== 'none' ? selected.stroke : '#000000');
+  const strokeValueForPicker = strokeGradient || (typeof selected.stroke === 'string' ? selected.stroke : '#000000');
   const rx = selected.rx || 0;
   const strokeDashArray = selected.strokeDashArray;
 
   // Derive stroke style
   let currentStyle: StrokeStyle = 'none';
-  if (strokeWidth > 0 && selected.stroke && selected.stroke !== 'transparent') {
+  if (strokeWidth > 0 && selected.stroke && selected.stroke !== 'transparent' && selected.stroke !== 'none') {
     if (!strokeDashArray || strokeDashArray.length === 0) {
       currentStyle = 'solid';
     } else if (Array.isArray(strokeDashArray) && strokeDashArray[0] >= 5) {
@@ -69,8 +74,12 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
     canvasManager.updateSelectedProperty(prop, val);
   };
 
-  const handleColorChange = (hex: string) => {
-    handleUpdate('stroke', hex);
+  const handleColorChange = (color: string | DesignerGradientValue) => {
+    if (typeof color === 'string') {
+      handleUpdate('stroke', color);
+    } else if (canvasManager) {
+      canvasManager.setSelectedStrokeGradient(color, false);
+    }
     if (strokeWidth === 0) {
       handleUpdate('strokeWidth', 2);
     }
@@ -79,7 +88,11 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
   const handleWidthChange = (width: number) => {
     const validW = Math.max(0, Math.min(100, width));
     if (validW > 0 && (!selected.stroke || selected.stroke === 'transparent' || selected.stroke === 'none')) {
-      handleUpdate('stroke', stroke || '#000000');
+      if (strokeGradient && canvasManager) {
+        canvasManager.setSelectedStrokeGradient(strokeGradient, false);
+      } else {
+        handleUpdate('stroke', typeof selected.stroke === 'string' && selected.stroke !== 'transparent' ? selected.stroke : '#000000');
+      }
     }
     handleUpdate('strokeWidth', validW);
   };
@@ -110,7 +123,11 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
     }
 
     if (!selected.stroke || selected.stroke === 'transparent' || selected.stroke === 'none') {
-      handleUpdate('stroke', stroke || '#000000');
+      if (strokeGradient && canvasManager) {
+        canvasManager.setSelectedStrokeGradient(strokeGradient, false);
+      } else {
+        handleUpdate('stroke', typeof selected.stroke === 'string' && selected.stroke !== 'transparent' ? selected.stroke : '#000000');
+      }
     }
 
     if (strokeWidth === 0) {
@@ -195,15 +212,17 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
             >
               <div
                 className="w-7 h-7 rounded-lg border-2 border-white shadow-md flex-shrink-0 ring-1 ring-gray-200"
-                style={{ backgroundColor: stroke }}
+                style={{ background: strokeDisplayColor }}
               />
               <div className="flex-1 text-left">
                 <span className="text-xs font-semibold text-gray-900 block">Border colour</span>
-                <span className="text-[10px] text-gray-500 font-mono uppercase">{stroke}</span>
+                <span className="text-[10px] text-gray-500 font-mono uppercase">
+                  {strokeGradient ? 'Gradient' : (typeof selected.stroke === 'string' ? selected.stroke : 'Solid')}
+                </span>
               </div>
               <div
                 className="w-4 h-4 rounded-lg border border-gray-300"
-                style={{ backgroundColor: stroke }}
+                style={{ background: strokeDisplayColor }}
               />
             </button>
 
@@ -211,18 +230,19 @@ export const BorderPanel: React.FC<BorderPanelProps> = ({ canvasManager, selecte
               <div className="mt-2 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden">
                 <ColorPicker
                   label="Border Colour"
-                  value={stroke || '#000000'}
-                  onChange={(color) => {
-                    if (typeof color === 'string') {
-                      handleColorChange(color);
-                    } else if (canvasManager) {
-                      canvasManager.setSelectedGradient(color, true);
+                  value={strokeValueForPicker}
+                  onChange={handleColorChange}
+                  onGradientChange={(grad) => {
+                    if (canvasManager) {
+                      canvasManager.setSelectedStrokeGradient(grad, false);
+                      if (strokeWidth === 0) handleUpdate('strokeWidth', 2);
                     }
                   }}
                   onClose={() => setShowColorPicker(false)}
                   canvasManager={canvasManager}
                   embedded={true}
                   allowGradient={true}
+                  targetProperty="stroke"
                 />
               </div>
             )}

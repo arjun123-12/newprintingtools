@@ -26,6 +26,9 @@ class ProductController extends Controller
     public function store(StoreProductRequest $request): JsonResponse
     {
         $validated = $request->validated();
+        if ($request->has('print_layout')) {
+            $validated['print_layout'] = $request->input('print_layout');
+        }
         $sides = $validated['sides'] ?? [];
         unset($validated['sides']);
 
@@ -85,6 +88,9 @@ class ProductController extends Controller
         $product = Product::findOrFail($id);
 
         $validated = $request->validated();
+        if ($request->has('print_layout')) {
+            $validated['print_layout'] = $request->input('print_layout');
+        }
         
         DB::transaction(function () use ($product, $validated) {
             if (isset($validated['sides'])) {

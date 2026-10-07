@@ -24,6 +24,8 @@ import {
   getArtworkExportBounds,
   renderVisibleTrimLineOnCanvas,
   injectVisibleTrimLineInSvg,
+  renderVisibleFoldMarksOnCanvas,
+  injectVisibleFoldMarksInSvg,
 } from '../utils/exportGeometry';
 import {
   collectFabricObjectsRecursively,
@@ -910,7 +912,9 @@ function renderCanvasWithTrimMarks(
   sourceCanvas: HTMLCanvasElement,
   geometry: ArtworkExportGeometry,
   slugMarginMm: number = 6,
-  backgroundColor: string = '#ffffff'
+  backgroundColor: string = '#ffffff',
+  foldingConfig?: any,
+  side: 'front' | 'back' = 'front'
 ): HTMLCanvasElement {
   const pxPerMm = geometry.targetDpi / 25.4;
   const slugMarginPx = Math.round(slugMarginMm * pxPerMm);
@@ -982,6 +986,30 @@ function renderCanvasWithTrimMarks(
   ctx.moveTo(redRight, trimBottom);
   ctx.lineTo(Math.min(totalW, redRight + markLengthPx), trimBottom);
 
+  // Fold Marks in Slug Area
+  if (foldingConfig?.enabled && foldingConfig.folds?.length) {
+    const isVertical = foldingConfig.panelOrientation !== 'horizontal';
+    for (const fold of foldingConfig.folds) {
+      if (isVertical) {
+        const foldPx = trimLeft + Math.round((fold.position / 25.4) * geometry.targetDpi);
+        if (foldPx > trimLeft && foldPx < trimRight) {
+          ctx.moveTo(foldPx, redTop);
+          ctx.lineTo(foldPx, Math.max(0, redTop - markLengthPx));
+          ctx.moveTo(foldPx, redBottom);
+          ctx.lineTo(foldPx, Math.min(totalH, redBottom + markLengthPx));
+        }
+      } else {
+        const foldPy = trimTop + Math.round((fold.position / 25.4) * geometry.targetDpi);
+        if (foldPy > trimTop && foldPy < trimBottom) {
+          ctx.moveTo(redLeft, foldPy);
+          ctx.lineTo(Math.max(0, redLeft - markLengthPx), foldPy);
+          ctx.moveTo(redRight, foldPy);
+          ctx.lineTo(Math.min(totalW, redRight + markLengthPx), foldPy);
+        }
+      }
+    }
+  }
+
   ctx.stroke();
 
   return exportCanvas;
@@ -1021,6 +1049,10 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
   const [backgroundColor, setBackgroundColor] = useState<string>('#ffffff');
   const [transparentBackground, setTransparentBackground] = useState<boolean>(false);
   const [includeTrimMarks, setIncludeTrimMarks] = useState<boolean>(true);
+  const printLayout = dimensions.printLayout || documentSettings.printLayout || canvasManager?.getPrintLayout() || null;
+  const foldingConfig = printLayout?.folding;
+  const hasFolding = Boolean(foldingConfig?.enabled && (foldingConfig.folds?.length || foldingConfig.panels?.length));
+  const [includeFoldingMarks, setIncludeFoldingMarks] = useState<boolean>(true);
   const [includeBleed, setIncludeBleed] = useState<boolean>(true);
   const [selectedProfileId, setSelectedProfileId] = useState<string>(() =>
     iccProfileService.getDefaultProfileId()
@@ -1233,7 +1265,15 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
         ctx.drawImage(img, 0, 0, widthPx, heightPx);
 
         // Visible BLACK trim/cut line inside RED boundary
-        renderVisibleTrimLineOnCanvas(ctx, bounds, bounds.exportMultiplier);
+        if (includeTrimMarks) {
+          renderVisibleTrimLineOnCanvas(ctx, bounds, bounds.exportMultiplier);
+        }
+
+        // Render visible FOLD MARKS & crease cut line
+        if (includeFoldingMarks && hasFolding && foldingConfig) {
+          const currentSide = (pages[activePageIndex]?.side as 'front' | 'back') || 'front';
+          renderVisibleFoldMarksOnCanvas(ctx, bounds, foldingConfig, currentSide, bounds.exportMultiplier);
+        }
 
         const renderedBase64 = offscreen.toDataURL('image/jpeg', 0.95);
 
@@ -1482,7 +1522,15 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           await embedFontsInSvgDefs(svgDoc, canvasManager);
 
           // 7. Inject visible BLACK trim/cut line inside RED export boundary
-          injectVisibleTrimLineInSvg(svgDoc, bounds);
+          if (includeTrimMarks) {
+            injectVisibleTrimLineInSvg(svgDoc, bounds);
+          }
+
+          // Inject visible FOLD MARKS & crease guides
+          if (includeFoldingMarks && hasFolding && foldingConfig) {
+            const currentSide = (pages[activePageIndex]?.side as 'front' | 'back') || 'front';
+            injectVisibleFoldMarksInSvg(svgDoc, bounds, foldingConfig, currentSide);
+          }
 
           // 8. Validate output
           validateSvgExport(svgDoc, canvasManager);
@@ -1502,9 +1550,10 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             return;
           }
 
+          const svgMarksSuffix = `${includeTrimMarks ? '-with-trim-marks' : ''}${includeFoldingMarks && hasFolding ? '-with-fold-marks' : ''}`;
           downloadSvgFile(
             finalSvgMarkup,
-            `${sanitizedDocName}-vector${includeTrimMarks ? '-with-trim-marks' : ''}.svg`
+            `${sanitizedDocName}-vector${svgMarksSuffix}.svg`
           );
           setExportProgress(100);
           setProgressMessage('True Vector SVG download ready.');
@@ -1817,7 +1866,15 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           );
 
           // Inject visible BLACK trim/cut line inside RED export boundary
-          injectVisibleTrimLineInSvg(svgDoc, bounds);
+          if (includeTrimMarks) {
+            injectVisibleTrimLineInSvg(svgDoc, bounds);
+          }
+
+          // Inject visible FOLD MARKS & crease guides
+          if (includeFoldingMarks && hasFolding && foldingConfig) {
+            const currentSide = (pages[activePageIndex]?.side as 'front' | 'back') || 'front';
+            injectVisibleFoldMarksInSvg(svgDoc, bounds, foldingConfig, currentSide);
+          }
 
           validateSvgExport(
             svgDoc,
@@ -1858,9 +1915,10 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           // ----------------------------------------------------------
           // SVG -> PDF, WITHOUT rasterizing the SVG.
           // ----------------------------------------------------------
+          const pdfMarksSuffix = `${includeTrimMarks ? '-with-trim-marks' : ''}${includeFoldingMarks && hasFolding ? '-with-fold-marks' : ''}`;
           const pdfFilename = isCmykPrint
-            ? `${sanitizedDocName}-print-cmyk${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`
-            : `${sanitizedDocName}-vector${includeTrimMarks ? '-with-trim-marks' : ''}.pdf`;
+            ? `${sanitizedDocName}-print-cmyk${pdfMarksSuffix}.pdf`
+            : `${sanitizedDocName}-vector${pdfMarksSuffix}.pdf`;
 
           setExportProgress(80);
           setProgressMessage(
@@ -2060,7 +2118,15 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
         tempCtx.drawImage(img, 0, 0, bounds.targetWidthPx, bounds.targetHeightPx);
 
         // Render visible BLACK trim/cut line inside RED export boundary
-        renderVisibleTrimLineOnCanvas(tempCtx, bounds, bounds.exportMultiplier);
+        if (includeTrimMarks) {
+          renderVisibleTrimLineOnCanvas(tempCtx, bounds, bounds.exportMultiplier);
+        }
+
+        // Render visible FOLD MARKS & crease guides
+        if (includeFoldingMarks && hasFolding && foldingConfig) {
+          const currentSide = (pages[activePageIndex]?.side as 'front' | 'back') || 'front';
+          renderVisibleFoldMarksOnCanvas(tempCtx, bounds, foldingConfig, currentSide, bounds.exportMultiplier);
+        }
 
         renderedDataUrl = offscreenCanvas.toDataURL(
           mimeFormat === 'jpeg' ? 'image/jpeg' : mimeFormat === 'webp' ? 'image/webp' : 'image/png',
@@ -2085,8 +2151,19 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
       if (!includeNormal || !includeEnhanced) {
         if (format === 'psd') {
           setProgressMessage('Creating layered PSD...');
-          const psdFilename = `${sanitizedDocName}-${targetDpi}dpi${includeTrimMarks ? '-with-trim-marks' : ''}.psd`;
-          await exportLayeredPsd(canvasManager, documentSettings, { ...dimensions, bleedMm }, psdFilename, includeTrimMarks);
+          const marksSuffix = `${includeTrimMarks ? '-with-trim-marks' : ''}${includeFoldingMarks && hasFolding ? '-with-fold-marks' : ''}`;
+          const psdFilename = `${sanitizedDocName}-${targetDpi}dpi${marksSuffix}.psd`;
+          const currentSide = (pages[activePageIndex]?.side as 'front' | 'back') || 'front';
+          await exportLayeredPsd(
+            canvasManager,
+            documentSettings,
+            { ...dimensions, bleedMm },
+            psdFilename,
+            includeTrimMarks,
+            includeFoldingMarks && hasFolding,
+            foldingConfig,
+            currentSide
+          );
           setExportProgress(100);
           setProgressMessage('Download ready.');
           setIsExporting(false);
@@ -2096,7 +2173,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
         if (format === 'png' || format === 'jpeg' || format === 'webp') {
           setProgressMessage('Generating image file...');
           const ext = format === 'jpeg' ? 'jpg' : format;
-          const imgFilename = `${sanitizedDocName}-${targetDpi}dpi${includeTrimMarks ? '-with-trim-marks' : ''}.${ext}`;
+          const marksSuffix = `${includeTrimMarks ? '-with-trim-marks' : ''}${includeFoldingMarks && hasFolding ? '-with-fold-marks' : ''}`;
+          const imgFilename = `${sanitizedDocName}-${targetDpi}dpi${marksSuffix}.${ext}`;
           downloadFile(renderedDataUrl, imgFilename);
           setExportProgress(100);
           setProgressMessage('Download ready.');
@@ -2401,7 +2479,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
               </div>
 
               {/* Bleed & Trim Marks Controls */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-purple-100">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-2 border-t border-purple-100">
                 <label className="flex items-center gap-2 text-xs font-semibold text-gray-800 cursor-pointer p-2 rounded-xl bg-white border border-gray-200 hover:border-purple-300 transition">
                   <input
                     type="checkbox"
@@ -2409,7 +2487,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                     onChange={(e) => setIncludeBleed(e.target.checked)}
                     className="w-4 h-4 rounded text-purple-600 accent-purple-600 focus:ring-purple-500 cursor-pointer"
                   />
-                  <span>Include Bleed Area ({bleedMm} mm)</span>
+                  <span>Include Bleed ({bleedMm} mm)</span>
                 </label>
 
                 <label className="flex items-center gap-2 text-xs font-semibold text-gray-800 cursor-pointer p-2 rounded-xl bg-white border border-gray-200 hover:border-purple-300 transition">
@@ -2419,8 +2497,20 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                     onChange={(e) => setIncludeTrimMarks(e.target.checked)}
                     className="w-4 h-4 rounded text-purple-600 accent-purple-600 focus:ring-purple-500 cursor-pointer"
                   />
-                  <span>Include Trim & Crop Marks</span>
+                  <span>Include Trim Marks</span>
                 </label>
+
+                {hasFolding && (
+                  <label className="flex items-center gap-2 text-xs font-semibold text-gray-800 cursor-pointer p-2 rounded-xl bg-white border border-gray-200 hover:border-purple-300 transition">
+                    <input
+                      type="checkbox"
+                      checked={includeFoldingMarks}
+                      onChange={(e) => setIncludeFoldingMarks(e.target.checked)}
+                      className="w-4 h-4 rounded text-blue-600 accent-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                    <span>Include Folding Marks</span>
+                  </label>
+                )}
               </div>
 
               <div className="text-[11px] text-purple-900/80 bg-white/70 p-2.5 rounded-xl border border-purple-100 leading-relaxed">
@@ -2630,6 +2720,31 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                 )}
               </div>
             </label>
+
+            {/* Folding Marks Option */}
+            {hasFolding && (
+              <div className="pt-3 border-t border-purple-200/80">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeFoldingMarks}
+                    onChange={(e) => setIncludeFoldingMarks(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-gray-900">Include Folding Marks & Score Guides</span>
+                      <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-md">
+                        {foldingConfig?.type ? foldingConfig.type.toUpperCase() : 'FOLDING'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-600 mt-0.5 leading-relaxed">
+                      Embeds prepress fold tick marks, crease guide lines, and configured safe fold margin/bleed boundaries positioned strictly according to Product configuration.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            )}
           </div>
 
           {/* Artwork Background Options */}
@@ -2775,10 +2890,10 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
                             : format === 'proof_svg'
                               ? `Download Print Preview SVG (RGB Soft Proof)`
                               : format === 'svg'
-                                ? `Download True Vector SVG${includeTrimMarks ? ' (With Trim Marks)' : ''}`
+                                ? `Download True Vector SVG${includeTrimMarks ? ' + Trim Marks' : ''}${includeFoldingMarks && hasFolding ? ' + Fold Marks' : ''}`
                                 : format === 'pdf'
-                                  ? `Download True Vector PDF${includeTrimMarks ? ' (With Trim Marks)' : ''}`
-                                  : `Download ${format.toUpperCase()} (${targetDpi} DPI)${includeTrimMarks ? ' + Trim Marks' : ''}`}
+                                  ? `Download True Vector PDF${includeTrimMarks ? ' + Trim Marks' : ''}${includeFoldingMarks && hasFolding ? ' + Fold Marks' : ''}`
+                                  : `Download ${format.toUpperCase()} (${targetDpi} DPI)${includeTrimMarks ? ' + Trim Marks' : ''}${includeFoldingMarks && hasFolding ? ' + Fold Marks' : ''}`}
                 </span>
               </>
             )}

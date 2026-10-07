@@ -21,10 +21,10 @@ export default function AdminLayoutClient({
 
   return (
     <AdminAuthGuard>
-      <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900">
+      <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
         <AdminSidebar />
 
-        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+        <div className="flex min-w-0 flex-1 flex-col pl-60 min-h-screen">
           {children}
         </div>
       </div>

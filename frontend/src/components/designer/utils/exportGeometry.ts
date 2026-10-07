@@ -1,4 +1,6 @@
 import { CanvasDimensions } from '@/types/designer';
+import { FoldingConfig } from '@/types/folding';
+import { resolveSideFoldingLayout, normalizeFoldMargin, normalizeFoldBleed } from '@/utils/foldingLayout';
 
 export interface ArtworkExportGeometry {
   // =========================================================
@@ -797,5 +799,463 @@ export function injectVisibleTrimLineInSvg(
 
   g.appendChild(casingGroup);
   g.appendChild(blackGroup);
+  svgDoc.documentElement.appendChild(g);
+}
+
+export interface FoldMarksExportOptions {
+  includeCreaseLine?: boolean;
+  includeMarginGuides?: boolean;
+  includeBleedGuides?: boolean;
+}
+
+/**
+ * Draws visible FOLD MARKS (crease ticks, fold lines, and fold margin/bleed boundaries)
+ * onto a 2D canvas context for export without modifying the customer artwork.
+ */
+export function renderVisibleFoldMarksOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  bounds: ArtworkExportBounds,
+  foldingConfig: FoldingConfig,
+  side: 'front' | 'back' = 'front',
+  scale: number = 1,
+  options?: FoldMarksExportOptions
+): void {
+  if (!foldingConfig || !foldingConfig.enabled) return;
+
+  const sideLayout = resolveSideFoldingLayout(foldingConfig, side);
+  if (!sideLayout || !sideLayout.folds || sideLayout.folds.length === 0) return;
+
+  const isVertical = foldingConfig.panelOrientation !== 'horizontal';
+  const dpi = bounds.documentDpi || 300;
+
+  const xTrimLeft = bounds.trimLeftPx * scale;
+  const yTrimTop = bounds.trimTopPx * scale;
+  const xTrimRight = (bounds.trimLeftPx + bounds.trimWidthPx) * scale;
+  const yTrimBottom = (bounds.trimTopPx + bounds.trimHeightPx) * scale;
+  const totalW = bounds.widthPx * scale;
+  const totalH = bounds.heightPx * scale;
+
+  const markLen = bounds.bleedPx > 0
+    ? bounds.bleedPx * scale
+    : Math.round(18 * scale * (dpi / 300));
+
+  ctx.save();
+  ctx.lineCap = 'square';
+
+  for (const fold of sideLayout.folds) {
+    const margin = normalizeFoldMargin(fold);
+    const bleed = normalizeFoldBleed(fold);
+
+    if (isVertical) {
+      const foldOffsetDocPx = (fold.position / 25.4) * dpi;
+      const foldX = (bounds.trimLeftPx + foldOffsetDocPx) * scale;
+
+      if (foldX <= xTrimLeft || foldX >= xTrimRight) continue;
+
+      // 1. Prepress Fold Tick Marks at outer edges
+      const tickTopY1 = bounds.bleedPx > 0 ? 0 : yTrimTop;
+      const tickTopY2 = bounds.bleedPx > 0 ? yTrimTop : yTrimTop + markLen;
+
+      const tickBottomY1 = bounds.bleedPx > 0 ? yTrimBottom : yTrimBottom - markLen;
+      const tickBottomY2 = bounds.bleedPx > 0 ? totalH : yTrimBottom;
+
+      // Casing for tick marks
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.lineWidth = Math.max(1.5, 3 * scale);
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(foldX, tickTopY1);
+      ctx.lineTo(foldX, tickTopY2);
+      ctx.moveTo(foldX, tickBottomY1);
+      ctx.lineTo(foldX, tickBottomY2);
+      ctx.stroke();
+
+      // Black stroke for tick marks
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = Math.max(0.75, 1.25 * scale);
+      ctx.beginPath();
+      ctx.moveTo(foldX, tickTopY1);
+      ctx.lineTo(foldX, tickTopY2);
+      ctx.moveTo(foldX, tickBottomY1);
+      ctx.lineTo(foldX, tickBottomY2);
+      ctx.stroke();
+
+      // 2. Cut / Crease Line across the trim area (disabled in downloads to keep artwork clean)
+      if (options?.includeCreaseLine === true) {
+        ctx.save();
+        // High-contrast white casing underneath
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = Math.max(1.5, 3 * scale);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(foldX, yTrimTop);
+        ctx.lineTo(foldX, yTrimBottom);
+        ctx.stroke();
+
+        // Crisp black solid fold line
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = Math.max(0.75, 1.25 * scale);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(foldX, yTrimTop);
+        ctx.lineTo(foldX, yTrimBottom);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 3. Fold Margin Guides (only if explicitly enabled; hidden in downloads)
+      if (options?.includeMarginGuides === true) {
+        const marginLeftPx = (margin.left / 25.4) * dpi * scale;
+        const marginRightPx = (margin.right / 25.4) * dpi * scale;
+        const marginTopPx = (margin.top / 25.4) * dpi * scale;
+        const marginBottomPx = (margin.bottom / 25.4) * dpi * scale;
+
+        const safeY1 = yTrimTop + marginTopPx;
+        const safeY2 = yTrimBottom - marginBottomPx;
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(16, 185, 129, 0.75)'; // Emerald safe margin
+        ctx.lineWidth = Math.max(0.5, 1 * scale);
+        ctx.setLineDash([4 * scale, 4 * scale]);
+
+        if (marginLeftPx > 0) {
+          ctx.beginPath();
+          ctx.moveTo(foldX - marginLeftPx, safeY1);
+          ctx.lineTo(foldX - marginLeftPx, safeY2);
+          ctx.stroke();
+        }
+        if (marginRightPx > 0) {
+          ctx.beginPath();
+          ctx.moveTo(foldX + marginRightPx, safeY1);
+          ctx.lineTo(foldX + marginRightPx, safeY2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // 4. Fold Bleed Guides (only if explicitly enabled; hidden in downloads)
+      if (options?.includeBleedGuides === true) {
+        const bleedLeftPx = (bleed.left / 25.4) * dpi * scale;
+        const bleedRightPx = (bleed.right / 25.4) * dpi * scale;
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(236, 72, 153, 0.7)'; // Magenta / pink fold bleed
+        ctx.lineWidth = Math.max(0.5, 0.9 * scale);
+        ctx.setLineDash([3 * scale, 5 * scale]);
+
+        if (bleedLeftPx > 0) {
+          ctx.beginPath();
+          ctx.moveTo(foldX - bleedLeftPx, yTrimTop);
+          ctx.lineTo(foldX - bleedLeftPx, yTrimBottom);
+          ctx.stroke();
+        }
+        if (bleedRightPx > 0) {
+          ctx.beginPath();
+          ctx.moveTo(foldX + bleedRightPx, yTrimTop);
+          ctx.lineTo(foldX + bleedRightPx, yTrimBottom);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    } else {
+      // Horizontal folds
+      const foldOffsetDocPx = (fold.position / 25.4) * dpi;
+      const foldY = (bounds.trimTopPx + foldOffsetDocPx) * scale;
+
+      if (foldY <= yTrimTop || foldY >= yTrimBottom) continue;
+
+      const tickLeftX1 = bounds.bleedPx > 0 ? 0 : xTrimLeft;
+      const tickLeftX2 = bounds.bleedPx > 0 ? xTrimLeft : xTrimLeft + markLen;
+
+      const tickRightX1 = bounds.bleedPx > 0 ? xTrimRight : xTrimRight - markLen;
+      const tickRightX2 = bounds.bleedPx > 0 ? totalW : xTrimRight;
+
+      // Casing
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.lineWidth = Math.max(1.5, 3 * scale);
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(tickLeftX1, foldY);
+      ctx.lineTo(tickLeftX2, foldY);
+      ctx.moveTo(tickRightX1, foldY);
+      ctx.lineTo(tickRightX2, foldY);
+      ctx.stroke();
+
+      // Black ticks
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = Math.max(0.75, 1.25 * scale);
+      ctx.beginPath();
+      ctx.moveTo(tickLeftX1, foldY);
+      ctx.lineTo(tickLeftX2, foldY);
+      ctx.moveTo(tickRightX1, foldY);
+      ctx.lineTo(tickRightX2, foldY);
+      ctx.stroke();
+
+      // Cut / Crease Line (disabled in downloads to keep artwork clean)
+      if (options?.includeCreaseLine === true) {
+        ctx.save();
+        // High-contrast white casing underneath
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = Math.max(1.5, 3 * scale);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(xTrimLeft, foldY);
+        ctx.lineTo(xTrimRight, foldY);
+        ctx.stroke();
+
+        // Crisp black solid fold line
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = Math.max(0.75, 1.25 * scale);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(xTrimLeft, foldY);
+        ctx.lineTo(xTrimRight, foldY);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Margin guides (only if explicitly enabled; hidden in downloads)
+      if (options?.includeMarginGuides === true) {
+        const marginTopPx = (margin.top / 25.4) * dpi * scale;
+        const marginBottomPx = (margin.bottom / 25.4) * dpi * scale;
+        const marginLeftPx = (margin.left / 25.4) * dpi * scale;
+        const marginRightPx = (margin.right / 25.4) * dpi * scale;
+
+        const safeX1 = xTrimLeft + marginLeftPx;
+        const safeX2 = xTrimRight - marginRightPx;
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(16, 185, 129, 0.75)';
+        ctx.lineWidth = Math.max(0.5, 1 * scale);
+        ctx.setLineDash([4 * scale, 4 * scale]);
+
+        if (marginTopPx > 0) {
+          ctx.beginPath();
+          ctx.moveTo(safeX1, foldY - marginTopPx);
+          ctx.lineTo(safeX2, foldY - marginTopPx);
+          ctx.stroke();
+        }
+        if (marginBottomPx > 0) {
+          ctx.beginPath();
+          ctx.moveTo(safeX1, foldY + marginBottomPx);
+          ctx.lineTo(safeX2, foldY + marginBottomPx);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // Bleed guides (only if explicitly enabled; hidden in downloads)
+      if (options?.includeBleedGuides === true) {
+        const bleedTopPx = (bleed.top / 25.4) * dpi * scale;
+        const bleedBottomPx = (bleed.bottom / 25.4) * dpi * scale;
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(236, 72, 153, 0.7)';
+        ctx.lineWidth = Math.max(0.5, 0.9 * scale);
+        ctx.setLineDash([3 * scale, 5 * scale]);
+
+        if (bleedTopPx > 0) {
+          ctx.beginPath();
+          ctx.moveTo(xTrimLeft, foldY - bleedTopPx);
+          ctx.lineTo(xTrimRight, foldY - bleedTopPx);
+          ctx.stroke();
+        }
+        if (bleedBottomPx > 0) {
+          ctx.beginPath();
+          ctx.moveTo(xTrimLeft, foldY + bleedBottomPx);
+          ctx.lineTo(xTrimRight, foldY + bleedBottomPx);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Injects visible FOLD MARKS into an SVG document for true vector SVG & PDF export.
+ * Excludes margin color and bleed color guides so only cut/crease lines and tick marks are included.
+ */
+export function injectVisibleFoldMarksInSvg(
+  svgDoc: Document,
+  bounds: ArtworkExportBounds,
+  foldingConfig: FoldingConfig,
+  side: 'front' | 'back' = 'front',
+  options?: FoldMarksExportOptions
+): void {
+  if (!foldingConfig || !foldingConfig.enabled) return;
+  if (svgDoc.querySelector('[data-print-fold-marks="true"]')) return;
+
+  const sideLayout = resolveSideFoldingLayout(foldingConfig, side);
+  if (!sideLayout || !sideLayout.folds || sideLayout.folds.length === 0) return;
+
+  const isVertical = foldingConfig.panelOrientation !== 'horizontal';
+  const dpi = bounds.documentDpi || 300;
+
+  const xTrimLeft = bounds.trimLeftPx;
+  const yTrimTop = bounds.trimTopPx;
+  const xTrimRight = bounds.trimLeftPx + bounds.trimWidthPx;
+  const yTrimBottom = bounds.trimTopPx + bounds.trimHeightPx;
+  const totalW = bounds.widthPx;
+  const totalH = bounds.heightPx;
+
+  const markLen = bounds.bleedPx > 0
+    ? bounds.bleedPx
+    : Math.round(18 * (dpi / 300));
+
+  const g = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.setAttribute('id', 'export-visible-fold-marks');
+  g.setAttribute('data-print-fold-marks', 'true');
+
+  const casingGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  casingGroup.setAttribute('stroke', 'rgba(255, 255, 255, 0.85)');
+  casingGroup.setAttribute('stroke-width', '3');
+  casingGroup.setAttribute('stroke-linecap', 'square');
+
+  const blackGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  blackGroup.setAttribute('stroke', '#000000');
+  blackGroup.setAttribute('stroke-width', '1.25');
+  blackGroup.setAttribute('stroke-linecap', 'square');
+
+  // Cut / Crease score line casing + crisp black solid fold line (no dotted line)
+  const foldLineCasingGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  foldLineCasingGroup.setAttribute('stroke', 'rgba(255, 255, 255, 0.85)');
+  foldLineCasingGroup.setAttribute('stroke-width', '3');
+
+  const foldLineGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+  foldLineGroup.setAttribute('stroke', '#000000');
+  foldLineGroup.setAttribute('stroke-width', '1.25');
+
+  let marginGroup: SVGGElement | null = null;
+  if (options?.includeMarginGuides === true) {
+    marginGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+    marginGroup.setAttribute('stroke', 'rgba(16, 185, 129, 0.75)');
+    marginGroup.setAttribute('stroke-width', '1');
+    marginGroup.setAttribute('stroke-dasharray', '4 4');
+  }
+
+  let bleedGroup: SVGGElement | null = null;
+  if (options?.includeBleedGuides === true) {
+    bleedGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+    bleedGroup.setAttribute('stroke', 'rgba(236, 72, 153, 0.7)');
+    bleedGroup.setAttribute('stroke-width', '0.9');
+    bleedGroup.setAttribute('stroke-dasharray', '3 5');
+  }
+
+  const addLine = (parent: Element, x1: number, y1: number, x2: number, y2: number) => {
+    const line = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', String(x1));
+    line.setAttribute('y1', String(y1));
+    line.setAttribute('x2', String(x2));
+    line.setAttribute('y2', String(y2));
+    parent.appendChild(line);
+  };
+
+  for (const fold of sideLayout.folds) {
+    const margin = normalizeFoldMargin(fold);
+    const bleed = normalizeFoldBleed(fold);
+
+    if (isVertical) {
+      const foldOffsetDocPx = (fold.position / 25.4) * dpi;
+      const foldX = bounds.trimLeftPx + foldOffsetDocPx;
+
+      if (foldX <= xTrimLeft || foldX >= xTrimRight) continue;
+
+      const tickTopY1 = bounds.bleedPx > 0 ? 0 : yTrimTop;
+      const tickTopY2 = bounds.bleedPx > 0 ? yTrimTop : yTrimTop + markLen;
+
+      const tickBottomY1 = bounds.bleedPx > 0 ? yTrimBottom : yTrimBottom - markLen;
+      const tickBottomY2 = bounds.bleedPx > 0 ? totalH : yTrimBottom;
+
+      // Casing for tick marks
+      addLine(casingGroup, foldX, tickTopY1, foldX, tickTopY2);
+      addLine(casingGroup, foldX, tickBottomY1, foldX, tickBottomY2);
+
+      // Black stroke for tick marks
+      addLine(blackGroup, foldX, tickTopY1, foldX, tickTopY2);
+      addLine(blackGroup, foldX, tickBottomY1, foldX, tickBottomY2);
+
+      // Cut / Crease Score Line (disabled in downloads to keep artwork clean)
+      if (options?.includeCreaseLine === true) {
+        addLine(foldLineCasingGroup, foldX, yTrimTop, foldX, yTrimBottom);
+        addLine(foldLineGroup, foldX, yTrimTop, foldX, yTrimBottom);
+      }
+
+      // Fold Margins (only if explicitly enabled)
+      if (options?.includeMarginGuides === true && marginGroup) {
+        const marginLeftPx = (margin.left / 25.4) * dpi;
+        const marginRightPx = (margin.right / 25.4) * dpi;
+        const marginTopPx = (margin.top / 25.4) * dpi;
+        const marginBottomPx = (margin.bottom / 25.4) * dpi;
+
+        const safeY1 = yTrimTop + marginTopPx;
+        const safeY2 = yTrimBottom - marginBottomPx;
+
+        if (marginLeftPx > 0) addLine(marginGroup, foldX - marginLeftPx, safeY1, foldX - marginLeftPx, safeY2);
+        if (marginRightPx > 0) addLine(marginGroup, foldX + marginRightPx, safeY1, foldX + marginRightPx, safeY2);
+      }
+
+      // Fold Bleeds (only if explicitly enabled)
+      if (options?.includeBleedGuides === true && bleedGroup) {
+        const bleedLeftPx = (bleed.left / 25.4) * dpi;
+        const bleedRightPx = (bleed.right / 25.4) * dpi;
+
+        if (bleedLeftPx > 0) addLine(bleedGroup, foldX - bleedLeftPx, yTrimTop, foldX - bleedLeftPx, yTrimBottom);
+        if (bleedRightPx > 0) addLine(bleedGroup, foldX + bleedRightPx, yTrimTop, foldX + bleedRightPx, yTrimBottom);
+      }
+    } else {
+      const foldOffsetDocPx = (fold.position / 25.4) * dpi;
+      const foldY = bounds.trimTopPx + foldOffsetDocPx;
+
+      if (foldY <= yTrimTop || foldY >= yTrimBottom) continue;
+
+      const tickLeftX1 = bounds.bleedPx > 0 ? 0 : xTrimLeft;
+      const tickLeftX2 = bounds.bleedPx > 0 ? xTrimLeft : xTrimLeft + markLen;
+
+      const tickRightX1 = bounds.bleedPx > 0 ? xTrimRight : xTrimRight - markLen;
+      const tickRightX2 = bounds.bleedPx > 0 ? totalW : xTrimRight;
+
+      addLine(casingGroup, tickLeftX1, foldY, tickLeftX2, foldY);
+      addLine(casingGroup, tickRightX1, foldY, tickRightX2, foldY);
+
+      addLine(blackGroup, tickLeftX1, foldY, tickLeftX2, foldY);
+      addLine(blackGroup, tickRightX1, foldY, tickRightX2, foldY);
+
+      if (options?.includeCreaseLine === true) {
+        addLine(foldLineCasingGroup, xTrimLeft, foldY, xTrimRight, foldY);
+        addLine(foldLineGroup, xTrimLeft, foldY, xTrimRight, foldY);
+      }
+
+      if (options?.includeMarginGuides === true && marginGroup) {
+        const marginTopPx = (margin.top / 25.4) * dpi;
+        const marginBottomPx = (margin.bottom / 25.4) * dpi;
+        const marginLeftPx = (margin.left / 25.4) * dpi;
+        const marginRightPx = (margin.right / 25.4) * dpi;
+
+        const safeX1 = xTrimLeft + marginLeftPx;
+        const safeX2 = xTrimRight - marginRightPx;
+
+        if (marginTopPx > 0) addLine(marginGroup, safeX1, foldY - marginTopPx, safeX2, foldY - marginTopPx);
+        if (marginBottomPx > 0) addLine(marginGroup, safeX1, foldY + marginBottomPx, safeX2, foldY + marginBottomPx);
+      }
+
+      if (options?.includeBleedGuides === true && bleedGroup) {
+        const bleedTopPx = (bleed.top / 25.4) * dpi;
+        const bleedBottomPx = (bleed.bottom / 25.4) * dpi;
+
+        if (bleedTopPx > 0) addLine(bleedGroup, xTrimLeft, foldY - bleedTopPx, xTrimRight, foldY - bleedTopPx);
+        if (bleedBottomPx > 0) addLine(bleedGroup, xTrimLeft, foldY + bleedBottomPx, xTrimRight, foldY + bleedBottomPx);
+      }
+    }
+  }
+
+  g.appendChild(casingGroup);
+  g.appendChild(blackGroup);
+  g.appendChild(foldLineCasingGroup);
+  g.appendChild(foldLineGroup);
+  if (marginGroup) g.appendChild(marginGroup);
+  if (bleedGroup) g.appendChild(bleedGroup);
   svgDoc.documentElement.appendChild(g);
 }

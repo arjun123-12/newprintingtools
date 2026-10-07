@@ -43,6 +43,7 @@ export interface ColorPickerProps {
   embedded?: boolean;
   className?: string;
   onGradientChange?: (gradient: DesignerGradientValue) => void;
+  targetProperty?: 'fill' | 'stroke';
 }
 
 // Re-export for backward compatibility
@@ -873,7 +874,9 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
   embedded = false,
   className = '',
   onGradientChange,
+  targetProperty,
 }) => {
+  const isStrokeTarget = targetProperty === 'stroke' || (label ? /border|stroke/i.test(label) : false);
   const isInitialGradient = typeof value === 'object' && value !== null && 'stops' in value;
 
   const [mode, setMode] = useState<'solid' | 'gradient'>(
@@ -962,10 +965,14 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
       onChange(gradVal);
       onGradientChange?.(gradVal);
       if (canvasManager) {
-        canvasManager.setSelectedGradient(gradVal, false);
+        if (isStrokeTarget) {
+          canvasManager.setSelectedStrokeGradient(gradVal, false);
+        } else {
+          canvasManager.setSelectedGradient(gradVal, false);
+        }
       }
     },
-    [onChange, onGradientChange, canvasManager]
+    [onChange, onGradientChange, canvasManager, isStrokeTarget]
   );
 
   // Gradient live preview handler (without saving undo history state)
@@ -974,11 +981,14 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
       onChange(gradient);
       onGradientChange?.(gradient);
       if (canvasManager) {
-        // If current selection is object, use isLivePreview=true
-        canvasManager.setSelectedGradient(gradient, true);
+        if (isStrokeTarget) {
+          canvasManager.setSelectedStrokeGradient(gradient, true);
+        } else {
+          canvasManager.setSelectedGradient(gradient, true);
+        }
       }
     },
-    [onChange, onGradientChange, canvasManager]
+    [onChange, onGradientChange, canvasManager, isStrokeTarget]
   );
 
   // Gradient Apply handler: commits gradient, saves undo history without auto-closing
@@ -993,10 +1003,14 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
       onChange(gradient);
       onGradientChange?.(gradient);
       if (canvasManager) {
-        canvasManager.setSelectedGradient(gradient, false);
+        if (isStrokeTarget) {
+          canvasManager.setSelectedStrokeGradient(gradient, false);
+        } else {
+          canvasManager.setSelectedGradient(gradient, false);
+        }
       }
     },
-    [onChange, onGradientChange, canvasManager]
+    [onChange, onGradientChange, canvasManager, isStrokeTarget]
   );
 
   // Gradient Cancel handler: restores original value and closes
@@ -1004,14 +1018,22 @@ export const ColorPicker: React.FC<ColorPickerProps> = ({
     const restored = initialValueRef.current;
     if (typeof restored === 'string') {
       onChange(restored);
-      if (canvasManager) canvasManager.updateSelectedProperty('fill', restored);
+      if (canvasManager) {
+        canvasManager.updateSelectedProperty(isStrokeTarget ? 'stroke' : 'fill', restored);
+      }
     } else if (typeof restored === 'object' && restored !== null) {
       onChange(restored);
       onGradientChange?.(restored);
-      if (canvasManager) canvasManager.setSelectedGradient(restored, false);
+      if (canvasManager) {
+        if (isStrokeTarget) {
+          canvasManager.setSelectedStrokeGradient(restored, false);
+        } else {
+          canvasManager.setSelectedGradient(restored, false);
+        }
+      }
     }
     onClose?.();
-  }, [onChange, onGradientChange, canvasManager, onClose]);
+  }, [onChange, onGradientChange, canvasManager, onClose, isStrokeTarget]);
 
   // Current solid color string
   const currentSolidHex = useMemo(() => {

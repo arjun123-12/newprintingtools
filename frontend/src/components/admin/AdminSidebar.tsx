@@ -126,7 +126,7 @@ export default function AdminSidebar() {
   }
 
   return (
-    <aside className="w-60 min-h-screen bg-white border-r border-gray-200 flex flex-col shrink-0 font-sans select-none">
+    <aside className="fixed top-0 left-0 bottom-0 z-30 w-60 h-screen bg-white border-r border-gray-200 flex flex-col shrink-0 font-sans select-none">
       {/* Logo */}
       <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
         <div className="flex items-center gap-2.5">

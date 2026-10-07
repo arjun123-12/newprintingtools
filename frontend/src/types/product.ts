@@ -1,4 +1,7 @@
 import { PrintSides } from './designer';
+import { PrintLayoutConfig } from './folding';
+
+export * from './folding';
 
 export type ProductType = 'standard_print' | 'custom_dimension' | 'apparel' | 'signage' | 'stationery';
 
@@ -65,6 +68,7 @@ export interface Product {
   margin_mm?: number;
   bleed_mm?: number;
   safe_area_mm?: number;
+  print_layout?: PrintLayoutConfig | null;
   attributes: ProductAttribute[];
   print_areas: PrintAreaSpecification[];
 }

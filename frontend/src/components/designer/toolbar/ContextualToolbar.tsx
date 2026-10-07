@@ -35,6 +35,7 @@ import {
   Ungroup,
   Maximize2,
   Copy,
+  GripVertical,
 } from 'lucide-react';
 import { SelectedObjectState, BrushSettings, BrushType, ActiveSidebarTab } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -261,6 +262,50 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   const toolbarRef = useRef<HTMLDivElement>(null);
   const frameFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Draggable position state so user can slide toolbar to any side
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef<{ startX: number; startY: number; initX: number; initY: number }>({
+    startX: 0,
+    startY: 0,
+    initX: 16,
+    initY: 12,
+  });
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isDraggingRef.current = true;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    const currentX = position?.x ?? 16;
+    const currentY = position?.y ?? 12;
+    dragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initX: currentX,
+      initY: currentY,
+    };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return;
+    const deltaX = e.clientX - dragStartRef.current.startX;
+    const deltaY = e.clientY - dragStartRef.current.startY;
+    const newX = Math.max(8, dragStartRef.current.initX + deltaX);
+    const newY = Math.max(8, dragStartRef.current.initY + deltaY);
+    setPosition({ x: newX, y: newY });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+  };
+
   // Sync drawing mode & brush settings from canvasManager
   useEffect(() => {
     if (!canvasManager) return;
@@ -477,13 +522,33 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
     );
   };
 
+  // Only display the contextual toolbar when an element is selected or in drawing mode
+  if (!selected && !isDrawing) {
+    return null;
+  }
+
   return (
     <div
       ref={toolbarRef}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-white px-2.5 py-2 rounded-2xl shadow-xl border border-gray-200/90 text-gray-700 animate-in fade-in slide-in-from-top-2 duration-150 select-none max-w-[95vw] overflow-visible"
+      style={
+        position
+          ? { left: `${position.x}px`, top: `${position.y}px` }
+          : undefined
+      }
+      className={`absolute ${position ? '' : 'top-3 left-4'} z-40 flex items-center gap-1.5 bg-white px-2.5 py-2 rounded-2xl shadow-xl border border-gray-200/90 text-gray-700 animate-in fade-in slide-in-from-top-2 duration-150 select-none max-w-[95vw] overflow-visible`}
     >
+      {/* Drag Grip Handle - user can adjust toolbar to any side */}
+      <div
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        title="Drag toolbar to adjust position"
+        className="cursor-grab active:cursor-grabbing p-1 -ml-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition flex items-center justify-center shrink-0"
+      >
+        <GripVertical className="w-3.5 h-3.5" />
+      </div>
       {/* ================================================================ */}
       {/* 0A. CANVAS BACKGROUND CONTROLS (When No Element Is Selected)     */}
       {/* ================================================================ */}
@@ -1468,7 +1533,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             {activePopover === 'brushSize' && (
               <BrushSizePopover
                 size={selected.strokeWidth || 4}
-                color={selected.stroke || (typeof selected.fill === 'string' ? selected.fill : '#2563eb')}
+                color={typeof selected.stroke === 'string' ? selected.stroke : (typeof selected.fill === 'string' ? selected.fill : '#2563eb')}
                 opacity={selected.opacity}
                 onChange={(size) => handleUpdate('strokeWidth', size)}
                 onClose={() => setActivePopover(null)}

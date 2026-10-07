@@ -488,6 +488,20 @@ Route::middleware(['auth:sanctum'])
             App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class,
             'queue',
         ]);
+
+        // Customer & Artwork Management
+        Route::get('/customers', [
+            App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+            'index',
+        ]);
+        Route::get('/customers/guest-artworks', [
+            App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+            'guestArtworks',
+        ]);
+        Route::get('/customers/{id}', [
+            App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+            'show',
+        ]);
     });
 Route::prefix('client-brief-auth')->group(function () {
 

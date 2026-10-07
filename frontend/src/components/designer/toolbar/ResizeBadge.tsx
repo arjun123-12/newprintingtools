@@ -2,18 +2,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { CanvasManager } from '../canvas/CanvasManager';
-import { SelectedObjectState } from '@/types/designer';
+import { CanvasDimensions, SelectedObjectState } from '@/types/designer';
 
 interface ResizeBadgeProps {
   canvasManager: CanvasManager | null;
   selected: SelectedObjectState | null;
   zoom: number;
+  dimensions?: CanvasDimensions;
 }
 
 export const ResizeBadge: React.FC<ResizeBadgeProps> = ({
   canvasManager,
   selected,
   zoom,
+  dimensions,
 }) => {
   const [resizeState, setResizeState] = useState<{
     visible: boolean;
@@ -69,6 +71,16 @@ export const ResizeBadge: React.FC<ResizeBadgeProps> = ({
 
   if (!resizeState || !resizeState.visible) return null;
 
+  // Convert pixels to mm using document dimensions or 300 DPI
+  const dpi = dimensions?.dpi || 300;
+  const mmPerPx =
+    dimensions?.widthMm && dimensions?.widthPx && dimensions.widthPx > 0
+      ? dimensions.widthMm / dimensions.widthPx
+      : 25.4 / dpi;
+
+  const widthMm = (resizeState.width * mmPerPx).toFixed(1);
+  const heightMm = (resizeState.height * mmPerPx).toFixed(1);
+
   return (
     <div
       style={{
@@ -80,10 +92,10 @@ export const ResizeBadge: React.FC<ResizeBadgeProps> = ({
       className="pointer-events-none z-50 select-none animate-in fade-in zoom-in-95 duration-100"
     >
       <div className="bg-[#0f172a] text-white text-xs font-bold font-sans px-3 py-1.5 rounded-full shadow-2xl border border-slate-700/80 flex items-center justify-center gap-1.5 whitespace-nowrap backdrop-blur-md ring-2 ring-black/10">
-        <span className="font-mono text-purple-300 font-bold">{resizeState.width}</span>
+        <span className="font-mono text-purple-300 font-bold">{widthMm}</span>
         <span className="text-gray-400 font-sans">×</span>
-        <span className="font-mono text-purple-300 font-bold">{resizeState.height}</span>
-        <span className="text-[10px] text-gray-400 font-normal">px</span>
+        <span className="font-mono text-purple-300 font-bold">{heightMm}</span>
+        <span className="text-[10px] text-gray-400 font-normal">mm</span>
       </div>
     </div>
   );

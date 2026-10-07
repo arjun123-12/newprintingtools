@@ -55,6 +55,7 @@ class Product extends Model
         'margin_mm',
         'bleed_mm',
         'safe_area_mm',
+        'print_layout',
 
         // SEO
         'meta_title',
@@ -79,6 +80,7 @@ class Product extends Model
         'margin_mm' => 'decimal:2',
         'bleed_mm' => 'decimal:2',
         'safe_area_mm' => 'decimal:2',
+        'print_layout' => 'array',
 
         // Pricing
         'base_price' => 'decimal:2',

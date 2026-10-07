@@ -1,3 +1,7 @@
+import { PrintLayoutConfig, SideFoldingLayout } from './folding';
+
+export * from './folding';
+
 export type UnitType = 'mm' | 'px' | 'in';
 
 export type PrintSides = 'front' | 'back' | 'both';
@@ -9,6 +13,7 @@ export interface PrintSettings {
   margin_mm: number;
   bleed_mm: number;
   safe_area_mm: number;
+  print_layout?: PrintLayoutConfig | null;
 }
 
 export interface CanvasDimensions {
@@ -26,6 +31,8 @@ export interface CanvasDimensions {
   totalWidthPx: number;
   totalHeightPx: number;
   dpi: number;
+  printLayout?: PrintLayoutConfig | null;
+  activeSideFoldingLayout?: SideFoldingLayout | null;
 }
 
 export interface ArtworkConfig {
@@ -54,6 +61,7 @@ export interface ArtworkConfig {
   };
   backgroundColor?: string;
   name?: string;
+  print_layout?: PrintLayoutConfig | null;
 }
 
 export interface DocumentSettings {
@@ -70,15 +78,18 @@ export interface DocumentSettings {
   orientation?: 'landscape' | 'portrait';
   trim?: boolean;
   guides?: Partial<PrintGuidesSettings>;
+  printLayout?: PrintLayoutConfig | null;
 }
 
 export interface PrintGuidesSettings {
   showBleed: boolean;
   showSafeZone: boolean;
   showTrim: boolean;
+  showFolds?: boolean;
   bleedColor: string;
   safeZoneColor: string;
   trimColor: string;
+  foldColor?: string;
 }
 
 export type DesignerLayerType =
@@ -162,7 +173,8 @@ export interface SelectedObjectState {
   opacity: number;
   fill: string | DesignerGradientValue;
   fillGradient?: DesignerGradientValue;
-  stroke: string;
+  stroke: string | DesignerGradientValue;
+  strokeGradient?: DesignerGradientValue;
   strokeWidth: number;
   flipX: boolean;
   flipY: boolean;

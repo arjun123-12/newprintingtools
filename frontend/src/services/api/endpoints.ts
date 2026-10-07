@@ -39,4 +39,8 @@ export const API_ENDPOINTS = {
   ADMIN_PRODUCTS: '/admin/products',
   ADMIN_ORDERS: '/admin/orders',
   ADMIN_ARTWORK_QUEUE: '/admin/artwork-queue',
+  ADMIN_CUSTOMERS: '/admin/customers',
+  ADMIN_CUSTOMER_DETAIL: (id: string | number) => `/admin/customers/${id}`,
+  ADMIN_CUSTOMER_GUEST_ARTWORKS: '/admin/customers/guest-artworks',
 } as const;
+

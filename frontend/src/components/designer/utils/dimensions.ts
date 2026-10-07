@@ -66,6 +66,8 @@ export function calculateCanvasDimensions(doc: DocumentSettings): CanvasDimensio
   const safeZonePx = mmToPx(safeZoneMm, dpi);
   const marginPx = mmToPx(marginMm, dpi);
 
+  const printLayout = doc.printLayout || (doc as any).print_layout || undefined;
+
   return {
     widthPx,
     heightPx,
@@ -80,6 +82,7 @@ export function calculateCanvasDimensions(doc: DocumentSettings): CanvasDimensio
     totalWidthPx: widthPx + bleedPx * 2,
     totalHeightPx: heightPx + bleedPx * 2,
     dpi,
+    printLayout,
   };
 }
 

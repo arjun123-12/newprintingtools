@@ -71,6 +71,7 @@ class ProductResource extends JsonResource
             'margin_mm' => (float) ($this->margin_mm ?? 0),
             'bleed_mm' => (float) ($this->bleed_mm ?? 0),
             'safe_area_mm' => (float) ($this->safe_area_mm ?? 0),
+            'print_layout' => $this->print_layout,
 
             'meta_title' => $this->meta_title,
             'meta_description' => $this->meta_description,

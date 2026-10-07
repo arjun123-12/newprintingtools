@@ -20,6 +20,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Palette,
   ExternalLink,
   Save,
@@ -98,12 +99,14 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isLaunchingStudio, setIsLaunchingStudio] =
     useState<boolean>(false);
+  const [pendingProductChange, setPendingProductChange] =
+    useState<string | null>(null);
 
   const selectedProduct = products.find(
     (p) => p.id === formData.product_id || p.slug === formData.product_id || p.name === formData.product_id
   );
 
-  const handleProductSelect = (selectedId: string) => {
+  const applyProductChange = (selectedId: string) => {
     const prod = products.find(
       (p) => p.id === selectedId || p.slug === selectedId || p.name === selectedId
     );
@@ -118,9 +121,28 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         margin_mm: prod.margin_mm !== null && prod.margin_mm !== undefined ? Number(prod.margin_mm) : prev.margin_mm,
         bleed_mm: prod.bleed_mm !== null && prod.bleed_mm !== undefined ? Number(prod.bleed_mm) : prev.bleed_mm,
         safe_area_mm: prod.safe_area_mm !== null && prod.safe_area_mm !== undefined ? Number(prod.safe_area_mm) : prev.safe_area_mm,
+        artwork_config: {
+          ...(prev.artwork_config || {}),
+          print_layout: prod.print_layout || null,
+        },
       }));
     } else {
       setFormData((prev) => ({ ...prev, product_id: selectedId }));
+    }
+  };
+
+  const handleProductSelect = (selectedId: string) => {
+    if (selectedId === formData.product_id) return;
+
+    const hasExistingArtwork = Boolean(
+      (formData.canvas_json?.objects && formData.canvas_json.objects.length > 0) ||
+      (formData.back_canvas_json?.objects && formData.back_canvas_json.objects.length > 0)
+    );
+
+    if (hasExistingArtwork && formData.product_id) {
+      setPendingProductChange(selectedId);
+    } else {
+      applyProductChange(selectedId);
     }
   };
 
@@ -298,6 +320,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
             margin_mm: p.margin_mm,
             bleed_mm: p.bleed_mm,
             safe_area_mm: p.safe_area_mm,
+            print_layout: p.print_layout || null,
           })));
         }
       } catch (err) {
@@ -642,6 +665,18 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
       >
         {currentTab === 'details' && (
           <div className="space-y-6 animate-in fade-in duration-150">
+            {mode === 'edit' && selectedProduct && (
+              (selectedProduct.width_mm && formData.width_mm && Math.abs(Number(selectedProduct.width_mm) - Number(formData.width_mm)) > 0.5) ||
+              (selectedProduct.height_mm && formData.height_mm && Math.abs(Number(selectedProduct.height_mm) - Number(formData.height_mm)) > 0.5)
+            ) && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-amber-300 block mb-0.5">Product Configuration Notice</span>
+                  This product's print configuration has changed. Existing templates using this product may require layout verification.
+                </div>
+              </div>
+            )}
             <BasicTemplateInfo
               formData={formData}
               setFormData={setFormData}
@@ -737,6 +772,41 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
           </div>
         </div>
       </form>
+
+      {/* Confirmation Modal when changing product on template with artwork */}
+      {pendingProductChange !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl text-white">
+            <div className="flex items-center gap-3 text-amber-400 mb-3">
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <h3 className="text-base font-bold">Change Associated Product?</h3>
+            </div>
+            <p className="text-sm text-slate-300 leading-relaxed mb-6">
+              Changing the product will change the artwork layout. Continue?
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingProductChange(null)}
+                className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextId = pendingProductChange;
+                  setPendingProductChange(null);
+                  if (nextId) applyProductChange(nextId);
+                }}
+                className="rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2 text-xs font-semibold text-white transition-colors"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

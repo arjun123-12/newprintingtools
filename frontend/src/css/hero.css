@@ -1,0 +1,4 @@
+/* Hero Section Background Styling */
+.hero-section {
+  background: linear-gradient(180deg, rgb(13 110 207 / 60%) 0%, #ffffff 50%, #ffffff 100%);
+}

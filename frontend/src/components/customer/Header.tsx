@@ -193,7 +193,7 @@ export default function Header() {
 
       {/* Mobile Drawer Menu */}
       {mobileMenuOpen && (
-        <div className="fixed inset-0 top-[115px] z-40 bg-black/50 backdrop-blur-sm md:hidden animate-fade-in">
+        <div className="fixed inset-0 top-20 z-40 bg-black/50 backdrop-blur-sm md:hidden animate-fade-in">
           <div className="bg-white border-b border-slate-200 shadow-2xl p-4 max-h-[85vh] overflow-y-auto space-y-4">
             {/* Mobile Search */}
             <form
