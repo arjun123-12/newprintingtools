@@ -55,6 +55,7 @@ export const AdvancedAttributesBuilder: React.FC<AdvancedAttributesBuilderProps>
   };
 
   const handleAddPreset = (preset: PrintingFieldPreset) => {
+    const isFolding = preset.code === 'folding_style' || preset.id === 'preset_folding';
     // Convert preset values into AttributeValueItem with quantity break price matrices
     const newValues: AttributeValueItem[] = preset.values.map((val, idx) => ({
       id: `val_${Date.now()}_${idx}`,
@@ -64,6 +65,7 @@ export const AdvancedAttributesBuilder: React.FC<AdvancedAttributesBuilderProps>
       price_modifier_amount: 0,
       price_modifier_type: 'fixed',
       is_default: idx === 0,
+      is_active: true,
       implicit_value: '',
       enable_conditional_logic: false,
       priceModifiers: val.priceModifiers || {},
@@ -71,10 +73,12 @@ export const AdvancedAttributesBuilder: React.FC<AdvancedAttributesBuilderProps>
 
     const newAttr: AttributeItem = {
       id: `attr_${Date.now()}`,
-      name: preset.name,
+      name: isFolding ? 'Folding' : preset.name,
       code: preset.code,
       type: preset.type,
-      is_required: true,
+      is_required: isFolding ? false : true,
+      affects_price: true,
+      depend_quantity: true,
       values: newValues,
     } as any;
 
@@ -308,29 +312,64 @@ export const AdvancedAttributesBuilder: React.FC<AdvancedAttributesBuilderProps>
                 {isExpanded && (
                   <div className="p-5 space-y-5">
                     {/* Option General Configuration Row */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pb-4 border-b border-gray-100">
-                      <AdminInput
-                        label="Option Name"
-                        placeholder="e.g. Paper Stock"
-                        value={attr.name}
-                        required
-                        onChange={(e) => updateAttributeField(attrIdx, 'name', e.target.value)}
-                      />
+                    <div className="space-y-3 pb-4 border-b border-gray-100">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <AdminInput
+                          label="Option Name"
+                          placeholder="e.g. Folding"
+                          value={attr.name}
+                          required
+                          onChange={(e) => updateAttributeField(attrIdx, 'name', e.target.value)}
+                        />
 
-                      <AdminInput
-                        label="Option Code"
-                        placeholder="e.g. paper_stock"
-                        value={attr.code}
-                        required
-                        onChange={(e) => updateAttributeField(attrIdx, 'code', e.target.value)}
-                      />
+                        <AdminInput
+                          label="Option Code"
+                          placeholder="e.g. folding_style"
+                          value={attr.code}
+                          required
+                          onChange={(e) => updateAttributeField(attrIdx, 'code', e.target.value)}
+                        />
 
-                      <AdminSelect
-                        label="Switch / Display Type"
-                        value={attr.type}
-                        options={SWITCH_TYPES}
-                        onChange={(e) => updateAttributeField(attrIdx, 'type', e.target.value)}
-                      />
+                        <AdminSelect
+                          label="Switch / Display Type"
+                          value={attr.type}
+                          options={SWITCH_TYPES}
+                          onChange={(e) => updateAttributeField(attrIdx, 'type', e.target.value)}
+                        />
+                      </div>
+
+                      {/* Behavior & Pricing flags */}
+                      <div className="flex flex-wrap items-center gap-6 pt-1 text-xs">
+                        <label className="inline-flex items-center gap-1.5 font-medium text-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(attr.is_required)}
+                            onChange={(e) => updateAttributeField(attrIdx, 'is_required', e.target.checked)}
+                            className="h-3.5 w-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500/20"
+                          />
+                          <span>Required Option (Customer must select)</span>
+                        </label>
+
+                        <label className="inline-flex items-center gap-1.5 font-medium text-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={attr.affects_price !== false}
+                            onChange={(e) => updateAttributeField(attrIdx, 'affects_price', e.target.checked)}
+                            className="h-3.5 w-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500/20"
+                          />
+                          <span>Affects Product Price</span>
+                        </label>
+
+                        <label className="inline-flex items-center gap-1.5 font-medium text-gray-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={attr.depend_quantity !== false}
+                            onChange={(e) => updateAttributeField(attrIdx, 'depend_quantity', e.target.checked)}
+                            className="h-3.5 w-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500/20"
+                          />
+                          <span>Pricing Depends on Quantity</span>
+                        </label>
+                      </div>
                     </div>
 
                     {/* Option Values List with Quantity Breaks Matrix (Matching Screenshot 1) */}
@@ -354,28 +393,45 @@ export const AdvancedAttributesBuilder: React.FC<AdvancedAttributesBuilderProps>
                       </div>
 
                       {attr.values.map((val: any, valIdx: number) => {
+                        const isActive = val.is_active !== false;
+
                         return (
                           <div
                             key={val.id || valIdx}
-                            className="p-4 bg-gray-50/60 rounded-xl border border-gray-200 space-y-3 transition-all"
+                            className={`p-4 rounded-xl border space-y-3 transition-all ${
+                              isActive
+                                ? 'bg-gray-50/60 border-gray-200'
+                                : 'bg-gray-100/60 border-gray-300 opacity-75'
+                            }`}
                           >
                             <div className="flex items-start justify-between gap-3">
-                              {/* Left Columns: Title, Description, Default */}
+                              {/* Left Columns: Title, Description, Active, Default */}
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
                                 <div className="space-y-1.5">
                                   <div className="flex items-center justify-between">
                                     <label className="text-xs font-semibold text-gray-700">
                                       Title / Swatch Label
                                     </label>
-                                    <label className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-600 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={Boolean(val.is_default)}
-                                        onChange={(e) => updateValueField(attrIdx, valIdx, 'is_default', e.target.checked)}
-                                        className="h-3.5 w-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500/20"
-                                      />
-                                      <span>Default</span>
-                                    </label>
+                                    <div className="flex items-center gap-3">
+                                      <label className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={isActive}
+                                          onChange={(e) => updateValueField(attrIdx, valIdx, 'is_active', e.target.checked)}
+                                          className="h-3.5 w-3.5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500/20"
+                                        />
+                                        <span>Active</span>
+                                      </label>
+                                      <label className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-600 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={Boolean(val.is_default)}
+                                          onChange={(e) => updateValueField(attrIdx, valIdx, 'is_default', e.target.checked)}
+                                          className="h-3.5 w-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500/20"
+                                        />
+                                        <span>Default</span>
+                                      </label>
+                                    </div>
                                   </div>
                                   <AdminInput
                                     placeholder="e.g. Front side"

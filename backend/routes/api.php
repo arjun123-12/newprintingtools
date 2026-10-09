@@ -484,6 +484,17 @@ Route::middleware(['auth:sanctum'])
             'updateStatus',
         ]);
 
+        // Tax Invoices (AUD) & Payments
+        Route::get('/invoices', [
+            App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+            'index',
+        ]);
+
+        Route::get('/invoices/{id}', [
+            App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+            'show',
+        ]);
+
         Route::get('/artwork-queue', [
             App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class,
             'queue',

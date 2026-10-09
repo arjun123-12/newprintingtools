@@ -117,15 +117,15 @@ class DesignAssetController extends Controller
                 'required_without:fabric_json',
                 'nullable',
                 'file',
-                'mimes:jpg,jpeg,png,webp,gif,svg,pdf,tif,tiff',
-                'max:20480',
+                'extensions:jpg,jpeg,png,webp,gif,svg,pdf,tif,tiff,ttf,otf,woff,woff2',
+                'max:51200',
             ],
 
             'thumbnail' => [
                 'nullable',
                 'file',
-                'mimes:jpg,jpeg,png,webp,gif,svg',
-                'max:5120',
+                'extensions:jpg,jpeg,png,webp,gif,svg',
+                'max:10240',
             ],
 
             'fabric_json' => [
@@ -183,10 +183,14 @@ class DesignAssetController extends Controller
 
         try {
             if ($request->hasFile('file')) {
-                $filePath = $request->file('file')->store(
-                    $this->getStorageDirectory($validated['asset_type']),
-                    'public'
-                );
+                $uploadedFile = $request->file('file');
+                $ext = strtolower($uploadedFile->getClientOriginalExtension());
+                $dir = $this->getStorageDirectory($validated['asset_type']);
+                if (!empty($ext)) {
+                    $filePath = $uploadedFile->storeAs($dir, \Illuminate\Support\Str::random(40) . '.' . $ext, 'public');
+                } else {
+                    $filePath = $uploadedFile->store($dir, 'public');
+                }
             }
 
             if ($request->hasFile('thumbnail')) {
@@ -293,15 +297,15 @@ class DesignAssetController extends Controller
             'file' => [
                 'nullable',
                 'file',
-                'mimes:jpg,jpeg,png,webp,gif,svg,pdf,tif,tiff',
-                'max:20480',
+                'extensions:jpg,jpeg,png,webp,gif,svg,pdf,tif,tiff,ttf,otf,woff,woff2',
+                'max:51200',
             ],
 
             'thumbnail' => [
                 'nullable',
                 'file',
-                'mimes:jpg,jpeg,png,webp,gif,svg',
-                'max:5120',
+                'extensions:jpg,jpeg,png,webp,gif,svg',
+                'max:10240',
             ],
 
             'fabric_json' => [
@@ -374,10 +378,14 @@ class DesignAssetController extends Controller
 
         try {
             if ($request->hasFile('file')) {
-                $newFilePath = $request->file('file')->store(
-                    $this->getStorageDirectory($assetType),
-                    'public'
-                );
+                $uploadedFile = $request->file('file');
+                $ext = strtolower($uploadedFile->getClientOriginalExtension());
+                $dir = $this->getStorageDirectory($assetType);
+                if (!empty($ext)) {
+                    $newFilePath = $uploadedFile->storeAs($dir, \Illuminate\Support\Str::random(40) . '.' . $ext, 'public');
+                } else {
+                    $newFilePath = $uploadedFile->store($dir, 'public');
+                }
 
                 $validated['file_path'] = $newFilePath;
                 $validated['file_url'] =

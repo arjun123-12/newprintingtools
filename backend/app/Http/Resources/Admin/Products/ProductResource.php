@@ -72,6 +72,53 @@ class ProductResource extends JsonResource
             'bleed_mm' => (float) ($this->bleed_mm ?? 0),
             'safe_area_mm' => (float) ($this->safe_area_mm ?? 0),
             'print_layout' => $this->print_layout,
+            'folding_pricing' => $this->folding_pricing,
+
+            'attributes' => $this->relationLoaded('attributes') ? $this->attributes->map(function ($attr) {
+                return [
+                    'id' => $attr->id,
+                    'name' => $attr->name,
+                    'code' => $attr->code,
+                    'type' => $attr->type,
+                    'is_required' => (bool) $attr->is_required,
+                    'sort_order' => $attr->sort_order,
+                    'values' => $attr->relationLoaded('values') ? $attr->values->map(function ($val) {
+                        $rawDesc = $val->description;
+                        $parsedDesc = json_decode((string) $rawDesc, true);
+                        $finalDesc = $rawDesc;
+                        $isActive = true;
+                        $priceModifiers = [];
+
+                        if (is_array($parsedDesc) && (isset($parsedDesc['priceModifiers']) || isset($parsedDesc['is_active']))) {
+                            $finalDesc = $parsedDesc['text'] ?? '';
+                            $isActive = $parsedDesc['is_active'] ?? true;
+                            $priceModifiers = $parsedDesc['priceModifiers'] ?? [];
+                        }
+
+                        return [
+                            'id' => $val->id,
+                            'label' => $val->label,
+                            'value' => $val->value,
+                            'description' => $finalDesc,
+                            'price_modifier_type' => $val->price_modifier_type,
+                            'price_modifier_amount' => (float) $val->price_modifier_amount,
+                            'sort_order' => $val->sort_order,
+                            'is_default' => $val->sort_order === 0,
+                            'is_active' => $isActive,
+                            'priceModifiers' => $priceModifiers,
+                        ];
+                    }) : [],
+                ];
+            }) : [],
+
+            'pricing_tiers' => $this->relationLoaded('pricingMatrices') ? $this->pricingMatrices->map(function ($matrix) {
+                return [
+                    'id' => $matrix->id,
+                    'minQuantity' => (int) $matrix->quantity,
+                    'maxQuantity' => null,
+                    'price' => (float) $matrix->unit_price_ex_gst,
+                ];
+            }) : [],
 
             'meta_title' => $this->meta_title,
             'meta_description' => $this->meta_description,

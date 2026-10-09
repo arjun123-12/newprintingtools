@@ -273,37 +273,50 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   });
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+
     isDraggingRef.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    const currentX = position?.x ?? 16;
-    const currentY = position?.y ?? 12;
+    const currentX = position?.x ?? (toolbarRef.current?.offsetLeft || 16);
+    const currentY = position?.y ?? (toolbarRef.current?.offsetTop || 12);
+
     dragStartRef.current = {
       startX: e.clientX,
       startY: e.clientY,
       initX: currentX,
       initY: currentY,
     };
-  };
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDraggingRef.current) return;
-    const deltaX = e.clientX - dragStartRef.current.startX;
-    const deltaY = e.clientY - dragStartRef.current.startY;
-    const newX = Math.max(8, dragStartRef.current.initX + deltaX);
-    const newY = Math.max(8, dragStartRef.current.initY + deltaY);
-    setPosition({ x: newX, y: newY });
-  };
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      if (!isDraggingRef.current) return;
+      const deltaX = moveEvent.clientX - dragStartRef.current.startX;
+      const deltaY = moveEvent.clientY - dragStartRef.current.startY;
 
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (!isDraggingRef.current) return;
-    isDraggingRef.current = false;
-    try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
+      const parentWidth = toolbarRef.current?.parentElement?.clientWidth || window.innerWidth;
+      const parentHeight = toolbarRef.current?.parentElement?.clientHeight || window.innerHeight;
+      const toolbarWidth = toolbarRef.current?.offsetWidth || 280;
+      const toolbarHeight = toolbarRef.current?.offsetHeight || 44;
+
+      const maxX = Math.max(8, parentWidth - toolbarWidth - 8);
+      const maxY = Math.max(8, parentHeight - toolbarHeight - 8);
+
+      const newX = Math.min(maxX, Math.max(8, dragStartRef.current.initX + deltaX));
+      const newY = Math.min(maxY, Math.max(8, dragStartRef.current.initY + deltaY));
+
+      setPosition({ x: newX, y: newY });
+    };
+
+    const onPointerUp = () => {
+      isDraggingRef.current = false;
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
   };
 
   // Sync drawing mode & brush settings from canvasManager
@@ -522,11 +535,6 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
     );
   };
 
-  // Only display the contextual toolbar when an element is selected or in drawing mode
-  if (!selected && !isDrawing) {
-    return null;
-  }
-
   return (
     <div
       ref={toolbarRef}
@@ -542,8 +550,6 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       {/* Drag Grip Handle - user can adjust toolbar to any side */}
       <div
         onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
         title="Drag toolbar to adjust position"
         className="cursor-grab active:cursor-grabbing p-1 -ml-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition flex items-center justify-center shrink-0"
       >
@@ -569,7 +575,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }`}
           >
             <div
-              className="w-4 h-4 rounded-lg border border-gray-300 shadow-2xs flex-shrink-0"
+              className="w-4 h-4 rounded-full border border-gray-300 shadow-2xs flex-shrink-0"
               style={{ backgroundColor: currentCanvasBg }}
             />
             <span className="text-xs font-bold text-gray-800">Background Colour</span>

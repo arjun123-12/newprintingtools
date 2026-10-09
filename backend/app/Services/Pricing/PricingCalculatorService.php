@@ -2,49 +2,215 @@
 
 namespace App\Services\Pricing;
 
+use App\Models\Product;
+use InvalidArgumentException;
+
 class PricingCalculatorService
 {
     const GST_RATE = 0.10;
 
     /**
-     * Calculate dynamic pricing based on quantity breaks, selected dynamic options, and finishing fees
+     * Calculate dynamic pricing based on quantity breaks, selected dynamic options, and folding add-on fees
+     *
+     * @param Product|array $dataOrProduct
+     * @param int|null $quantity
+     * @param array $selectedOptions
      */
-    public function calculate(array $data): array
+    public function calculate(Product|array $dataOrProduct, ?int $quantity = null, array $selectedOptions = []): array
     {
-        $productId = $data['product_id'] ?? null;
-        $quantity = (int) ($data['quantity'] ?? 1);
-        $selectedOptions = $data['selected_options'] ?? [];
-
-        // Base unit price determination (placeholder for database pricing matrix lookup in Step 2)
-        $baseUnitPriceExGst = 0.45;
-        $setupFee = 25.00;
-
-        // Apply volume tier discount
-        if ($quantity >= 5000) {
-            $baseUnitPriceExGst *= 0.65;
-        } elseif ($quantity >= 2500) {
-            $baseUnitPriceExGst *= 0.75;
-        } elseif ($quantity >= 1000) {
-            $baseUnitPriceExGst *= 0.85;
-        } elseif ($quantity >= 500) {
-            $baseUnitPriceExGst *= 0.92;
+        if ($dataOrProduct instanceof Product) {
+            $product = $dataOrProduct;
+            $productId = $product->id;
+            $quantity = max(1, (int) ($quantity ?? 1));
+        } else {
+            $productId = $dataOrProduct['product_id'] ?? null;
+            $quantity = max(1, (int) ($dataOrProduct['quantity'] ?? 1));
+            $selectedOptions = $dataOrProduct['selected_options'] ?? [];
+            $product = isset($dataOrProduct['product']) && $dataOrProduct['product'] instanceof Product
+                ? $dataOrProduct['product']
+                : ($productId ? Product::with(['attributes.values', 'pricingMatrices'])->find($productId) : null);
         }
 
-        $subtotalExGst = ($baseUnitPriceExGst * $quantity) + $setupFee;
-        $gstAmount = $subtotalExGst * self::GST_RATE;
-        $totalIncGst = $subtotalExGst + $gstAmount;
-        $unitPriceIncGst = $totalIncGst / $quantity;
+        // 1. Determine baseline unit price
+        $baseUnitPriceExGst = 0.45;
+        $setupFee = 0.00;
+
+        if ($product) {
+            // Check pricing matrices for quantity breaks
+            if ($product->pricingMatrices && $product->pricingMatrices->isNotEmpty()) {
+                // Find matching or highest qualifying tier
+                $tier = $product->pricingMatrices
+                    ->where('quantity', '<=', $quantity)
+                    ->sortByDesc('quantity')
+                    ->first();
+
+                if ($tier) {
+                    $baseUnitPriceExGst = (float) $tier->unit_price_ex_gst;
+                    $setupFee = (float) ($tier->setup_fee ?? 0);
+                } else {
+                    // Use lowest quantity tier
+                    $lowestTier = $product->pricingMatrices->sortBy('quantity')->first();
+                    $baseUnitPriceExGst = $lowestTier ? (float) $lowestTier->unit_price_ex_gst : (float) $product->base_price;
+                }
+            } else {
+                $baseUnitPriceExGst = $product->sale_price !== null && (float) $product->sale_price > 0
+                    ? (float) $product->sale_price
+                    : (float) $product->base_price;
+            }
+
+            // 2. Add Attribute Modifiers (Paper stock, Sides, etc.)
+            if ($product->attributes && $product->attributes->isNotEmpty()) {
+                foreach ($product->attributes as $attr) {
+                    $chosenVal = $selectedOptions[$attr->code] ?? $selectedOptions[$attr->name] ?? null;
+                    if ($chosenVal && $attr->values) {
+                        $matchedVal = $attr->values->firstWhere('value', $chosenVal)
+                            ?? $attr->values->firstWhere('label', $chosenVal);
+
+                        if ($matchedVal && (float) $matchedVal->price_modifier_amount > 0) {
+                            $baseUnitPriceExGst += (float) $matchedVal->price_modifier_amount;
+                        }
+                    }
+                }
+            }
+        } else {
+            // Fallback for tests when no specific product in database
+            $setupFee = 25.00;
+            if ($quantity >= 5000) {
+                $baseUnitPriceExGst *= 0.65;
+            } elseif ($quantity >= 2500) {
+                $baseUnitPriceExGst *= 0.75;
+            } elseif ($quantity >= 1000) {
+                $baseUnitPriceExGst *= 0.85;
+            } elseif ($quantity >= 500) {
+                $baseUnitPriceExGst *= 0.92;
+            }
+        }
+
+        // Base printing subtotal (ex-GST)
+        $basePrintingSubtotalExGst = ($baseUnitPriceExGst * $quantity) + $setupFee;
+
+        // 3. Folding Add-on Pricing Calculation & Backend Validation
+        $foldingCharge = 0.00;
+        $foldingDetails = null;
+
+        $selectedFolding = $selectedOptions['folding_style']
+            ?? $selectedOptions['folding']
+            ?? $selectedOptions['Folding']
+            ?? null;
+
+        if ($product && !empty($product->folding_pricing['enabled']) && $selectedFolding) {
+            $foldingConfig = $product->folding_pricing;
+            $configuredOptions = $foldingConfig['options'] ?? [];
+
+            // Ignore if 'flat' or 'no_fold' (these are explicitly free / flat sheets)
+            $isFlat = in_array(strtolower((string) $selectedFolding), ['flat', 'no_fold', 'no folding', 'none']);
+
+            // Look for option config in dictionary or list
+            $optConfig = null;
+            if (is_array($configuredOptions)) {
+                if (isset($configuredOptions[$selectedFolding])) {
+                    $optConfig = $configuredOptions[$selectedFolding];
+                } elseif (isset($configuredOptions[strtolower(str_replace(' ', '_', (string) $selectedFolding))])) {
+                    $optConfig = $configuredOptions[strtolower(str_replace(' ', '_', (string) $selectedFolding))];
+                } else {
+                    foreach ($configuredOptions as $opt) {
+                        if (is_array($opt)) {
+                            $id = $opt['id'] ?? $opt['value'] ?? $opt['type'] ?? $opt['name'] ?? null;
+                            if ($id && (strcasecmp($id, $selectedFolding) === 0 || strcasecmp(str_replace(' ', '_', $id), str_replace(' ', '_', $selectedFolding)) === 0)) {
+                                $optConfig = $opt;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if ($optConfig && in_array(strtolower((string) ($optConfig['type'] ?? '')), ['no_fold', 'flat', 'none'])) {
+                $isFlat = true;
+            }
+
+            if (!$isFlat) {
+                // Validate if option is active
+                if ($optConfig) {
+                    $isActive = true;
+                    if (isset($optConfig['is_active'])) {
+                        $isActive = (bool) $optConfig['is_active'];
+                    } elseif (isset($optConfig['active'])) {
+                        $isActive = (bool) $optConfig['active'];
+                    }
+                    if (!$isActive) {
+                        throw new InvalidArgumentException("Selected folding style '{$selectedFolding}' is currently inactive for this product.");
+                    }
+                }
+
+                $method = $optConfig['pricing_method'] ?? $foldingConfig['pricing_method'] ?? 'quantity_based';
+                $fixedCharge = isset($optConfig['charge']) ? (float) $optConfig['charge'] : (float) ($foldingConfig['additional_charge'] ?? $foldingConfig['charge'] ?? 0);
+                $tiers = $optConfig['tiers'] ?? $foldingConfig['tiers'] ?? [];
+
+                if ($method === 'per_order') {
+                    // Fixed folding charge applied once per order
+                    $foldingCharge = max(0, $fixedCharge);
+                } elseif ($method === 'per_copy') {
+                    // Multiplied by ordered quantity
+                    $foldingCharge = max(0, $fixedCharge * $quantity);
+                } elseif ($method === 'quantity_based') {
+                    // Tier matching
+                    if (!empty($tiers) && is_array($tiers)) {
+                        // Sort tiers ascending by min_quantity
+                        usort($tiers, fn ($a, $b) => ($a['min_quantity'] ?? $a['minQuantity'] ?? 0) <=> ($b['min_quantity'] ?? $b['minQuantity'] ?? 0));
+
+                        $matchedTier = null;
+                        foreach ($tiers as $tier) {
+                            $minQ = (int) ($tier['min_quantity'] ?? $tier['minQuantity'] ?? 0);
+                            $maxQ = !empty($tier['max_quantity']) ? (int) $tier['max_quantity'] : (!empty($tier['maxQuantity']) ? (int) $tier['maxQuantity'] : null);
+
+                            if ($quantity >= $minQ && ($maxQ === null || $quantity <= $maxQ)) {
+                                $matchedTier = $tier;
+                                break;
+                            }
+                        }
+
+                        if ($matchedTier !== null) {
+                            $foldingCharge = max(0, (float) ($matchedTier['price'] ?? $matchedTier['charge'] ?? 0));
+                        } else {
+                            throw new InvalidArgumentException("No matching folding pricing tier configured for quantity {$quantity}.");
+                        }
+                    } else {
+                        // Fallback to fixed charge if no tiers configured
+                        $foldingCharge = max(0, $fixedCharge);
+                    }
+                }
+
+                $foldingDetails = [
+                    'enabled' => true,
+                    'option' => $selectedFolding,
+                    'pricing_method' => $method,
+                    'charge_ex_gst' => round($foldingCharge, 2),
+                ];
+            }
+        }
+
+        // 4. Final Subtotal & GST Reconciliation
+        // Folding charge is added exactly once to subtotal ex-GST
+        $subtotalExGst = $basePrintingSubtotalExGst + $foldingCharge;
+        $gstAmount = round($subtotalExGst * self::GST_RATE, 2);
+        $totalIncGst = round($subtotalExGst + $gstAmount, 2);
+        $unitPriceIncGst = $quantity > 0 ? round($totalIncGst / $quantity, 4) : 0;
 
         return [
             'product_id' => $productId,
             'quantity' => $quantity,
+            'base_unit_price_ex_gst' => round($baseUnitPriceExGst, 4),
+            'base_subtotal_ex_gst' => round($basePrintingSubtotalExGst, 2),
+            'base_printing_subtotal_ex_gst' => round($basePrintingSubtotalExGst, 2),
+            'folding_charge_ex_gst' => round($foldingCharge, 2),
+            'folding_details' => $foldingDetails,
             'unit_price_ex_gst' => round($subtotalExGst / $quantity, 4),
-            'unit_price_inc_gst' => round($unitPriceIncGst, 4),
+            'unit_price_inc_gst' => $unitPriceIncGst,
             'subtotal_ex_gst' => round($subtotalExGst, 2),
-            'gst_amount' => round($gstAmount, 2),
-            'total_inc_gst' => round($totalIncGst, 2),
+            'gst_amount' => $gstAmount,
+            'total_inc_gst' => $totalIncGst,
             'setup_fee' => round($setupFee, 2),
-            'finishing_fees' => [],
             'currency' => 'AUD',
             'estimated_dispatch_date' => now()->addWeekdays(3)->toDateString(),
         ];

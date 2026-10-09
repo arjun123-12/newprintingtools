@@ -80,6 +80,10 @@ export const AdminNumberInput = forwardRef<HTMLInputElement, AdminNumberInputPro
             step={step}
             value={value ?? ''}
             onChange={handleChange}
+            onWheel={(e) => {
+              e.currentTarget.blur();
+              props.onWheel?.(e);
+            }}
             disabled={disabled}
             required={required}
             className={`
@@ -87,6 +91,7 @@ export const AdminNumberInput = forwardRef<HTMLInputElement, AdminNumberInputPro
               placeholder:text-gray-400 transition-colors duration-150
               focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600
               disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed
+              [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none
               ${prefix ? 'rounded-l-none' : ''}
               ${suffix ? 'rounded-r-none' : ''}
               ${error ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20 text-rose-900 bg-rose-50/20' : 'border-gray-300'}

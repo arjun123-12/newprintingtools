@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Search, Check, Sparkles } from 'lucide-react';
 import { POPULAR_FONTS, FontFamilyItem, loadFont } from '../utils/fonts';
 
@@ -8,15 +8,28 @@ interface FontPickerPopoverProps {
   currentFamily: string;
   onSelectFamily: (family: string) => void;
   onClose: () => void;
+  customFonts?: Array<{ name: string; family: string; url?: string }>;
 }
 
 export const FontPickerPopover: React.FC<FontPickerPopoverProps> = ({
   currentFamily,
   onSelectFamily,
   onClose,
+  customFonts,
 }) => {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [onClose]);
 
   const categories = [
     { id: 'all', label: 'All' },
@@ -26,21 +39,37 @@ export const FontPickerPopover: React.FC<FontPickerPopoverProps> = ({
     { id: 'handwriting', label: 'Handwriting' },
   ];
 
-  const filteredFonts = POPULAR_FONTS.filter((f) => {
+  const allFonts: FontFamilyItem[] = [
+    ...(customFonts || []).map((cf) => ({
+      id: `custom-${cf.name.toLowerCase().replace(/\s+/g, '-')}`,
+      name: cf.name,
+      family: cf.family || cf.name,
+      category: 'sans-serif' as const,
+      source: 'custom' as const,
+    })),
+    ...POPULAR_FONTS,
+  ];
+
+  const filteredFonts = allFonts.filter((f) => {
     const matchesSearch =
       f.name.toLowerCase().includes(search.toLowerCase()) ||
       f.family.toLowerCase().includes(search.toLowerCase());
-    const matchesCat = activeCategory === 'all' || f.category === activeCategory;
+    const matchesCat =
+      activeCategory === 'all' ||
+      f.category === activeCategory ||
+      (f.source === 'custom' && activeCategory === 'all');
     return matchesSearch && matchesCat;
   });
 
   const handleSelect = async (font: FontFamilyItem) => {
     await loadFont(font);
-    onSelectFamily(font.family);
+    onSelectFamily(font.name);
+    onClose();
   };
 
   return (
     <div
+      ref={popoverRef}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 p-3 z-50 animate-in fade-in zoom-in-95 duration-100 select-none"

@@ -464,9 +464,6 @@ class DesignExportService
         return storage_path("app/icc/{$filename}");
     }
 
-        return $relativePath;
-    }
-
     protected function getMimeForFormat(string $format): string
     {
         return match ($format) {

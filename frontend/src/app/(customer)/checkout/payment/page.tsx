@@ -102,7 +102,7 @@ function PaymentContent() {
       } catch (err: any) {
         setError(
           err.response?.data?.message ||
-            'Unable to load order details. Please verify your order number or check your account.'
+          'Unable to load order details. Please verify your order number or check your account.'
         );
       } finally {
         setLoading(false);
@@ -133,7 +133,7 @@ function PaymentContent() {
         setGatewayStatus('disabled');
         setGatewayMessage(
           response?.message ||
-            'BPOINT UAT payment gateway is currently disabled in server configuration.'
+          'BPOINT UAT payment gateway is currently disabled in server configuration.'
         );
       }
     } catch (err: any) {
@@ -146,7 +146,7 @@ function PaymentContent() {
         setGatewayStatus('disabled');
         setGatewayMessage(
           err.response?.data?.message ||
-            'BPOINT UAT payment gateway is disabled on the server. Your order remains pending.'
+          'BPOINT UAT payment gateway is disabled on the server. Your order remains pending.'
         );
       } else if (err.response?.status === 409) {
         // Order already paid
@@ -158,7 +158,7 @@ function PaymentContent() {
         setGatewayStatus('error');
         setPaymentError(
           err.response?.data?.message ||
-            'Unable to initiate payment session with BPOINT gateway.'
+          'Unable to initiate payment session with BPOINT gateway.'
         );
       }
     }
@@ -204,7 +204,7 @@ function PaymentContent() {
                 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
               'font-size': '14px',
               color: '#0f172a',
-              'line-height': '22px',
+
             },
             focus: {
               color: '#0f172a',
@@ -302,7 +302,7 @@ function PaymentContent() {
         } catch (err: any) {
           setPaymentError(
             err.response?.data?.message ||
-              'Payment verification failed. Your order remains pending.'
+            'Payment verification failed. Your order remains pending.'
           );
         } finally {
           setSubmitting(false);
@@ -846,11 +846,10 @@ function PaymentContent() {
                   <button
                     type="submit"
                     disabled={!iframeLoaded || submitting}
-                    className={`w-full py-3.5 px-4 font-bold text-sm rounded-2xl transition flex items-center justify-center gap-2 shadow-sm ${
-                      !iframeLoaded || submitting
+                    className={`w-full py-3.5 px-4 font-bold text-sm rounded-2xl transition flex items-center justify-center gap-2 shadow-sm ${!iframeLoaded || submitting
                         ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                         : 'bg-sky-600 hover:bg-sky-700 text-white shadow-sky-600/20 hover:shadow-md'
-                    }`}
+                      }`}
                   >
                     {submitting ? (
                       <>

@@ -114,10 +114,13 @@ export const PRINTING_FIELD_PRESETS: PrintingFieldPreset[] = [
     badgeNum: '⑫',
     description: 'Creasing and folding types for brochures and leaflets.',
     values: [
-      { label: 'No Fold (Flat Sheet)', value: 'flat', priceModifiers: { 100: 0, 250: 0, 500: 0, 1000: 0, 2000: 0 } },
-      { label: 'Half Fold (Single Fold)', value: 'half_fold', priceModifiers: { 100: 0.04, 250: 0.03, 500: 0.02, 1000: 0.015, 2000: 0.01 } },
-      { label: 'Tri-Fold / Letter Fold', value: 'tri_fold', priceModifiers: { 100: 0.06, 250: 0.04, 500: 0.03, 1000: 0.025, 2000: 0.02 } },
-      { label: 'Z-Fold (Accordion)', value: 'z_fold', priceModifiers: { 100: 0.06, 250: 0.04, 500: 0.03, 1000: 0.025, 2000: 0.02 } },
+      { label: 'No Folding (Flat Sheet)', value: 'no_fold', description: 'Supplied flat without creasing or folding', priceModifiers: { 100: 0, 250: 0, 500: 0, 1000: 0, 2000: 0 } },
+      { label: 'Half Fold', value: 'half_fold', description: 'Folded once in half (4 pp layout)', priceModifiers: { 100: 0.04, 250: 0.03, 500: 0.02, 1000: 0.015, 2000: 0.01 } },
+      { label: 'Tri-Fold / Letter Fold', value: 'tri_fold', description: 'Folded in thirds with overlapping flaps (6 pp)', priceModifiers: { 100: 0.06, 250: 0.04, 500: 0.03, 1000: 0.025, 2000: 0.02 } },
+      { label: 'Z-Fold', value: 'z_fold', description: 'Accordion style zigzag fold (6 pp)', priceModifiers: { 100: 0.06, 250: 0.04, 500: 0.03, 1000: 0.025, 2000: 0.02 } },
+      { label: 'Gate Fold', value: 'gate_fold', description: 'Two outer panels fold inwards towards center', priceModifiers: { 100: 0.08, 250: 0.06, 500: 0.045, 1000: 0.035, 2000: 0.025 } },
+      { label: 'Double Parallel Fold', value: 'double_parallel_fold', description: 'Folded in half, then folded in half again in the same direction', priceModifiers: { 100: 0.08, 250: 0.06, 500: 0.045, 1000: 0.035, 2000: 0.025 } },
+      { label: 'Custom Fold', value: 'custom_fold', description: 'Custom creased folds to client specifications', priceModifiers: { 100: 0.10, 250: 0.08, 500: 0.06, 1000: 0.05, 2000: 0.04 } },
     ],
   },
   {

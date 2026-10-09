@@ -73,6 +73,7 @@ const defaultInitialForm: ProductFormData = {
   sale_price: '',
   cost_price: '',
   pricing_tiers: [],
+  folding_pricing: null,
   sides_count: 1,
   sides: [
     {
@@ -250,6 +251,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       bleed_mm: p.bleed_mm !== null && p.bleed_mm !== undefined && p.bleed_mm !== '' ? parseFloat(p.bleed_mm) : 0,
       safe_area_mm: p.safe_area_mm !== null && p.safe_area_mm !== undefined && p.safe_area_mm !== '' ? parseFloat(p.safe_area_mm) : 0,
       print_layout: p.print_layout ?? null,
+      folding_pricing: p.folding_pricing ?? null,
       design_template_ids: Array.isArray(p.design_template_ids) ? p.design_template_ids : [],
       track_inventory: Boolean(p.track_inventory),
       stock_quantity: typeof p.stock_quantity === 'number' ? p.stock_quantity : 0,
@@ -431,6 +433,9 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       bleed_mm: typeof formData.bleed_mm === 'number' && !isNaN(formData.bleed_mm) ? formData.bleed_mm : 0,
       safe_area_mm: typeof formData.safe_area_mm === 'number' && !isNaN(formData.safe_area_mm) ? formData.safe_area_mm : 0,
       print_layout: formData.print_layout ?? null,
+      folding_pricing: formData.folding_pricing ?? null,
+      attributes: formData.attributes ?? [],
+      pricing_tiers: formData.pricing_tiers ?? [],
       sides: processedSides,
       status: saveAsDraft ? 'draft' : formData.is_active ? 'published' : 'draft',
       is_active: saveAsDraft ? false : formData.is_active,

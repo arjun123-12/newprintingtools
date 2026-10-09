@@ -240,7 +240,14 @@ class DesignerController extends Controller
             $localFilePath = storage_path('app/public/' . ltrim($storageRelative, '/'));
 
             if (file_exists($localFilePath) && !is_dir($localFilePath)) {
-                $mimeType = mime_content_type($localFilePath) ?: 'image/png';
+                $ext = strtolower(pathinfo($localFilePath, PATHINFO_EXTENSION));
+                $fontMimes = [
+                    'otf' => 'font/otf',
+                    'ttf' => 'font/ttf',
+                    'woff' => 'font/woff',
+                    'woff2' => 'font/woff2',
+                ];
+                $mimeType = $fontMimes[$ext] ?? (mime_content_type($localFilePath) ?: 'image/png');
                 return response()->file($localFilePath, [
                     'Content-Type' => $mimeType,
                     'Access-Control-Allow-Origin' => '*',

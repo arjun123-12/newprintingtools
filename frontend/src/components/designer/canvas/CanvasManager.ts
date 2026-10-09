@@ -66,7 +66,7 @@ import { installHollowTextRenderer } from './hollowTextRenderer';
 // Initialize clean hollow text renderer
 installHollowTextRenderer();
 import { CANVA_FRAME_PLACEHOLDER_SVG, FRAME_PRESETS } from '../data/framesData';
-import { POPULAR_FONTS, loadFont } from '../utils/fonts';
+import { POPULAR_FONTS, loadFont, loadCustomFont } from '../utils/fonts';
 import { calculateImageQuality, calculateFabricImageEffectiveDpi } from '../utils/imageQuality';
 import { runPreflightCheck, PreflightReport } from '../utils/preflightCheck';
 import { urlToSafeDataUrl, formatImageUrl, getProxiedImageUrl } from '@/utils/imageUrl';
@@ -10560,22 +10560,59 @@ export class CanvasManager {
       centeredScaling: false,
     });
 
-    // Canva-style default: newly created text has no editable border/stroke.
-    text.set({
-      stroke: 'transparent',
-      strokeWidth: 0,
-      strokeDashArray: null,
-      strokeUniform: true,
-    });
-    text.set('baseStrokeWidth' as any, 0);
-    text.set('_userStrokeEnabled' as any, false);
+    // Apply preset stroke if provided, or default to no border
+    const rawOpts = options as any;
+    const presetStroke = rawOpts?.stroke;
+    const presetStrokeWidth = Number(rawOpts?.strokeWidth || 0);
+
+    if (presetStroke && presetStrokeWidth > 0 && presetStroke !== 'transparent') {
+      text.set({
+        stroke: presetStroke,
+        strokeWidth: presetStrokeWidth,
+        strokeUniform: true,
+      });
+      text.set('baseStrokeWidth' as any, presetStrokeWidth);
+      text.set('_userStrokeEnabled' as any, true);
+    } else {
+      text.set({
+        stroke: 'transparent',
+        strokeWidth: 0,
+        strokeDashArray: null,
+        strokeUniform: true,
+      });
+      text.set('baseStrokeWidth' as any, 0);
+      text.set('_userStrokeEnabled' as any, false);
+    }
+
+    if (rawOpts?.shadow) {
+      try {
+        text.set('shadow', new Shadow(rawOpts.shadow));
+      } catch {
+        // ignore
+      }
+    }
+
+    if (rawOpts?.charSpacing !== undefined) {
+      text.set('charSpacing', Number(rawOpts.charSpacing));
+    }
+
+    if (rawOpts?.lineHeight !== undefined) {
+      text.set('lineHeight', Number(rawOpts.lineHeight));
+    }
+
+    if (rawOpts?.fill && typeof rawOpts.fill === 'object' && rawOpts.fill.type === 'linear') {
+      try {
+        text.set('fill', new Gradient(rawOpts.fill));
+      } catch {
+        // ignore
+      }
+    }
 
     text.set(
       'fontSizePt' as any,
       options?.fontSizePt || (fontSize * 72) / artworkDpi
     );
     text.set('strokePosition' as any, 'outside');
-    text.set('baseStrokeWidth' as any, 0);
     text.set('sourceType' as any, 'vector-text');
 
     this.ensureObjectId(text, options?.name || 'Text Layer');
@@ -10618,6 +10655,30 @@ export class CanvasManager {
         })
         .catch((error) => {
           console.warn(`Could not load font ${fontItem.family}:`, error);
+        });
+    } else if (rawOpts?.fontUrl) {
+      void loadCustomFont(
+        requestedFontFamily,
+        rawOpts.fontUrl,
+        options?.fontWeight || 'normal',
+        options?.fontStyle || 'normal'
+      )
+        .then(() => {
+          if (!this.canvas || !this.canvas.getObjects().includes(text)) return;
+          text.set({
+            fontFamily: requestedFontFamily,
+            dirty: true,
+          });
+          text.initDimensions();
+          text.setCoords();
+          this.canvas.requestRenderAll();
+
+          if (this.canvas.getActiveObject() === text) {
+            this.notifySelection();
+          }
+        })
+        .catch((err) => {
+          console.warn(`Could not load custom font ${requestedFontFamily}:`, err);
         });
     }
   }

@@ -1,56 +1,176 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Eye, Check, DollarSign, Sparkles } from 'lucide-react';
-import { AttributeItem } from './types';
+import React, { useState, useMemo } from 'react';
+import { Eye, Check, Layers } from 'lucide-react';
+import { AttributeItem, FoldingPricingConfig } from './types';
 
 interface FrontendOptionPreviewProps {
   productName?: string;
   basePrice?: number;
   attributes: AttributeItem[];
   quantityBreaks?: number[];
+  foldingPricing?: FoldingPricingConfig | null;
 }
+
+const DEFAULT_FOLDING_OPTIONS = [
+  { label: 'No Folding (Flat Sheet)', value: 'no_fold' },
+  { label: 'Half Fold', value: 'half_fold' },
+  { label: 'Tri-Fold / Letter Fold', value: 'tri_fold' },
+  { label: 'Z-Fold', value: 'z_fold' },
+  { label: 'Gate Fold', value: 'gate_fold' },
+  { label: 'Double Parallel Fold', value: 'double_parallel_fold' },
+  { label: 'Custom Fold', value: 'custom_fold' },
+];
 
 export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
   productName = 'Product Name',
   basePrice = 49.99,
   attributes = [],
   quantityBreaks = [100, 250, 500, 1000, 2000],
+  foldingPricing,
 }) => {
   const [selectedQty, setSelectedQty] = useState<number>(quantityBreaks[0] || 100);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
+  const [selectedFolding, setSelectedFolding] = useState<string>('no_fold');
 
   const handleSelectOption = (attrCode: string, valueStr: string) => {
     setSelectedOptions((prev) => ({ ...prev, [attrCode]: valueStr }));
   };
 
-  // Calculate unit price dynamically based on chosen quantity break & attribute modifiers
-  const calculateTotal = () => {
-    let unitPrice = Number(basePrice) || 0;
+  // Determine available folding options
+  const foldingAttr = attributes.find(
+    (a) => a.code === 'folding_style' || a.name.toLowerCase() === 'folding'
+  );
 
+  const availableFoldingOptions = useMemo(() => {
+    if (!foldingPricing?.enabled) return [];
+
+    // Priority 1: Configured options from foldingPricing manager
+    if (Array.isArray(foldingPricing?.options) && foldingPricing.options.length > 0) {
+      return foldingPricing.options
+        .filter((o) => o.active !== false && o.is_active !== false)
+        .map((o) => ({
+          value: o.id || o.type || 'no_fold',
+          label: o.name || o.type || 'Option',
+        }));
+    }
+
+    if (foldingAttr && foldingAttr.values.length > 0) {
+      // Filter only active values
+      return foldingAttr.values.filter((v) => v.is_active !== false);
+    }
+
+    // Fallback to configured active options from foldingPricing.options record or standard list
+    return DEFAULT_FOLDING_OPTIONS.filter((opt) => {
+      const optConf = (foldingPricing?.options as any)?.[opt.value];
+      return !optConf || optConf.active !== false;
+    });
+  }, [foldingPricing, foldingAttr]);
+
+  // Synchronize default folding option if none or invalid selected
+  React.useEffect(() => {
+    if (availableFoldingOptions.length > 0) {
+      const exists = availableFoldingOptions.some((o) => o.value === selectedFolding);
+      if (!exists) {
+        setSelectedFolding(availableFoldingOptions[0].value);
+      }
+    }
+  }, [availableFoldingOptions, selectedFolding]);
+
+  // Calculate base printing price & folding charge
+  const pricing = useMemo(() => {
+    let unitBaseModifier = 0;
+
+    // Attributes modifiers (excluding folding if managed separately)
     attributes.forEach((attr) => {
-      const selectedValCode = selectedOptions[attr.code] || attr.values[0]?.value;
-      const valObj = attr.values.find((v) => v.value === selectedValCode);
+      if (attr.code === 'folding_style' || attr.name.toLowerCase() === 'folding') {
+        return; // Handled by folding add-on pricing engine
+      }
+
+      const activeVals = attr.values.filter((v) => v.is_active !== false);
+      const selectedValCode = selectedOptions[attr.code] || activeVals[0]?.value;
+      const valObj = activeVals.find((v) => v.value === selectedValCode);
 
       if (valObj) {
-        // If price modifier has quantity break table
         const anyVal = valObj as any;
         if (anyVal.priceModifiers && typeof anyVal.priceModifiers[selectedQty] === 'number') {
-          unitPrice += Number(anyVal.priceModifiers[selectedQty]);
+          unitBaseModifier += Number(anyVal.priceModifiers[selectedQty]);
         } else if (typeof valObj.price_modifier_amount === 'number') {
-          unitPrice += Number(valObj.price_modifier_amount);
+          unitBaseModifier += Number(valObj.price_modifier_amount);
         }
       }
     });
 
-    const total = unitPrice * selectedQty;
-    return {
-      unitPrice: unitPrice.toFixed(4),
-      total: total.toFixed(2),
-    };
-  };
+    const unitBasePrice = (Number(basePrice) || 0) + unitBaseModifier;
+    const basePrintingTotal = unitBasePrice * selectedQty;
 
-  const pricing = calculateTotal();
+    // Folding Add-on Pricing calculation
+    let foldingCharge = 0;
+    const isFoldingActive = Boolean(foldingPricing?.enabled);
+
+    // Find optConf in either array or dictionary
+    const optConf = Array.isArray(foldingPricing?.options)
+      ? foldingPricing.options.find(
+          (o) => o.id === selectedFolding || o.type === selectedFolding || o.name === selectedFolding
+        )
+      : (foldingPricing?.options as any)?.[selectedFolding];
+
+    const isFlatFold =
+      selectedFolding === 'no_fold' ||
+      selectedFolding === 'flat' ||
+      selectedFolding.toLowerCase().includes('no fold') ||
+      optConf?.type === 'no_fold';
+
+    if (isFoldingActive && !isFlatFold) {
+      const method = optConf?.pricing_method || foldingPricing?.pricing_method || 'quantity_based';
+      const chargeVal = optConf?.charge ?? foldingPricing?.additional_charge ?? 0;
+      const tiers = optConf?.tiers || foldingPricing?.tiers || [];
+
+      if (method === 'per_order') {
+        foldingCharge = Math.max(0, Number(chargeVal) || 0);
+      } else if (method === 'per_copy') {
+        foldingCharge = Math.max(0, (Number(chargeVal) || 0) * selectedQty);
+      } else if (method === 'quantity_based') {
+        if (tiers && tiers.length > 0) {
+          const sorted = [...tiers].sort((a, b) => a.min_quantity - b.min_quantity);
+          const matched = sorted.find(
+            (t) =>
+              selectedQty >= t.min_quantity &&
+              (t.max_quantity === null || t.max_quantity === '' || selectedQty <= Number(t.max_quantity))
+          );
+          if (matched) {
+            foldingCharge = Math.max(0, Number(matched.charge) || 0);
+          } else {
+            // Pick highest tier if quantity exceeds top limit
+            const lastTier = sorted[sorted.length - 1];
+            foldingCharge = Math.max(0, Number(lastTier?.charge) || 0);
+          }
+        } else {
+          foldingCharge = Math.max(0, Number(chargeVal) || 0);
+        }
+      }
+    }
+
+    const estimatedTotal = basePrintingTotal + foldingCharge;
+    const finalUnitRate = selectedQty > 0 ? estimatedTotal / selectedQty : 0;
+
+    return {
+      basePrintingTotal: basePrintingTotal.toFixed(2),
+      foldingCharge: foldingCharge.toFixed(2),
+      estimatedTotal: estimatedTotal.toFixed(2),
+      unitRate: finalUnitRate.toFixed(4),
+      isFoldingActive,
+      isFlatFold,
+    };
+  }, [basePrice, attributes, selectedOptions, selectedQty, foldingPricing, selectedFolding]);
+
+  // Non-folding attributes for standard list display
+  const nonFoldingAttributes = attributes.filter(
+    (a) => a.code !== 'folding_style' && a.name.toLowerCase() !== 'folding'
+  );
+
+  const selectedFoldingLabel =
+    availableFoldingOptions.find((o) => o.value === selectedFolding)?.label || selectedFolding;
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-4 font-sans select-none sticky top-6">
@@ -103,11 +223,56 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
         </div>
       </div>
 
+      {/* ─── FOLDING SELECTOR (Only shown when folding is enabled & configured) ─── */}
+      {pricing.isFoldingActive && availableFoldingOptions.length > 0 && (
+        <div className="space-y-2 p-3 bg-indigo-50/40 rounded-xl border border-indigo-100/80">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-950">
+                Folding Style
+              </span>
+            </div>
+            <span className="text-[10px] font-semibold text-indigo-600 bg-white px-2 py-0.5 rounded border border-indigo-200">
+              Add-on
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-1">
+            {availableFoldingOptions.map((opt) => {
+              const isSelected = selectedFolding === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setSelectedFolding(opt.value)}
+                  className={`
+                    px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all text-left flex items-center justify-between
+                    ${isSelected
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50'}
+                  `}
+                >
+                  <div className="flex items-center gap-1.5 truncate">
+                    {isSelected && <Check className="w-3 h-3 text-white shrink-0" />}
+                    <span className="truncate">{opt.label}</span>
+                  </div>
+                  {opt.value === 'no_fold' && !isSelected && (
+                    <span className="text-[10px] text-gray-400 font-normal">Flat</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Interactive Attributes Preview */}
       <div className="space-y-3.5 pt-1">
-        {attributes.length > 0 ? (
-          attributes.map((attr) => {
-            const currentSelected = selectedOptions[attr.code] || attr.values[0]?.value;
+        {nonFoldingAttributes.length > 0 ? (
+          nonFoldingAttributes.map((attr) => {
+            const activeVals = attr.values.filter((v) => v.is_active !== false);
+            const currentSelected = selectedOptions[attr.code] || activeVals[0]?.value;
 
             return (
               <div key={attr.id || attr.code} className="space-y-1.5">
@@ -121,7 +286,7 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
                 </div>
 
                 <div className="flex flex-wrap gap-1.5">
-                  {attr.values.map((val) => {
+                  {activeVals.map((val) => {
                     const isSelected = currentSelected === val.value;
                     const anyVal = val as any;
                     const modPrice =
@@ -159,20 +324,39 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
           })
         ) : (
           <div className="p-3 text-center text-gray-400 text-xs bg-gray-50 rounded-xl border border-dashed border-gray-200">
-            No attributes added yet. Use the builder to add paper stocks, sides, and sizes.
+            No printing attributes added yet. Use the builder to add paper stocks, sides, and sizes.
           </div>
         )}
       </div>
 
-      {/* Calculated Price Summary Card */}
-      <div className="p-3 bg-slate-900 text-white rounded-xl space-y-2 mt-2">
+      {/* ─── CALCULATED PRICE SUMMARY CARD ─────────────────────────────────── */}
+      <div className="p-3.5 bg-slate-900 text-white rounded-xl space-y-2 mt-2">
         <div className="flex items-center justify-between text-xs text-slate-300">
-          <span>Unit Rate ({selectedQty} qty):</span>
-          <span className="font-mono font-semibold">${pricing.unitPrice}/unit</span>
+          <span>Selected Quantity:</span>
+          <span className="font-mono font-semibold text-white">{selectedQty} units</span>
         </div>
+
+        <div className="flex items-center justify-between text-xs text-slate-300">
+          <span>Base Printing Price:</span>
+          <span className="font-mono font-medium">${pricing.basePrintingTotal}</span>
+        </div>
+
+        {/* Show folding charge separately when folding is enabled */}
+        {pricing.isFoldingActive && (
+          <div className="flex items-center justify-between text-xs text-indigo-300 border-t border-slate-800/80 pt-1.5">
+            <span className="truncate pr-2">Folding ({selectedFoldingLabel}):</span>
+            <span className="font-mono font-semibold whitespace-nowrap">
+              {Number(pricing.foldingCharge) > 0 ? `+$${pricing.foldingCharge}` : '$0.00 (Flat)'}
+            </span>
+          </div>
+        )}
+
         <div className="flex items-center justify-between border-t border-slate-800 pt-2">
-          <span className="text-xs font-bold text-slate-200">Estimated Total:</span>
-          <span className="text-base font-extrabold text-blue-400 font-mono">${pricing.total}</span>
+          <div>
+            <span className="text-xs font-bold text-slate-200 block">Estimated Total:</span>
+            <span className="text-[10px] text-slate-400 font-mono">${pricing.unitRate}/unit</span>
+          </div>
+          <span className="text-lg font-extrabold text-blue-400 font-mono">${pricing.estimatedTotal}</span>
         </div>
       </div>
     </div>

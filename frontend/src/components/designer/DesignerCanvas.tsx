@@ -1386,39 +1386,49 @@ export function DesignerCanvas({
                   : isSpacePressed
                     ? 'cursor-grab'
                     : BLACK_ARTWORK_CURSOR,
+                padding: '15px',
+              }}
+              onPointerDown={(e) => {
+                if (e.target === paperRef.current) {
+                  canvasManager?.getCanvas()?.discardActiveObject();
+                  canvasManager?.getCanvas()?.requestRenderAll();
+                }
               }}
               className="relative shrink-0 rounded-sm bg-white shadow-2xl ring-1 ring-black/15"
             >
-              {/* Fabric owns only this container */}
-              <div
-                ref={canvasHostRef}
-                className="relative z-0"
-              />
-
-              {/* React overlays remain outside the Fabric container */}
-              {selected && (
-                <ElementActionBar
-                  selected={selected}
-                  canvasManager={canvasManager ?? null}
-                  zoom={zoom}
+              {/* Inner container keeps React overlays aligned to canvasHostRef coordinates */}
+              <div className="relative">
+                {/* Fabric owns only this container */}
+                <div
+                  ref={canvasHostRef}
+                  className="relative z-0"
                 />
-              )}
 
-              <div className="pointer-events-none">
-                <RotationBadge
-                  canvasManager={canvasManager ?? null}
-                  selected={selected}
-                  zoom={zoom}
-                />
-              </div>
+                {/* React overlays remain outside the Fabric container */}
+                {selected && (
+                  <ElementActionBar
+                    selected={selected}
+                    canvasManager={canvasManager ?? null}
+                    zoom={zoom}
+                  />
+                )}
 
-              <div className="pointer-events-none">
-                <ResizeBadge
-                  canvasManager={canvasManager ?? null}
-                  selected={selected}
-                  zoom={zoom}
-                  dimensions={dimensions}
-                />
+                <div className="pointer-events-none">
+                  <RotationBadge
+                    canvasManager={canvasManager ?? null}
+                    selected={selected}
+                    zoom={zoom}
+                  />
+                </div>
+
+                <div className="pointer-events-none">
+                  <ResizeBadge
+                    canvasManager={canvasManager ?? null}
+                    selected={selected}
+                    zoom={zoom}
+                    dimensions={dimensions}
+                  />
+                </div>
               </div>
             </div>
           </div>

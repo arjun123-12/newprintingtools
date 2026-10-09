@@ -1,15 +1,150 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   DesignAsset,
   AssetType,
   DesignAssetCategory,
   designAssetService,
 } from '@/services/designAssetService';
-import { X, Loader2, Check, Info, FolderUp } from 'lucide-react';
+import {
+  X,
+  Loader2,
+  Check,
+  Info,
+  FolderUp,
+  Upload,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Sun,
+  Moon,
+  Grid,
+  Sparkles,
+  Palette,
+  Sliders,
+  Type,
+  ChevronDown,
+} from 'lucide-react';
 import { ArtworkFileUpload } from '@/components/admin/shared';
 import { BulkAssetUploadModal } from './BulkAssetUploadModal';
+import { POPULAR_FONTS, loadFont, loadCustomFont } from '@/components/designer/utils/fonts';
+import { FontPickerPopover } from '@/components/designer/toolbar/FontPickerPopover';
+
+export type TextEffectType =
+  | 'none'
+  | 'shadow'
+  | 'outline'
+  | 'glow'
+  | 'lift'
+  | 'splice'
+  | 'echo'
+  | 'offset'
+  | 'neon';
+
+export interface TextPresetConfig {
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: string | number;
+  fontStyle: 'normal' | 'italic';
+  textAlign: 'left' | 'center' | 'right';
+  charSpacing: number;
+  lineHeight: number;
+  fill: string;
+  gradientEnabled: boolean;
+  gradientAngle: number;
+  gradientColor1: string;
+  gradientColor2: string;
+  strokeEnabled: boolean;
+  strokeColor: string;
+  strokeWidth: number;
+  shadowEnabled: boolean;
+  shadowColor: string;
+  shadowOffsetX: number;
+  shadowOffsetY: number;
+  shadowBlur: number;
+  shadowOpacity: number;
+  textEffect: TextEffectType;
+  fontUrl?: string;
+  fontFileName?: string;
+}
+
+const DEFAULT_TEXT_CONFIG: TextPresetConfig = {
+  text: 'Bold Moves',
+  fontFamily: 'Inter',
+  fontSize: 36,
+  fontWeight: '700',
+  fontStyle: 'normal',
+  textAlign: 'center',
+  charSpacing: 0,
+  lineHeight: 1.2,
+  fill: '#F4510B',
+  gradientEnabled: false,
+  gradientAngle: 135,
+  gradientColor1: '#F97316',
+  gradientColor2: '#9333EA',
+  strokeEnabled: false,
+  strokeColor: '#172554',
+  strokeWidth: 3,
+  shadowEnabled: false,
+  shadowColor: '#000000',
+  shadowOffsetX: 4,
+  shadowOffsetY: 4,
+  shadowBlur: 6,
+  shadowOpacity: 0.5,
+  textEffect: 'none',
+  fontUrl: '',
+  fontFileName: '',
+};
+
+const TEXT_EFFECT_OPTIONS: { id: TextEffectType; label: string; desc: string }[] = [
+  { id: 'none', label: 'None', desc: 'Standard clean text' },
+  { id: 'shadow', label: 'Shadow', desc: 'Soft drop shadow' },
+  { id: 'outline', label: 'Outline', desc: 'Hollow / stroked outline' },
+  { id: 'glow', label: 'Glow', desc: 'Soft colorful glow' },
+  { id: 'lift', label: 'Lift', desc: 'Elevated blur for depth' },
+  { id: 'splice', label: 'Splice', desc: 'Outline + offset color' },
+  { id: 'echo', label: 'Echo', desc: 'Repeated offset trail' },
+  { id: 'offset', label: 'Offset', desc: 'Solid pop-art shadow' },
+  { id: 'neon', label: 'Neon', desc: 'Vibrant electric aura' },
+];
+
+const QUICK_COLORS = [
+  '#0f172a',
+  '#ffffff',
+  '#F4510B',
+  '#dc2626',
+  '#e11d48',
+  '#9333ea',
+  '#2563eb',
+  '#0284c7',
+  '#059669',
+  '#d97706',
+];
+
+function calculateGradientCoords(angleDeg: number) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return {
+    x1: Math.round(50 - Math.cos(rad) * 50) / 100,
+    y1: Math.round(50 - Math.sin(rad) * 50) / 100,
+    x2: Math.round(50 + Math.cos(rad) * 50) / 100,
+    y2: Math.round(50 + Math.sin(rad) * 50) / 100,
+  };
+}
+
+function hexToRgba(hex: string, opacity: number = 1): string {
+  if (!hex) return `rgba(0,0,0,${opacity})`;
+  let cleanHex = hex.replace('#', '');
+  if (cleanHex.length === 3) {
+    cleanHex = cleanHex.split('').map((c) => c + c).join('');
+  }
+  const r = parseInt(cleanHex.substring(0, 2), 16) || 0;
+  const g = parseInt(cleanHex.substring(2, 4), 16) || 0;
+  const b = parseInt(cleanHex.substring(4, 6), 16) || 0;
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, opacity))})`;
+}
+
 
 const MAIN_ASSET_EXTENSIONS = [
   'svg',
@@ -229,24 +364,270 @@ export function DesignAssetForm({
   });
 
   // =========================================================
-  // TEXT CONFIG
+  // TEXT PRESET CONFIG
   // =========================================================
 
-  const [textConfig, setTextConfig] = useState({
-    text: 'Add text',
-    fontFamily: 'Inter',
-    fontSize: 36,
-    fontWeight: 'normal',
-    fontStyle: 'normal',
-    fill: '#111111',
-    backgroundColor: '',
-    textAlign: 'center',
-    charSpacing: 0,
-    lineHeight: 1.16,
-    stroke: '#000000',
-    strokeWidth: 0,
-    textEffect: 'none',
-  });
+  const [textConfig, setTextConfig] = useState<TextPresetConfig>(DEFAULT_TEXT_CONFIG);
+  const [fontFile, setFontFile] = useState<File | null>(null);
+  const [uploadedFonts, setUploadedFonts] = useState<
+    Array<{ name: string; family: string; url?: string }>
+  >([]);
+  const [fontUploading, setFontUploading] = useState(false);
+  const [previewBg, setPreviewBg] = useState<'light' | 'dark' | 'grid'>('light');
+  const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
+  const fontInputRef = useRef<HTMLInputElement>(null);
+
+  // Discover and load custom fonts previously uploaded to text presets
+  useEffect(() => {
+    if (!isOpen || activeType !== 'text') return;
+
+    let isMounted = true;
+    const fetchExistingFonts = async () => {
+      try {
+        const res = await designAssetService.getAdminAssets({
+          asset_type: 'text',
+          per_page: 100,
+        });
+        const assets = res?.data || (Array.isArray(res) ? res : []);
+        const discovered: Array<{ name: string; family: string; url?: string }> = [];
+        const seen = new Set<string>();
+
+        assets.forEach((a: DesignAsset) => {
+          const fontName =
+            a.fabric_json?.fontFamily ||
+            a.metadata?.textStyle?.fontFamily ||
+            a.metadata?.fontFamily;
+          const fontUrl =
+            a.file_url ||
+            a.metadata?.fontUrl ||
+            a.metadata?.textStyle?.fontUrl;
+
+          if (fontName && fontUrl && !seen.has(fontName.toLowerCase())) {
+            seen.add(fontName.toLowerCase());
+            discovered.push({
+              name: fontName,
+              family: fontName,
+              url: fontUrl,
+            });
+            void loadCustomFont(fontName, fontUrl);
+          }
+        });
+
+        if (isMounted && discovered.length > 0) {
+          setUploadedFonts((prev) => {
+            const merged = [...prev];
+            discovered.forEach((f) => {
+              if (!merged.some((m) => m.name.toLowerCase() === f.name.toLowerCase())) {
+                merged.push(f);
+              }
+            });
+            return merged;
+          });
+        }
+      } catch {
+        // Non-blocking background font discovery
+      }
+    };
+
+    void fetchExistingFonts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, activeType]);
+
+  // Load selected font (Google or uploaded) dynamically
+  useEffect(() => {
+    if (formData.asset_type !== 'text') return;
+    const family = textConfig.fontFamily;
+    if (!family) return;
+
+    const googleItem = POPULAR_FONTS.find(
+      (f) =>
+        f.name.toLowerCase() === family.toLowerCase() ||
+        f.family.toLowerCase().includes(family.toLowerCase())
+    );
+
+    if (googleItem) {
+      void loadFont(googleItem);
+      return;
+    }
+
+    const uploadedItem = uploadedFonts.find(
+      (f) => f.name.toLowerCase() === family.toLowerCase()
+    );
+
+    if (uploadedItem?.url) {
+      void loadCustomFont(
+        family,
+        uploadedItem.url,
+        textConfig.fontWeight,
+        textConfig.fontStyle
+      );
+    }
+  }, [
+    textConfig.fontFamily,
+    textConfig.fontWeight,
+    textConfig.fontStyle,
+    formData.asset_type,
+    uploadedFonts,
+  ]);
+
+  // Upload custom font (.ttf, .otf, .woff, .woff2)
+  const handleFontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const uploaded = e.target.files?.[0];
+    if (!uploaded) return;
+
+    const ext = uploaded.name.split('.').pop()?.toLowerCase();
+    if (!ext || !['ttf', 'otf', 'woff', 'woff2'].includes(ext)) {
+      setError('Supported font formats: .ttf, .otf, .woff, .woff2');
+      return;
+    }
+
+    try {
+      setFontUploading(true);
+      setError(null);
+
+      // Clean file name to human-friendly font family name
+      const baseName = uploaded.name
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[-_]/g, ' ')
+        .trim();
+      const cleanFamily = baseName || 'Custom Font';
+
+      const blobUrl = URL.createObjectURL(uploaded);
+      await loadCustomFont(
+        cleanFamily,
+        blobUrl,
+        textConfig.fontWeight,
+        textConfig.fontStyle
+      );
+
+      setUploadedFonts((prev) => [
+        { name: cleanFamily, family: cleanFamily, url: blobUrl },
+        ...prev.filter(
+          (f) => f.name.toLowerCase() !== cleanFamily.toLowerCase()
+        ),
+      ]);
+
+      setTextConfig((prev) => ({
+        ...prev,
+        fontFamily: cleanFamily,
+        fontFileName: uploaded.name,
+      }));
+
+      setFontFile(uploaded);
+    } catch (err: any) {
+      console.error('Failed to load font file:', err);
+      setError('Failed to load font into preview. Please verify file format.');
+    } finally {
+      setFontUploading(false);
+      if (fontInputRef.current) {
+        fontInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Apply Canva-style text effects with preset configurations
+  const applyTextEffect = (effect: TextEffectType) => {
+    setTextConfig((prev) => {
+      const updated = { ...prev, textEffect: effect };
+      switch (effect) {
+        case 'none':
+          return {
+            ...updated,
+            shadowEnabled: false,
+            strokeEnabled: false,
+          };
+        case 'shadow':
+          return {
+            ...updated,
+            shadowEnabled: true,
+            shadowColor: '#000000',
+            shadowOffsetX: 4,
+            shadowOffsetY: 4,
+            shadowBlur: 6,
+            shadowOpacity: 0.5,
+          };
+        case 'outline':
+          return {
+            ...updated,
+            strokeEnabled: true,
+            strokeColor: '#172554',
+            strokeWidth: 3,
+          };
+        case 'glow':
+          return {
+            ...updated,
+            shadowEnabled: true,
+            shadowColor: '#38bdf8',
+            shadowOffsetX: 0,
+            shadowOffsetY: 0,
+            shadowBlur: 16,
+            shadowOpacity: 0.85,
+          };
+        case 'lift':
+          return {
+            ...updated,
+            shadowEnabled: true,
+            shadowColor: '#000000',
+            shadowOffsetX: 0,
+            shadowOffsetY: 8,
+            shadowBlur: 12,
+            shadowOpacity: 0.35,
+          };
+        case 'splice':
+          return {
+            ...updated,
+            strokeEnabled: true,
+            strokeColor: '#0f172a',
+            strokeWidth: 2,
+            shadowEnabled: true,
+            shadowColor: '#f43f5e',
+            shadowOffsetX: 4,
+            shadowOffsetY: 4,
+            shadowBlur: 0,
+            shadowOpacity: 0.9,
+          };
+        case 'echo':
+          return {
+            ...updated,
+            shadowEnabled: true,
+            shadowColor: '#6366f1',
+            shadowOffsetX: 6,
+            shadowOffsetY: 6,
+            shadowBlur: 2,
+            shadowOpacity: 0.55,
+          };
+        case 'offset':
+          return {
+            ...updated,
+            shadowEnabled: true,
+            shadowColor: '#000000',
+            shadowOffsetX: 5,
+            shadowOffsetY: 5,
+            shadowBlur: 0,
+            shadowOpacity: 1.0,
+          };
+        case 'neon':
+          return {
+            ...updated,
+            fill: '#f0fdf4',
+            strokeEnabled: true,
+            strokeColor: '#22c55e',
+            strokeWidth: 1,
+            shadowEnabled: true,
+            shadowColor: '#22c55e',
+            shadowOffsetX: 0,
+            shadowOffsetY: 0,
+            shadowBlur: 20,
+            shadowOpacity: 0.9,
+          };
+        default:
+          return updated;
+      }
+    });
+  };
 
   // =========================================================
   // BACKGROUND CONFIG
@@ -368,59 +749,126 @@ export function DesignAssetForm({
         asset.asset_type === 'text' &&
         rawFabricJson
       ) {
+        const textStyle = existingMetadata?.textStyle || {};
+        const fontUrl =
+          asset.file_url ||
+          existingMetadata?.fontUrl ||
+          textStyle?.fontUrl ||
+          rawFabricJson.fontUrl;
+
+        const fontFamily =
+          textStyle.fontFamily ||
+          rawFabricJson.fontFamily ||
+          'Inter';
+
+        if (fontUrl) {
+          void loadCustomFont(
+            fontFamily,
+            fontUrl,
+            textStyle.fontWeight || rawFabricJson.fontWeight,
+            textStyle.fontStyle || rawFabricJson.fontStyle
+          );
+          setUploadedFonts((prev) => {
+            if (!prev.some((f) => f.name.toLowerCase() === fontFamily.toLowerCase())) {
+              return [
+                { name: fontFamily, family: fontFamily, url: fontUrl },
+                ...prev,
+              ];
+            }
+            return prev;
+          });
+        }
+
+        const rawFill = rawFabricJson.fill;
+        const isGradient =
+          textStyle.fill?.type === 'gradient' ||
+          (rawFill && typeof rawFill === 'object' && rawFill.type === 'linear');
+        const gradAngle =
+          textStyle.fill?.gradient?.angle ?? 135;
+        const gradColor1 =
+          textStyle.fill?.gradient?.color1 ??
+          (rawFill?.colorStops?.[0]?.color || '#F97316');
+        const gradColor2 =
+          textStyle.fill?.gradient?.color2 ??
+          (rawFill?.colorStops?.[1]?.color || '#9333EA');
+
+        const isStroke =
+          textStyle.stroke?.enabled ??
+          (Number(rawFabricJson.strokeWidth || 0) > 0);
+        const strokeColor =
+          textStyle.stroke?.color || rawFabricJson.stroke || '#172554';
+        const strokeWidth =
+          textStyle.stroke?.width ??
+          Number(rawFabricJson.strokeWidth || 3);
+
+        const shadowRaw = rawFabricJson.shadow;
+        const isShadow =
+          textStyle.shadow?.enabled ?? Boolean(shadowRaw);
+        const shadowColor =
+          textStyle.shadow?.color || shadowRaw?.color || '#000000';
+        const shadowOffsetX =
+          textStyle.shadow?.offsetX ?? shadowRaw?.offsetX ?? 4;
+        const shadowOffsetY =
+          textStyle.shadow?.offsetY ?? shadowRaw?.offsetY ?? 4;
+        const shadowBlur =
+          textStyle.shadow?.blur ?? shadowRaw?.blur ?? 6;
+        const shadowOpacity =
+          textStyle.shadow?.opacity ?? 0.5;
+
         setTextConfig({
           text:
             rawFabricJson.text ||
+            textStyle.defaultText ||
             asset.name ||
-            'Add text',
-
-          fontFamily:
-            rawFabricJson.fontFamily ||
-            'Inter',
-
+            'Bold Moves',
+          fontFamily,
           fontSize:
+            textStyle.fontSize ||
             rawFabricJson.fontSize ||
             36,
-
           fontWeight:
+            textStyle.fontWeight ||
             rawFabricJson.fontWeight ||
-            'normal',
-
+            '700',
           fontStyle:
-            rawFabricJson.fontStyle ||
-            'normal',
-
-          fill:
-            rawFabricJson.fill ||
-            '#111111',
-
-          backgroundColor:
-            rawFabricJson.backgroundColor ||
-            '',
-
+            (textStyle.fontStyle ||
+              rawFabricJson.fontStyle ||
+              'normal') as 'normal' | 'italic',
           textAlign:
-            rawFabricJson.textAlign ||
-            'center',
-
+            (textStyle.textAlign ||
+              rawFabricJson.textAlign ||
+              'center') as 'left' | 'center' | 'right',
           charSpacing:
-            rawFabricJson.charSpacing ||
+            textStyle.letterSpacing ??
+            rawFabricJson.charSpacing ??
             0,
-
           lineHeight:
-            rawFabricJson.lineHeight ||
-            1.16,
-
-          stroke:
-            rawFabricJson.stroke ||
-            '#000000',
-
-          strokeWidth:
-            rawFabricJson.strokeWidth ||
-            0,
-
+            textStyle.lineHeight ??
+            rawFabricJson.lineHeight ??
+            1.2,
+          fill:
+            typeof rawFill === 'string'
+              ? rawFill
+              : textStyle.fill?.color || '#F4510B',
+          gradientEnabled: isGradient,
+          gradientAngle: gradAngle,
+          gradientColor1: gradColor1,
+          gradientColor2: gradColor2,
+          strokeEnabled: isStroke,
+          strokeColor,
+          strokeWidth,
+          shadowEnabled: isShadow,
+          shadowColor,
+          shadowOffsetX,
+          shadowOffsetY,
+          shadowBlur,
+          shadowOpacity,
           textEffect:
-            existingMetadata.textEffect ||
-            'none',
+            (textStyle.effect ||
+              existingMetadata.textEffect ||
+              'none') as TextEffectType,
+          fontUrl: fontUrl || '',
+          fontFileName: textStyle.fontFileName || '',
         });
       }
 
@@ -588,21 +1036,8 @@ export function DesignAssetForm({
         asset_type: activeType,
       });
 
-      setTextConfig({
-        text: 'Add text',
-        fontFamily: 'Inter',
-        fontSize: 36,
-        fontWeight: 'normal',
-        fontStyle: 'normal',
-        fill: '#111111',
-        backgroundColor: '',
-        textAlign: 'center',
-        charSpacing: 0,
-        lineHeight: 1.16,
-        stroke: '#000000',
-        strokeWidth: 0,
-        textEffect: 'none',
-      });
+      setTextConfig(DEFAULT_TEXT_CONFIG);
+      setFontFile(null);
 
       setBgConfig({
         bgType: 'color',
@@ -792,57 +1227,96 @@ export function DesignAssetForm({
       if (
         formData.asset_type === 'text'
       ) {
+        let fabricFill: any = textConfig.fill;
+        if (textConfig.gradientEnabled) {
+          fabricFill = {
+            type: 'linear',
+            gradientUnits: 'percentage',
+            coords: calculateGradientCoords(textConfig.gradientAngle),
+            colorStops: [
+              { offset: 0, color: textConfig.gradientColor1 },
+              { offset: 1, color: textConfig.gradientColor2 },
+            ],
+          };
+        }
+
+        const shadowObj = textConfig.shadowEnabled
+          ? {
+              color: hexToRgba(textConfig.shadowColor, textConfig.shadowOpacity),
+              blur: Number(textConfig.shadowBlur),
+              offsetX: Number(textConfig.shadowOffsetX),
+              offsetY: Number(textConfig.shadowOffsetY),
+            }
+          : undefined;
+
         finalFabricJson = {
           type: 'Textbox',
-
-          text:
-            textConfig.text ||
-            formData.name,
-
-          fontFamily:
-            textConfig.fontFamily,
-
-          fontSize:
-            Number(textConfig.fontSize),
-
-          fontWeight:
-            textConfig.fontWeight,
-
-          fontStyle:
-            textConfig.fontStyle,
-
-          fill:
-            textConfig.fill,
-
-          backgroundColor:
-            textConfig.backgroundColor ||
-            undefined,
-
-          textAlign:
-            textConfig.textAlign,
-
-          charSpacing:
-            Number(textConfig.charSpacing),
-
-          lineHeight:
-            Number(textConfig.lineHeight),
-
+          text: textConfig.text || formData.name,
+          fontFamily: textConfig.fontFamily,
+          fontSize: Number(textConfig.fontSize),
+          fontWeight: String(textConfig.fontWeight),
+          fontStyle: textConfig.fontStyle,
+          fill: fabricFill,
+          textAlign: textConfig.textAlign,
+          charSpacing: Number(textConfig.charSpacing),
+          lineHeight: Number(textConfig.lineHeight),
           stroke:
-            textConfig.strokeWidth > 0
-              ? textConfig.stroke
+            textConfig.strokeEnabled && Number(textConfig.strokeWidth) > 0
+              ? textConfig.strokeColor
               : undefined,
-
-          strokeWidth:
-            Number(textConfig.strokeWidth),
-
+          strokeWidth: textConfig.strokeEnabled ? Number(textConfig.strokeWidth) : 0,
+          strokeUniform: true,
+          shadow: shadowObj,
           editable: true,
           selectable: true,
+          fontUrl: fontFile ? undefined : (textConfig.fontUrl || undefined),
+        };
+
+        const textStyleMetadata = {
+          defaultText: textConfig.text || formData.name,
+          fontFamily: textConfig.fontFamily,
+          fontWeight: textConfig.fontWeight,
+          fontStyle: textConfig.fontStyle,
+          fontSize: Number(textConfig.fontSize),
+          textAlign: textConfig.textAlign,
+          letterSpacing: Number(textConfig.charSpacing),
+          lineHeight: Number(textConfig.lineHeight),
+          fill: {
+            type: textConfig.gradientEnabled ? 'gradient' : 'solid',
+            color: textConfig.fill,
+            gradient: textConfig.gradientEnabled
+              ? {
+                  type: 'linear',
+                  angle: Number(textConfig.gradientAngle),
+                  color1: textConfig.gradientColor1,
+                  color2: textConfig.gradientColor2,
+                }
+              : undefined,
+          },
+          stroke: {
+            enabled: textConfig.strokeEnabled,
+            color: textConfig.strokeColor,
+            width: Number(textConfig.strokeWidth),
+          },
+          shadow: {
+            enabled: textConfig.shadowEnabled,
+            color: textConfig.shadowColor,
+            offsetX: Number(textConfig.shadowOffsetX),
+            offsetY: Number(textConfig.shadowOffsetY),
+            blur: Number(textConfig.shadowBlur),
+            opacity: Number(textConfig.shadowOpacity),
+          },
+          effect: textConfig.textEffect,
+          fontUrl: fontFile ? undefined : (textConfig.fontUrl || undefined),
+          fontFileName:
+            textConfig.fontFileName || (fontFile ? fontFile.name : undefined),
         };
 
         finalMetadata = {
           ...finalMetadata,
-          textEffect:
-            textConfig.textEffect,
+          textStyle: textStyleMetadata,
+          textEffect: textConfig.textEffect,
+          fontUrl: fontFile ? undefined : (textConfig.fontUrl || undefined),
         };
       }
 
@@ -1001,6 +1475,8 @@ export function DesignAssetForm({
 
       if (file) {
         payload.file = file;
+      } else if (formData.asset_type === 'text' && fontFile) {
+        payload.file = fontFile;
       }
 
       // -----------------------------------------------------
@@ -1272,208 +1748,822 @@ export function DesignAssetForm({
           {/* ================================================= */}
 
           {formData.asset_type === 'text' && (
-            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-4">
+            <div className="space-y-6">
+              {/* HIDDEN FONT FILE INPUT */}
+              <input
+                ref={fontInputRef}
+                type="file"
+                accept=".ttf,.otf,.woff,.woff2"
+                onChange={handleFontUpload}
+                className="hidden"
+              />
 
-              <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                Typography Controls
-              </h3>
+              {/* ------------------------------------------------- */}
+              {/* 1. TYPOGRAPHY & FONT SELECTION                    */}
+              {/* ------------------------------------------------- */}
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <Type className="w-4 h-4 text-blue-600" />
+                    <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                      Typography & Font Family
+                    </h3>
+                  </div>
+                  <span className="text-[11px] font-medium text-gray-500">
+                    Canva-Style Text Style Preset
+                  </span>
+                </div>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Default Text Content
-                </label>
+                {/* Preview / Default Text */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Preview / Default Text <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={textConfig.text}
+                    onChange={(e) =>
+                      setTextConfig({
+                        ...textConfig,
+                        text: e.target.value,
+                      })
+                    }
+                    placeholder="e.g. BOLD MOVES"
+                    className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    This default text will appear when the preset is added to the canvas and remains 100% editable.
+                  </p>
+                </div>
 
-                <input
-                  type="text"
-                  value={textConfig.text}
-                  onChange={(e) =>
-                    setTextConfig({
-                      ...textConfig,
-                      text: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
-                />
+                {/* Font Family Selector & Font Upload Button */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                  <div className="sm:col-span-2 relative">
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Font Family
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsFontPickerOpen((prev) => !prev)}
+                      className="w-full h-[38px] px-3 py-2 text-xs border border-gray-300 rounded-xl bg-white hover:bg-gray-50 flex items-center justify-between text-left transition shadow-2xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    >
+                      <span
+                        className="truncate font-semibold text-gray-800"
+                        style={{ fontFamily: `"${textConfig.fontFamily}", sans-serif` }}
+                      >
+                        {textConfig.fontFamily}
+                      </span>
+                      <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0 ml-1.5" />
+                    </button>
+
+                    {isFontPickerOpen && (
+                      <FontPickerPopover
+                        currentFamily={textConfig.fontFamily}
+                        customFonts={uploadedFonts}
+                        onSelectFamily={(family) => {
+                          setTextConfig((prev) => ({
+                            ...prev,
+                            fontFamily: family,
+                          }));
+                          setIsFontPickerOpen(false);
+                        }}
+                        onClose={() => setIsFontPickerOpen(false)}
+                      />
+                    )}
+                  </div>
+
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => fontInputRef.current?.click()}
+                      disabled={fontUploading}
+                      className="w-full h-[38px] px-3 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-50"
+                    >
+                      {fontUploading ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                          <span>Loading...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Upload Font</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {textConfig.fontFileName && (
+                  <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-xl flex items-center justify-between text-xs text-blue-900">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[11px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-md">
+                        Custom Font File
+                      </span>
+                      <span className="truncate max-w-[280px]">
+                        {textConfig.fontFileName}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-blue-600 font-medium">
+                      .ttf / .otf / .woff / .woff2
+                    </span>
+                  </div>
+                )}
+
+                {/* Font Weight, Style, Size, Align */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Font Weight
+                    </label>
+                    <select
+                      value={String(textConfig.fontWeight)}
+                      onChange={(e) =>
+                        setTextConfig({
+                          ...textConfig,
+                          fontWeight: Number(e.target.value) || 400,
+                        })
+                      }
+                      className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
+                    >
+                      <option value="100">100 - Thin</option>
+                      <option value="200">200 - Extra Light</option>
+                      <option value="300">300 - Light</option>
+                      <option value="400">400 - Regular</option>
+                      <option value="500">500 - Medium</option>
+                      <option value="600">600 - Semi Bold</option>
+                      <option value="700">700 - Bold</option>
+                      <option value="800">800 - Extra Bold</option>
+                      <option value="900">900 - Black</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Font Style
+                    </label>
+                    <select
+                      value={textConfig.fontStyle}
+                      onChange={(e) =>
+                        setTextConfig({
+                          ...textConfig,
+                          fontStyle: e.target.value as 'normal' | 'italic',
+                        })
+                      }
+                      className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="italic">Italic</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Font Size (px)
+                    </label>
+                    <input
+                      type="number"
+                      min="10"
+                      max="200"
+                      value={textConfig.fontSize}
+                      onChange={(e) =>
+                        setTextConfig({
+                          ...textConfig,
+                          fontSize: Number(e.target.value) || 36,
+                        })
+                      }
+                      className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Text Align
+                    </label>
+                    <div className="flex border border-gray-300 rounded-lg bg-white overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTextConfig({ ...textConfig, textAlign: 'left' })
+                        }
+                        className={`flex-1 py-1.5 flex items-center justify-center transition ${
+                          textConfig.textAlign === 'left'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                        title="Align Left"
+                      >
+                        <AlignLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTextConfig({ ...textConfig, textAlign: 'center' })
+                        }
+                        className={`flex-1 py-1.5 flex items-center justify-center transition border-x border-gray-200 ${
+                          textConfig.textAlign === 'center'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                        title="Align Center"
+                      >
+                        <AlignCenter className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTextConfig({ ...textConfig, textAlign: 'right' })
+                        }
+                        className={`flex-1 py-1.5 flex items-center justify-center transition ${
+                          textConfig.textAlign === 'right'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                        title="Align Right"
+                      >
+                        <AlignRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Letter Spacing & Line Height */}
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Letter Spacing ({textConfig.charSpacing})
+                    </label>
+                    <input
+                      type="range"
+                      min="-50"
+                      max="200"
+                      value={textConfig.charSpacing}
+                      onChange={(e) =>
+                        setTextConfig({
+                          ...textConfig,
+                          charSpacing: Number(e.target.value),
+                        })
+                      }
+                      className="w-full accent-blue-600 cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Line Height ({textConfig.lineHeight})
+                    </label>
+                    <input
+                      type="range"
+                      min="0.8"
+                      max="2.5"
+                      step="0.05"
+                      value={textConfig.lineHeight}
+                      onChange={(e) =>
+                        setTextConfig({
+                          ...textConfig,
+                          lineHeight: Number(e.target.value),
+                        })
+                      }
+                      className="w-full accent-blue-600 cursor-pointer"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {/* ------------------------------------------------- */}
+              {/* 2. TEXT COLOR & GRADIENT                          */}
+              {/* ------------------------------------------------- */}
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                  <div className="flex items-center gap-2">
+                    <Palette className="w-4 h-4 text-purple-600" />
+                    <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                      Color & Fill
+                    </h3>
+                  </div>
 
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                    Font Family
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <span className="text-[11px] font-medium text-gray-600">
+                      Gradient Fill
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={textConfig.gradientEnabled}
+                      onChange={(e) =>
+                        setTextConfig({
+                          ...textConfig,
+                          gradientEnabled: e.target.checked,
+                        })
+                      }
+                      className="w-4 h-4 text-purple-600 rounded-sm focus:ring-purple-500"
+                    />
                   </label>
+                </div>
 
-                  <select
-                    value={
-                      textConfig.fontFamily
-                    }
-                    onChange={(e) =>
-                      setTextConfig({
-                        ...textConfig,
-                        fontFamily:
-                          e.target.value,
-                      })
-                    }
-                    className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
+                {!textConfig.gradientEnabled ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={textConfig.fill}
+                        onChange={(e) =>
+                          setTextConfig({
+                            ...textConfig,
+                            fill: e.target.value,
+                          })
+                        }
+                        className="w-10 h-10 p-1 border border-gray-300 rounded-xl bg-white cursor-pointer shadow-2xs"
+                      />
+                      <input
+                        type="text"
+                        value={textConfig.fill}
+                        onChange={(e) =>
+                          setTextConfig({
+                            ...textConfig,
+                            fill: e.target.value,
+                          })
+                        }
+                        className="w-28 px-2.5 py-1.5 text-xs font-mono uppercase border border-gray-300 rounded-lg bg-white"
+                      />
+                      <span className="text-xs text-gray-500">Solid Fill</span>
+                    </div>
+
+                    {/* Quick Swatches */}
+                    <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                      <span className="text-[11px] text-gray-400 mr-1">Quick:</span>
+                      {QUICK_COLORS.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setTextConfig({ ...textConfig, fill: c })}
+                          className="w-5 h-5 rounded-md border border-gray-300 transition hover:scale-110 shadow-2xs"
+                          style={{ backgroundColor: c }}
+                          title={c}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-purple-50/50 border border-purple-100 rounded-xl space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                          Color 1
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={textConfig.gradientColor1}
+                            onChange={(e) =>
+                              setTextConfig({
+                                ...textConfig,
+                                gradientColor1: e.target.value,
+                              })
+                            }
+                            className="w-8 h-8 p-1 border border-gray-300 rounded-lg bg-white cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={textConfig.gradientColor1}
+                            onChange={(e) =>
+                              setTextConfig({
+                                ...textConfig,
+                                gradientColor1: e.target.value,
+                              })
+                            }
+                            className="w-20 px-2 py-1 text-xs font-mono uppercase border border-gray-300 rounded bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                          Color 2
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={textConfig.gradientColor2}
+                            onChange={(e) =>
+                              setTextConfig({
+                                ...textConfig,
+                                gradientColor2: e.target.value,
+                              })
+                            }
+                            className="w-8 h-8 p-1 border border-gray-300 rounded-lg bg-white cursor-pointer"
+                          />
+                          <input
+                            type="text"
+                            value={textConfig.gradientColor2}
+                            onChange={(e) =>
+                              setTextConfig({
+                                ...textConfig,
+                                gradientColor2: e.target.value,
+                              })
+                            }
+                            className="w-20 px-2 py-1 text-xs font-mono uppercase border border-gray-300 rounded bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="col-span-2 sm:col-span-1">
+                        <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                          Angle ({textConfig.gradientAngle}°)
+                        </label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="360"
+                          value={textConfig.gradientAngle}
+                          onChange={(e) =>
+                            setTextConfig({
+                              ...textConfig,
+                              gradientAngle: Number(e.target.value),
+                            })
+                          }
+                          className="w-full accent-purple-600 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ------------------------------------------------- */}
+              {/* 3. STROKE / OUTLINE & SHADOW                      */}
+              {/* ------------------------------------------------- */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* STROKE / OUTLINE */}
+                <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                      Outline / Stroke
+                    </span>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <span className="text-[11px] font-medium text-gray-600">
+                        {textConfig.strokeEnabled ? 'ON' : 'OFF'}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={textConfig.strokeEnabled}
+                        onChange={(e) =>
+                          setTextConfig({
+                            ...textConfig,
+                            strokeEnabled: e.target.checked,
+                          })
+                        }
+                        className="w-4 h-4 text-blue-600 rounded-sm focus:ring-blue-500"
+                      />
+                    </label>
+                  </div>
+
+                  {textConfig.strokeEnabled && (
+                    <div className="space-y-3 pt-1">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={textConfig.strokeColor}
+                          onChange={(e) =>
+                            setTextConfig({
+                              ...textConfig,
+                              strokeColor: e.target.value,
+                            })
+                          }
+                          className="w-8 h-8 p-1 border border-gray-300 rounded-lg bg-white cursor-pointer"
+                        />
+                        <input
+                          type="text"
+                          value={textConfig.strokeColor}
+                          onChange={(e) =>
+                            setTextConfig({
+                              ...textConfig,
+                              strokeColor: e.target.value,
+                            })
+                          }
+                          className="w-24 px-2 py-1 text-xs font-mono uppercase border border-gray-300 rounded bg-white"
+                        />
+                        <span className="text-[11px] text-gray-500">Color</span>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between text-[11px] text-gray-700 mb-1">
+                          <span>Stroke Width</span>
+                          <span className="font-semibold">{textConfig.strokeWidth}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="1"
+                          max="20"
+                          value={textConfig.strokeWidth}
+                          onChange={(e) =>
+                            setTextConfig({
+                              ...textConfig,
+                              strokeWidth: Number(e.target.value),
+                            })
+                          }
+                          className="w-full accent-blue-600 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* SHADOW */}
+                <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <span className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                      Shadow
+                    </span>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <span className="text-[11px] font-medium text-gray-600">
+                        {textConfig.shadowEnabled ? 'ON' : 'OFF'}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={textConfig.shadowEnabled}
+                        onChange={(e) =>
+                          setTextConfig({
+                            ...textConfig,
+                            shadowEnabled: e.target.checked,
+                          })
+                        }
+                        className="w-4 h-4 text-blue-600 rounded-sm focus:ring-blue-500"
+                      />
+                    </label>
+                  </div>
+
+                  {textConfig.shadowEnabled && (
+                    <div className="space-y-2.5 pt-1">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={textConfig.shadowColor}
+                          onChange={(e) =>
+                            setTextConfig({
+                              ...textConfig,
+                              shadowColor: e.target.value,
+                            })
+                          }
+                          className="w-8 h-8 p-1 border border-gray-300 rounded-lg bg-white cursor-pointer"
+                        />
+                        <input
+                          type="text"
+                          value={textConfig.shadowColor}
+                          onChange={(e) =>
+                            setTextConfig({
+                              ...textConfig,
+                              shadowColor: e.target.value,
+                            })
+                          }
+                          className="w-24 px-2 py-1 text-xs font-mono uppercase border border-gray-300 rounded bg-white"
+                        />
+                        <span className="text-[11px] text-gray-500">Color</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div>
+                          <label className="block text-gray-600 mb-0.5">
+                            Offset X ({textConfig.shadowOffsetX}px)
+                          </label>
+                          <input
+                            type="range"
+                            min="-20"
+                            max="20"
+                            value={textConfig.shadowOffsetX}
+                            onChange={(e) =>
+                              setTextConfig({
+                                ...textConfig,
+                                shadowOffsetX: Number(e.target.value),
+                              })
+                            }
+                            className="w-full accent-blue-600 cursor-pointer"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-gray-600 mb-0.5">
+                            Offset Y ({textConfig.shadowOffsetY}px)
+                          </label>
+                          <input
+                            type="range"
+                            min="-20"
+                            max="20"
+                            value={textConfig.shadowOffsetY}
+                            onChange={(e) =>
+                              setTextConfig({
+                                ...textConfig,
+                                shadowOffsetY: Number(e.target.value),
+                              })
+                            }
+                            className="w-full accent-blue-600 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div>
+                          <label className="block text-gray-600 mb-0.5">
+                            Blur ({textConfig.shadowBlur}px)
+                          </label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="30"
+                            value={textConfig.shadowBlur}
+                            onChange={(e) =>
+                              setTextConfig({
+                                ...textConfig,
+                                shadowBlur: Number(e.target.value),
+                              })
+                            }
+                            className="w-full accent-blue-600 cursor-pointer"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-gray-600 mb-0.5">
+                            Opacity ({Math.round(textConfig.shadowOpacity * 100)}%)
+                          </label>
+                          <input
+                            type="range"
+                            min="0.05"
+                            max="1"
+                            step="0.05"
+                            value={textConfig.shadowOpacity}
+                            onChange={(e) =>
+                              setTextConfig({
+                                ...textConfig,
+                                shadowOpacity: Number(e.target.value),
+                              })
+                            }
+                            className="w-full accent-blue-600 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ------------------------------------------------- */}
+              {/* 4. CANVA-STYLE TEXT EFFECTS                       */}
+              {/* ------------------------------------------------- */}
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl space-y-3">
+                <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
+                  <Sparkles className="w-4 h-4 text-amber-500" />
+                  <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                    Text Effects (Canva Presets)
+                  </h3>
+                </div>
+
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                  {TEXT_EFFECT_OPTIONS.map((eff) => {
+                    const isActive = textConfig.textEffect === eff.id;
+                    return (
+                      <button
+                        key={eff.id}
+                        type="button"
+                        onClick={() => applyTextEffect(eff.id)}
+                        className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                          isActive
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                            : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50/40'
+                        }`}
+                      >
+                        <span className="text-xs font-bold block">{eff.label}</span>
+                        <span
+                          className={`text-[10px] mt-1 leading-tight line-clamp-1 ${
+                            isActive ? 'text-blue-100' : 'text-gray-400'
+                          }`}
+                        >
+                          {eff.desc}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ------------------------------------------------- */}
+              {/* 5. LIVE PREVIEW CARD                              */}
+              {/* ------------------------------------------------- */}
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-emerald-600" />
+                    <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                      Live Preview
+                    </h3>
+                  </div>
+
+                  {/* Background mode switcher */}
+                  <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewBg('light')}
+                      className={`p-1 rounded-md transition ${
+                        previewBg === 'light'
+                          ? 'bg-gray-100 text-gray-900 shadow-2xs'
+                          : 'text-gray-400 hover:text-gray-600'
+                      }`}
+                      title="Light Background"
+                    >
+                      <Sun className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewBg('dark')}
+                      className={`p-1 rounded-md transition ${
+                        previewBg === 'dark'
+                          ? 'bg-gray-800 text-white shadow-2xs'
+                          : 'text-gray-400 hover:text-gray-600'
+                      }`}
+                      title="Dark Background"
+                    >
+                      <Moon className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewBg('grid')}
+                      className={`p-1 rounded-md transition ${
+                        previewBg === 'grid'
+                          ? 'bg-gray-100 text-gray-900 shadow-2xs'
+                          : 'text-gray-400 hover:text-gray-600'
+                      }`}
+                      title="Grid Background"
+                    >
+                      <Grid className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Preview viewport */}
+                <div
+                  className={`min-h-[140px] rounded-xl border flex items-center justify-center p-6 overflow-hidden transition-colors ${
+                    previewBg === 'dark'
+                      ? 'bg-gray-900 border-gray-800'
+                      : previewBg === 'grid'
+                        ? 'bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:16px_16px] bg-slate-50 border-gray-200'
+                        : 'bg-white border-gray-200 shadow-inner'
+                  }`}
+                >
+                  <div
+                    style={{
+                      fontFamily: `"${textConfig.fontFamily}", sans-serif`,
+                      fontSize: `${Math.min(Math.max(textConfig.fontSize, 18), 52)}px`,
+                      fontWeight: textConfig.fontWeight,
+                      fontStyle: textConfig.fontStyle,
+                      textAlign: textConfig.textAlign,
+                      letterSpacing: `${textConfig.charSpacing / 10}px`,
+                      lineHeight: textConfig.lineHeight,
+                      ...(textConfig.gradientEnabled
+                        ? {
+                            backgroundImage: `linear-gradient(${textConfig.gradientAngle}deg, ${textConfig.gradientColor1}, ${textConfig.gradientColor2})`,
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                          }
+                        : {
+                            color: textConfig.fill,
+                          }),
+                      ...(textConfig.strokeEnabled
+                        ? {
+                            WebkitTextStroke: `${textConfig.strokeWidth}px ${textConfig.strokeColor}`,
+                          }
+                        : {}),
+                      ...(textConfig.shadowEnabled
+                        ? {
+                            textShadow: `${textConfig.shadowOffsetX}px ${textConfig.shadowOffsetY}px ${textConfig.shadowBlur}px ${hexToRgba(
+                              textConfig.shadowColor,
+                              textConfig.shadowOpacity
+                            )}`,
+                          }
+                        : {}),
+                    }}
+                    className="select-none break-words max-w-full"
                   >
-                    <option value="Inter">
-                      Inter
-                    </option>
-
-                    <option value="Roboto">
-                      Roboto
-                    </option>
-
-                    <option value="Playfair Display">
-                      Playfair Display
-                    </option>
-
-                    <option value="Montserrat">
-                      Montserrat
-                    </option>
-
-                    <option value="Oswald">
-                      Oswald
-                    </option>
-                  </select>
+                    {textConfig.text || 'BOLD MOVES'}
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                    Font Size (px)
-                  </label>
-
-                  <input
-                    type="number"
-                    value={
-                      textConfig.fontSize
-                    }
-                    onChange={(e) =>
-                      setTextConfig({
-                        ...textConfig,
-                        fontSize:
-                          Number(
-                            e.target.value
-                          ),
-                      })
-                    }
-                    className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
-                  />
+                <div className="flex items-center justify-between text-[11px] text-gray-500 pt-1">
+                  <span>Font: <strong className="text-gray-700">{textConfig.fontFamily}</strong> ({textConfig.fontWeight})</span>
+                  <span className="text-emerald-600 font-medium flex items-center gap-1">
+                    <Check className="w-3 h-3" /> 100% Editable Canvas Text
+                  </span>
                 </div>
+              </div>
 
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                    Font Weight
-                  </label>
-
-                  <select
-                    value={
-                      textConfig.fontWeight
-                    }
-                    onChange={(e) =>
-                      setTextConfig({
-                        ...textConfig,
-                        fontWeight:
-                          e.target.value,
-                      })
-                    }
-                    className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
-                  >
-                    <option value="normal">
-                      Normal
-                    </option>
-
-                    <option value="bold">
-                      Bold
-                    </option>
-
-                    <option value="600">
-                      Semi-Bold
-                    </option>
-
-                    <option value="300">
-                      Light
-                    </option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                    Text Align
-                  </label>
-
-                  <select
-                    value={
-                      textConfig.textAlign
-                    }
-                    onChange={(e) =>
-                      setTextConfig({
-                        ...textConfig,
-                        textAlign:
-                          e.target.value,
-                      })
-                    }
-                    className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
-                  >
-                    <option value="left">
-                      Left
-                    </option>
-
-                    <option value="center">
-                      Center
-                    </option>
-
-                    <option value="right">
-                      Right
-                    </option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                    Text Color
-                  </label>
-
-                  <input
-                    type="color"
-                    value={
-                      textConfig.fill
-                    }
-                    onChange={(e) =>
-                      setTextConfig({
-                        ...textConfig,
-                        fill:
-                          e.target.value,
-                      })
-                    }
-                    className="w-full h-8 p-1 border border-gray-300 rounded-lg bg-white cursor-pointer"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                    Stroke Width
-                  </label>
-
-                  <input
-                    type="number"
-                    min="0"
-                    max="10"
-                    value={
-                      textConfig.strokeWidth
-                    }
-                    onChange={(e) =>
-                      setTextConfig({
-                        ...textConfig,
-                        strokeWidth:
-                          Number(
-                            e.target.value
-                          ),
-                      })
-                    }
-                    className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
-                  />
-                </div>
+              {/* ------------------------------------------------- */}
+              {/* 6. THUMBNAIL / PREVIEW IMAGE (OPTIONAL)           */}
+              {/* ------------------------------------------------- */}
+              <div>
+                <ArtworkFileUpload
+                  label="Preset Thumbnail / Preview Image (Optional)"
+                  description="Optional visual thumbnail card shown in the designer's Text Preset catalog. If not uploaded, the live rendered style is displayed."
+                  accept={['png', 'jpg', 'jpeg', 'webp', 'svg']}
+                  returnType="file"
+                  value={thumbnail || asset?.thumbnail_url || null}
+                  onFileChange={(f) => setThumbnail(f as File)}
+                  onRemove={() => setThumbnail(null)}
+                />
               </div>
             </div>
           )}

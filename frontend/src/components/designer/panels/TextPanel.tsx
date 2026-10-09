@@ -7,6 +7,148 @@ import { SelectedObjectState } from '@/types/designer';
 import { ColorPicker } from '../controls/ColorPicker';
 import { DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
 import { LoadingState, EmptyState } from '@/components/admin/shared';
+import { loadCustomFont } from '../utils/fonts';
+import { formatImageUrl, getProxiedImageUrl } from '@/utils/imageUrl';
+
+function hexToRgba(hex?: string, opacity: number = 1): string {
+  if (!hex) return `rgba(0,0,0,${opacity})`;
+  if (hex.startsWith('rgba') || hex.startsWith('rgb')) return hex;
+  let cleanHex = hex.replace('#', '').trim();
+  if (cleanHex.length === 3) {
+    cleanHex = cleanHex.split('').map((c) => c + c).join('');
+  }
+  const r = parseInt(cleanHex.substring(0, 2), 16) || 0;
+  const g = parseInt(cleanHex.substring(2, 4), 16) || 0;
+  const b = parseInt(cleanHex.substring(4, 6), 16) || 0;
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, opacity))})`;
+}
+
+function getPresetTextStyle(preset: DesignAsset): React.CSSProperties {
+  const config = preset.fabric_json || {};
+  const textStyle = preset.metadata?.textStyle || preset.metadata?.textEffectConfig || {};
+
+  // 1. Font Family
+  const rawFamily =
+    config.fontFamily ||
+    textStyle.fontFamily ||
+    preset.name ||
+    'Inter';
+  const cleanFamily = String(rawFamily).replace(/^["']|["']$/g, '').trim();
+
+  // 2. Font Weight & Style
+  const fontWeight =
+    config.fontWeight ||
+    textStyle.fontWeight ||
+    'bold';
+  const fontStyle =
+    config.fontStyle ||
+    textStyle.fontStyle ||
+    'normal';
+
+  // 3. Spacing & Line Height
+  const charSpacing =
+    config.charSpacing ??
+    textStyle.letterSpacing;
+  const letterSpacing =
+    typeof charSpacing === 'number' && charSpacing !== 0
+      ? `${charSpacing / 10}px`
+      : undefined;
+  const lineHeight =
+    config.lineHeight ??
+    textStyle.lineHeight ??
+    1.2;
+
+  // 4. Fill & Gradient
+  let isGradient = false;
+  let gradientCss = '';
+  let solidColor = '#111827';
+
+  // Check textStyle.fill
+  const fillObj = textStyle.fill;
+  if (fillObj) {
+    if (fillObj.type === 'gradient' && fillObj.gradient) {
+      isGradient = true;
+      const g = fillObj.gradient;
+      const angle = g.angle ?? 90;
+      gradientCss = `linear-gradient(${angle}deg, ${g.color1 || '#f4510b'}, ${g.color2 || '#fbbf24'})`;
+    } else if (fillObj.color) {
+      solidColor = fillObj.color;
+    }
+  }
+
+  // Check fabric_json.fill (takes precedence if preset fabric_json has specific colors)
+  if (config.fill) {
+    if (typeof config.fill === 'object' && config.fill !== null) {
+      if (Array.isArray(config.fill.colorStops) && config.fill.colorStops.length > 0) {
+        isGradient = true;
+        let angle = 90;
+        if (config.fill.coords) {
+          const { x1 = 0, y1 = 0, x2 = 1, y2 = 0 } = config.fill.coords;
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          angle = Math.round((Math.atan2(dy, dx) * 180) / Math.PI + 90);
+          if (angle < 0) angle += 360;
+        }
+        const stops = config.fill.colorStops
+          .map((s: any) => `${s.color} ${(s.offset ?? 0) * 100}%`)
+          .join(', ');
+        gradientCss = `linear-gradient(${angle}deg, ${stops})`;
+      }
+    } else if (typeof config.fill === 'string') {
+      solidColor = config.fill;
+      isGradient = false;
+    }
+  }
+
+  // 5. Stroke
+  let strokeCss: string | undefined = undefined;
+  if (textStyle.stroke?.enabled && Number(textStyle.stroke.width) > 0) {
+    const w = Math.min(Number(textStyle.stroke.width), 4);
+    strokeCss = `${w}px ${textStyle.stroke.color || '#000000'}`;
+  } else if (config.stroke && Number(config.strokeWidth) > 0) {
+    const w = Math.min(Number(config.strokeWidth), 4);
+    strokeCss = `${w}px ${config.stroke}`;
+  }
+
+  // 6. Shadow
+  let shadowCss: string | undefined = undefined;
+  if (textStyle.shadow?.enabled) {
+    const s = textStyle.shadow;
+    const shadowColor = hexToRgba(s.color || '#000000', s.opacity ?? 0.5);
+    shadowCss = `${s.offsetX || 0}px ${s.offsetY || 0}px ${s.blur || 0}px ${shadowColor}`;
+  } else if (config.shadow && typeof config.shadow === 'object') {
+    const s = config.shadow;
+    const shadowColor = s.color || 'rgba(0,0,0,0.5)';
+    shadowCss = `${s.offsetX || 0}px ${s.offsetY || 0}px ${s.blur || 0}px ${shadowColor}`;
+  }
+
+  const baseStyle: React.CSSProperties = {
+    fontFamily: `"${cleanFamily}", sans-serif`,
+    fontWeight: fontWeight,
+    fontStyle: fontStyle,
+    letterSpacing: letterSpacing,
+    lineHeight: lineHeight,
+  };
+
+  if (isGradient && gradientCss) {
+    baseStyle.backgroundImage = gradientCss;
+    baseStyle.WebkitBackgroundClip = 'text';
+    baseStyle.WebkitTextFillColor = 'transparent';
+  } else {
+    baseStyle.color = solidColor;
+  }
+
+  if (strokeCss) {
+    baseStyle.WebkitTextStroke = strokeCss;
+    (baseStyle as any).paintOrder = 'stroke fill';
+  }
+
+  if (shadowCss) {
+    baseStyle.textShadow = shadowCss;
+  }
+
+  return baseStyle;
+}
 
 interface TextPanelProps {
   canvasManager: CanvasManager | null;
@@ -53,6 +195,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
   const [presets, setPresets] = useState<DesignAsset[]>([]);
   const [categories, setCategories] = useState<DesignAssetCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [, setFontsLoadedTick] = useState(0);
 
   const artworkWidth = canvasManager?.getDimensions().widthPx || 1063;
   const currentFontSizePt = Math.max(
@@ -79,6 +222,46 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
 
         setPresets(nextPresets);
         setCategories(nextCategories);
+
+        // Preload any custom fonts attached to text presets
+        const fontPromises = nextPresets.map(async (p) => {
+          const rawFontUrl =
+            p.file_url ||
+            p.file_path ||
+            p.metadata?.fontUrl ||
+            p.metadata?.textStyle?.fontUrl ||
+            p.metadata?.textEffectConfig?.fontUrl ||
+            p.fabric_json?.fontUrl;
+          const family =
+            p.fabric_json?.fontFamily ||
+            p.metadata?.textStyle?.fontFamily ||
+            p.metadata?.textEffectConfig?.fontFamily;
+          const weight =
+            p.fabric_json?.fontWeight ||
+            p.metadata?.textStyle?.fontWeight ||
+            p.metadata?.textEffectConfig?.fontWeight ||
+            'normal';
+          const style =
+            p.fabric_json?.fontStyle ||
+            p.metadata?.textStyle?.fontStyle ||
+            'normal';
+
+          if (rawFontUrl && family) {
+            await loadCustomFont(family, rawFontUrl, weight, style);
+          }
+        });
+        await Promise.allSettled(fontPromises);
+        setFontsLoadedTick((t) => t + 1);
+        const fabric = canvasManager?.getCanvas();
+        if (fabric) {
+          fabric.getObjects().forEach((obj: any) => {
+            if (['textbox', 'text', 'itext'].includes(String(obj.type || '').toLowerCase())) {
+              obj.set({ dirty: true });
+              obj.initDimensions?.();
+            }
+          });
+          fabric.requestRenderAll();
+        }
       } catch (err) {
         console.error('Failed to load text presets', err);
         setPresets([]);
@@ -88,7 +271,58 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
       }
     };
     fetchData();
-  }, []);
+  }, [canvasManager]);
+
+  useEffect(() => {
+    if (presets.length === 0) return;
+    let isMounted = true;
+    const preload = async () => {
+      const promises = presets.map(async (p) => {
+        const rawFontUrl =
+          p.file_url ||
+          p.file_path ||
+          p.metadata?.fontUrl ||
+          p.metadata?.textStyle?.fontUrl ||
+          p.metadata?.textEffectConfig?.fontUrl ||
+          p.fabric_json?.fontUrl;
+        const family =
+          p.fabric_json?.fontFamily ||
+          p.metadata?.textStyle?.fontFamily ||
+          p.metadata?.textEffectConfig?.fontFamily;
+        const weight =
+          p.fabric_json?.fontWeight ||
+          p.metadata?.textStyle?.fontWeight ||
+          p.metadata?.textEffectConfig?.fontWeight ||
+          'normal';
+        const style =
+          p.fabric_json?.fontStyle ||
+          p.metadata?.textStyle?.fontStyle ||
+          'normal';
+
+        if (rawFontUrl && family) {
+          await loadCustomFont(family, rawFontUrl, weight, style);
+        }
+      });
+      await Promise.allSettled(promises);
+      if (isMounted) {
+        setFontsLoadedTick((t) => t + 1);
+        const fabric = canvasManager?.getCanvas();
+        if (fabric) {
+          fabric.getObjects().forEach((obj: any) => {
+            if (['textbox', 'text', 'itext'].includes(String(obj.type || '').toLowerCase())) {
+              obj.set({ dirty: true });
+              obj.initDimensions?.();
+            }
+          });
+          fabric.requestRenderAll();
+        }
+      }
+    };
+    void preload();
+    return () => {
+      isMounted = false;
+    };
+  }, [presets, canvasManager]);
 
   const addTextOnce = (options: Parameters<CanvasManager['addText']>[0]) => {
     if (!canvasManager) return;
@@ -135,17 +369,52 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
 
   const handleAddPreset = (asset: DesignAsset) => {
     const config = asset.fabric_json || {};
+    const textStyle = asset.metadata?.textStyle || asset.metadata?.textEffectConfig || {};
     const configuredPoints = Number(
-      config.fontSizePt || asset.metadata?.fontSizePt || 0
+      config.fontSizePt || asset.metadata?.fontSizePt || textStyle.fontSize || 0
     );
     const configuredWidth = Number(config.width) || Math.max(180, artworkWidth * 0.65);
+    const rawFontUrl =
+      asset.file_url ||
+      asset.file_path ||
+      asset.metadata?.fontUrl ||
+      textStyle.fontUrl ||
+      config.fontUrl;
+    const fontUrl = rawFontUrl
+      ? (getProxiedImageUrl(rawFontUrl) || formatImageUrl(rawFontUrl))
+      : undefined;
+
+    const family = config.fontFamily || textStyle.fontFamily || 'Inter';
+    if (fontUrl && family) {
+      void loadCustomFont(
+        family,
+        fontUrl,
+        config.fontWeight || textStyle.fontWeight || 'normal',
+        config.fontStyle || textStyle.fontStyle || 'normal'
+      );
+    }
 
     addTextOnce({
       ...config,
-      text: config.text || asset.name,
+      text: config.text || textStyle.defaultText || asset.name,
+      fontFamily: config.fontFamily || textStyle.fontFamily || 'Inter',
+      fontWeight: config.fontWeight || textStyle.fontWeight || 'normal',
+      fontStyle: config.fontStyle || textStyle.fontStyle || 'normal',
       width: configuredWidth,
       fontSizePt: configuredPoints > 0 ? configuredPoints : undefined,
-      textAlign: config.textAlign || 'center',
+      textAlign: config.textAlign || textStyle.textAlign || 'center',
+      fill: config.fill || textStyle.fill?.color || '#0f172a',
+      stroke: config.stroke || (textStyle.stroke?.enabled ? textStyle.stroke.color : undefined),
+      strokeWidth: config.strokeWidth ?? (textStyle.stroke?.enabled ? textStyle.stroke.width : undefined),
+      shadow: config.shadow || (textStyle.shadow?.enabled ? {
+        color: textStyle.shadow.color,
+        offsetX: textStyle.shadow.offsetX,
+        offsetY: textStyle.shadow.offsetY,
+        blur: textStyle.shadow.blur,
+      } : undefined),
+      charSpacing: config.charSpacing ?? textStyle.letterSpacing,
+      lineHeight: config.lineHeight ?? textStyle.lineHeight,
+      fontUrl,
       assetId: asset.id,
       provider: asset.provider || 'admin',
       sourceType: 'asset',
@@ -390,26 +659,43 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
           ) : filteredPresets.length === 0 ? (
             <EmptyState title="No Presets" />
           ) : (
-            filteredPresets.map((preset) => (
-              <button
-                key={preset.id}
-                onClick={() => handleAddPreset(preset)}
-                className="w-full text-left p-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-purple-50 hover:border-purple-300 transition shadow-2xs flex flex-col gap-1 relative overflow-hidden"
-              >
-                <span className="text-[9px] font-extrabold uppercase tracking-wider text-purple-600 bg-purple-100/80 px-2 py-0.5 rounded-md w-fit">
-                  {preset.category?.name || 'Text'}
-                </span>
-                <span
-                  className="text-lg font-extrabold transition-colors truncate mt-0.5"
-                  style={{
-                    fontFamily: preset.fabric_json?.fontFamily,
-                    color: preset.fabric_json?.fill,
-                  }}
+            filteredPresets.map((preset) => {
+              const previewStyle = getPresetTextStyle(preset);
+              const previewText =
+                preset.fabric_json?.text ||
+                preset.metadata?.textStyle?.defaultText ||
+                preset.metadata?.textEffectConfig?.defaultText ||
+                preset.name ||
+                'Sample Text';
+              const fontName =
+                preset.fabric_json?.fontFamily ||
+                preset.metadata?.textStyle?.fontFamily ||
+                preset.metadata?.textEffectConfig?.fontFamily ||
+                preset.name;
+
+              return (
+                <button
+                  key={preset.id}
+                  onClick={() => handleAddPreset(preset)}
+                  className="w-full text-left p-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-purple-50/70 hover:border-purple-300 transition shadow-2xs flex flex-col gap-1 relative overflow-hidden group"
                 >
-                  {preset.fabric_json?.text || preset.name}
-                </span>
-              </button>
-            ))
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-purple-600 bg-purple-100/80 px-2 py-0.5 rounded-md w-fit">
+                      {preset.category?.name || 'Standard Text Presets'}
+                    </span>
+                    <span className="text-[10px] text-gray-400 font-semibold truncate max-w-[130px]">
+                      {fontName}
+                    </span>
+                  </div>
+                  <span
+                    className="text-lg transition-colors truncate mt-0.5 block select-none"
+                    style={previewStyle}
+                  >
+                    {previewText}
+                  </span>
+                </button>
+              );
+            })
           )}
         </div>
       </div>

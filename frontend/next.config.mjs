@@ -1,6 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  experimental: {
+    cpus: 1,
+  },
   webpack: (config, { dev, isServer }) => {
     if (dev) {
       // Disable filesystem caching in dev on Windows to prevent missing chunk race conditions

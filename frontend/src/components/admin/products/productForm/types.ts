@@ -17,17 +17,52 @@ export interface AttributeValueItem {
   id: string;
   label: string;
   value: string;
+  description?: string;
+  is_default?: boolean;
+  is_active?: boolean;
   price_modifier_amount?: number;
   price_modifier_type?: 'fixed' | 'percentage' | 'multiplier';
+  priceModifiers?: Record<number, number>;
 }
 
 export interface AttributeItem {
   id: string;
   name: string;
   code: string;
-  type: 'select' | 'radio' | 'color' | 'custom_dimensions';
+  type: 'select' | 'radio' | 'color' | 'image_swatch' | 'custom_dimensions';
   is_required: boolean;
+  affects_price?: boolean;
+  depend_quantity?: boolean;
   values: AttributeValueItem[];
+}
+
+export type FoldingPricingMethod = 'per_order' | 'per_copy' | 'quantity_based';
+
+export interface FoldingPricingTier {
+  id?: string;
+  min_quantity: number;
+  max_quantity: number | '' | null;
+  charge: number;
+}
+
+export interface FoldingOptionConfig {
+  id?: string;
+  name?: string;
+  type?: string;
+  active: boolean;
+  is_active?: boolean;
+  is_default?: boolean;
+  pricing_method: FoldingPricingMethod;
+  charge?: number;
+  tiers?: FoldingPricingTier[];
+}
+
+export interface FoldingPricingConfig {
+  enabled: boolean;
+  pricing_method: FoldingPricingMethod;
+  additional_charge: number;
+  tiers: FoldingPricingTier[];
+  options: Record<string, FoldingOptionConfig> | FoldingOptionConfig[];
 }
 
 export interface VariantItem {
@@ -103,6 +138,7 @@ export interface ProductFormData {
   sale_price: number | '';
   cost_price: number | '';
   pricing_tiers: PricingTierItem[];
+  folding_pricing?: FoldingPricingConfig | null;
 
   // 7. Dynamic Sides & Physical Specifications
   sides_count: number;

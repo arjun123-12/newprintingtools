@@ -126,6 +126,18 @@ class StoreProductRequest extends FormRequest
             'sides.*.print_areas.*.height_mm' => ['nullable', 'numeric', 'min:0'],
             'sides.*.print_areas.*.bleed_mm' => ['nullable', 'numeric', 'min:0'],
             'sides.*.print_areas.*.safe_zone_mm' => ['nullable', 'numeric', 'min:0'],
+
+            // Folding Add-on Pricing
+            'folding_pricing' => ['nullable', 'array'],
+            'folding_pricing.enabled' => ['nullable', 'boolean'],
+            'folding_pricing.pricing_method' => ['nullable', 'string', 'in:per_order,per_copy,quantity_based'],
+            'folding_pricing.additional_charge' => ['nullable', 'numeric', 'min:0'],
+            'folding_pricing.tiers' => ['nullable', 'array'],
+            'folding_pricing.options' => ['nullable', 'array'],
+
+            // Attributes and Dynamic Pricing Matrix
+            'attributes' => ['nullable', 'array'],
+            'pricing_tiers' => ['nullable', 'array'],
         ];
     }
 }

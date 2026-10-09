@@ -17,6 +17,17 @@ export function Providers({ children }: { children: React.ReactNode }) {
       })
   );
 
+  React.useEffect(() => {
+    const handleWheel = () => {
+      const active = document.activeElement;
+      if (active && (active as HTMLInputElement).type === 'number') {
+        (active as HTMLElement).blur();
+      }
+    };
+    window.addEventListener('wheel', handleWheel, { passive: true });
+    return () => window.removeEventListener('wheel', handleWheel);
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>{children}</AuthProvider>

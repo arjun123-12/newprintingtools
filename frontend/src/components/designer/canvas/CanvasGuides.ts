@@ -309,19 +309,20 @@ export class CanvasGuides {
         const bottomBleedPx = mmToPx(this.printLayout.outerBleed.bottom, dpi);
         const leftBleedPx = mmToPx(this.printLayout.outerBleed.left, dpi);
 
+        const halfStroke = 0.75 / zoom;
         ctx.strokeRect(
-          bleedPx - leftBleedPx,
-          bleedPx - topBleedPx,
-          trimWidth + leftBleedPx + rightBleedPx,
-          trimHeight + topBleedPx + bottomBleedPx
+          bleedPx - leftBleedPx + halfStroke,
+          bleedPx - topBleedPx + halfStroke,
+          Math.max(trimWidth + leftBleedPx + rightBleedPx - 1.5 / zoom, 0),
+          Math.max(trimHeight + topBleedPx + bottomBleedPx - 1.5 / zoom, 0)
         );
       } else {
-        const halfPixel = 0.5 / zoom;
+        const halfStroke = 0.75 / zoom;
         ctx.strokeRect(
-          halfPixel,
-          halfPixel,
-          Math.max(artworkWidth - 1 / zoom, 0),
-          Math.max(artworkHeight - 1 / zoom, 0)
+          halfStroke,
+          halfStroke,
+          Math.max(artworkWidth - 1.5 / zoom, 0),
+          Math.max(artworkHeight - 1.5 / zoom, 0)
         );
       }
 
