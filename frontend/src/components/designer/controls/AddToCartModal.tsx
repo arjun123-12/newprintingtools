@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   X,
@@ -57,6 +57,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     perCardPrice?: number;
     isPrintingConfig?: boolean;
     configName?: string;
+    gsmCategoryName?: string;
   } | null>(null);
 
   const [loadingPrice, setLoadingPrice] = useState(false);
@@ -100,19 +101,49 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
 
   // Available quantities based on selected printing configuration
   const currentPrintingConfig = printingOptions.find((o) => o.id === printingSide) || printingOptions[0] || null;
+
+  // GSM categories for active printing side
+  const [selectedGsmCategoryId, setSelectedGsmCategoryId] = useState<string>('');
+
+  const availableGsmCategories = useMemo(() => {
+    if (!currentPrintingConfig?.gsm_categories) return [];
+    return currentPrintingConfig.gsm_categories.filter(
+      (g: any) => g.is_active !== false && g.active !== false
+    );
+  }, [currentPrintingConfig]);
+
+  useEffect(() => {
+    if (availableGsmCategories.length > 0) {
+      const exists = availableGsmCategories.some((g: any) => g.id === selectedGsmCategoryId);
+      if (!exists) {
+        const def = availableGsmCategories.find((g: any) => g.is_default) || availableGsmCategories[0];
+        setSelectedGsmCategoryId(def.id);
+      }
+    } else {
+      setSelectedGsmCategoryId('');
+    }
+  }, [availableGsmCategories, selectedGsmCategoryId]);
+
+  const currentGsmCategory = useMemo(() => {
+    if (availableGsmCategories.length === 0) return null;
+    return availableGsmCategories.find((g: any) => g.id === selectedGsmCategoryId) || availableGsmCategories[0] || null;
+  }, [availableGsmCategories, selectedGsmCategoryId]);
+
   const availableQuantities =
-    currentPrintingConfig?.tiers && currentPrintingConfig.tiers.length > 0
+    currentGsmCategory?.tiers && currentGsmCategory.tiers.length > 0
+      ? currentGsmCategory.tiers.map((t: any) => t.quantity)
+      : currentPrintingConfig?.tiers && currentPrintingConfig.tiers.length > 0
       ? currentPrintingConfig.tiers.map((t: any) => t.quantity)
       : QUANTITY_OPTIONS;
 
-  // When printing side changes, ensure quantity matches an available tier
+  // When printing side or GSM category changes, ensure quantity matches an available tier
   useEffect(() => {
     if (availableQuantities.length > 0 && !availableQuantities.includes(quantity)) {
       setQuantity(availableQuantities[0]);
     }
-  }, [printingSide, availableQuantities, quantity]);
+  }, [printingSide, selectedGsmCategoryId, availableQuantities, quantity]);
 
-  // Fetch dynamic price whenever quantity, paperStock, or printingSide changes
+  // Fetch dynamic price whenever quantity, paperStock, printingSide, or selectedGsmCategoryId changes
   useEffect(() => {
     if (!isOpen || !productId) return;
 
@@ -124,6 +155,9 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
         const selected_options: Record<string, any> = { paper_stock: paperStock };
         if (printingSide) {
           selected_options.printing_side_id = printingSide;
+        }
+        if (selectedGsmCategoryId) {
+          selected_options.gsm_category_id = selectedGsmCategoryId;
         }
 
         const response = await apiClient.post('/pricing/calculate', {
@@ -142,6 +176,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
             perCardPrice: d.printing_config_details?.per_card_price,
             isPrintingConfig: Boolean(d.printing_config_details?.enabled),
             configName: d.printing_config_details?.option_name,
+            gsmCategoryName: d.printing_config_details?.gsm_category_name,
           });
         }
       } catch (err: any) {
@@ -160,7 +195,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, productId, quantity, paperStock, printingSide]);
+  }, [isOpen, productId, quantity, paperStock, printingSide, selectedGsmCategoryId]);
 
   if (!isOpen) return null;
 
@@ -175,7 +210,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
 
     try {
       const selectedOpts: Record<string, any> = {
-        paper_stock: PAPER_STOCKS.find((p) => p.id === paperStock)?.label || paperStock,
+        paper_stock: currentGsmCategory?.name || PAPER_STOCKS.find((p) => p.id === paperStock)?.label || paperStock,
         artwork_name: artworkName,
       };
 
@@ -183,6 +218,13 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
         selectedOpts.printing_side_id = printingSide;
         if (currentPrintingConfig?.name) {
           selectedOpts.printing_side_name = currentPrintingConfig.name;
+        }
+      }
+
+      if (selectedGsmCategoryId) {
+        selectedOpts.gsm_category_id = selectedGsmCategoryId;
+        if (currentGsmCategory?.name) {
+          selectedOpts.gsm_category_name = currentGsmCategory.name;
         }
       }
 
@@ -320,6 +362,34 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
                 </div>
               )}
 
+              {/* GSM / Paper Stock Category (When side configuration has GSM categories) */}
+              {availableGsmCategories.length > 0 && (
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    GSM / Paper Stock
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {availableGsmCategories.map((gOpt: any) => (
+                      <button
+                        key={gOpt.id}
+                        type="button"
+                        onClick={() => setSelectedGsmCategoryId(gOpt.id)}
+                        className={`p-2.5 rounded-xl border text-left text-xs font-semibold transition flex items-center justify-between ${
+                          selectedGsmCategoryId === gOpt.id
+                            ? 'bg-indigo-50 border-indigo-500 text-indigo-900 ring-1 ring-indigo-500 shadow-2xs'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="truncate">{gOpt.name}</span>
+                        {selectedGsmCategoryId === gOpt.id && (
+                          <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Quantity Breaks */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
@@ -343,37 +413,49 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
                 </div>
               </div>
 
-              {/* Paper Stock */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Material & Paper Stock
-                </label>
-                <div className="space-y-1.5">
-                  {PAPER_STOCKS.map((stock) => (
-                    <label
-                      key={stock.id}
-                      className={`flex items-center gap-3 p-2.5 rounded-xl border text-xs cursor-pointer transition ${
-                        paperStock === stock.id
-                          ? 'bg-sky-50/70 border-sky-300 text-sky-900 font-semibold'
-                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="paper_stock"
-                        value={stock.id}
-                        checked={paperStock === stock.id}
-                        onChange={() => setPaperStock(stock.id)}
-                        className="text-sky-600 focus:ring-sky-500"
-                      />
-                      <span>{stock.label}</span>
-                    </label>
-                  ))}
+              {/* Generic Paper Stock (Only shown when product does NOT have configured GSM categories) */}
+              {availableGsmCategories.length === 0 && (
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Material & Paper Stock
+                  </label>
+                  <div className="space-y-1.5">
+                    {PAPER_STOCKS.map((stock) => (
+                      <label
+                        key={stock.id}
+                        className={`flex items-center gap-3 p-2.5 rounded-xl border text-xs cursor-pointer transition ${
+                          paperStock === stock.id
+                            ? 'bg-sky-50/70 border-sky-300 text-sky-900 font-semibold'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="paper_stock"
+                          value={stock.id}
+                          checked={paperStock === stock.id}
+                          onChange={() => setPaperStock(stock.id)}
+                          className="text-sky-600 focus:ring-sky-500"
+                        />
+                        <span>{stock.label}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Live Pricing Breakdown */}
               <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-3">
+                {pricing?.isPrintingConfig && pricing?.configName && (
+                  <div className="flex items-center justify-between text-[11px] text-sky-300 pb-2 border-b border-slate-800">
+                    <span className="font-semibold">Configuration:</span>
+                    <span className="font-bold text-white truncate max-w-[240px] text-right">
+                      {pricing.configName}
+                      {pricing.gsmCategoryName ? ` • ${pricing.gsmCategoryName}` : ''}
+                    </span>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between text-xs text-slate-400">
                   <span>{pricing?.isPrintingConfig ? 'Price Per Card:' : 'Unit Price:'}</span>
                   <span>

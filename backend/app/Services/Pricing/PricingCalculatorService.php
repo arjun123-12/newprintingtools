@@ -94,7 +94,76 @@ class PricingCalculatorService
                     throw new InvalidArgumentException("Selected printing configuration '{$optName}' is currently inactive.");
                 }
 
-                $tiers = $matchedOpt['tiers'] ?? [];
+                $gsmCategories = $matchedOpt['gsm_categories'] ?? [];
+                $matchedGsm = null;
+                $tiers = [];
+
+                if (!empty($gsmCategories) && is_array($gsmCategories)) {
+                    $selectedGsmKey = $selectedOptions['gsm_category_id']
+                        ?? $selectedOptions['gsm_category']
+                        ?? $selectedOptions['gsm']
+                        ?? $selectedOptions['paper_stock']
+                        ?? $selectedOptions['paper_weight']
+                        ?? $selectedOptions['material']
+                        ?? null;
+
+                    if ($selectedGsmKey) {
+                        $keyStr = (string) $selectedGsmKey;
+                        foreach ($gsmCategories as $gc) {
+                            $gcId = $gc['id'] ?? null;
+                            $gcName = $gc['name'] ?? null;
+                            $gcGsm = isset($gc['gsm']) ? (string) $gc['gsm'] : null;
+
+                            if ($gcId && (strcasecmp($gcId, $keyStr) === 0 || strcasecmp(str_replace(' ', '_', $gcId), str_replace(' ', '_', $keyStr)) === 0)) {
+                                $matchedGsm = $gc;
+                                break;
+                            }
+                            if ($gcName && (strcasecmp($gcName, $keyStr) === 0 || strcasecmp(str_replace(' ', '_', $gcName), str_replace(' ', '_', $keyStr)) === 0)) {
+                                $matchedGsm = $gc;
+                                break;
+                            }
+                            if ($gcGsm && (strcasecmp($gcGsm, $keyStr) === 0 || str_contains(strtolower($keyStr), strtolower($gcGsm)))) {
+                                $matchedGsm = $gc;
+                                break;
+                            }
+                        }
+                    }
+
+                    // If no explicit match, fallback to default active or first active GSM category
+                    if (!$matchedGsm) {
+                        foreach ($gsmCategories as $gc) {
+                            $isActive = isset($gc['is_active']) ? (bool) $gc['is_active'] : (isset($gc['active']) ? (bool) $gc['active'] : true);
+                            if ($isActive && !empty($gc['is_default'])) {
+                                $matchedGsm = $gc;
+                                break;
+                            }
+                        }
+                        if (!$matchedGsm) {
+                            foreach ($gsmCategories as $gc) {
+                                $isActive = isset($gc['is_active']) ? (bool) $gc['is_active'] : (isset($gc['active']) ? (bool) $gc['active'] : true);
+                                if ($isActive) {
+                                    $matchedGsm = $gc;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if ($matchedGsm) {
+                        $isGsmActive = isset($matchedGsm['is_active']) ? (bool) $matchedGsm['is_active'] : (isset($matchedGsm['active']) ? (bool) $matchedGsm['active'] : true);
+                        $gsmName = $matchedGsm['name'] ?? $matchedGsm['id'] ?? 'Selected GSM category';
+                        if (!$isGsmActive) {
+                            throw new InvalidArgumentException("Selected GSM category '{$gsmName}' is currently inactive.");
+                        }
+                        $tiers = $matchedGsm['tiers'] ?? [];
+                    }
+                }
+
+                // Fallback to matchedOpt['tiers'] for backwards compatibility
+                if (empty($tiers)) {
+                    $tiers = $matchedOpt['tiers'] ?? [];
+                }
+
                 $matchedTier = null;
                 $availableQuantities = [];
 
@@ -122,14 +191,18 @@ class PricingCalculatorService
                         'option_id' => $matchedOpt['id'] ?? null,
                         'option_name' => $optName,
                         'side_type' => $matchedOpt['side_type'] ?? null,
+                        'gsm_category_id' => $matchedGsm['id'] ?? null,
+                        'gsm_category_name' => $matchedGsm['name'] ?? null,
+                        'gsm' => $matchedGsm['gsm'] ?? null,
                         'quantity' => $quantity,
                         'fixed_total_price' => round($totalPrice, 2),
                         'per_card_price' => round($perCardPrice, 4),
                         'label' => $matchedTier['label'] ?? null,
                     ];
                 } else {
+                    $configLabel = $matchedGsm ? "{$optName} - " . ($matchedGsm['name'] ?? $matchedGsm['id']) : $optName;
                     $qtysMsg = !empty($availableQuantities) ? ' Configured quantities: ' . implode(', ', $availableQuantities) . '.' : '';
-                    throw new InvalidArgumentException("No configured fixed-total pricing tier found for quantity {$quantity} under configuration '{$optName}'.{$qtysMsg}");
+                    throw new InvalidArgumentException("No configured fixed-total pricing tier found for quantity {$quantity} under configuration '{$configLabel}'.{$qtysMsg}");
                 }
             }
         }
@@ -178,6 +251,11 @@ class PricingCalculatorService
         // 2. Add Attribute Modifiers (Paper stock, Finishes, etc.)
         if ($product && $product->attributes && $product->attributes->isNotEmpty()) {
             foreach ($product->attributes as $attr) {
+                // If authoritative GSM tier pricing was applied, do not double-charge paper stock attribute modifier
+                if ($isPrintingConfigApplied && !empty($printingConfigDetails['gsm_category_id']) && in_array(strtolower((string) $attr->code), ['paper_stock', 'gsm', 'material', 'paper_weight'])) {
+                    continue;
+                }
+
                 $chosenVal = $selectedOptions[$attr->code] ?? $selectedOptions[$attr->name] ?? null;
                 if ($chosenVal && $attr->values) {
                     $matchedVal = $attr->values->firstWhere('value', $chosenVal)

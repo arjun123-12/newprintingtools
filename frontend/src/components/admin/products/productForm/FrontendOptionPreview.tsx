@@ -70,13 +70,45 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
     );
   }, [availablePrintingOptions, selectedPrintingSide]);
 
+  // Determine available GSM categories for the active side
+  const [selectedGsmCategory, setSelectedGsmCategory] = useState<string>('');
+
+  const availableGsmCategories = useMemo(() => {
+    if (!activePrintingConfig?.gsm_categories) return [];
+    return activePrintingConfig.gsm_categories.filter((g) => g.is_active !== false && g.active !== false);
+  }, [activePrintingConfig]);
+
+  React.useEffect(() => {
+    if (availableGsmCategories.length > 0) {
+      const exists = availableGsmCategories.some((g) => g.id === selectedGsmCategory);
+      if (!exists) {
+        const def = availableGsmCategories.find((g) => g.is_default) || availableGsmCategories[0];
+        setSelectedGsmCategory(def.id);
+      }
+    }
+  }, [availableGsmCategories, selectedGsmCategory]);
+
+  const activeGsmCategory = useMemo(() => {
+    if (availableGsmCategories.length === 0) return null;
+    return (
+      availableGsmCategories.find((g) => g.id === selectedGsmCategory) ||
+      availableGsmCategories[0] ||
+      null
+    );
+  }, [availableGsmCategories, selectedGsmCategory]);
+
   // Quantity options (configured fixed-total tiers when printing pricing is active)
   const activeQuantityOptions = useMemo(() => {
-    if (isPrintingActive && activePrintingConfig?.tiers && activePrintingConfig.tiers.length > 0) {
-      return activePrintingConfig.tiers.map((t) => t.quantity);
+    if (isPrintingActive) {
+      if (activeGsmCategory?.tiers && activeGsmCategory.tiers.length > 0) {
+        return activeGsmCategory.tiers.map((t) => t.quantity);
+      }
+      if (activePrintingConfig?.tiers && activePrintingConfig.tiers.length > 0) {
+        return activePrintingConfig.tiers.map((t) => t.quantity);
+      }
     }
     return quantityBreaks;
-  }, [isPrintingActive, activePrintingConfig, quantityBreaks]);
+  }, [isPrintingActive, activeGsmCategory, activePrintingConfig, quantityBreaks]);
 
   React.useEffect(() => {
     if (activeQuantityOptions.length > 0 && !activeQuantityOptions.includes(selectedQty)) {
@@ -134,6 +166,14 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
         return; // Handled by folding add-on pricing engine
       }
 
+      if (
+        isPrintingActive &&
+        activeGsmCategory &&
+        ['paper_stock', 'gsm', 'material', 'paper_weight'].includes(attr.code.toLowerCase())
+      ) {
+        return; // Handled authoritatively by GSM category tier
+      }
+
       const activeVals = attr.values.filter((v) => v.is_active !== false);
       const selectedValCode = selectedOptions[attr.code] || activeVals[0]?.value;
       const valObj = activeVals.find((v) => v.value === selectedValCode);
@@ -152,8 +192,9 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
     let baseUnitPrice = 0;
     let isFixedTierMatch = false;
 
-    if (isPrintingActive && activePrintingConfig) {
-      const matchedTier = (activePrintingConfig.tiers || []).find((t) => t.quantity === selectedQty);
+    if (isPrintingActive) {
+      const tiersToUse = activeGsmCategory?.tiers || activePrintingConfig?.tiers || [];
+      const matchedTier = tiersToUse.find((t) => t.quantity === selectedQty);
       if (matchedTier) {
         basePrintingTotal = Number(matchedTier.total_price);
         baseUnitPrice = selectedQty > 0 ? basePrintingTotal / selectedQty : 0;
@@ -237,6 +278,7 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
     selectedFolding,
     isPrintingActive,
     activePrintingConfig,
+    activeGsmCategory,
   ]);
 
   // Non-folding attributes for standard list display
@@ -302,6 +344,46 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
                     <span className="truncate">{opt.name}</span>
                   </div>
                   {opt.is_default && !isSelected && (
+                    <span className="text-[10px] text-amber-600 font-normal">Default</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ─── GSM CATEGORY SELECTOR (When active printing side has GSM categories) ─── */}
+      {isPrintingActive && availableGsmCategories.length > 0 && (
+        <div className="space-y-1.5 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-950">
+              GSM / Paper Stock
+            </span>
+            <span className="text-[10px] font-semibold text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200">
+              Authoritative
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-1">
+            {availableGsmCategories.map((gOpt) => {
+              const isGsmSelected = selectedGsmCategory === gOpt.id;
+              return (
+                <button
+                  key={gOpt.id}
+                  type="button"
+                  onClick={() => setSelectedGsmCategory(gOpt.id)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all text-left flex items-center justify-between ${
+                    isGsmSelected
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 truncate">
+                    {isGsmSelected && <Check className="w-3 h-3 text-white shrink-0" />}
+                    <span className="truncate">{gOpt.name}</span>
+                  </div>
+                  {gOpt.is_default && !isGsmSelected && (
                     <span className="text-[10px] text-amber-600 font-normal">Default</span>
                   )}
                 </button>

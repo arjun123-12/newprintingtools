@@ -439,4 +439,220 @@ class PrintingConfigurationPricingTest extends TestCase
         $this->assertEquals(50.00, $res['base_printing_subtotal_ex_gst']);
         $this->assertNull($res['printing_config_details']);
     }
+
+    /**
+     * Test 10: Pricing calculator calculates exact total price for Side + GSM category.
+     */
+    public function test_pricing_calculator_with_side_and_gsm_category(): void
+    {
+        $product = Product::create([
+            'name' => 'Cards with Side and GSM Tiers ' . uniqid(),
+            'slug' => 'cards-side-gsm-' . uniqid(),
+            'category_id' => $this->category->id,
+            'sku' => 'SKU-' . uniqid(),
+            'product_type' => 'standard_print',
+            'base_price' => 49.99,
+            'printing_pricing' => [
+                'enabled' => true,
+                'options' => [
+                    [
+                        'id' => 'front_only',
+                        'name' => 'Single-Sided (Front Only)',
+                        'side_type' => 'front_only',
+                        'is_active' => true,
+                        'is_default' => true,
+                        'gsm_categories' => [
+                            [
+                                'id' => '350_silk',
+                                'name' => '350 GSM Silk Coated',
+                                'gsm' => 350,
+                                'is_active' => true,
+                                'is_default' => true,
+                                'tiers' => [
+                                    ['quantity' => 100, 'total_price' => 25.00, 'per_card_price' => 0.25],
+                                    ['quantity' => 250, 'total_price' => 40.00, 'per_card_price' => 0.16],
+                                ],
+                            ],
+                            [
+                                'id' => '450_heavy',
+                                'name' => '450 GSM Heavyweight Card',
+                                'gsm' => 450,
+                                'is_active' => true,
+                                'is_default' => false,
+                                'tiers' => [
+                                    ['quantity' => 100, 'total_price' => 35.00, 'per_card_price' => 0.35],
+                                    ['quantity' => 250, 'total_price' => 55.00, 'per_card_price' => 0.22],
+                                ],
+                            ],
+                        ],
+                    ],
+                    [
+                        'id' => 'front_back',
+                        'name' => 'Double-Sided (Front & Back)',
+                        'side_type' => 'front_back',
+                        'is_active' => true,
+                        'is_default' => false,
+                        'gsm_categories' => [
+                            [
+                                'id' => '350_silk',
+                                'name' => '350 GSM Silk Coated',
+                                'gsm' => 350,
+                                'is_active' => true,
+                                'is_default' => true,
+                                'tiers' => [
+                                    ['quantity' => 100, 'total_price' => 35.00, 'per_card_price' => 0.35],
+                                    ['quantity' => 250, 'total_price' => 55.00, 'per_card_price' => 0.22],
+                                ],
+                            ],
+                            [
+                                'id' => '450_heavy',
+                                'name' => '450 GSM Heavyweight Card',
+                                'gsm' => 450,
+                                'is_active' => true,
+                                'is_default' => false,
+                                'tiers' => [
+                                    ['quantity' => 100, 'total_price' => 48.00, 'per_card_price' => 0.48],
+                                    ['quantity' => 250, 'total_price' => 75.00, 'per_card_price' => 0.30],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $calculator = new PricingCalculatorService();
+
+        // 1. Single Sided + 350 GSM @ 100 cards => $25.00
+        $res1 = $calculator->calculate($product, 100, [
+            'printing_side_id' => 'front_only',
+            'gsm_category_id' => '350_silk',
+        ]);
+        $this->assertEquals(25.00, $res1['base_printing_subtotal_ex_gst']);
+        $this->assertEquals('Single-Sided (Front Only)', $res1['printing_config_details']['option_name']);
+        $this->assertEquals('350 GSM Silk Coated', $res1['printing_config_details']['gsm_category_name']);
+
+        // 2. Single Sided + 450 GSM @ 100 cards => $35.00
+        $res2 = $calculator->calculate($product, 100, [
+            'printing_side_id' => 'front_only',
+            'gsm_category_id' => '450_heavy',
+        ]);
+        $this->assertEquals(35.00, $res2['base_printing_subtotal_ex_gst']);
+        $this->assertEquals('450 GSM Heavyweight Card', $res2['printing_config_details']['gsm_category_name']);
+
+        // 3. Double Sided + 450 GSM @ 250 cards => $75.00
+        $res3 = $calculator->calculate($product, 250, [
+            'printing_side_id' => 'front_back',
+            'gsm_category_id' => '450_heavy',
+        ]);
+        $this->assertEquals(75.00, $res3['base_printing_subtotal_ex_gst']);
+        $this->assertEquals('Double-Sided (Front & Back)', $res3['printing_config_details']['option_name']);
+        $this->assertEquals('450 GSM Heavyweight Card', $res3['printing_config_details']['gsm_category_name']);
+    }
+
+    /**
+     * Test 11: When GSM category is not explicitly passed, falls back to default GSM category.
+     */
+    public function test_pricing_calculator_falls_back_to_default_gsm_when_gsm_unspecified(): void
+    {
+        $product = Product::create([
+            'name' => 'Cards Default GSM Fallback ' . uniqid(),
+            'slug' => 'cards-default-gsm-' . uniqid(),
+            'category_id' => $this->category->id,
+            'sku' => 'SKU-' . uniqid(),
+            'product_type' => 'standard_print',
+            'base_price' => 49.99,
+            'printing_pricing' => [
+                'enabled' => true,
+                'options' => [
+                    [
+                        'id' => 'front_only',
+                        'name' => 'Single-Sided (Front Only)',
+                        'side_type' => 'front_only',
+                        'is_active' => true,
+                        'is_default' => true,
+                        'gsm_categories' => [
+                            [
+                                'id' => '350_silk',
+                                'name' => '350 GSM Silk Coated',
+                                'gsm' => 350,
+                                'is_active' => true,
+                                'is_default' => true,
+                                'tiers' => [
+                                    ['quantity' => 100, 'total_price' => 25.00, 'per_card_price' => 0.25],
+                                ],
+                            ],
+                            [
+                                'id' => '450_heavy',
+                                'name' => '450 GSM Heavyweight Card',
+                                'gsm' => 450,
+                                'is_active' => true,
+                                'is_default' => false,
+                                'tiers' => [
+                                    ['quantity' => 100, 'total_price' => 35.00, 'per_card_price' => 0.35],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $calculator = new PricingCalculatorService();
+        $res = $calculator->calculate($product, 100, [
+            'printing_side_id' => 'front_only',
+            // No gsm_category_id specified
+        ]);
+
+        $this->assertEquals(25.00, $res['base_printing_subtotal_ex_gst']);
+        $this->assertEquals('350 GSM Silk Coated', $res['printing_config_details']['gsm_category_name']);
+    }
+
+    /**
+     * Test 12: Inactive GSM category is rejected with InvalidArgumentException.
+     */
+    public function test_inactive_gsm_category_rejected(): void
+    {
+        $product = Product::create([
+            'name' => 'Cards Inactive GSM ' . uniqid(),
+            'slug' => 'cards-inactive-gsm-' . uniqid(),
+            'category_id' => $this->category->id,
+            'sku' => 'SKU-' . uniqid(),
+            'product_type' => 'standard_print',
+            'base_price' => 49.99,
+            'printing_pricing' => [
+                'enabled' => true,
+                'options' => [
+                    [
+                        'id' => 'front_only',
+                        'name' => 'Single-Sided (Front Only)',
+                        'side_type' => 'front_only',
+                        'is_active' => true,
+                        'is_default' => true,
+                        'gsm_categories' => [
+                            [
+                                'id' => '300_linen',
+                                'name' => '300 GSM Textured Linen',
+                                'is_active' => false,
+                                'is_default' => false,
+                                'tiers' => [
+                                    ['quantity' => 100, 'total_price' => 30.00, 'per_card_price' => 0.30],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $calculator = new PricingCalculatorService();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage("Selected GSM category '300 GSM Textured Linen' is currently inactive.");
+
+        $calculator->calculate($product, 100, [
+            'printing_side_id' => 'front_only',
+            'gsm_category_id' => '300_linen',
+        ]);
+    }
 }

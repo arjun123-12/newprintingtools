@@ -13,6 +13,7 @@ import {
   PrintingPricingConfig,
   PrintingSideConfig,
   PrintingPricingTier,
+  PrintingGsmCategoryConfig,
 } from './types';
 import {
   Plus,
@@ -312,6 +313,14 @@ export const STANDARD_PRINTING_SIDE_PRESETS = [
   { value: 'custom', label: 'Custom Side / Page Option', sideType: 'custom' },
 ];
 
+export const STANDARD_GSM_PRESETS = [
+  { value: '350_silk', gsm: 350, label: '350 GSM Silk Coated', defaultTierMultiplier: 1.0 },
+  { value: '450_heavy', gsm: 450, label: '450 GSM Heavyweight Card', defaultTierMultiplier: 1.35 },
+  { value: '300_linen', gsm: 300, label: '300 GSM Textured Linen', defaultTierMultiplier: 1.2 },
+  { value: '400_gloss', gsm: 400, label: '400 GSM High Gloss Artboard', defaultTierMultiplier: 1.15 },
+  { value: 'custom', gsm: '', label: 'Custom GSM Category', defaultTierMultiplier: 1.0 },
+];
+
 /**
  * Returns fresh instances of default single-sided fixed total tiers.
  */
@@ -332,6 +341,58 @@ export const createDefaultPrintingDoubleTiers = (): PrintingPricingTier[] => [
   { id: `ptier_${Date.now()}_8`, quantity: 1000, total_price: 135.00, per_card_price: 0.135, label: 'Best Value' },
 ];
 
+export const createDefaultSingleGsmCategories = (): PrintingGsmCategoryConfig[] => [
+  {
+    id: '350_silk',
+    name: '350 GSM Silk Coated',
+    gsm: 350,
+    is_active: true,
+    active: true,
+    is_default: true,
+    tiers: createDefaultPrintingSingleTiers(),
+  },
+  {
+    id: '450_heavy',
+    name: '450 GSM Heavyweight Card',
+    gsm: 450,
+    is_active: true,
+    active: true,
+    is_default: false,
+    tiers: [
+      { id: `ptier_${Date.now()}_11`, quantity: 100, total_price: 35.00, per_card_price: 0.35, label: 'Starter' },
+      { id: `ptier_${Date.now()}_12`, quantity: 250, total_price: 55.00, per_card_price: 0.22, label: 'Standard' },
+      { id: `ptier_${Date.now()}_13`, quantity: 500, total_price: 80.00, per_card_price: 0.16, label: 'Popular' },
+      { id: `ptier_${Date.now()}_14`, quantity: 1000, total_price: 130.00, per_card_price: 0.13, label: 'Best Value' },
+    ],
+  },
+];
+
+export const createDefaultDoubleGsmCategories = (): PrintingGsmCategoryConfig[] => [
+  {
+    id: '350_silk',
+    name: '350 GSM Silk Coated',
+    gsm: 350,
+    is_active: true,
+    active: true,
+    is_default: true,
+    tiers: createDefaultPrintingDoubleTiers(),
+  },
+  {
+    id: '450_heavy',
+    name: '450 GSM Heavyweight Card',
+    gsm: 450,
+    is_active: true,
+    active: true,
+    is_default: false,
+    tiers: [
+      { id: `ptier_${Date.now()}_21`, quantity: 100, total_price: 48.00, per_card_price: 0.48, label: 'Starter' },
+      { id: `ptier_${Date.now()}_22`, quantity: 250, total_price: 75.00, per_card_price: 0.30, label: 'Standard' },
+      { id: `ptier_${Date.now()}_23`, quantity: 500, total_price: 115.00, per_card_price: 0.23, label: 'Popular' },
+      { id: `ptier_${Date.now()}_24`, quantity: 1000, total_price: 180.00, per_card_price: 0.18, label: 'Best Value' },
+    ],
+  },
+];
+
 export const createInitialPrintingOptions = (): PrintingSideConfig[] => [
   {
     id: 'front_only',
@@ -340,6 +401,7 @@ export const createInitialPrintingOptions = (): PrintingSideConfig[] => [
     is_active: true,
     active: true,
     is_default: true,
+    gsm_categories: createDefaultSingleGsmCategories(),
     tiers: createDefaultPrintingSingleTiers(),
   },
   {
@@ -349,13 +411,95 @@ export const createInitialPrintingOptions = (): PrintingSideConfig[] => [
     is_active: true,
     active: true,
     is_default: false,
+    gsm_categories: createDefaultDoubleGsmCategories(),
     tiers: createDefaultPrintingDoubleTiers(),
   },
 ];
 
+function normalizeTiersList(rawTiers: any[] | undefined): PrintingPricingTier[] {
+  if (!Array.isArray(rawTiers)) return [];
+  return rawTiers.map((t) => {
+    const qty = Number(t.quantity) || 100;
+    const total = Number(t.total_price) || 0;
+    return {
+      ...t,
+      id: t.id || `ptier_${Date.now()}_${Math.random()}`,
+      quantity: qty,
+      total_price: total,
+      per_card_price: qty > 0 ? total / qty : 0,
+      label: t.label || '',
+    };
+  });
+}
+
+function normalizeGsmCategoriesList(
+  rawGsm: any[] | undefined,
+  sideType: string | undefined,
+  fallbackTiers: any[] | undefined
+): PrintingGsmCategoryConfig[] {
+  let list: PrintingGsmCategoryConfig[] = [];
+
+  if (Array.isArray(rawGsm) && rawGsm.length > 0) {
+    list = rawGsm.map((gc, gcIdx) => {
+      const isAct = gc.is_active !== false && gc.active !== false;
+      return {
+        ...gc,
+        id: gc.id || `gsm_${gcIdx}`,
+        name: gc.name || `GSM Category ${gcIdx + 1}`,
+        gsm: gc.gsm ?? '',
+        is_active: isAct,
+        active: isAct,
+        is_default: Boolean(gc.is_default),
+        tiers: normalizeTiersList(gc.tiers),
+      };
+    });
+  } else if (Array.isArray(fallbackTiers) && fallbackTiers.length > 0) {
+    // Backwards compatibility for legacy options with tiers directly on side
+    list = [
+      {
+        id: '350_silk',
+        name: '350 GSM Silk Coated',
+        gsm: 350,
+        is_active: true,
+        active: true,
+        is_default: true,
+        tiers: normalizeTiersList(fallbackTiers),
+      },
+    ];
+  } else {
+    list = sideType === 'front_back'
+      ? createDefaultDoubleGsmCategories()
+      : createDefaultSingleGsmCategories();
+  }
+
+  // Ensure only one default GSM category exists
+  let defaultFound = false;
+  list = list.map((gc) => {
+    if (gc.is_default) {
+      if (!defaultFound && gc.is_active) {
+        defaultFound = true;
+        return gc;
+      }
+      return { ...gc, is_default: false };
+    }
+    return gc;
+  });
+
+  if (!defaultFound && list.length > 0) {
+    const firstActiveIdx = list.findIndex((gc) => gc.is_active);
+    if (firstActiveIdx !== -1) {
+      list[firstActiveIdx] = { ...list[firstActiveIdx], is_default: true };
+    } else {
+      list[0] = { ...list[0], is_default: true };
+    }
+  }
+
+  return list;
+}
+
 /**
  * Normalizes printing configuration options.
- * Guarantees active/is_active consistency and strictly one default option.
+ * Guarantees active/is_active consistency, GSM categories normalization, and strictly one default option.
  */
 export function normalizePrintingOptions(
   raw: PrintingSideConfig[] | Record<string, PrintingSideConfig> | undefined
@@ -363,61 +507,28 @@ export function normalizePrintingOptions(
   if (!raw) return [];
   let list: PrintingSideConfig[] = [];
 
-  if (Array.isArray(raw)) {
-    list = raw.map((opt, idx) => {
-      const isAct = opt.is_active !== false && opt.active !== false;
-      return {
-        ...opt,
-        id: opt.id || `print_opt_${idx}`,
-        name: opt.name || `Option ${idx + 1}`,
-        side_type: opt.side_type || 'custom',
-        is_active: isAct,
-        active: isAct,
-        is_default: Boolean(opt.is_default),
-        tiers: Array.isArray(opt.tiers)
-          ? opt.tiers.map((t) => {
-              const qty = Number(t.quantity) || 100;
-              const total = Number(t.total_price) || 0;
-              return {
-                ...t,
-                id: t.id || `ptier_${Date.now()}_${Math.random()}`,
-                quantity: qty,
-                total_price: total,
-                per_card_price: qty > 0 ? total / qty : 0,
-                label: t.label || '',
-              };
-            })
-          : [],
-      };
-    });
-  } else {
-    list = Object.entries(raw).map(([key, opt], idx) => {
-      const isAct = opt.is_active !== false && opt.active !== false;
-      return {
-        ...opt,
-        id: opt.id || key,
-        name: opt.name || key,
-        side_type: opt.side_type || 'custom',
-        is_active: isAct,
-        active: isAct,
-        is_default: Boolean(opt.is_default),
-        tiers: Array.isArray(opt.tiers)
-          ? opt.tiers.map((t) => {
-              const qty = Number(t.quantity) || 100;
-              const total = Number(t.total_price) || 0;
-              return {
-                ...t,
-                id: t.id || `ptier_${Date.now()}_${Math.random()}`,
-                quantity: qty,
-                total_price: total,
-                per_card_price: qty > 0 ? total / qty : 0,
-                label: t.label || '',
-              };
-            })
-          : [],
-      };
-    });
-  }
+  const rawList: any[] = Array.isArray(raw)
+    ? raw
+    : Object.entries(raw).map(([key, opt]) => ({ ...opt, id: (opt as any)?.id || key }));
+
+  list = rawList.map((opt, idx) => {
+    const isAct = opt.is_active !== false && opt.active !== false;
+    const gsmCats = normalizeGsmCategoriesList(opt.gsm_categories, opt.side_type, opt.tiers);
+    const defGsm = gsmCats.find((g) => g.is_default) || gsmCats[0];
+    const syncedTiers = defGsm?.tiers || normalizeTiersList(opt.tiers);
+
+    return {
+      ...opt,
+      id: opt.id || `print_opt_${idx}`,
+      name: opt.name || `Option ${idx + 1}`,
+      side_type: opt.side_type || 'custom',
+      is_active: isAct,
+      active: isAct,
+      is_default: Boolean(opt.is_default),
+      gsm_categories: gsmCats,
+      tiers: syncedTiers,
+    };
+  });
 
   // Ensure only one default exists among active options
   let defaultFound = false;
@@ -492,6 +603,12 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
   const [newPrintingOptionSideType, setNewPrintingOptionSideType] = useState<string>('front_only');
   const [newPrintingOptionIsDefault, setNewPrintingOptionIsDefault] = useState<boolean>(false);
   const [newPrintingOptionError, setNewPrintingOptionError] = useState<string>('');
+  const [activeGsmCategoryId, setActiveGsmCategoryId] = useState<string>('');
+  const [isAddingGsmCategory, setIsAddingGsmCategory] = useState<boolean>(false);
+  const [newGsmCategoryName, setNewGsmCategoryName] = useState<string>('350 GSM Silk Coated');
+  const [newGsmCategoryPreset, setNewGsmCategoryPreset] = useState<string>('350_silk');
+  const [newGsmCategoryIsDefault, setNewGsmCategoryIsDefault] = useState<boolean>(false);
+  const [newGsmCategoryError, setNewGsmCategoryError] = useState<string>('');
   const [selectedSummaryQty, setSelectedSummaryQty] = useState<number | null>(null);
 
   const rawPrintingPricing = formData.printing_pricing;
@@ -518,6 +635,31 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
   const activePrintingOption = useMemo(() => {
     return configuredPrintingOptions.find((o) => o.id === activePrintingOptionId) || configuredPrintingOptions[0] || null;
   }, [configuredPrintingOptions, activePrintingOptionId]);
+
+  const activeGsmCategory = useMemo(() => {
+    if (!activePrintingOption || !activePrintingOption.gsm_categories || activePrintingOption.gsm_categories.length === 0) {
+      return null;
+    }
+    return (
+      activePrintingOption.gsm_categories.find((g) => g.id === activeGsmCategoryId) ||
+      activePrintingOption.gsm_categories.find((g) => g.is_default && g.is_active) ||
+      activePrintingOption.gsm_categories[0] ||
+      null
+    );
+  }, [activePrintingOption, activeGsmCategoryId]);
+
+  // Synchronize active GSM category ID when activePrintingOption changes
+  React.useEffect(() => {
+    if (activePrintingOption && activePrintingOption.gsm_categories && activePrintingOption.gsm_categories.length > 0) {
+      const exists = activePrintingOption.gsm_categories.some((g) => g.id === activeGsmCategoryId);
+      if (!exists) {
+        const def =
+          activePrintingOption.gsm_categories.find((g) => g.is_default && g.is_active) ||
+          activePrintingOption.gsm_categories[0];
+        setActiveGsmCategoryId(def.id);
+      }
+    }
+  }, [activePrintingOption, activeGsmCategoryId]);
 
   const updatePrintingConfig = (
     updater: (prevOptions: PrintingSideConfig[]) => {
@@ -576,10 +718,12 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
     }
 
     const newId = `${newPrintingOptionSideType}_${Date.now()}`;
-    const defaultTiers =
+    const defaultGsmCats =
       newPrintingOptionSideType === 'front_back'
-        ? createDefaultPrintingDoubleTiers()
-        : createDefaultPrintingSingleTiers();
+        ? createDefaultDoubleGsmCategories()
+        : createDefaultSingleGsmCategories();
+
+    const defGsm = defaultGsmCats.find((g) => g.is_default) || defaultGsmCats[0];
 
     const newOpt: PrintingSideConfig = {
       id: newId,
@@ -588,7 +732,8 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
       is_active: true,
       active: true,
       is_default: newPrintingOptionIsDefault,
-      tiers: defaultTiers,
+      gsm_categories: defaultGsmCats,
+      tiers: defGsm?.tiers || [],
     };
 
     updatePrintingConfig((prev) => {
@@ -600,6 +745,7 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
     });
 
     setActivePrintingOptionId(newId);
+    setActiveGsmCategoryId(defGsm?.id || '');
     setIsAddingPrintingOption(false);
     setNewPrintingOptionName('Single-Sided (Front Only)');
     setNewPrintingOptionIsDefault(false);
@@ -614,9 +760,11 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
       return;
     }
 
-    const hasTiers = target.tiers && target.tiers.length > 0;
+    const hasTiers =
+      (target.tiers && target.tiers.length > 0) ||
+      (target.gsm_categories && target.gsm_categories.length > 0);
     const confirmMsg = hasTiers
-      ? `Are you sure you want to delete "${target.name}"? Its ${target.tiers.length} configured quantity tiers will be removed.`
+      ? `Are you sure you want to delete "${target.name}"? Its configured GSM categories and quantity tiers will be removed.`
       : `Are you sure you want to delete "${target.name}"?`;
 
     if (!window.confirm(confirmMsg)) return;
@@ -670,9 +818,146 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
     });
   };
 
-  const handleAddPrintingTier = () => {
+  const updateActiveGsmCategory = (patch: Partial<PrintingGsmCategoryConfig>) => {
+    if (!activePrintingOption || !activeGsmCategory) return;
+
+    const gsmCats = [...(activePrintingOption.gsm_categories || [])];
+    const updated = gsmCats.map((g) => {
+      if (g.id === activeGsmCategory.id) {
+        const nextGsm = { ...g, ...patch };
+        if (patch.is_active !== undefined) {
+          nextGsm.active = patch.is_active;
+        }
+        return nextGsm;
+      }
+      if (patch.is_default) {
+        return { ...g, is_default: false };
+      }
+      return g;
+    });
+
+    // If active GSM was deactivated and was default, promote another active GSM to default
+    if (patch.is_active === false && activeGsmCategory.is_default) {
+      const nextActive = updated.find((g) => g.is_active && g.id !== activeGsmCategory.id);
+      if (nextActive) {
+        nextActive.is_default = true;
+        const curr = updated.find((g) => g.id === activeGsmCategory.id);
+        if (curr) curr.is_default = false;
+      }
+    }
+
+    const defGsm = updated.find((g) => g.is_default) || updated[0];
+    const syncedTiers = defGsm?.tiers || [];
+
+    updateActivePrintingOption({
+      gsm_categories: updated,
+      tiers: syncedTiers,
+    });
+  };
+
+  const handleCreateGsmCategory = () => {
+    setNewGsmCategoryError('');
     if (!activePrintingOption) return;
-    const currentTiers = activePrintingOption.tiers || [];
+
+    const trimmedName = newGsmCategoryName.trim();
+    if (!trimmedName) {
+      setNewGsmCategoryError('Please enter a name for the GSM category.');
+      return;
+    }
+
+    const existing = activePrintingOption.gsm_categories || [];
+    const isDuplicate = existing.some(
+      (g) => (g.name || '').trim().toLowerCase() === trimmedName.toLowerCase()
+    );
+    if (isDuplicate) {
+      setNewGsmCategoryError(`A GSM category with name "${trimmedName}" already exists for this printing side.`);
+      return;
+    }
+
+    const newId = `gsm_${Date.now()}`;
+    const preset = STANDARD_GSM_PRESETS.find((p) => p.value === newGsmCategoryPreset);
+    const multiplier = preset?.defaultTierMultiplier || 1.0;
+
+    const baseTiers =
+      activePrintingOption.side_type === 'front_back'
+        ? createDefaultPrintingDoubleTiers()
+        : createDefaultPrintingSingleTiers();
+
+    const seededTiers = baseTiers.map((t, idx) => {
+      const newTotal = parseFloat((t.total_price * multiplier).toFixed(2));
+      return {
+        ...t,
+        id: `ptier_${Date.now()}_${idx}`,
+        total_price: newTotal,
+        per_card_price: t.quantity > 0 ? newTotal / t.quantity : 0,
+      };
+    });
+
+    const newGsm: PrintingGsmCategoryConfig = {
+      id: newId,
+      name: trimmedName,
+      gsm: preset?.gsm || '',
+      is_active: true,
+      active: true,
+      is_default: newGsmCategoryIsDefault,
+      tiers: seededTiers,
+    };
+
+    let updatedList = [...existing];
+    if (newGsmCategoryIsDefault) {
+      updatedList = updatedList.map((g) => ({ ...g, is_default: false }));
+    }
+    updatedList.push(newGsm);
+
+    const defGsm = updatedList.find((g) => g.is_default) || updatedList[0];
+    updateActivePrintingOption({
+      gsm_categories: updatedList,
+      tiers: defGsm?.tiers || [],
+    });
+
+    setActiveGsmCategoryId(newId);
+    setIsAddingGsmCategory(false);
+    setNewGsmCategoryName('350 GSM Silk Coated');
+    setNewGsmCategoryPreset('350_silk');
+    setNewGsmCategoryIsDefault(false);
+  };
+
+  const handleDeleteGsmCategory = (gsmId: string) => {
+    if (!activePrintingOption) return;
+    const existing = activePrintingOption.gsm_categories || [];
+    const target = existing.find((g) => g.id === gsmId);
+    if (!target) return;
+
+    if (existing.length <= 1) {
+      alert('At least one GSM category must remain configured for this printing side.');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete GSM category "${target.name}"?`)) {
+      return;
+    }
+
+    const remaining = existing.filter((g) => g.id !== gsmId);
+    if (target.is_default && remaining.length > 0) {
+      const nextActiveIdx = remaining.findIndex((g) => g.is_active);
+      const idxToDefault = nextActiveIdx !== -1 ? nextActiveIdx : 0;
+      remaining[idxToDefault] = { ...remaining[idxToDefault], is_default: true };
+    }
+
+    const defGsm = remaining.find((g) => g.is_default) || remaining[0];
+    updateActivePrintingOption({
+      gsm_categories: remaining,
+      tiers: defGsm?.tiers || [],
+    });
+
+    if (activeGsmCategoryId === gsmId) {
+      setActiveGsmCategoryId(defGsm?.id || '');
+    }
+  };
+
+  const handleAddPrintingTier = () => {
+    if (!activePrintingOption || !activeGsmCategory) return;
+    const currentTiers = activeGsmCategory.tiers || [];
     const maxQty = currentTiers.length > 0 ? Math.max(...currentTiers.map((t) => Number(t.quantity) || 0)) : 0;
     const nextQty = maxQty > 0 ? maxQty + 250 : 100;
     const suggestedTotal = parseFloat((nextQty * 0.15).toFixed(2));
@@ -686,7 +971,7 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
       label: nextQty >= 1000 ? 'Best Value' : nextQty >= 500 ? 'Popular' : 'Standard',
     };
 
-    updateActivePrintingOption({
+    updateActiveGsmCategory({
       tiers: [...currentTiers, newTier],
     });
   };
@@ -696,8 +981,8 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
     field: keyof PrintingPricingTier,
     val: any
   ) => {
-    if (!activePrintingOption) return;
-    const tiers = [...(activePrintingOption.tiers || [])];
+    if (!activePrintingOption || !activeGsmCategory) return;
+    const tiers = [...(activeGsmCategory.tiers || [])];
     const target = { ...tiers[tierIdx], [field]: val };
 
     const qty = Number(field === 'quantity' ? val : target.quantity) || 0;
@@ -706,51 +991,66 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
     target.per_card_price = qty > 0 ? total / qty : 0;
 
     tiers[tierIdx] = target;
-    updateActivePrintingOption({ tiers });
+    updateActiveGsmCategory({ tiers });
   };
 
   const handleRemovePrintingTier = (tierIdx: number) => {
-    if (!activePrintingOption) return;
-    const tiers = (activePrintingOption.tiers || []).filter((_, i) => i !== tierIdx);
-    updateActivePrintingOption({ tiers });
+    if (!activePrintingOption || !activeGsmCategory) return;
+    const tiers = (activeGsmCategory.tiers || []).filter((_, i) => i !== tierIdx);
+    updateActiveGsmCategory({ tiers });
   };
 
   const handleQuickFillStandardPrintingTiers = () => {
-    if (!activePrintingOption) return;
-    const existing = activePrintingOption.tiers || [];
+    if (!activePrintingOption || !activeGsmCategory) return;
+    const existing = activeGsmCategory.tiers || [];
     if (existing.length > 0) {
       const confirm = window.confirm(
-        'Replace current tiers with standard quantity tiers (100, 250, 500, 1000)? This will overwrite current tiers.'
+        `Replace current tiers for "${activeGsmCategory.name}" with standard quantity tiers (100, 250, 500, 1000)? This will overwrite current tiers.`
       );
       if (!confirm) return;
     }
 
-    const freshTiers =
+    const preset = STANDARD_GSM_PRESETS.find(
+      (p) => p.value === activeGsmCategory.id || (activeGsmCategory.gsm && p.gsm === Number(activeGsmCategory.gsm))
+    );
+    const multiplier = preset?.defaultTierMultiplier || 1.0;
+
+    const baseTiers =
       activePrintingOption.side_type === 'front_back'
         ? createDefaultPrintingDoubleTiers()
         : createDefaultPrintingSingleTiers();
 
-    updateActivePrintingOption({ tiers: freshTiers });
+    const freshTiers = baseTiers.map((t, idx) => {
+      const newTotal = parseFloat((t.total_price * multiplier).toFixed(2));
+      return {
+        ...t,
+        id: `ptier_${Date.now()}_${idx}`,
+        total_price: newTotal,
+        per_card_price: t.quantity > 0 ? newTotal / t.quantity : 0,
+      };
+    });
+
+    updateActiveGsmCategory({ tiers: freshTiers });
   };
 
   const printingTierValidationErrors = useMemo(() => {
-    if (!printingEnabled || !activePrintingOption) {
+    if (!printingEnabled || !activePrintingOption || !activeGsmCategory) {
       return [];
     }
-    return validatePrintingTiers(activePrintingOption.tiers || []);
-  }, [printingEnabled, activePrintingOption]);
+    return validatePrintingTiers(activeGsmCategory.tiers || []);
+  }, [printingEnabled, activePrintingOption, activeGsmCategory]);
 
   // Selected tier for live summary
   const summaryTier = useMemo(() => {
-    if (!activePrintingOption || !activePrintingOption.tiers || activePrintingOption.tiers.length === 0) {
+    if (!activeGsmCategory || !activeGsmCategory.tiers || activeGsmCategory.tiers.length === 0) {
       return null;
     }
     if (selectedSummaryQty) {
-      const found = activePrintingOption.tiers.find((t) => t.quantity === selectedSummaryQty);
+      const found = activeGsmCategory.tiers.find((t) => t.quantity === selectedSummaryQty);
       if (found) return found;
     }
-    return activePrintingOption.tiers[0];
-  }, [activePrintingOption, selectedSummaryQty]);
+    return activeGsmCategory.tiers[0];
+  }, [activeGsmCategory, selectedSummaryQty]);
 
   // ── B. FOLDING STATE & HANDLERS ─────────────────────────────────────────────
   const [foldingPanelOpen, setFoldingPanelOpen] = useState<boolean>(true);
@@ -1384,13 +1684,225 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                         </div>
                       </div>
 
+                      {/* ── GSM Categories / Paper Weight Section ── */}
+                      <div className="bg-white p-4 rounded-xl border border-sky-100 shadow-2xs space-y-3.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-2.5">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-gray-900">
+                                GSM / Paper Stock Categories ({activePrintingOption.gsm_categories?.length || 0})
+                              </span>
+                              <span className="text-[10px] text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded font-semibold border border-indigo-200">
+                                Side Specific
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-gray-500 mt-0.5">
+                              Configure paper stock categories for {activePrintingOption.name}. Customer selects Front/Back + GSM to determine total price.
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsAddingGsmCategory((prev) => !prev);
+                              setNewGsmCategoryError('');
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-2xs"
+                          >
+                            {isAddingGsmCategory ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                            <span>{isAddingGsmCategory ? 'Cancel' : 'Add GSM Category'}</span>
+                          </button>
+                        </div>
+
+                        {/* Add GSM Category Inline Form */}
+                        {isAddingGsmCategory && (
+                          <div className="p-3.5 bg-indigo-50/50 border border-indigo-200 rounded-xl space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-indigo-900">Add New GSM Category / Paper Weight</span>
+                              <button
+                                type="button"
+                                onClick={() => setIsAddingGsmCategory(false)}
+                                className="text-gray-400 hover:text-gray-600"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            {newGsmCategoryError && (
+                              <div className="p-2 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-1.5">
+                                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                                <span>{newGsmCategoryError}</span>
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                  Standard GSM Preset
+                                </label>
+                                <select
+                                  value={newGsmCategoryPreset}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setNewGsmCategoryPreset(val);
+                                    const match = STANDARD_GSM_PRESETS.find((p) => p.value === val);
+                                    if (match && match.value !== 'custom') {
+                                      setNewGsmCategoryName(match.label);
+                                    }
+                                  }}
+                                  className="w-full h-9 px-3 bg-white border border-gray-300 rounded-lg text-xs font-medium text-gray-800 focus:outline-none focus:border-indigo-600 shadow-2xs"
+                                >
+                                  {STANDARD_GSM_PRESETS.map((p) => (
+                                    <option key={p.value} value={p.value}>
+                                      {p.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                  Category Name
+                                </label>
+                                <input
+                                  type="text"
+                                  value={newGsmCategoryName}
+                                  onChange={(e) => setNewGsmCategoryName(e.target.value)}
+                                  placeholder="e.g. 350 GSM Silk Coated"
+                                  className="w-full h-9 px-3 bg-white border border-gray-300 rounded-lg text-xs font-medium text-gray-800 focus:outline-none focus:border-indigo-600 shadow-2xs"
+                                />
+                              </div>
+
+                              <div className="flex flex-col justify-end">
+                                <label className="flex items-center gap-2 cursor-pointer mb-2 select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={newGsmCategoryIsDefault}
+                                    onChange={(e) => setNewGsmCategoryIsDefault(e.target.checked)}
+                                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                                  />
+                                  <span className="text-xs font-semibold text-gray-700">Set as default for {activePrintingOption.name}</span>
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={handleCreateGsmCategory}
+                                  className="w-full h-9 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-xs transition shadow-2xs"
+                                >
+                                  Create GSM Category
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* GSM Category Selector Tabs */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {activePrintingOption.gsm_categories?.map((gsmOpt) => {
+                            const isGsmSelected = activeGsmCategory?.id === gsmOpt.id;
+                            return (
+                              <button
+                                key={gsmOpt.id}
+                                type="button"
+                                onClick={() => {
+                                  setActiveGsmCategoryId(gsmOpt.id);
+                                  setSelectedSummaryQty(null);
+                                }}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition border select-none ${
+                                  isGsmSelected
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                    : gsmOpt.is_active
+                                    ? 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200'
+                                    : 'bg-gray-100/70 text-gray-400 border-gray-200 line-through'
+                                }`}
+                              >
+                                <span>{gsmOpt.name}</span>
+                                {gsmOpt.is_default && (
+                                  <span
+                                    className={`p-0.5 rounded-full ${
+                                      isGsmSelected ? 'bg-indigo-500 text-amber-200' : 'bg-amber-100 text-amber-600'
+                                    }`}
+                                    title="Default GSM category for this side option"
+                                  >
+                                    <Star className="w-3 h-3 fill-current" />
+                                  </span>
+                                )}
+                                {!gsmOpt.is_active && (
+                                  <span className="text-[9px] px-1 bg-gray-200 text-gray-600 rounded">Off</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Active GSM Category Mini Controls */}
+                        {activeGsmCategory && (
+                          <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-50/80 p-2.5 rounded-lg border border-gray-200">
+                            <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                              <span className="text-xs font-semibold text-gray-500 shrink-0">GSM Name:</span>
+                              <input
+                                type="text"
+                                value={activeGsmCategory.name}
+                                onChange={(e) => updateActiveGsmCategory({ name: e.target.value })}
+                                className="h-7 px-2.5 bg-white border border-gray-200 rounded-md text-xs font-semibold text-gray-800 focus:outline-none focus:border-indigo-600 w-full max-w-xs"
+                              />
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              {/* Active Toggle */}
+                              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={activeGsmCategory.is_active}
+                                  onChange={(e) =>
+                                    updateActiveGsmCategory({
+                                      is_active: e.target.checked,
+                                      active: e.target.checked,
+                                    })
+                                  }
+                                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                                />
+                                <span className="text-xs font-semibold text-gray-700">Active</span>
+                              </label>
+
+                              {/* Default Toggle Button */}
+                              {!activeGsmCategory.is_default ? (
+                                <button
+                                  type="button"
+                                  onClick={() => updateActiveGsmCategory({ is_default: true })}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md transition"
+                                  title="Set as the default GSM category for this side option"
+                                >
+                                  <Star className="w-3 h-3 text-amber-500" />
+                                  <span>Set Default</span>
+                                </button>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-md">
+                                  <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
+                                  <span>Default</span>
+                                </span>
+                              )}
+
+                              {/* Delete GSM Category Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteGsmCategory(activeGsmCategory.id)}
+                                className="p-1.5 text-gray-400 hover:text-rose-600 rounded-md hover:bg-rose-50 transition"
+                                title="Delete this GSM category"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       {/* Live Summary Preview Pill */}
-                      {summaryTier && (
-                        <div className="p-3 bg-gradient-to-r from-sky-50 via-white to-sky-50/50 border border-sky-200/80 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs">
+                      {summaryTier && activeGsmCategory && (
+                        <div className="p-3 bg-gradient-to-r from-sky-50 via-white to-indigo-50/50 border border-sky-200/80 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs">
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-sky-900 flex items-center gap-1.5">
                               <CheckCircle2 className="w-4 h-4 text-sky-600" />
-                              Live Calculation:
+                              Live Calculation ({activeGsmCategory.name}):
                             </span>
                             <span className="font-semibold text-gray-800">
                               {summaryTier.quantity} cards
@@ -1411,7 +1923,7 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                           {/* Quick Quantity Switcher Chips */}
                           <div className="flex items-center gap-1">
                             <span className="text-[10px] text-gray-400 mr-1">Preview tier:</span>
-                            {(activePrintingOption.tiers || []).map((t) => (
+                            {(activeGsmCategory.tiers || []).map((t) => (
                               <button
                                 key={t.id || t.quantity}
                                 type="button"
@@ -1448,7 +1960,12 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-gray-800">
-                            Quantity Tiers ({activePrintingOption.tiers?.length || 0})
+                            Quantity Tiers ({activeGsmCategory?.tiers?.length || 0})
+                            {activeGsmCategory && (
+                              <span className="ml-2 font-normal text-indigo-700 text-[11px]">
+                                for {activeGsmCategory.name}
+                              </span>
+                            )}
                           </span>
 
                           <div className="flex items-center gap-2">
@@ -1473,7 +1990,7 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                           </div>
                         </div>
 
-                        {activePrintingOption.tiers && activePrintingOption.tiers.length > 0 ? (
+                        {activeGsmCategory?.tiers && activeGsmCategory.tiers.length > 0 ? (
                           <div className="overflow-x-auto border border-gray-200 rounded-xl bg-white">
                             <table className="w-full text-left text-xs">
                               <thead className="bg-gray-50 text-gray-600 uppercase text-[10px] font-bold tracking-wider border-b border-gray-200">
@@ -1486,7 +2003,7 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-100">
-                                {activePrintingOption.tiers.map((tier, tIdx) => {
+                                {activeGsmCategory.tiers.map((tier, tIdx) => {
                                   const qty = Number(tier.quantity) || 0;
                                   const total = Number(tier.total_price) || 0;
                                   const perCard = qty > 0 ? (total / qty).toFixed(2) : '0.00';
@@ -1558,14 +2075,14 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                         ) : (
                           <div className="p-4 border border-dashed border-gray-200 rounded-xl bg-white text-center space-y-1">
                             <p className="text-xs text-gray-500">
-                              No fixed-total tiers configured for &ldquo;{activePrintingOption.name}&rdquo;.
+                              No fixed-total tiers configured for &ldquo;{activeGsmCategory?.name || activePrintingOption.name}&rdquo;.
                             </p>
                             <button
                               type="button"
                               onClick={handleQuickFillStandardPrintingTiers}
                               className="text-xs text-sky-600 font-semibold hover:underline"
                             >
-                              Click here to fill standard tiers (100: $25, 250: $40, 500: $60, 1000: $95)
+                              Click here to fill standard tiers
                             </button>
                           </div>
                         )}

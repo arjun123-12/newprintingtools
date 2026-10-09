@@ -73,6 +73,16 @@ export interface PrintingPricingTier {
   label?: string;
 }
 
+export interface PrintingGsmCategoryConfig {
+  id: string;
+  name: string;
+  gsm?: number | string;
+  is_active: boolean;
+  active?: boolean;
+  is_default: boolean;
+  tiers: PrintingPricingTier[];
+}
+
 export interface PrintingSideConfig {
   id: string;
   name: string;
@@ -80,7 +90,8 @@ export interface PrintingSideConfig {
   is_active: boolean;
   active?: boolean;
   is_default: boolean;
-  tiers: PrintingPricingTier[];
+  gsm_categories?: PrintingGsmCategoryConfig[];
+  tiers?: PrintingPricingTier[];
 }
 
 export interface PrintingPricingConfig {
