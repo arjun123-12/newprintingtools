@@ -124,6 +124,8 @@ class ProductResource extends JsonResource
             'meta_description' => $this->meta_description,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            'deleted_at' => $this->deleted_at?->toIso8601String(),
+            'is_archived' => $this->trashed(),
         ];
     }
 }

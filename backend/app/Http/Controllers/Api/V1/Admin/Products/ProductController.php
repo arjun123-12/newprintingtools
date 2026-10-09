@@ -63,11 +63,17 @@ class ProductController extends Controller
         ], 201);
     }
     
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $products = Product::with(['category', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices'])
-            ->orderByDesc('created_at')
-            ->get();
+        $query = Product::with(['category', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices']);
+
+        if ($request->query('status') === 'archived' || $request->boolean('archived')) {
+            $query->onlyTrashed()->orderByDesc('deleted_at');
+        } else {
+            $query->orderByDesc('created_at');
+        }
+
+        $products = $query->get();
 
         return response()->json([
             'success' => true,
@@ -200,17 +206,54 @@ class ProductController extends Controller
         }
     }
 
+    /**
+     * Get archived (soft-deleted) products.
+     */
+    public function archived(): JsonResponse
+    {
+        $products = Product::onlyTrashed()
+            ->with(['category', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices'])
+            ->orderByDesc('deleted_at')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => ProductResource::collection($products),
+        ]);
+    }
+
+    /**
+     * Archive (soft-delete) a product.
+     */
     public function destroy(string $id): JsonResponse
     {
-        $product = Product::findOrFail($id);
+        $product = Product::withTrashed()->find($id);
+
+        if (!$product) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found.',
+            ], 404);
+        }
+
+        if ($product->trashed()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product is already archived.',
+            ], 409);
+        }
+
         $product->delete();
 
         return response()->json([
             'success' => true,
-            'message' => 'Product deleted successfully',
+            'message' => 'Product moved to archive successfully.',
         ]);
     }
 
+    /**
+     * Bulk archive (soft-delete) products.
+     */
     public function bulkDestroy(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -222,8 +265,60 @@ class ProductController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => "{$count} product(s) deleted successfully.",
+            'message' => "{$count} product(s) moved to archive successfully.",
+            'archived_count' => $count,
             'deleted_count' => $count,
+        ]);
+    }
+
+    /**
+     * Restore a soft-deleted product.
+     */
+    public function restore(string $id): JsonResponse
+    {
+        $product = Product::withTrashed()->find($id);
+
+        if (!$product) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found.',
+            ], 404);
+        }
+
+        if (!$product->trashed()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product is not archived.',
+            ], 409);
+        }
+
+        $product->restore();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Product restored successfully.',
+            'data' => new ProductResource($product->load(['category', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices'])),
+        ]);
+    }
+
+    /**
+     * Bulk restore soft-deleted products.
+     */
+    public function bulkRestore(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['required', 'string'],
+        ]);
+
+        $count = Product::onlyTrashed()
+            ->whereIn('id', $validated['ids'])
+            ->restore();
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$count} product(s) restored successfully.",
+            'restored_count' => $count,
         ]);
     }
 }

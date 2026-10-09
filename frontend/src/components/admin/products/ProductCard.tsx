@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/admin/shared';
 import { ProductListItem } from './ProductTable';
-import { Edit2, Eye, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Edit2, Eye, Archive, RotateCcw, Image as ImageIcon } from 'lucide-react';
 import { formatImageUrl } from '@/utils/imageUrl';
 
 export interface ProductCardProps {
@@ -13,6 +13,8 @@ export interface ProductCardProps {
   isSelected?: boolean;
   onToggleSelect?: (productId: string) => void;
   onDeleteProduct?: (productId: string) => void;
+  onRestoreProduct?: (productId: string) => void;
+  isArchivedView?: boolean;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
@@ -21,6 +23,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   isSelected = false,
   onToggleSelect,
   onDeleteProduct,
+  onRestoreProduct,
+  isArchivedView = false,
 }) => {
   const categoryName = product.category_name || product.category?.name || 'Uncategorized';
   const imgUrl = product.featured_image_url;
@@ -65,39 +69,66 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         )}
 
         <div className={`absolute top-2 ${onToggleSelect ? 'left-8' : 'left-2'}`}>
-          <StatusBadge status={product.status || (product.is_active ? 'published' : 'draft')} />
+          <StatusBadge status={isArchivedView || product.is_archived ? 'archived' : (product.status || (product.is_active ? 'published' : 'draft'))} />
         </div>
 
         <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {product.slug && (
-            <Link
-              href={`/products/${product.slug}`}
-              target="_blank"
-              className="p-1.5 bg-white/90 backdrop-blur-xs text-gray-700 hover:text-blue-600 rounded-lg shadow-sm"
-              title="View on Store"
-            >
-              <Eye className="w-3.5 h-3.5" />
-            </Link>
-          )}
-          <Link
-            href={`/admin/products/${product.id}/edit`}
-            className="p-1.5 bg-white/90 backdrop-blur-xs text-gray-700 hover:text-blue-600 rounded-lg shadow-sm"
-            title="Edit"
-          >
-            <Edit2 className="w-3.5 h-3.5" />
-          </Link>
-          {onDeleteProduct && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteProduct(product.id);
-              }}
-              className="p-1.5 bg-white/90 backdrop-blur-xs text-rose-600 hover:bg-rose-50 rounded-lg shadow-sm"
-              title="Delete Product"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+          {isArchivedView ? (
+            <>
+              <Link
+                href={`/admin/products/${product.id}/edit`}
+                className="p-1.5 bg-white/90 backdrop-blur-xs text-gray-700 hover:text-blue-600 rounded-lg shadow-sm"
+                title="Edit"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </Link>
+              {onRestoreProduct && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRestoreProduct(product.id);
+                  }}
+                  className="p-1.5 bg-white/90 backdrop-blur-xs text-emerald-600 hover:bg-emerald-50 rounded-lg shadow-sm"
+                  title="Restore Product"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              {product.slug && (
+                <Link
+                  href={`/products/${product.slug}`}
+                  target="_blank"
+                  className="p-1.5 bg-white/90 backdrop-blur-xs text-gray-700 hover:text-blue-600 rounded-lg shadow-sm"
+                  title="View on Store"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                </Link>
+              )}
+              <Link
+                href={`/admin/products/${product.id}/edit`}
+                className="p-1.5 bg-white/90 backdrop-blur-xs text-gray-700 hover:text-blue-600 rounded-lg shadow-sm"
+                title="Edit"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </Link>
+              {onDeleteProduct && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteProduct(product.id);
+                  }}
+                  className="p-1.5 bg-white/90 backdrop-blur-xs text-rose-600 hover:bg-rose-50 rounded-lg shadow-sm"
+                  title="Move to archive"
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -127,16 +158,22 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onToggleActive?.(product)}
-            className={`
-              text-[11px] font-semibold px-2 py-0.5 rounded-full border transition-colors
-              ${product.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-600 border-gray-200'}
-            `}
-          >
-            {product.is_active ? 'Active' : 'Inactive'}
-          </button>
+          {isArchivedView ? (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200">
+              Archived
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onToggleActive?.(product)}
+              className={`
+                text-[11px] font-semibold px-2 py-0.5 rounded-full border transition-colors
+                ${product.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-600 border-gray-200'}
+              `}
+            >
+              {product.is_active ? 'Active' : 'Inactive'}
+            </button>
+          )}
         </div>
       </div>
     </div>

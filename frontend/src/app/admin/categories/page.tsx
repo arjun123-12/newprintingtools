@@ -8,6 +8,8 @@ import {
   Search,
   Edit2,
   Trash2,
+  Archive,
+  RotateCcw,
   Image as ImageIcon,
   CheckCircle2,
   AlertCircle,
@@ -43,6 +45,9 @@ interface Category {
   image_url: string | null;
   sort_order: number;
   is_active: boolean;
+  deleted_at?: string | null;
+  is_archived?: boolean;
+  products_count?: number;
   parent?: {
     id: string;
     name: string;
@@ -79,7 +84,9 @@ function slugify(value: string) {
 }
 
 export default function AdminCategoriesPage() {
+  const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
   const [categories, setCategories] = useState<Category[]>([]);
+  const [archivedCategories, setArchivedCategories] = useState<Category[]>([]);
   const [form, setForm] = useState<CategoryForm>(initialForm);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -90,9 +97,10 @@ export default function AdminCategoriesPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
 
-  // Multi-select & Bulk Delete State
+  // Multi-select & Bulk Action State
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false);
+  const [isBulkRestoring, setIsBulkRestoring] = useState<boolean>(false);
   const [confirmBulkDialog, setConfirmBulkDialog] = useState<boolean>(false);
 
   const loadCategories = useCallback(async () => {
@@ -102,22 +110,22 @@ export default function AdminCategoriesPage() {
       setSelectedCategoryIds(new Set());
 
       const token = getAuthToken();
+      const authHeaders = {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
 
-      const response = await fetch(`${API_URL}/admin/categories`, {
-        headers: {
-          Accept: 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
+      const [response, archResponse] = await Promise.all([
+        fetch(`${API_URL}/admin/categories`, {
+          headers: authHeaders,
+        }),
+        fetch(`${API_URL}/admin/categories/archived`, {
+          headers: authHeaders,
+        }),
+      ]);
 
-      const responseText = await response.text();
-      let result: any = null;
-
-      try {
-        result = JSON.parse(responseText);
-      } catch {
-        result = { message: responseText };
-      }
+      const result = await response.json().catch(() => null);
+      const archResult = await archResponse.json().catch(() => null);
 
       if (!response.ok) {
         throw new Error(result?.message || `Could not load categories (${response.status}).`);
@@ -125,6 +133,9 @@ export default function AdminCategoriesPage() {
 
       const rows = Array.isArray(result?.data) ? result.data : Array.isArray(result) ? result : [];
       setCategories(rows);
+
+      const archRows = Array.isArray(archResult?.data) ? archResult.data : Array.isArray(archResult) ? archResult : [];
+      setArchivedCategories(archRows);
     } catch (error: any) {
       console.error('Category loading error:', error);
       setMessage({
@@ -140,17 +151,19 @@ export default function AdminCategoriesPage() {
     void loadCategories();
   }, [loadCategories]);
 
+  const currentCategories = activeTab === 'active' ? categories : archivedCategories;
+
   const filteredCategories = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return categories;
+    if (!query) return currentCategories;
 
-    return categories.filter(
+    return currentCategories.filter(
       (c) =>
         c.name.toLowerCase().includes(query) ||
         c.slug.toLowerCase().includes(query) ||
         Boolean(c.description?.toLowerCase().includes(query))
     );
-  }, [categories, search]);
+  }, [currentCategories, search]);
 
   const openCreateForm = () => {
     setForm(initialForm);
@@ -281,25 +294,28 @@ export default function AdminCategoriesPage() {
     }
   };
 
-  const handleDeleteCategory = async (id: string) => {
-    const prevList = [...categories];
-    setCategories((prev) => prev.filter((c) => c.id !== id));
-
+  const handleArchiveCategory = async (id: string) => {
     try {
       const token = getAuthToken();
 
-      await fetch(`${API_URL}/admin/categories/${id}`, {
+      const response = await fetch(`${API_URL}/admin/categories/${id}`, {
         method: 'DELETE',
         headers: {
           Accept: 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
-      setMessage({ type: 'success', text: 'Category deleted successfully.' });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to archive category.');
+      }
+
+      setMessage({ type: 'success', text: 'Category moved to archive successfully.' });
+      await loadCategories();
     } catch (err: any) {
-      console.error('Failed to delete category:', err);
-      setCategories(prevList);
-      setMessage({ type: 'error', text: err.message || 'Failed to delete category.' });
+      console.error('Failed to archive category:', err);
+      setMessage({ type: 'error', text: err.message || 'Failed to archive category.' });
     }
   };
 
@@ -322,7 +338,7 @@ export default function AdminCategoriesPage() {
     }
   };
 
-  const handleBulkDeleteCategories = async () => {
+  const handleBulkArchiveCategories = async () => {
     const ids = Array.from(selectedCategoryIds);
     if (ids.length === 0) return;
 
@@ -340,20 +356,79 @@ export default function AdminCategoriesPage() {
         body: JSON.stringify({ ids }),
       });
 
+      const data = await response.json().catch(() => null);
       if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.message || 'Failed to delete categories');
+        throw new Error(data?.message || 'Failed to archive categories');
       }
 
-      setMessage({ type: 'success', text: `${ids.length} categories deleted successfully.` });
+      setMessage({ type: 'success', text: `${ids.length} category(ies) moved to archive successfully.` });
       setSelectedCategoryIds(new Set());
       setConfirmBulkDialog(false);
       await loadCategories();
     } catch (err: any) {
-      console.error('Bulk delete categories failed:', err);
-      setMessage({ type: 'error', text: err.message || 'Failed to delete categories' });
+      console.error('Bulk archive categories failed:', err);
+      setMessage({ type: 'error', text: err.message || 'Failed to archive categories' });
     } finally {
       setIsBulkDeleting(false);
+    }
+  };
+
+  const handleRestoreCategory = async (id: string) => {
+    try {
+      const token = getAuthToken();
+
+      const response = await fetch(`${API_URL}/admin/categories/${id}/restore`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to restore category.');
+      }
+
+      setMessage({ type: 'success', text: 'Category restored successfully.' });
+      await loadCategories();
+    } catch (err: any) {
+      console.error('Failed to restore category:', err);
+      setMessage({ type: 'error', text: err.message || 'Failed to restore category.' });
+    }
+  };
+
+  const handleBulkRestoreCategories = async () => {
+    const ids = Array.from(selectedCategoryIds);
+    if (ids.length === 0) return;
+
+    try {
+      setIsBulkRestoring(true);
+      const token = getAuthToken();
+
+      const response = await fetch(`${API_URL}/admin/categories/bulk-restore`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ ids }),
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to restore categories');
+      }
+
+      setMessage({ type: 'success', text: `${ids.length} category(ies) restored successfully.` });
+      setSelectedCategoryIds(new Set());
+      await loadCategories();
+    } catch (err: any) {
+      console.error('Bulk restore categories failed:', err);
+      setMessage({ type: 'error', text: err.message || 'Failed to restore categories' });
+    } finally {
+      setIsBulkRestoring(false);
     }
   };
 
@@ -406,6 +481,59 @@ export default function AdminCategoriesPage() {
           </button>
         </div>
       )}
+
+      {/* Catalog Views Tabs */}
+      <div className="flex items-center gap-2 border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('active');
+            setSelectedCategoryIds(new Set());
+          }}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+            activeTab === 'active'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          <FolderTree className="w-4 h-4" />
+          <span>Active Categories</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+              activeTab === 'active'
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            {categories.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('archived');
+            setSelectedCategoryIds(new Set());
+          }}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+            activeTab === 'archived'
+              ? 'border-amber-600 text-amber-700'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          <Archive className="w-4 h-4" />
+          <span>Archived Categories</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+              activeTab === 'archived'
+                ? 'bg-amber-100 text-amber-800'
+                : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            {archivedCategories.length}
+          </span>
+        </button>
+      </div>
 
       {/* Add / Edit Form Modal / Card */}
       {showForm && (
@@ -559,15 +687,27 @@ export default function AdminCategoriesPage() {
             </label>
 
             {selectedCategoryIds.size > 0 && (
-              <button
-                type="button"
-                onClick={() => setConfirmBulkDialog(true)}
-                disabled={isBulkDeleting}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete Selected ({selectedCategoryIds.size})</span>
-              </button>
+              activeTab === 'active' ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmBulkDialog(true)}
+                  disabled={isBulkDeleting}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                  <span>Archive Selected ({selectedCategoryIds.size})</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleBulkRestoreCategories}
+                  disabled={isBulkRestoring}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Restore Selected ({selectedCategoryIds.size})</span>
+                </button>
+              )
             )}
           </div>
         )}
@@ -578,14 +718,18 @@ export default function AdminCategoriesPage() {
         <LoadingState message="Loading categories…" className="py-24 bg-white rounded-xl border border-gray-200" />
       ) : filteredCategories.length === 0 ? (
         <EmptyState
-          title="No categories found"
+          title={activeTab === 'archived' ? 'No archived categories' : 'No categories found'}
           description={
-            categories.length === 0
+            activeTab === 'archived'
+              ? archivedCategories.length === 0
+                ? 'There are no archived categories. Categories moved to archive will appear here and can be restored at any time.'
+                : 'No archived categories match your search.'
+              : categories.length === 0
               ? 'Get started by creating your first product category.'
               : 'No categories match your search.'
           }
           action={
-            categories.length === 0 ? (
+            activeTab === 'active' && categories.length === 0 ? (
               <button
                 type="button"
                 onClick={openCreateForm}
@@ -680,29 +824,35 @@ export default function AdminCategoriesPage() {
                       </td>
 
                       <td className="py-3 px-4">
-                        <StatusBadge status={category.is_active ? 'active' : 'inactive'} />
+                        <StatusBadge status={activeTab === 'archived' || category.deleted_at ? 'archived' : (category.is_active ? 'active' : 'inactive')} />
                       </td>
 
                       <td className="py-3 px-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleActive(category)}
-                          className={`
-                            w-8 h-4 rounded-full transition-colors relative inline-block cursor-pointer
-                            ${category.is_active ? 'bg-blue-600' : 'bg-gray-200'}
-                          `}
-                        >
-                          <span
+                        {activeTab === 'archived' ? (
+                          <span className="text-[11px] font-medium text-gray-400 select-none">
+                            Archived
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleActive(category)}
                             className={`
-                              w-3 h-3 bg-white rounded-full transition-transform absolute top-0.5
-                              ${category.is_active ? 'left-4.5' : 'left-0.5'}
+                              w-8 h-4 rounded-full transition-colors relative inline-block cursor-pointer
+                              ${category.is_active ? 'bg-blue-600' : 'bg-gray-200'}
                             `}
-                          />
-                        </button>
+                          >
+                            <span
+                              className={`
+                                w-3 h-3 bg-white rounded-full transition-transform absolute top-0.5
+                                ${category.is_active ? 'left-4.5' : 'left-0.5'}
+                              `}
+                            />
+                          </button>
+                        )}
                       </td>
 
                       <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
                             onClick={() => openEditForm(category)}
@@ -711,14 +861,26 @@ export default function AdminCategoriesPage() {
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeleteTarget(category)}
-                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                            title="Delete Category"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {activeTab === 'archived' ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRestoreCategory(category.id)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors shadow-2xs"
+                              title="Restore Category"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Restore</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget(category)}
+                              className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="Move to archive"
+                            >
+                              <Archive className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -730,30 +892,30 @@ export default function AdminCategoriesPage() {
         </div>
       )}
 
-      {/* Delete Single Confirmation Modal */}
+      {/* Archive Single Confirmation Modal */}
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
         onConfirm={() => {
           if (deleteTarget) {
-            handleDeleteCategory(deleteTarget.id);
+            handleArchiveCategory(deleteTarget.id);
             setDeleteTarget(null);
           }
         }}
-        title="Delete Category"
-        message={`Are you sure you want to delete category "${deleteTarget?.name}"? Products under this category will become uncategorized.`}
-        confirmLabel="Delete Category"
+        title="Move Category to Archive"
+        message={`Are you sure you want to move category "${deleteTarget?.name}" to archive? It will be hidden from the storefront, but existing products referencing it will keep its details intact. You can restore it at any time.`}
+        confirmLabel="Move to archive"
         variant="danger"
       />
 
-      {/* Delete Multiple Confirmation Modal */}
+      {/* Archive Multiple Confirmation Modal */}
       <ConfirmDialog
         isOpen={confirmBulkDialog}
         onClose={() => setConfirmBulkDialog(false)}
-        onConfirm={handleBulkDeleteCategories}
-        title={`Delete ${selectedCategoryIds.size} Selected Categories`}
-        message={`Are you sure you want to permanently delete the ${selectedCategoryIds.size} selected categories? Products under these categories will become uncategorized. This action cannot be undone.`}
-        confirmLabel="Delete Selected"
+        onConfirm={handleBulkArchiveCategories}
+        title={`Move ${selectedCategoryIds.size} Selected Categories to Archive`}
+        message={`Are you sure you want to move the ${selectedCategoryIds.size} selected categories to archive? They will be hidden from storefront listings, but products referencing them will remain intact and you can restore them at any time.`}
+        confirmLabel="Move to archive"
         variant="danger"
         isLoading={isBulkDeleting}
       />

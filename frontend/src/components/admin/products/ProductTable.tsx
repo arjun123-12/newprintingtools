@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { StatusBadge, ConfirmDialog } from '@/components/admin/shared';
-import { Edit2, Eye, Trash2, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { Edit2, Eye, Archive, RotateCcw, Image as ImageIcon, Sparkles } from 'lucide-react';
 import { formatImageUrl } from '@/utils/imageUrl';
 
 export interface ProductListItem {
@@ -21,6 +21,8 @@ export interface ProductListItem {
   status: string;
   is_active: boolean;
   created_at?: string;
+  deleted_at?: string | null;
+  is_archived?: boolean;
 }
 
 export interface ProductTableProps {
@@ -30,6 +32,8 @@ export interface ProductTableProps {
   onToggleSelectAll?: () => void;
   onToggleActive?: (product: ProductListItem) => void;
   onDeleteProduct?: (productId: string) => void;
+  onRestoreProduct?: (productId: string) => void;
+  isArchivedView?: boolean;
   isLoading?: boolean;
 }
 
@@ -40,6 +44,8 @@ export const ProductTable: React.FC<ProductTableProps> = ({
   onToggleSelectAll,
   onToggleActive,
   onDeleteProduct,
+  onRestoreProduct,
+  isArchivedView = false,
   isLoading = false,
 }) => {
   const [deleteTarget, setDeleteTarget] = React.useState<ProductListItem | null>(null);
@@ -166,60 +172,92 @@ export const ProductTable: React.FC<ProductTableProps> = ({
                   {/* Status */}
                   <td className="py-3 px-4">
                     <StatusBadge
-                      status={product.status || (product.is_active ? 'published' : 'draft')}
+                      status={isArchivedView || product.is_archived ? 'archived' : (product.status || (product.is_active ? 'published' : 'draft'))}
                     />
                   </td>
 
                   {/* Active Toggle */}
                   <td className="py-3 px-4 text-center">
-                    <button
-                      type="button"
-                      onClick={() => onToggleActive?.(product)}
-                      className={`
-                        w-8 h-4 rounded-full transition-colors relative inline-block cursor-pointer
-                        ${product.is_active ? 'bg-blue-600' : 'bg-gray-200'}
-                      `}
-                    >
-                      <span
+                    {isArchivedView ? (
+                      <span className="text-[11px] font-medium text-gray-400 select-none">
+                        Archived
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onToggleActive?.(product)}
                         className={`
-                          w-3 h-3 bg-white rounded-full transition-transform absolute top-0.5
-                          ${product.is_active ? 'left-4.5' : 'left-0.5'}
+                          w-8 h-4 rounded-full transition-colors relative inline-block cursor-pointer
+                          ${product.is_active ? 'bg-blue-600' : 'bg-gray-200'}
                         `}
-                      />
-                    </button>
+                      >
+                        <span
+                          className={`
+                            w-3 h-3 bg-white rounded-full transition-transform absolute top-0.5
+                            ${product.is_active ? 'left-4.5' : 'left-0.5'}
+                          `}
+                        />
+                      </button>
+                    )}
                   </td>
 
                   {/* Actions */}
                   <td className="py-3 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {product.slug && (
-                        <Link
-                          href={`/products/${product.slug}`}
-                          target="_blank"
-                          className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                          title="View on Store"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                        </Link>
-                      )}
+                    <div className="flex items-center justify-end gap-1.5">
+                      {isArchivedView ? (
+                        <>
+                          <Link
+                            href={`/admin/products/${product.id}/edit`}
+                            className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Edit Product"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </Link>
 
-                      <Link
-                        href={`/admin/products/${product.id}/edit`}
-                        className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Edit Product"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </Link>
+                          {onRestoreProduct && (
+                            <button
+                              type="button"
+                              onClick={() => onRestoreProduct(product.id)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors shadow-2xs"
+                              title="Restore Product"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Restore</span>
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {product.slug && (
+                            <Link
+                              href={`/products/${product.slug}`}
+                              target="_blank"
+                              className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                              title="View on Store"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </Link>
+                          )}
 
-                      {onDeleteProduct && (
-                        <button
-                          type="button"
-                          onClick={() => setDeleteTarget(product)}
-                          className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                          title="Delete Product"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                          <Link
+                            href={`/admin/products/${product.id}/edit`}
+                            className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Edit Product"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </Link>
+
+                          {onDeleteProduct && (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget(product)}
+                              className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="Move to archive"
+                            >
+                              <Archive className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </td>
@@ -230,7 +268,7 @@ export const ProductTable: React.FC<ProductTableProps> = ({
         </table>
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Archive Confirmation Modal */}
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
@@ -240,9 +278,9 @@ export const ProductTable: React.FC<ProductTableProps> = ({
             setDeleteTarget(null);
           }
         }}
-        title="Delete Product"
-        message={`Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`}
-        confirmLabel="Delete Product"
+        title="Move to Archive"
+        message={`Are you sure you want to move "${deleteTarget?.name}" to archive? It will be removed from the active catalog and storefront, but can be restored at any time.`}
+        confirmLabel="Move to archive"
         variant="danger"
       />
     </div>

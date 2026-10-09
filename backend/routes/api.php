@@ -354,6 +354,26 @@ Route::middleware(['auth:sanctum'])
     ->group(function () {
 
         // Categories
+        Route::get('/categories/archived', [
+            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+            'archived',
+        ]);
+
+        Route::post('/categories/bulk-restore', [
+            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+            'bulkRestore',
+        ]);
+
+        Route::post('/categories/bulk-archive', [
+            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+            'bulkDestroy',
+        ]);
+
+        Route::post('/categories/{id}/restore', [
+            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+            'restore',
+        ]);
+
         Route::get('/categories', [
             App\Http\Controllers\Api\V1\Categories\CategoryController::class,
             'adminIndex',
@@ -379,6 +399,26 @@ Route::middleware(['auth:sanctum'])
         ]);
 
         // Products
+        Route::get('/products/archived', [
+            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+            'archived',
+        ]);
+
+        Route::post('/products/bulk-restore', [
+            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+            'bulkRestore',
+        ]);
+
+        Route::post('/products/bulk-archive', [
+            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+            'bulkDestroy',
+        ]);
+
+        Route::post('/products/{id}/restore', [
+            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+            'restore',
+        ]);
+
         Route::get('/products', [
             App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
             'index',

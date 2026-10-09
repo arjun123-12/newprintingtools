@@ -33,12 +33,17 @@ class CategoryController extends Controller
      * Admin category listing.
      * Active and inactive categories are returned for management.
      */
-    public function adminIndex(): JsonResponse
+    public function adminIndex(Request $request): JsonResponse
     {
-        $categories = Category::query()
-            ->orderBy('sort_order')
-            ->orderBy('name')
-            ->get();
+        $query = Category::query();
+
+        if ($request->query('status') === 'archived' || $request->boolean('archived')) {
+            $query->onlyTrashed()->orderByDesc('deleted_at');
+        } else {
+            $query->orderBy('sort_order')->orderBy('name');
+        }
+
+        $categories = $query->get();
 
         return response()->json([
             'success' => true,
@@ -158,20 +163,39 @@ class CategoryController extends Controller
     }
 
     /**
-     * Delete a category only when no products use it.
+     * Get archived (soft-deleted) categories.
+     */
+    public function archived(): JsonResponse
+    {
+        $categories = Category::onlyTrashed()
+            ->orderByDesc('deleted_at')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $categories,
+        ]);
+    }
+
+    /**
+     * Archive (soft-delete) a category.
+     * Existing products referencing this category remain completely intact.
      */
     public function destroy(string $id): JsonResponse
     {
-        $category = Category::findOrFail($id);
+        $category = Category::withTrashed()->find($id);
 
-        $hasProducts = DB::table('products')
-            ->where('category_id', $category->id)
-            ->exists();
-
-        if ($hasProducts) {
+        if (!$category) {
             return response()->json([
                 'success' => false,
-                'message' => 'This category still has products. Reassign them before deleting the category.',
+                'message' => 'Category not found.',
+            ], 404);
+        }
+
+        if ($category->trashed()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Category is already archived.',
             ], 409);
         }
 
@@ -179,12 +203,13 @@ class CategoryController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Category deleted successfully',
+            'message' => 'Category moved to archive successfully.',
         ]);
     }
 
     /**
-     * Delete multiple categories only when none are used by products.
+     * Bulk archive (soft-delete) categories.
+     * Existing products referencing these categories remain completely intact.
      */
     public function bulkDestroy(Request $request): JsonResponse
     {
@@ -195,25 +220,64 @@ class CategoryController extends Controller
 
         $ids = array_values(array_unique($validated['ids']));
 
-        $categoriesInUse = DB::table('products')
-            ->whereIn('category_id', $ids)
-            ->distinct()
-            ->pluck('category_id');
-
-        if ($categoriesInUse->isNotEmpty()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Some selected categories still have products. Reassign those products before deleting.',
-                'categories_in_use' => $categoriesInUse,
-            ], 409);
-        }
-
         $count = Category::whereIn('id', $ids)->delete();
 
         return response()->json([
             'success' => true,
-            'message' => "{$count} category(ies) deleted successfully.",
+            'message' => "{$count} category(ies) moved to archive successfully.",
+            'archived_count' => $count,
             'deleted_count' => $count,
+        ]);
+    }
+
+    /**
+     * Restore a soft-deleted category.
+     */
+    public function restore(string $id): JsonResponse
+    {
+        $category = Category::withTrashed()->find($id);
+
+        if (!$category) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Category not found.',
+            ], 404);
+        }
+
+        if (!$category->trashed()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Category is not archived.',
+            ], 409);
+        }
+
+        $category->restore();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Category restored successfully.',
+            'data' => $category,
+        ]);
+    }
+
+    /**
+     * Bulk restore soft-deleted categories.
+     */
+    public function bulkRestore(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['required', 'string'],
+        ]);
+
+        $ids = array_values(array_unique($validated['ids']));
+
+        $count = Category::onlyTrashed()->whereIn('id', $ids)->restore();
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$count} category(ies) restored successfully.",
+            'restored_count' => $count,
         ]);
     }
 }

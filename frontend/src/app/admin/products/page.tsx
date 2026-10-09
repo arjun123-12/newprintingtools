@@ -27,7 +27,8 @@ import {
   Layers,
   LayoutGrid,
   List,
-  Trash2,
+  Archive,
+  RotateCcw,
 } from 'lucide-react';
 
 const API_URL =
@@ -35,7 +36,9 @@ const API_URL =
   'http://127.0.0.1:8000/api/v1';
 
 export default function AdminProductsPage() {
+  const [activeTab, setActiveTab] = useState<'active' | 'archived'>('active');
   const [products, setProducts] = useState<ProductListItem[]>([]);
+  const [archivedProducts, setArchivedProducts] = useState<ProductListItem[]>([]);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
@@ -49,18 +52,23 @@ export default function AdminProductsPage() {
     status: '',
   });
 
-  // Multi-select & Bulk Delete State
+  // Multi-select & Bulk Action State
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false);
+  const [isBulkRestoring, setIsBulkRestoring] = useState<boolean>(false);
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     title: string;
     message: string;
+    confirmLabel?: string;
+    variant?: 'danger' | 'warning' | 'info';
     onConfirm: () => Promise<void>;
   }>({
     isOpen: false,
     title: '',
     message: '',
+    confirmLabel: 'Confirm',
+    variant: 'danger',
     onConfirm: async () => {},
   });
 
@@ -80,8 +88,11 @@ export default function AdminProductsPage() {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       };
 
-      const [prodRes, catRes] = await Promise.all([
+      const [prodRes, archRes, catRes] = await Promise.all([
         fetch(`${API_URL}/admin/products`, {
+          headers: authHeaders,
+        }),
+        fetch(`${API_URL}/admin/products/archived`, {
           headers: authHeaders,
         }),
         fetch(`${API_URL}/admin/categories`, {
@@ -90,12 +101,19 @@ export default function AdminProductsPage() {
       ]);
 
       const prodData = await prodRes.json();
+      const archData = await archRes.json();
       const catData = await catRes.json();
 
       if (prodData.success && Array.isArray(prodData.data)) {
         setProducts(prodData.data);
       } else if (Array.isArray(prodData)) {
         setProducts(prodData);
+      }
+
+      if (archData.success && Array.isArray(archData.data)) {
+        setArchivedProducts(archData.data);
+      } else if (Array.isArray(archData)) {
+        setArchivedProducts(archData);
       }
 
       if (catData.success && Array.isArray(catData.data)) {
@@ -117,6 +135,8 @@ export default function AdminProductsPage() {
   }, []);
 
   const handleToggleActive = async (product: ProductListItem) => {
+    if (activeTab === 'archived') return;
+
     const nextState = !product.is_active;
 
     // Optimistic UI update
@@ -162,6 +182,8 @@ export default function AdminProductsPage() {
     });
   };
 
+  const currentProducts = activeTab === 'active' ? products : archivedProducts;
+
   const toggleSelectAllProducts = () => {
     if (filteredProducts.length === 0) return;
     const allSelected = filteredProducts.every((p) => selectedProductIds.has(p.id));
@@ -172,11 +194,14 @@ export default function AdminProductsPage() {
     }
   };
 
-  const handleDeleteProduct = (productId: string) => {
+  const handleArchiveProduct = (productId: string) => {
+    const product = products.find((p) => p.id === productId);
     setConfirmDialog({
       isOpen: true,
-      title: 'Delete Product',
-      message: 'Are you sure you want to permanently delete this product? This action cannot be undone.',
+      title: 'Move to Archive',
+      message: `Are you sure you want to move "${product?.name || 'this product'}" to archive? It will be removed from the active catalog and storefront, but can be restored at any time.`,
+      confirmLabel: 'Move to archive',
+      variant: 'danger',
       onConfirm: async () => {
         try {
           const token = getAuthToken();
@@ -190,28 +215,31 @@ export default function AdminProductsPage() {
             },
           });
 
+          const data = await response.json().catch(() => null);
+
           if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            throw new Error(data?.message || 'Failed to delete product');
+            throw new Error(data?.message || 'Failed to archive product');
           }
 
-          setProducts((prev) => prev.filter((p) => p.id !== productId));
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          await loadData(true);
         } catch (err: any) {
-          alert('Failed to delete product: ' + (err.message || 'Unknown error'));
+          alert('Failed to archive product: ' + (err.message || 'Unknown error'));
         }
       },
     });
   };
 
-  const handleBulkDeleteProducts = () => {
+  const handleBulkArchiveProducts = () => {
     const ids = Array.from(selectedProductIds);
     if (ids.length === 0) return;
 
     setConfirmDialog({
       isOpen: true,
-      title: `Delete ${ids.length} Selected Product${ids.length > 1 ? 's' : ''}`,
-      message: `Are you sure you want to permanently delete the ${ids.length} selected product${ids.length > 1 ? 's' : ''}? This action cannot be undone.`,
+      title: `Move ${ids.length} Product${ids.length > 1 ? 's' : ''} to Archive`,
+      message: `Are you sure you want to move the ${ids.length} selected product${ids.length > 1 ? 's' : ''} to archive? They will be removed from the active catalog and storefront, but can be restored at any time.`,
+      confirmLabel: 'Move to archive',
+      variant: 'danger',
       onConfirm: async () => {
         try {
           setIsBulkDeleting(true);
@@ -228,16 +256,17 @@ export default function AdminProductsPage() {
             body: JSON.stringify({ ids }),
           });
 
+          const data = await response.json().catch(() => null);
+
           if (!response.ok) {
-            const data = await response.json().catch(() => null);
-            throw new Error(data?.message || 'Failed to delete products');
+            throw new Error(data?.message || 'Failed to archive products');
           }
 
           setSelectedProductIds(new Set());
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
           await loadData(true);
         } catch (err: any) {
-          alert('Failed to delete products: ' + (err.message || 'Unknown error'));
+          alert('Failed to archive products: ' + (err.message || 'Unknown error'));
         } finally {
           setIsBulkDeleting(false);
         }
@@ -245,9 +274,78 @@ export default function AdminProductsPage() {
     });
   };
 
+  const handleRestoreProduct = async (productId: string) => {
+    try {
+      const token = getAuthToken();
+
+      const response = await fetch(`${API_URL}/admin/products/${productId}/restore`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to restore product');
+      }
+
+      await loadData(true);
+    } catch (err: any) {
+      alert('Failed to restore product: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handleBulkRestoreProducts = () => {
+    const ids = Array.from(selectedProductIds);
+    if (ids.length === 0) return;
+
+    setConfirmDialog({
+      isOpen: true,
+      title: `Restore ${ids.length} Product${ids.length > 1 ? 's' : ''}`,
+      message: `Are you sure you want to restore the ${ids.length} selected product${ids.length > 1 ? 's' : ''}? They will become visible again in the active catalog and storefront.`,
+      confirmLabel: 'Restore Products',
+      variant: 'info',
+      onConfirm: async () => {
+        try {
+          setIsBulkRestoring(true);
+          const token = getAuthToken();
+
+          const response = await fetch(`${API_URL}/admin/products/bulk-restore`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ ids }),
+          });
+
+          const data = await response.json().catch(() => null);
+
+          if (!response.ok) {
+            throw new Error(data?.message || 'Failed to restore products');
+          }
+
+          setSelectedProductIds(new Set());
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          await loadData(true);
+        } catch (err: any) {
+          alert('Failed to restore products: ' + (err.message || 'Unknown error'));
+        } finally {
+          setIsBulkRestoring(false);
+        }
+      },
+    });
+  };
+
   // Filtered Products
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
+    return currentProducts.filter((p) => {
       // Search
       if (filters.search.trim()) {
         const query = filters.search.toLowerCase();
@@ -276,15 +374,16 @@ export default function AdminProductsPage() {
 
       return true;
     });
-  }, [products, filters]);
+  }, [currentProducts, filters]);
 
   // Statistics
   const stats = useMemo(() => {
     const total = products.length;
     const active = products.filter((p) => p.is_active).length;
     const drafts = total - active;
-    return { total, active, drafts };
-  }, [products]);
+    const archived = archivedProducts.length;
+    return { total, active, drafts, archived };
+  }, [products, archivedProducts]);
 
   return (
     <div className="p-6 md:p-8 bg-slate-50 min-h-screen font-sans space-y-6 select-none">
@@ -300,7 +399,7 @@ export default function AdminProductsPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Multi-selection & Bulk Delete in Header */}
+          {/* Multi-selection & Bulk Actions in Header */}
           {filteredProducts.length > 0 && (
             <div className="flex items-center gap-2">
               <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 cursor-pointer select-none bg-white hover:bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200 transition shadow-2xs">
@@ -317,15 +416,27 @@ export default function AdminProductsPage() {
               </label>
 
               {selectedProductIds.size > 0 && (
-                <button
-                  type="button"
-                  onClick={handleBulkDeleteProducts}
-                  disabled={isBulkDeleting}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Delete Selected ({selectedProductIds.size})</span>
-                </button>
+                activeTab === 'active' ? (
+                  <button
+                    type="button"
+                    onClick={handleBulkArchiveProducts}
+                    disabled={isBulkDeleting}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                  >
+                    <Archive className="w-3.5 h-3.5" />
+                    <span>Archive Selected ({selectedProductIds.size})</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleBulkRestoreProducts}
+                    disabled={isBulkRestoring}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Restore Selected ({selectedProductIds.size})</span>
+                  </button>
+                )
               )}
             </div>
           )}
@@ -361,15 +472,68 @@ export default function AdminProductsPage() {
         </div>
       </div>
 
+      {/* Catalog Views Tabs */}
+      <div className="flex items-center gap-2 border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('active');
+            setSelectedProductIds(new Set());
+          }}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+            activeTab === 'active'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          <Package className="w-4 h-4" />
+          <span>Active Catalog</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+              activeTab === 'active'
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            {products.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveTab('archived');
+            setSelectedProductIds(new Set());
+          }}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+            activeTab === 'archived'
+              ? 'border-amber-600 text-amber-700'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          }`}
+        >
+          <Archive className="w-4 h-4" />
+          <span>Archived Products</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+              activeTab === 'archived'
+                ? 'bg-amber-100 text-amber-800'
+                : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            {archivedProducts.length}
+          </span>
+        </button>
+      </div>
+
       {/* Stats Counter Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex items-center gap-3.5">
           <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
             <Package className="w-5 h-5" />
           </div>
           <div>
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block text-[10px]">
-              Total Products
+              Active Catalog
             </span>
             <span className="text-xl font-extrabold text-gray-900">{stats.total}</span>
           </div>
@@ -381,14 +545,14 @@ export default function AdminProductsPage() {
           </div>
           <div>
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block text-[10px]">
-              Active / Published
+              Published
             </span>
             <span className="text-xl font-extrabold text-gray-900">{stats.active}</span>
           </div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex items-center gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-600 shrink-0">
             <FileEdit className="w-5 h-5" />
           </div>
           <div>
@@ -396,6 +560,18 @@ export default function AdminProductsPage() {
               Drafts / Inactive
             </span>
             <span className="text-xl font-extrabold text-gray-900">{stats.drafts}</span>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-xs flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+            <Archive className="w-5 h-5" />
+          </div>
+          <div>
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block text-[10px]">
+              Archived
+            </span>
+            <span className="text-xl font-extrabold text-gray-900">{stats.archived}</span>
           </div>
         </div>
       </div>
@@ -418,14 +594,18 @@ export default function AdminProductsPage() {
         />
       ) : filteredProducts.length === 0 ? (
         <EmptyState
-          title="No products found"
+          title={activeTab === 'archived' ? 'No archived products' : 'No products found'}
           description={
-            products.length === 0
+            activeTab === 'archived'
+              ? archivedProducts.length === 0
+                ? 'There are no archived products. Products moved to archive will appear here and can be restored at any time.'
+                : 'No archived products match your current search and filter criteria.'
+              : products.length === 0
               ? 'Get started by creating your first print product specification.'
               : 'No products match your current search and filter criteria.'
           }
           action={
-            products.length === 0 ? (
+            activeTab === 'active' && products.length === 0 ? (
               <Link
                 href="/admin/products/new"
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs transition-colors"
@@ -442,8 +622,10 @@ export default function AdminProductsPage() {
           selectedIds={selectedProductIds}
           onToggleSelect={toggleProductSelection}
           onToggleSelectAll={toggleSelectAllProducts}
-          onToggleActive={handleToggleActive}
-          onDeleteProduct={handleDeleteProduct}
+          onToggleActive={activeTab === 'active' ? handleToggleActive : undefined}
+          onDeleteProduct={activeTab === 'active' ? handleArchiveProduct : undefined}
+          onRestoreProduct={activeTab === 'archived' ? handleRestoreProduct : undefined}
+          isArchivedView={activeTab === 'archived'}
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -453,8 +635,10 @@ export default function AdminProductsPage() {
               product={product}
               isSelected={selectedProductIds.has(product.id)}
               onToggleSelect={toggleProductSelection}
-              onToggleActive={handleToggleActive}
-              onDeleteProduct={handleDeleteProduct}
+              onToggleActive={activeTab === 'active' ? handleToggleActive : undefined}
+              onDeleteProduct={activeTab === 'active' ? handleArchiveProduct : undefined}
+              onRestoreProduct={activeTab === 'archived' ? handleRestoreProduct : undefined}
+              isArchivedView={activeTab === 'archived'}
             />
           ))}
         </div>
@@ -467,9 +651,9 @@ export default function AdminProductsPage() {
         onConfirm={confirmDialog.onConfirm}
         title={confirmDialog.title}
         message={confirmDialog.message}
-        confirmLabel="Delete"
-        variant="danger"
-        isLoading={isBulkDeleting}
+        confirmLabel={confirmDialog.confirmLabel || (activeTab === 'archived' ? 'Restore' : 'Move to archive')}
+        variant={confirmDialog.variant || 'danger'}
+        isLoading={isBulkDeleting || isBulkRestoring}
       />
     </div>
   );
