@@ -135,6 +135,11 @@ class StoreProductRequest extends FormRequest
             'folding_pricing.tiers' => ['nullable', 'array'],
             'folding_pricing.options' => ['nullable', 'array'],
 
+            // Printing Configuration Pricing (Fixed-total quantity tiers)
+            'printing_pricing' => ['nullable', 'array'],
+            'printing_pricing.enabled' => ['nullable', 'boolean'],
+            'printing_pricing.options' => ['nullable', 'array'],
+
             // Attributes and Dynamic Pricing Matrix
             'attributes' => ['nullable', 'array'],
             'pricing_tiers' => ['nullable', 'array'],

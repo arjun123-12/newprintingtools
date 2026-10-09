@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Eye, Check, Layers } from 'lucide-react';
-import { AttributeItem, FoldingPricingConfig } from './types';
+import { AttributeItem, FoldingPricingConfig, PrintingPricingConfig } from './types';
 
 interface FrontendOptionPreviewProps {
   productName?: string;
@@ -10,6 +10,7 @@ interface FrontendOptionPreviewProps {
   attributes: AttributeItem[];
   quantityBreaks?: number[];
   foldingPricing?: FoldingPricingConfig | null;
+  printingPricing?: PrintingPricingConfig | null;
 }
 
 const DEFAULT_FOLDING_OPTIONS = [
@@ -28,7 +29,9 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
   attributes = [],
   quantityBreaks = [100, 250, 500, 1000, 2000],
   foldingPricing,
+  printingPricing,
 }) => {
+  const [selectedPrintingSide, setSelectedPrintingSide] = useState<string>('');
   const [selectedQty, setSelectedQty] = useState<number>(quantityBreaks[0] || 100);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
   const [selectedFolding, setSelectedFolding] = useState<string>('no_fold');
@@ -36,6 +39,50 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
   const handleSelectOption = (attrCode: string, valueStr: string) => {
     setSelectedOptions((prev) => ({ ...prev, [attrCode]: valueStr }));
   };
+
+  // Determine available printing configurations
+  const isPrintingActive = Boolean(
+    printingPricing?.enabled && printingPricing.options && printingPricing.options.length > 0
+  );
+
+  const availablePrintingOptions = useMemo(() => {
+    if (!isPrintingActive || !printingPricing?.options) return [];
+    return printingPricing.options.filter((o) => o.is_active !== false && o.active !== false);
+  }, [isPrintingActive, printingPricing]);
+
+  // Synchronize default printing side option
+  React.useEffect(() => {
+    if (availablePrintingOptions.length > 0) {
+      const exists = availablePrintingOptions.some((o) => o.id === selectedPrintingSide);
+      if (!exists) {
+        const defaultOpt =
+          availablePrintingOptions.find((o) => o.is_default) || availablePrintingOptions[0];
+        setSelectedPrintingSide(defaultOpt.id);
+      }
+    }
+  }, [availablePrintingOptions, selectedPrintingSide]);
+
+  const activePrintingConfig = useMemo(() => {
+    return (
+      availablePrintingOptions.find((o) => o.id === selectedPrintingSide) ||
+      availablePrintingOptions[0] ||
+      null
+    );
+  }, [availablePrintingOptions, selectedPrintingSide]);
+
+  // Quantity options (configured fixed-total tiers when printing pricing is active)
+  const activeQuantityOptions = useMemo(() => {
+    if (isPrintingActive && activePrintingConfig?.tiers && activePrintingConfig.tiers.length > 0) {
+      return activePrintingConfig.tiers.map((t) => t.quantity);
+    }
+    return quantityBreaks;
+  }, [isPrintingActive, activePrintingConfig, quantityBreaks]);
+
+  React.useEffect(() => {
+    if (activeQuantityOptions.length > 0 && !activeQuantityOptions.includes(selectedQty)) {
+      setSelectedQty(activeQuantityOptions[0]);
+    }
+  }, [activeQuantityOptions, selectedQty]);
 
   // Determine available folding options
   const foldingAttr = attributes.find(
@@ -101,8 +148,26 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
       }
     });
 
-    const unitBasePrice = (Number(basePrice) || 0) + unitBaseModifier;
-    const basePrintingTotal = unitBasePrice * selectedQty;
+    let basePrintingTotal = 0;
+    let baseUnitPrice = 0;
+    let isFixedTierMatch = false;
+
+    if (isPrintingActive && activePrintingConfig) {
+      const matchedTier = (activePrintingConfig.tiers || []).find((t) => t.quantity === selectedQty);
+      if (matchedTier) {
+        basePrintingTotal = Number(matchedTier.total_price);
+        baseUnitPrice = selectedQty > 0 ? basePrintingTotal / selectedQty : 0;
+        isFixedTierMatch = true;
+      }
+    }
+
+    if (!isFixedTierMatch) {
+      baseUnitPrice = (Number(basePrice) || 0) + unitBaseModifier;
+      basePrintingTotal = baseUnitPrice * selectedQty;
+    } else {
+      baseUnitPrice += unitBaseModifier;
+      basePrintingTotal += unitBaseModifier * selectedQty;
+    }
 
     // Folding Add-on Pricing calculation
     let foldingCharge = 0;
@@ -141,7 +206,6 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
           if (matched) {
             foldingCharge = Math.max(0, Number(matched.charge) || 0);
           } else {
-            // Pick highest tier if quantity exceeds top limit
             const lastTier = sorted[sorted.length - 1];
             foldingCharge = Math.max(0, Number(lastTier?.charge) || 0);
           }
@@ -156,13 +220,24 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
 
     return {
       basePrintingTotal: basePrintingTotal.toFixed(2),
+      perCardPrice: (selectedQty > 0 ? basePrintingTotal / selectedQty : 0).toFixed(2),
       foldingCharge: foldingCharge.toFixed(2),
       estimatedTotal: estimatedTotal.toFixed(2),
       unitRate: finalUnitRate.toFixed(4),
       isFoldingActive,
       isFlatFold,
+      isFixedTierMatch,
     };
-  }, [basePrice, attributes, selectedOptions, selectedQty, foldingPricing, selectedFolding]);
+  }, [
+    basePrice,
+    attributes,
+    selectedOptions,
+    selectedQty,
+    foldingPricing,
+    selectedFolding,
+    isPrintingActive,
+    activePrintingConfig,
+  ]);
 
   // Non-folding attributes for standard list display
   const nonFoldingAttributes = attributes.filter(
@@ -196,13 +271,53 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
         <p className="text-[11px] text-gray-400">Select options below to test dynamic pricing</p>
       </div>
 
+      {/* ─── PRINTING SIDE SELECTOR (When printing pricing is active) ─── */}
+      {isPrintingActive && availablePrintingOptions.length > 0 && (
+        <div className="space-y-1.5 p-3 bg-sky-50/50 rounded-xl border border-sky-100">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-sky-950">
+              Printing Side Option
+            </span>
+            <span className="text-[10px] font-semibold text-sky-700 bg-white px-2 py-0.5 rounded border border-sky-200">
+              Fixed Tiers
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-1">
+            {availablePrintingOptions.map((opt) => {
+              const isSelected = selectedPrintingSide === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setSelectedPrintingSide(opt.id)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all text-left flex items-center justify-between ${
+                    isSelected
+                      ? 'bg-sky-600 text-white border-sky-600 shadow-2xs'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-sky-300 hover:bg-sky-50/50'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 truncate">
+                    {isSelected && <Check className="w-3 h-3 text-white shrink-0" />}
+                    <span className="truncate">{opt.name}</span>
+                  </div>
+                  {opt.is_default && !isSelected && (
+                    <span className="text-[10px] text-amber-600 font-normal">Default</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Quantity Breaks Selector */}
       <div className="space-y-1.5">
         <label className="text-[11px] font-bold uppercase tracking-wider text-gray-600">
-          Order Quantity
+          Order Quantity {isPrintingActive && <span className="text-[10px] text-sky-600 font-normal lowercase">(configured tiers)</span>}
         </label>
         <div className="grid grid-cols-5 gap-1.5">
-          {quantityBreaks.map((qty) => {
+          {activeQuantityOptions.map((qty) => {
             const isSelected = selectedQty === qty;
             return (
               <button
@@ -337,9 +452,16 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
         </div>
 
         <div className="flex items-center justify-between text-xs text-slate-300">
-          <span>Base Printing Price:</span>
+          <span>{pricing.isFixedTierMatch ? 'Fixed Total Printing:' : 'Base Printing Price:'}</span>
           <span className="font-mono font-medium">${pricing.basePrintingTotal}</span>
         </div>
+
+        {pricing.isFixedTierMatch && (
+          <div className="flex items-center justify-between text-xs text-emerald-400">
+            <span>Price Per Card:</span>
+            <span className="font-mono font-semibold">${pricing.perCardPrice} / card</span>
+          </div>
+        )}
 
         {/* Show folding charge separately when folding is enabled */}
         {pricing.isFoldingActive && (

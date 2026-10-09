@@ -42,6 +42,7 @@ export const ProductAttributes: React.FC<ProductAttributesProps> = ({
             attributes={formData.attributes}
             quantityBreaks={quantityBreaks}
             foldingPricing={formData.folding_pricing}
+            printingPricing={formData.printing_pricing}
           />
         </div>
       </div>

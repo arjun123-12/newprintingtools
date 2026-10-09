@@ -73,6 +73,7 @@ class ProductResource extends JsonResource
             'safe_area_mm' => (float) ($this->safe_area_mm ?? 0),
             'print_layout' => $this->print_layout,
             'folding_pricing' => $this->folding_pricing,
+            'printing_pricing' => $this->printing_pricing,
 
             'attributes' => $this->relationLoaded('attributes') ? $this->attributes->map(function ($attr) {
                 return [

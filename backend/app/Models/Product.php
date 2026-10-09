@@ -58,6 +58,7 @@ class Product extends Model
         'safe_area_mm',
         'print_layout',
         'folding_pricing',
+        'printing_pricing',
 
         // SEO
         'meta_title',
@@ -84,6 +85,7 @@ class Product extends Model
         'safe_area_mm' => 'decimal:2',
         'print_layout' => 'array',
         'folding_pricing' => 'array',
+        'printing_pricing' => 'array',
 
         // Pricing
         'base_price' => 'decimal:2',

@@ -222,6 +222,11 @@ class UpdateProductRequest extends FormRequest
             'folding_pricing.tiers' => ['sometimes', 'nullable', 'array'],
             'folding_pricing.options' => ['sometimes', 'nullable', 'array'],
 
+            // Printing Configuration Pricing (Fixed-total quantity tiers)
+            'printing_pricing' => ['sometimes', 'nullable', 'array'],
+            'printing_pricing.enabled' => ['sometimes', 'nullable', 'boolean'],
+            'printing_pricing.options' => ['sometimes', 'nullable', 'array'],
+
             // Attributes and Dynamic Pricing Matrix
             'attributes' => ['sometimes', 'nullable', 'array'],
             'pricing_tiers' => ['sometimes', 'nullable', 'array'],

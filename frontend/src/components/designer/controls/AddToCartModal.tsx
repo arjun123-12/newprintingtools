@@ -47,11 +47,16 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
 
   const [quantity, setQuantity] = useState(250);
   const [paperStock, setPaperStock] = useState('350_matte');
+  const [printingSide, setPrintingSide] = useState<string>('');
+  const [printingOptions, setPrintingOptions] = useState<any[]>([]);
   const [pricing, setPricing] = useState<{
     subtotalExGst: number;
     gstAmount: number;
     totalIncGst: number;
     unitPriceExGst: number;
+    perCardPrice?: number;
+    isPrintingConfig?: boolean;
+    configName?: string;
   } | null>(null);
 
   const [loadingPrice, setLoadingPrice] = useState(false);
@@ -59,18 +64,72 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
   const [addedSuccess, setAddedSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch dynamic price whenever quantity or options change
+  // Load product to discover configured printing options
+  useEffect(() => {
+    if (!isOpen || !productId) return;
+    let isMounted = true;
+
+    const fetchProduct = async () => {
+      try {
+        const res = await apiClient.get(`/products/${productId}`);
+        const p = res.data?.data;
+        if (isMounted && p?.printing_pricing?.enabled && Array.isArray(p.printing_pricing.options)) {
+          const activeOpts = p.printing_pricing.options.filter(
+            (o: any) => o.is_active !== false && o.active !== false
+          );
+          setPrintingOptions(activeOpts);
+          if (activeOpts.length > 0) {
+            const defOpt = activeOpts.find((o: any) => o.is_default) || activeOpts[0];
+            setPrintingSide(defOpt.id || 'front_only');
+            if (defOpt.tiers && defOpt.tiers.length > 0) {
+              setQuantity(defOpt.tiers[0].quantity);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load product printing configuration:', err);
+      }
+    };
+
+    void fetchProduct();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, productId]);
+
+  // Available quantities based on selected printing configuration
+  const currentPrintingConfig = printingOptions.find((o) => o.id === printingSide) || printingOptions[0] || null;
+  const availableQuantities =
+    currentPrintingConfig?.tiers && currentPrintingConfig.tiers.length > 0
+      ? currentPrintingConfig.tiers.map((t: any) => t.quantity)
+      : QUANTITY_OPTIONS;
+
+  // When printing side changes, ensure quantity matches an available tier
+  useEffect(() => {
+    if (availableQuantities.length > 0 && !availableQuantities.includes(quantity)) {
+      setQuantity(availableQuantities[0]);
+    }
+  }, [printingSide, availableQuantities, quantity]);
+
+  // Fetch dynamic price whenever quantity, paperStock, or printingSide changes
   useEffect(() => {
     if (!isOpen || !productId) return;
 
     let isMounted = true;
     const calculatePricing = async () => {
       setLoadingPrice(true);
+      setError(null);
       try {
+        const selected_options: Record<string, any> = { paper_stock: paperStock };
+        if (printingSide) {
+          selected_options.printing_side_id = printingSide;
+        }
+
         const response = await apiClient.post('/pricing/calculate', {
           product_id: productId,
           quantity,
-          selected_options: { paper_stock: paperStock },
+          selected_options,
         });
 
         if (isMounted && response.data?.success && response.data?.data) {
@@ -80,10 +139,17 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
             gstAmount: Number(d.gst_amount || 0),
             totalIncGst: Number(d.total_inc_gst || 0),
             unitPriceExGst: Number(d.unit_price_ex_gst || 0),
+            perCardPrice: d.printing_config_details?.per_card_price,
+            isPrintingConfig: Boolean(d.printing_config_details?.enabled),
+            configName: d.printing_config_details?.option_name,
           });
         }
-      } catch (err) {
-        console.warn('Live pricing calculation failed:', err);
+      } catch (err: any) {
+        if (isMounted) {
+          const msg = err.response?.data?.message || err.message || 'Live pricing calculation failed';
+          console.warn('Live pricing calculation failed:', msg);
+          setError(msg);
+        }
       } finally {
         if (isMounted) setLoadingPrice(false);
       }
@@ -94,7 +160,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, productId, quantity, paperStock]);
+  }, [isOpen, productId, quantity, paperStock, printingSide]);
 
   if (!isOpen) return null;
 
@@ -108,14 +174,23 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     setError(null);
 
     try {
+      const selectedOpts: Record<string, any> = {
+        paper_stock: PAPER_STOCKS.find((p) => p.id === paperStock)?.label || paperStock,
+        artwork_name: artworkName,
+      };
+
+      if (printingSide) {
+        selectedOpts.printing_side_id = printingSide;
+        if (currentPrintingConfig?.name) {
+          selectedOpts.printing_side_name = currentPrintingConfig.name;
+        }
+      }
+
       await cartService.addItem({
         product_id: productId,
         artwork_id: artworkId,
         quantity,
-        selected_options: {
-          paper_stock: PAPER_STOCKS.find((p) => p.id === paperStock)?.label || paperStock,
-          artwork_name: artworkName,
-        },
+        selected_options: selectedOpts,
       });
 
       setAddedSuccess(true);
@@ -219,13 +294,39 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
                 </div>
               </div>
 
+              {/* Printing Configuration / Sides (When product has printing configurations) */}
+              {printingOptions.length > 0 && (
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Printing Side Option
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {printingOptions.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setPrintingSide(opt.id)}
+                        className={`p-2.5 rounded-xl border text-left text-xs font-semibold transition flex items-center justify-between ${
+                          printingSide === opt.id
+                            ? 'bg-sky-50 border-sky-500 text-sky-900 ring-1 ring-sky-500 shadow-2xs'
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="truncate">{opt.name}</span>
+                        {printingSide === opt.id && <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Quantity Breaks */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Select Print Quantity
+                  Select Print Quantity {printingOptions.length > 0 && <span className="text-[10px] text-sky-600 font-normal lowercase">(configured packages)</span>}
                 </label>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                  {QUANTITY_OPTIONS.map((qty) => (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {availableQuantities.map((qty: number) => (
                     <button
                       key={qty}
                       type="button"
@@ -274,16 +375,18 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
               {/* Live Pricing Breakdown */}
               <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-3">
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>Unit Price:</span>
+                  <span>{pricing?.isPrintingConfig ? 'Price Per Card:' : 'Unit Price:'}</span>
                   <span>
                     {loadingPrice
                       ? '...'
+                      : pricing?.isPrintingConfig
+                      ? `$${((pricing?.perCardPrice || pricing?.unitPriceExGst) || 0).toFixed(2)} / card`
                       : `$${(pricing?.unitPriceExGst || 0).toFixed(4)} / each`}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>Subtotal (ex GST):</span>
+                  <span>{pricing?.isPrintingConfig ? 'Fixed Package Subtotal (ex GST):' : 'Subtotal (ex GST):'}</span>
                   <span>{loadingPrice ? '...' : `$${(pricing?.subtotalExGst || 0).toFixed(2)}`}</span>
                 </div>
 

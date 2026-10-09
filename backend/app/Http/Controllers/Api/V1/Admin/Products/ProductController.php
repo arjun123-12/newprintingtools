@@ -32,6 +32,9 @@ class ProductController extends Controller
         if ($request->has('folding_pricing')) {
             $validated['folding_pricing'] = $request->input('folding_pricing');
         }
+        if ($request->has('printing_pricing')) {
+            $validated['printing_pricing'] = $request->input('printing_pricing');
+        }
         $sides = $validated['sides'] ?? [];
         $attributesData = $request->input('attributes', []);
         $pricingTiersData = $request->input('pricing_tiers', []);
@@ -106,6 +109,9 @@ class ProductController extends Controller
         }
         if ($request->has('folding_pricing')) {
             $validated['folding_pricing'] = $request->input('folding_pricing');
+        }
+        if ($request->has('printing_pricing')) {
+            $validated['printing_pricing'] = $request->input('printing_pricing');
         }
         
         $attributesData = $request->has('attributes') ? $request->input('attributes') : null;

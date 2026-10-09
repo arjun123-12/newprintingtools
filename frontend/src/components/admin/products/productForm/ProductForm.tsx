@@ -74,6 +74,7 @@ const defaultInitialForm: ProductFormData = {
   cost_price: '',
   pricing_tiers: [],
   folding_pricing: null,
+  printing_pricing: null,
   sides_count: 1,
   sides: [
     {
@@ -252,6 +253,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       safe_area_mm: p.safe_area_mm !== null && p.safe_area_mm !== undefined && p.safe_area_mm !== '' ? parseFloat(p.safe_area_mm) : 0,
       print_layout: p.print_layout ?? null,
       folding_pricing: p.folding_pricing ?? null,
+      printing_pricing: p.printing_pricing ?? null,
       design_template_ids: Array.isArray(p.design_template_ids) ? p.design_template_ids : [],
       track_inventory: Boolean(p.track_inventory),
       stock_quantity: typeof p.stock_quantity === 'number' ? p.stock_quantity : 0,
@@ -434,6 +436,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       safe_area_mm: typeof formData.safe_area_mm === 'number' && !isNaN(formData.safe_area_mm) ? formData.safe_area_mm : 0,
       print_layout: formData.print_layout ?? null,
       folding_pricing: formData.folding_pricing ?? null,
+      printing_pricing: formData.printing_pricing ?? null,
       attributes: formData.attributes ?? [],
       pricing_tiers: formData.pricing_tiers ?? [],
       sides: processedSides,

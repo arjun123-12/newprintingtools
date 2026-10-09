@@ -31,63 +31,166 @@ class PricingCalculatorService
                 : ($productId ? Product::with(['attributes.values', 'pricingMatrices'])->find($productId) : null);
         }
 
-        // 1. Determine baseline unit price
+        // 1. Determine baseline unit price or fixed-total printing configuration price
         $baseUnitPriceExGst = 0.45;
         $setupFee = 0.00;
+        $isPrintingConfigApplied = false;
+        $printingConfigDetails = null;
 
-        if ($product) {
-            // Check pricing matrices for quantity breaks
-            if ($product->pricingMatrices && $product->pricingMatrices->isNotEmpty()) {
-                // Find matching or highest qualifying tier
-                $tier = $product->pricingMatrices
-                    ->where('quantity', '<=', $quantity)
-                    ->sortByDesc('quantity')
-                    ->first();
+        // Check if product has active printing configuration pricing enabled
+        if ($product && !empty($product->printing_pricing['enabled']) && !empty($product->printing_pricing['options'])) {
+            $printingOptions = $product->printing_pricing['options'];
+            $selectedSideKey = $selectedOptions['printing_side_id']
+                ?? $selectedOptions['printing_config_id']
+                ?? $selectedOptions['printing_configuration']
+                ?? $selectedOptions['side_configuration']
+                ?? $selectedOptions['printing_sides']
+                ?? $selectedOptions['print_sides']
+                ?? $selectedOptions['side_option']
+                ?? $selectedOptions['sides']
+                ?? null;
 
-                if ($tier) {
-                    $baseUnitPriceExGst = (float) $tier->unit_price_ex_gst;
-                    $setupFee = (float) ($tier->setup_fee ?? 0);
-                } else {
-                    // Use lowest quantity tier
-                    $lowestTier = $product->pricingMatrices->sortBy('quantity')->first();
-                    $baseUnitPriceExGst = $lowestTier ? (float) $lowestTier->unit_price_ex_gst : (float) $product->base_price;
+            $matchedOpt = null;
+            if ($selectedSideKey) {
+                foreach ($printingOptions as $opt) {
+                    $optId = $opt['id'] ?? $opt['side_type'] ?? null;
+                    $optName = $opt['name'] ?? null;
+                    if ($optId && (strcasecmp((string) $optId, (string) $selectedSideKey) === 0 || strcasecmp(str_replace(' ', '_', (string) $optId), str_replace(' ', '_', (string) $selectedSideKey)) === 0)) {
+                        $matchedOpt = $opt;
+                        break;
+                    }
+                    if ($optName && (strcasecmp((string) $optName, (string) $selectedSideKey) === 0 || strcasecmp(str_replace(' ', '_', (string) $optName), str_replace(' ', '_', (string) $selectedSideKey)) === 0)) {
+                        $matchedOpt = $opt;
+                        break;
+                    }
                 }
-            } else {
-                $baseUnitPriceExGst = $product->sale_price !== null && (float) $product->sale_price > 0
-                    ? (float) $product->sale_price
-                    : (float) $product->base_price;
             }
 
-            // 2. Add Attribute Modifiers (Paper stock, Sides, etc.)
-            if ($product->attributes && $product->attributes->isNotEmpty()) {
-                foreach ($product->attributes as $attr) {
-                    $chosenVal = $selectedOptions[$attr->code] ?? $selectedOptions[$attr->name] ?? null;
-                    if ($chosenVal && $attr->values) {
-                        $matchedVal = $attr->values->firstWhere('value', $chosenVal)
-                            ?? $attr->values->firstWhere('label', $chosenVal);
-
-                        if ($matchedVal && (float) $matchedVal->price_modifier_amount > 0) {
-                            $baseUnitPriceExGst += (float) $matchedVal->price_modifier_amount;
+            // If no explicit selection, find default active option or first active option
+            if (!$matchedOpt) {
+                foreach ($printingOptions as $opt) {
+                    $isActive = isset($opt['is_active']) ? (bool) $opt['is_active'] : (isset($opt['active']) ? (bool) $opt['active'] : true);
+                    if ($isActive && !empty($opt['is_default'])) {
+                        $matchedOpt = $opt;
+                        break;
+                    }
+                }
+                if (!$matchedOpt) {
+                    foreach ($printingOptions as $opt) {
+                        $isActive = isset($opt['is_active']) ? (bool) $opt['is_active'] : (isset($opt['active']) ? (bool) $opt['active'] : true);
+                        if ($isActive) {
+                            $matchedOpt = $opt;
+                            break;
                         }
                     }
                 }
             }
-        } else {
-            // Fallback for tests when no specific product in database
-            $setupFee = 25.00;
-            if ($quantity >= 5000) {
-                $baseUnitPriceExGst *= 0.65;
-            } elseif ($quantity >= 2500) {
-                $baseUnitPriceExGst *= 0.75;
-            } elseif ($quantity >= 1000) {
-                $baseUnitPriceExGst *= 0.85;
-            } elseif ($quantity >= 500) {
-                $baseUnitPriceExGst *= 0.92;
+
+            if ($matchedOpt) {
+                $isActive = isset($matchedOpt['is_active']) ? (bool) $matchedOpt['is_active'] : (isset($matchedOpt['active']) ? (bool) $matchedOpt['active'] : true);
+                $optName = $matchedOpt['name'] ?? $matchedOpt['id'] ?? 'Selected configuration';
+
+                if (!$isActive) {
+                    throw new InvalidArgumentException("Selected printing configuration '{$optName}' is currently inactive.");
+                }
+
+                $tiers = $matchedOpt['tiers'] ?? [];
+                $matchedTier = null;
+                $availableQuantities = [];
+
+                foreach ($tiers as $tier) {
+                    $tierQty = (int) ($tier['quantity'] ?? 0);
+                    if ($tierQty > 0) {
+                        $availableQuantities[] = $tierQty;
+                    }
+                    if ($tierQty === $quantity) {
+                        $matchedTier = $tier;
+                        break;
+                    }
+                }
+
+                if ($matchedTier !== null) {
+                    $totalPrice = (float) ($matchedTier['total_price'] ?? $matchedTier['price'] ?? 0);
+                    $perCardPrice = $quantity > 0 ? ($totalPrice / $quantity) : 0;
+                    $isPrintingConfigApplied = true;
+
+                    $basePrintingSubtotalExGst = $totalPrice;
+                    $baseUnitPriceExGst = $perCardPrice;
+
+                    $printingConfigDetails = [
+                        'enabled' => true,
+                        'option_id' => $matchedOpt['id'] ?? null,
+                        'option_name' => $optName,
+                        'side_type' => $matchedOpt['side_type'] ?? null,
+                        'quantity' => $quantity,
+                        'fixed_total_price' => round($totalPrice, 2),
+                        'per_card_price' => round($perCardPrice, 4),
+                        'label' => $matchedTier['label'] ?? null,
+                    ];
+                } else {
+                    $qtysMsg = !empty($availableQuantities) ? ' Configured quantities: ' . implode(', ', $availableQuantities) . '.' : '';
+                    throw new InvalidArgumentException("No configured fixed-total pricing tier found for quantity {$quantity} under configuration '{$optName}'.{$qtysMsg}");
+                }
             }
         }
 
-        // Base printing subtotal (ex-GST)
-        $basePrintingSubtotalExGst = ($baseUnitPriceExGst * $quantity) + $setupFee;
+        if (!$isPrintingConfigApplied) {
+            if ($product) {
+                // Check pricing matrices for quantity breaks
+                if ($product->pricingMatrices && $product->pricingMatrices->isNotEmpty()) {
+                    // Find matching or highest qualifying tier
+                    $tier = $product->pricingMatrices
+                        ->where('quantity', '<=', $quantity)
+                        ->sortByDesc('quantity')
+                        ->first();
+
+                    if ($tier) {
+                        $baseUnitPriceExGst = (float) $tier->unit_price_ex_gst;
+                        $setupFee = (float) ($tier->setup_fee ?? 0);
+                    } else {
+                        // Use lowest quantity tier
+                        $lowestTier = $product->pricingMatrices->sortBy('quantity')->first();
+                        $baseUnitPriceExGst = $lowestTier ? (float) $lowestTier->unit_price_ex_gst : (float) $product->base_price;
+                    }
+                } else {
+                    $baseUnitPriceExGst = $product->sale_price !== null && (float) $product->sale_price > 0
+                        ? (float) $product->sale_price
+                        : (float) $product->base_price;
+                }
+            } else {
+                // Fallback for tests when no specific product in database
+                $setupFee = 25.00;
+                if ($quantity >= 5000) {
+                    $baseUnitPriceExGst *= 0.65;
+                } elseif ($quantity >= 2500) {
+                    $baseUnitPriceExGst *= 0.75;
+                } elseif ($quantity >= 1000) {
+                    $baseUnitPriceExGst *= 0.85;
+                } elseif ($quantity >= 500) {
+                    $baseUnitPriceExGst *= 0.92;
+                }
+            }
+
+            // Base printing subtotal (ex-GST)
+            $basePrintingSubtotalExGst = ($baseUnitPriceExGst * $quantity) + $setupFee;
+        }
+
+        // 2. Add Attribute Modifiers (Paper stock, Finishes, etc.)
+        if ($product && $product->attributes && $product->attributes->isNotEmpty()) {
+            foreach ($product->attributes as $attr) {
+                $chosenVal = $selectedOptions[$attr->code] ?? $selectedOptions[$attr->name] ?? null;
+                if ($chosenVal && $attr->values) {
+                    $matchedVal = $attr->values->firstWhere('value', $chosenVal)
+                        ?? $attr->values->firstWhere('label', $chosenVal);
+
+                    if ($matchedVal && (float) $matchedVal->price_modifier_amount > 0) {
+                        $modAmount = (float) $matchedVal->price_modifier_amount;
+                        $baseUnitPriceExGst += $modAmount;
+                        $basePrintingSubtotalExGst += ($modAmount * $quantity);
+                    }
+                }
+            }
+        }
 
         // 3. Folding Add-on Pricing Calculation & Backend Validation
         $foldingCharge = 0.00;
@@ -203,6 +306,7 @@ class PricingCalculatorService
             'base_unit_price_ex_gst' => round($baseUnitPriceExGst, 4),
             'base_subtotal_ex_gst' => round($basePrintingSubtotalExGst, 2),
             'base_printing_subtotal_ex_gst' => round($basePrintingSubtotalExGst, 2),
+            'printing_config_details' => $printingConfigDetails,
             'folding_charge_ex_gst' => round($foldingCharge, 2),
             'folding_details' => $foldingDetails,
             'unit_price_ex_gst' => round($subtotalExGst / $quantity, 4),

@@ -65,6 +65,29 @@ export interface FoldingPricingConfig {
   options: Record<string, FoldingOptionConfig> | FoldingOptionConfig[];
 }
 
+export interface PrintingPricingTier {
+  id?: string;
+  quantity: number;
+  total_price: number;
+  per_card_price?: number;
+  label?: string;
+}
+
+export interface PrintingSideConfig {
+  id: string;
+  name: string;
+  side_type?: string;
+  is_active: boolean;
+  active?: boolean;
+  is_default: boolean;
+  tiers: PrintingPricingTier[];
+}
+
+export interface PrintingPricingConfig {
+  enabled: boolean;
+  options: PrintingSideConfig[];
+}
+
 export interface VariantItem {
   id: string;
   name: string;
@@ -139,6 +162,7 @@ export interface ProductFormData {
   cost_price: number | '';
   pricing_tiers: PricingTierItem[];
   folding_pricing?: FoldingPricingConfig | null;
+  printing_pricing?: PrintingPricingConfig | null;
 
   // 7. Dynamic Sides & Physical Specifications
   sides_count: number;
