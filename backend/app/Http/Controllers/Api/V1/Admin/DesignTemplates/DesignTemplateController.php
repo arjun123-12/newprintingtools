@@ -68,9 +68,13 @@ class DesignTemplateController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        if ($request->has('product_id') && ($request->input('product_id') === 'default' || $request->input('product_id') === '')) {
+            $request->merge(['product_id' => null]);
+        }
+
         $validated = $request->validate([
             'product_id' => [
-                'required',
+                'nullable',
                 'uuid',
                 'exists:products,id',
             ],
@@ -167,7 +171,7 @@ class DesignTemplateController extends Controller
         );
 
         $template = DesignTemplate::create([
-            'product_id' => $validated['product_id'],
+            'product_id' => $validated['product_id'] ?? null,
             'name' => $validated['name'],
             'category' =>
                 $validated['category'] ?? 'Corporate',
@@ -221,10 +225,14 @@ class DesignTemplateController extends Controller
         Request $request,
         DesignTemplate $template
     ): JsonResponse {
+        if ($request->has('product_id') && ($request->input('product_id') === 'default' || $request->input('product_id') === '')) {
+            $request->merge(['product_id' => null]);
+        }
+
         $validated = $request->validate([
             'product_id' => [
                 'sometimes',
-                'required',
+                'nullable',
                 'uuid',
                 'exists:products,id',
             ],

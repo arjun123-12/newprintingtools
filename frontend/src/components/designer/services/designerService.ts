@@ -315,7 +315,7 @@ export class DesignerService {
 
   public async saveAsDesignTemplate(payload: {
     template_id?: string | null;
-    product_id: string;
+    product_id?: string | null;
     name: string;
     category?: string;
     canvas_json: Record<string, any> | Record<string, any>[];
@@ -323,7 +323,7 @@ export class DesignerService {
     artwork_config?: Record<string, any> | null;
     thumbnail_url?: string | null;
     is_active?: boolean;
-  }): Promise<{ id: string; name: string; product_id: string; message?: string }> {
+  }): Promise<{ id: string; name: string; product_id?: string | null; message?: string }> {
     const token = getAuthToken();
 
     const isUpdate = Boolean(payload.template_id);
@@ -333,6 +333,8 @@ export class DesignerService {
     const method = isUpdate ? 'PATCH' : 'POST';
 
     const cleanCanvasJson = payload.template_json || payload.canvas_json;
+    const rawProductId = payload.product_id ? String(payload.product_id).trim() : null;
+    const cleanProductId = rawProductId && rawProductId !== 'default' ? rawProductId : null;
 
     const response = await fetch(url, {
       method,
@@ -342,7 +344,7 @@ export class DesignerService {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
-        product_id: payload.product_id,
+        product_id: cleanProductId,
         name: payload.name,
         category: payload.category || 'Corporate',
         canvas_json: cleanCanvasJson,

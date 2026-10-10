@@ -265,7 +265,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         const payload = {
           name: formData.name.trim(),
           category: formData.category || 'Corporate',
-          product_id: productId,
+          product_id: productId && productId !== 'default' ? productId : null,
           thumbnail_url: formData.thumbnail_url || null,
           is_active: formData.is_active,
           print_sides: formData.print_sides || 'front',
@@ -685,7 +685,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
       const payload = {
         name: formData.name.trim(),
         category: formData.category || 'Corporate',
-        product_id: formData.product_id,
+        product_id: formData.product_id && formData.product_id !== 'default' ? formData.product_id : null,
         thumbnail_url:
           formData.thumbnail_url || null,
         is_active: formData.is_active,

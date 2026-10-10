@@ -50,27 +50,27 @@ class DesignerController extends Controller
      */
     public function showTemplate(string $productId, string $templateId): JsonResponse
     {
-        $product = Product::query()
-            ->where('id', $productId)
-            ->orWhere('slug', $productId)
-            ->first();
+        $templateQuery = DesignTemplate::query()
+            ->where('id', $templateId)
+            ->where('is_active', true);
 
-        if (!$product) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Product not found.',
-            ], 404);
+        if (!empty($productId) && !in_array($productId, ['default', 'standalone', 'all', 'general'], true)) {
+            $product = Product::query()
+                ->where('id', $productId)
+                ->orWhere('slug', $productId)
+                ->first();
+
+            if ($product) {
+                $templateQuery->where(function ($q) use ($product) {
+                    $q->where('product_id', $product->id)->orWhereNull('product_id');
+                });
+            }
         }
 
-        $template = DesignTemplate::query()
-            ->where('id', $templateId)
-            ->where('product_id', $product->id)
-            ->where('is_active', true)
-            ->with([
-                'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
-                'pages.productSide',
-            ])
-            ->first();
+        $template = $templateQuery->with([
+            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
+            'pages.productSide',
+        ])->first();
 
         if (!$template) {
             return response()->json([

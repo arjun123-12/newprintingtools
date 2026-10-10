@@ -11,7 +11,7 @@ const UUID_PATTERN =
 import { ArtworkConfig, PrintSides, PrintSettings } from '@/types/designer';
 
 export interface CreateTemplateDraftPayload {
-    product_id: string;
+    product_id?: string | null;
     name: string;
     category?: string | null;
     print_sides?: PrintSides;
@@ -30,7 +30,7 @@ export interface CreateTemplateDraftPayload {
 
 export interface DesignTemplateResponse {
     id: string;
-    product_id: string;
+    product_id: string | null;
     name: string;
     category: string | null;
     print_sides?: PrintSides;
@@ -291,13 +291,16 @@ async function parseResponse<T>(
 export async function createTemplateDraft(
     payload: CreateTemplateDraftPayload
 ): Promise<DesignTemplateResponse> {
-    const productId =
-        String(payload.product_id).trim();
+    const rawProductId = payload.product_id ? String(payload.product_id).trim() : null;
+    let productId: string | null = null;
 
-    if (!UUID_PATTERN.test(productId)) {
-        throw new Error(
-            `Invalid product UUID: ${productId}`
-        );
+    if (rawProductId && rawProductId !== 'default') {
+        if (!UUID_PATTERN.test(rawProductId)) {
+            throw new Error(
+                `Invalid product UUID: ${rawProductId}`
+            );
+        }
+        productId = rawProductId;
     }
 
     const cleanCanvasJson =

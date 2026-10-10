@@ -195,13 +195,11 @@ export default function DesignEditorClient({
           templateData?.product?.id ??
           undefined;
 
-        if (!loadedProductId || loadedProductId === 'default') {
-          throw new Error(
-            'This template is not connected to a valid product.'
-          );
+        if (loadedProductId && loadedProductId !== 'default') {
+          setResolvedProductId(String(loadedProductId));
+        } else {
+          setResolvedProductId(undefined);
         }
-
-        setResolvedProductId(String(loadedProductId));
       } catch (error) {
         if (controller.signal.aborted) return;
 

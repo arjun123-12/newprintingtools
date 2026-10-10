@@ -112,20 +112,46 @@ class AdminProductTemplateLayoutTest extends TestCase
     }
 
     /**
-     * Test 1: Template creation requires valid product_id.
+     * Test 1: Template creation rejects invalid or non-existent product_id.
      */
     public function test_template_creation_requires_valid_product(): void
     {
-        $payloadWithoutProduct = [
-            'name' => 'Template Without Product',
+        $payloadWithInvalidProduct = [
+            'product_id' => '00000000-0000-0000-0000-000000000000',
+            'name' => 'Template With Nonexistent Product',
             'category' => 'Corporate',
+        ];
+
+        $response = $this->actingAs($this->adminUser)
+            ->postJson('/api/v1/admin/templates', $payloadWithInvalidProduct);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['product_id']);
+    }
+
+    /**
+     * Test 1b: Standalone template creation without product_id or with null succeeds.
+     */
+    public function test_standalone_template_creation_succeeds_without_product(): void
+    {
+        $payloadWithoutProduct = [
+            'name' => 'Standalone Artwork Template',
+            'category' => 'Corporate',
+            'width_mm' => 100,
+            'height_mm' => 65,
         ];
 
         $response = $this->actingAs($this->adminUser)
             ->postJson('/api/v1/admin/templates', $payloadWithoutProduct);
 
-        $response->assertStatus(422)
-            ->assertJsonValidationErrors(['product_id']);
+        $response->assertStatus(201)
+            ->assertJson([
+                'success' => true,
+                'data' => [
+                    'name' => 'Standalone Artwork Template',
+                    'product_id' => null,
+                ],
+            ]);
     }
 
     /**

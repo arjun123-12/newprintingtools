@@ -1069,13 +1069,8 @@ export default function Designer({
       productIdRef.current ||
       productIdFromUrl;
 
-    if (!prodId || prodId === 'default') {
-      throw new Error(
-        'This template is not connected to a valid product.'
-      );
-    }
-
-    productIdRef.current = prodId;
+    const cleanProdId = prodId && prodId !== 'default' ? prodId : undefined;
+    productIdRef.current = cleanProdId;
 
     const fabricCanvas = canvasManager.getCanvas();
     if (!fabricCanvas) {
@@ -1937,12 +1932,12 @@ export default function Designer({
       const isProductTemplate = activeTemplateId?.startsWith('prod_');
       const targetTemplateId = isProductTemplate ? null : activeTemplateId;
 
-      let activeProductId = productIdRef.current;
+      let activeProductId: string | null = productIdRef.current || null;
       if (!activeProductId || activeProductId === 'default') {
         if (isProductTemplate && activeTemplateId) {
           activeProductId = activeTemplateId.replace('prod_', '');
         } else {
-          activeProductId = 'default';
+          activeProductId = null;
         }
       }
 
