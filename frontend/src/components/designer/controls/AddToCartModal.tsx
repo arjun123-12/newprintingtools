@@ -18,6 +18,12 @@ import { cartService } from '@/services/cartService';
 import { useEnquiry } from '@/context/EnquiryContext';
 import { safeLocalStorage } from '@/utils/storageHelper';
 
+import {
+  DEFAULT_PAPER_STOCKS,
+  getStandaloneDesignerOptions,
+  shouldFetchProductConfiguration,
+} from './standaloneDesignerOptions';
+
 interface AddToCartModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -30,11 +36,7 @@ interface AddToCartModalProps {
 
 const QUANTITY_OPTIONS = [100, 250, 500, 1000, 2500, 5000];
 
-const DEFAULT_PAPER_STOCKS = [
-  { id: 'gsm_128', name: '128 GSM', stock_name: 'Standard Art Paper', gsm: 128 },
-  { id: 'gsm_150', name: '150 GSM', stock_name: 'Gloss Art Paper', gsm: 150 },
-  { id: 'gsm_350', name: '350 GSM', stock_name: 'Premium Matte Artboard', gsm: 350 },
-];
+export { DEFAULT_PAPER_STOCKS };
 
 export const AddToCartModal: React.FC<AddToCartModalProps> = ({
   isOpen,
@@ -76,6 +78,19 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
   // Load product to discover configured printing options, GSM options, and folding options
   useEffect(() => {
     if (!isOpen || !productId) return;
+
+    // Standalone designer flow: do not call GET /api/v1/products/default
+    if (!shouldFetchProductConfiguration(productId)) {
+      const standalone = getStandaloneDesignerOptions();
+      setGsmOptions(standalone.gsmOptions);
+      setSelectedGsmId(standalone.defaultGsmId);
+      setPrintingOptions(standalone.printingOptions);
+      setPrintingSide(standalone.defaultPrintingSide);
+      setFoldingOptions(standalone.foldingOptions);
+      setSelectedFolding(standalone.defaultFolding);
+      return;
+    }
+
     let isMounted = true;
 
     const fetchProduct = async () => {
@@ -183,6 +198,12 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
   useEffect(() => {
     if (!isOpen || !productId) return;
 
+    if (!shouldFetchProductConfiguration(productId)) {
+      setLoadingPrice(false);
+      setPricing(null);
+      return;
+    }
+
     let isMounted = true;
     const calculatePricing = async () => {
       setLoadingPrice(true);
@@ -248,7 +269,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     if (!isAdmin) {
       onClose();
       openEnquiryModal({
-        productId,
+        productId: productId === 'default' ? undefined : productId,
         productName: artworkName || 'Custom Artwork',
         quantity,
         specifications: {
@@ -257,6 +278,11 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
           folding: activeFoldingObj?.name || selectedFolding,
         },
       });
+      return;
+    }
+
+    if (productId === 'default') {
+      setError('Please select a catalog product before adding this design to the cart.');
       return;
     }
 
