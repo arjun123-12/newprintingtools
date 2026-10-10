@@ -73,14 +73,18 @@ export interface PrintingPricingTier {
   label?: string;
 }
 
-export interface PrintingGsmCategoryConfig {
+export type GsmPricingTier = PrintingPricingTier;
+
+export interface GsmOptionConfig {
   id: string;
   name: string;
   gsm?: number | string;
+  stock_name?: string;
   is_active: boolean;
   active?: boolean;
   is_default: boolean;
   tiers: PrintingPricingTier[];
+  side_tiers?: Record<string, PrintingPricingTier[]>;
 }
 
 export interface PrintingSideConfig {
@@ -90,13 +94,21 @@ export interface PrintingSideConfig {
   is_active: boolean;
   active?: boolean;
   is_default: boolean;
-  gsm_categories?: PrintingGsmCategoryConfig[];
-  tiers?: PrintingPricingTier[];
+  tiers: PrintingPricingTier[];
+}
+
+export interface SqmPricingConfig {
+  enabled: boolean;
+  price_per_sqm: number | '';
+  min_area_sqm: number | '';
+  setup_fee?: number | '';
 }
 
 export interface PrintingPricingConfig {
   enabled: boolean;
   options: PrintingSideConfig[];
+  gsm_options?: GsmOptionConfig[];
+  sqm_pricing?: SqmPricingConfig | null;
 }
 
 export interface VariantItem {
@@ -171,6 +183,7 @@ export interface ProductFormData {
   base_price: number;
   sale_price: number | '';
   cost_price: number | '';
+  sqm_pricing?: SqmPricingConfig | null;
   pricing_tiers: PricingTierItem[];
   folding_pricing?: FoldingPricingConfig | null;
   printing_pricing?: PrintingPricingConfig | null;

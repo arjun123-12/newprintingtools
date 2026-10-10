@@ -32,6 +32,7 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
   printingPricing,
 }) => {
   const [selectedPrintingSide, setSelectedPrintingSide] = useState<string>('');
+  const [selectedGsm, setSelectedGsm] = useState<string>('');
   const [selectedQty, setSelectedQty] = useState<number>(quantityBreaks[0] || 100);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
   const [selectedFolding, setSelectedFolding] = useState<string>('no_fold');
@@ -70,45 +71,42 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
     );
   }, [availablePrintingOptions, selectedPrintingSide]);
 
-  // Determine available GSM categories for the active side
-  const [selectedGsmCategory, setSelectedGsmCategory] = useState<string>('');
+  // Determine available GSM options
+  const availableGsmOptions = useMemo(() => {
+    if (!isPrintingActive || !printingPricing?.gsm_options) return [];
+    return printingPricing.gsm_options.filter((o) => o.is_active !== false && o.active !== false);
+  }, [isPrintingActive, printingPricing]);
 
-  const availableGsmCategories = useMemo(() => {
-    if (!activePrintingConfig?.gsm_categories) return [];
-    return activePrintingConfig.gsm_categories.filter((g) => g.is_active !== false && g.active !== false);
-  }, [activePrintingConfig]);
-
+  // Synchronize default GSM option
   React.useEffect(() => {
-    if (availableGsmCategories.length > 0) {
-      const exists = availableGsmCategories.some((g) => g.id === selectedGsmCategory);
+    if (availableGsmOptions.length > 0) {
+      const exists = availableGsmOptions.some((o) => o.id === selectedGsm);
       if (!exists) {
-        const def = availableGsmCategories.find((g) => g.is_default) || availableGsmCategories[0];
-        setSelectedGsmCategory(def.id);
+        const defaultOpt =
+          availableGsmOptions.find((o) => o.is_default) || availableGsmOptions[0];
+        setSelectedGsm(defaultOpt.id);
       }
     }
-  }, [availableGsmCategories, selectedGsmCategory]);
+  }, [availableGsmOptions, selectedGsm]);
 
-  const activeGsmCategory = useMemo(() => {
-    if (availableGsmCategories.length === 0) return null;
+  const activeGsmConfig = useMemo(() => {
     return (
-      availableGsmCategories.find((g) => g.id === selectedGsmCategory) ||
-      availableGsmCategories[0] ||
+      availableGsmOptions.find((o) => o.id === selectedGsm) ||
+      availableGsmOptions[0] ||
       null
     );
-  }, [availableGsmCategories, selectedGsmCategory]);
+  }, [availableGsmOptions, selectedGsm]);
 
-  // Quantity options (configured fixed-total tiers when printing pricing is active)
+  // Quantity options (configured fixed-total tiers from both sides and GSM when printing pricing is active)
   const activeQuantityOptions = useMemo(() => {
     if (isPrintingActive) {
-      if (activeGsmCategory?.tiers && activeGsmCategory.tiers.length > 0) {
-        return activeGsmCategory.tiers.map((t) => t.quantity);
-      }
-      if (activePrintingConfig?.tiers && activePrintingConfig.tiers.length > 0) {
-        return activePrintingConfig.tiers.map((t) => t.quantity);
-      }
+      const sideQtys = (activePrintingConfig?.tiers || []).map((t) => t.quantity);
+      const gsmQtys = (activeGsmConfig?.tiers || []).map((t) => t.quantity);
+      const combined = Array.from(new Set([...sideQtys, ...gsmQtys])).sort((a, b) => a - b);
+      if (combined.length > 0) return combined;
     }
     return quantityBreaks;
-  }, [isPrintingActive, activeGsmCategory, activePrintingConfig, quantityBreaks]);
+  }, [isPrintingActive, activePrintingConfig, activeGsmConfig, quantityBreaks]);
 
   React.useEffect(() => {
     if (activeQuantityOptions.length > 0 && !activeQuantityOptions.includes(selectedQty)) {
@@ -166,14 +164,6 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
         return; // Handled by folding add-on pricing engine
       }
 
-      if (
-        isPrintingActive &&
-        activeGsmCategory &&
-        ['paper_stock', 'gsm', 'material', 'paper_weight'].includes(attr.code.toLowerCase())
-      ) {
-        return; // Handled authoritatively by GSM category tier
-      }
-
       const activeVals = attr.values.filter((v) => v.is_active !== false);
       const selectedValCode = selectedOptions[attr.code] || activeVals[0]?.value;
       const valObj = activeVals.find((v) => v.value === selectedValCode);
@@ -189,25 +179,64 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
     });
 
     let basePrintingTotal = 0;
-    let baseUnitPrice = 0;
     let isFixedTierMatch = false;
 
     if (isPrintingActive) {
-      const tiersToUse = activeGsmCategory?.tiers || activePrintingConfig?.tiers || [];
-      const matchedTier = tiersToUse.find((t) => t.quantity === selectedQty);
-      if (matchedTier) {
-        basePrintingTotal = Number(matchedTier.total_price);
-        baseUnitPrice = selectedQty > 0 ? basePrintingTotal / selectedQty : 0;
+      const isDoubleSide =
+        selectedPrintingSide === 'front_back' ||
+        activePrintingConfig?.id === 'front_back' ||
+        activePrintingConfig?.name?.toLowerCase().includes('double') ||
+        activePrintingConfig?.name?.toLowerCase().includes('front & back');
+      const sideKey = isDoubleSide ? 'front_back' : 'front_only';
+
+      // 1. Exact match in GSM side_tiers
+      const gsmSideTiers = activeGsmConfig?.side_tiers?.[sideKey];
+      const matchedGsmSideTier = Array.isArray(gsmSideTiers)
+        ? gsmSideTiers.find((t) => t.quantity === selectedQty)
+        : null;
+
+      if (matchedGsmSideTier) {
+        basePrintingTotal = Number(matchedGsmSideTier.total_price);
         isFixedTierMatch = true;
+      } else {
+        // 2. Exact match in GSM general tiers
+        const matchedGsmTier = (activeGsmConfig?.tiers || []).find((t) => t.quantity === selectedQty);
+        if (matchedGsmTier) {
+          basePrintingTotal = Number(matchedGsmTier.total_price);
+          isFixedTierMatch = true;
+
+          // Add double-sided upgrade difference if double-sided and side configs exist
+          if (isDoubleSide) {
+            const singleSideTier = (printingPricing?.options?.find((o) => o.id === 'front_only')?.tiers || []).find(
+              (t) => t.quantity === selectedQty
+            );
+            const doubleSideTier = (activePrintingConfig?.tiers || []).find((t) => t.quantity === selectedQty);
+            if (singleSideTier && doubleSideTier) {
+              const upgradeDiff = Math.max(0, Number(doubleSideTier.total_price) - Number(singleSideTier.total_price));
+              basePrintingTotal += upgradeDiff;
+            } else if (doubleSideTier && !singleSideTier) {
+              basePrintingTotal = Number(doubleSideTier.total_price);
+            }
+          }
+        } else if (activePrintingConfig) {
+          // 3. Fallback to printing side config tiers alone
+          const matchedSideTier = (activePrintingConfig.tiers || []).find((t) => t.quantity === selectedQty);
+          if (matchedSideTier) {
+            basePrintingTotal = Number(matchedSideTier.total_price);
+            isFixedTierMatch = true;
+          }
+        }
       }
     }
 
-    if (!isFixedTierMatch) {
-      baseUnitPrice = (Number(basePrice) || 0) + unitBaseModifier;
-      basePrintingTotal = baseUnitPrice * selectedQty;
-    } else {
+    let baseUnitPrice = 0;
+    if (isFixedTierMatch) {
+      baseUnitPrice = selectedQty > 0 ? basePrintingTotal / selectedQty : 0;
       baseUnitPrice += unitBaseModifier;
       basePrintingTotal += unitBaseModifier * selectedQty;
+    } else {
+      baseUnitPrice = (Number(basePrice) || 0) + unitBaseModifier;
+      basePrintingTotal = baseUnitPrice * selectedQty;
     }
 
     // Folding Add-on Pricing calculation
@@ -260,14 +289,21 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
     const finalUnitRate = selectedQty > 0 ? estimatedTotal / selectedQty : 0;
 
     return {
+      sidePrintingTotal: basePrintingTotal.toFixed(2),
+      gsmTotal: '0.00',
       basePrintingTotal: basePrintingTotal.toFixed(2),
       perCardPrice: (selectedQty > 0 ? basePrintingTotal / selectedQty : 0).toFixed(2),
       foldingCharge: foldingCharge.toFixed(2),
+      attributesCharge: (unitBaseModifier * selectedQty).toFixed(2),
       estimatedTotal: estimatedTotal.toFixed(2),
       unitRate: finalUnitRate.toFixed(4),
       isFoldingActive,
       isFlatFold,
       isFixedTierMatch,
+      isSideActive: Boolean(isPrintingActive && activePrintingConfig),
+      isGsmActive: Boolean(isPrintingActive && availableGsmOptions.length > 0 && activeGsmConfig),
+      activeSideName: activePrintingConfig?.name || '',
+      activeGsmName: activeGsmConfig?.name || '',
     };
   }, [
     basePrice,
@@ -278,7 +314,8 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
     selectedFolding,
     isPrintingActive,
     activePrintingConfig,
-    activeGsmCategory,
+    activeGsmConfig,
+    availableGsmOptions,
   ]);
 
   // Non-folding attributes for standard list display
@@ -290,7 +327,7 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
     availableFoldingOptions.find((o) => o.value === selectedFolding)?.label || selectedFolding;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-4 font-sans select-none sticky top-6">
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 space-y-4 font-sans select-none sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-100 pb-3">
         <div className="flex items-center gap-2">
@@ -304,6 +341,26 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
         </div>
         <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
           Live Sync
+        </span>
+      </div>
+
+      {/* ─── STICKY / FIXED IN TOP PRICE SUMMARY BAR ─────────────────────────── */}
+      <div className="p-3 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-800 text-white rounded-xl flex items-center justify-between shadow-sm sticky top-0 z-20 border border-slate-700/60">
+        <div>
+          <span className="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">
+            Total Price ({selectedQty} units)
+          </span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-xl font-black text-blue-400 font-mono tracking-tight">
+              ${pricing.estimatedTotal}
+            </span>
+            <span className="text-[11px] text-slate-400 font-mono">
+              (${pricing.unitRate}/unit)
+            </span>
+          </div>
+        </div>
+        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded-full border border-emerald-700/70">
+          All Options Included
         </span>
       </div>
 
@@ -328,6 +385,7 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
           <div className="grid grid-cols-1 gap-1">
             {availablePrintingOptions.map((opt) => {
               const isSelected = selectedPrintingSide === opt.id;
+              const sideTier = (opt.tiers || []).find((t) => t.quantity === selectedQty);
               return (
                 <button
                   key={opt.id}
@@ -343,7 +401,12 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
                     {isSelected && <Check className="w-3 h-3 text-white shrink-0" />}
                     <span className="truncate">{opt.name}</span>
                   </div>
-                  {opt.is_default && !isSelected && (
+                  {sideTier && (
+                    <span className={`text-[10px] font-mono ${isSelected ? 'text-sky-100' : 'text-gray-500'}`}>
+                      ${Number(sideTier.total_price).toFixed(2)}
+                    </span>
+                  )}
+                  {opt.is_default && !isSelected && !sideTier && (
                     <span className="text-[10px] text-amber-600 font-normal">Default</span>
                   )}
                 </button>
@@ -353,37 +416,48 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
         </div>
       )}
 
-      {/* ─── GSM CATEGORY SELECTOR (When active printing side has GSM categories) ─── */}
-      {isPrintingActive && availableGsmCategories.length > 0 && (
-        <div className="space-y-1.5 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
+      {/* ─── GSM OPTION SELECTOR (When GSM options are active) ─── */}
+      {isPrintingActive && availableGsmOptions.length > 0 && (
+        <div className="space-y-1.5 p-3 bg-amber-50/50 rounded-xl border border-amber-200/80">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-950">
-              GSM / Paper Stock
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-950">
+              Paper Weight / GSM
             </span>
-            <span className="text-[10px] font-semibold text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200">
-              Authoritative
+            <span className="text-[10px] font-semibold text-amber-700 bg-white px-2 py-0.5 rounded border border-amber-200">
+              Stock Spec
             </span>
           </div>
 
           <div className="grid grid-cols-1 gap-1">
-            {availableGsmCategories.map((gOpt) => {
-              const isGsmSelected = selectedGsmCategory === gOpt.id;
+            {availableGsmOptions.map((opt) => {
+              const isSelected = selectedGsm === opt.id;
+              const gsmTier = (opt.tiers || []).find((t) => t.quantity === selectedQty);
               return (
                 <button
-                  key={gOpt.id}
+                  key={opt.id}
                   type="button"
-                  onClick={() => setSelectedGsmCategory(gOpt.id)}
+                  onClick={() => setSelectedGsm(opt.id)}
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all text-left flex items-center justify-between ${
-                    isGsmSelected
-                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
-                      : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50'
+                    isSelected
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-amber-300 hover:bg-amber-50/50'
                   }`}
                 >
                   <div className="flex items-center gap-1.5 truncate">
-                    {isGsmSelected && <Check className="w-3 h-3 text-white shrink-0" />}
-                    <span className="truncate">{gOpt.name}</span>
+                    {isSelected && <Check className="w-3 h-3 text-white shrink-0" />}
+                    <span className="truncate">{opt.name}</span>
+                    {opt.stock_name && (
+                      <span className={`text-[10px] ${isSelected ? 'text-amber-100' : 'text-gray-400'}`}>
+                        ({opt.stock_name})
+                      </span>
+                    )}
                   </div>
-                  {gOpt.is_default && !isGsmSelected && (
+                  {gsmTier && (
+                    <span className={`text-[10px] font-mono ${isSelected ? 'text-amber-100' : 'text-gray-600'}`}>
+                      +${Number(gsmTier.total_price).toFixed(2)}
+                    </span>
+                  )}
+                  {opt.is_default && !isSelected && !gsmTier && (
                     <span className="text-[10px] text-amber-600 font-normal">Default</span>
                   )}
                 </button>
@@ -533,15 +607,40 @@ export const FrontendOptionPreview: React.FC<FrontendOptionPreviewProps> = ({
           <span className="font-mono font-semibold text-white">{selectedQty} units</span>
         </div>
 
-        <div className="flex items-center justify-between text-xs text-slate-300">
-          <span>{pricing.isFixedTierMatch ? 'Fixed Total Printing:' : 'Base Printing Price:'}</span>
-          <span className="font-mono font-medium">${pricing.basePrintingTotal}</span>
-        </div>
+        {pricing.isSideActive && (
+          <div className="flex items-center justify-between text-xs text-slate-300">
+            <span className="truncate pr-2">Side ({pricing.activeSideName}):</span>
+            <span className="font-mono font-medium">${pricing.sidePrintingTotal}</span>
+          </div>
+        )}
+
+        {pricing.isGsmActive && (
+          <div className="flex items-center justify-between text-xs text-amber-300">
+            <span className="truncate pr-2">Paper Weight ({pricing.activeGsmName}):</span>
+            <span className="font-mono font-medium">
+              {Number(pricing.gsmTotal) > 0 ? `+$${pricing.gsmTotal}` : 'Included'}
+            </span>
+          </div>
+        )}
+
+        {!pricing.isSideActive && !pricing.isGsmActive && (
+          <div className="flex items-center justify-between text-xs text-slate-300">
+            <span>Base Printing Price:</span>
+            <span className="font-mono font-medium">${pricing.basePrintingTotal}</span>
+          </div>
+        )}
 
         {pricing.isFixedTierMatch && (
           <div className="flex items-center justify-between text-xs text-emerald-400">
             <span>Price Per Card:</span>
             <span className="font-mono font-semibold">${pricing.perCardPrice} / card</span>
+          </div>
+        )}
+
+        {Number(pricing.attributesCharge) > 0 && (
+          <div className="flex items-center justify-between text-xs text-blue-300">
+            <span>Attributes / Options:</span>
+            <span className="font-mono font-medium">+${pricing.attributesCharge}</span>
           </div>
         )}
 

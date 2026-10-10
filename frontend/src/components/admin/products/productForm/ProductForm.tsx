@@ -73,6 +73,7 @@ const defaultInitialForm: ProductFormData = {
   sale_price: '',
   cost_price: '',
   pricing_tiers: [],
+  sqm_pricing: null,
   folding_pricing: null,
   printing_pricing: null,
   sides_count: 1,
@@ -254,6 +255,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       print_layout: p.print_layout ?? null,
       folding_pricing: p.folding_pricing ?? null,
       printing_pricing: p.printing_pricing ?? null,
+      sqm_pricing: p.sqm_pricing ?? p.printing_pricing?.sqm_pricing ?? null,
       design_template_ids: Array.isArray(p.design_template_ids) ? p.design_template_ids : [],
       track_inventory: Boolean(p.track_inventory),
       stock_quantity: typeof p.stock_quantity === 'number' ? p.stock_quantity : 0,
@@ -436,7 +438,19 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       safe_area_mm: typeof formData.safe_area_mm === 'number' && !isNaN(formData.safe_area_mm) ? formData.safe_area_mm : 0,
       print_layout: formData.print_layout ?? null,
       folding_pricing: formData.folding_pricing ?? null,
-      printing_pricing: formData.printing_pricing ?? null,
+      printing_pricing: formData.printing_pricing
+        ? {
+            ...formData.printing_pricing,
+            sqm_pricing: formData.sqm_pricing ?? formData.printing_pricing.sqm_pricing ?? null,
+          }
+        : formData.sqm_pricing
+        ? {
+            enabled: false,
+            options: [],
+            sqm_pricing: formData.sqm_pricing,
+          }
+        : null,
+      sqm_pricing: formData.sqm_pricing ?? null,
       attributes: formData.attributes ?? [],
       pricing_tiers: formData.pricing_tiers ?? [],
       sides: processedSides,

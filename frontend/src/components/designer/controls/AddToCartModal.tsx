@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   X,
@@ -28,10 +28,10 @@ interface AddToCartModalProps {
 
 const QUANTITY_OPTIONS = [100, 250, 500, 1000, 2500, 5000];
 
-const PAPER_STOCKS = [
-  { id: '350_matte', label: '350gsm Premium Matte Artboard' },
-  { id: '400_gloss', label: '400gsm High Gloss Finish' },
-  { id: '300_recycled', label: '300gsm 100% Recycled Kraft' },
+const DEFAULT_PAPER_STOCKS = [
+  { id: 'gsm_128', name: '128 GSM', stock_name: 'Standard Art Paper', gsm: 128 },
+  { id: 'gsm_150', name: '150 GSM', stock_name: 'Gloss Art Paper', gsm: 150 },
+  { id: 'gsm_350', name: '350 GSM', stock_name: 'Premium Matte Artboard', gsm: 350 },
 ];
 
 export const AddToCartModal: React.FC<AddToCartModalProps> = ({
@@ -45,19 +45,25 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
 }) => {
   const router = useRouter();
 
-  const [quantity, setQuantity] = useState(250);
-  const [paperStock, setPaperStock] = useState('350_matte');
+  const [quantity, setQuantity] = useState(100);
+  const [selectedGsmId, setSelectedGsmId] = useState<string>('');
+  const [gsmOptions, setGsmOptions] = useState<any[]>([]);
   const [printingSide, setPrintingSide] = useState<string>('');
   const [printingOptions, setPrintingOptions] = useState<any[]>([]);
+  const [selectedFolding, setSelectedFolding] = useState<string>('no_fold');
+  const [foldingOptions, setFoldingOptions] = useState<any[]>([]);
   const [pricing, setPricing] = useState<{
     subtotalExGst: number;
     gstAmount: number;
     totalIncGst: number;
     unitPriceExGst: number;
     perCardPrice?: number;
+    printingPrice?: number;
+    foldingCharge?: number;
+    foldingName?: string;
     isPrintingConfig?: boolean;
     configName?: string;
-    gsmCategoryName?: string;
+    gsmName?: string;
   } | null>(null);
 
   const [loadingPrice, setLoadingPrice] = useState(false);
@@ -65,7 +71,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
   const [addedSuccess, setAddedSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load product to discover configured printing options
+  // Load product to discover configured printing options, GSM options, and folding options
   useEffect(() => {
     if (!isOpen || !productId) return;
     let isMounted = true;
@@ -74,7 +80,28 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
       try {
         const res = await apiClient.get(`/products/${productId}`);
         const p = res.data?.data;
-        if (isMounted && p?.printing_pricing?.enabled && Array.isArray(p.printing_pricing.options)) {
+        if (!isMounted || !p) return;
+
+        // 1. GSM Options
+        if (p?.printing_pricing?.gsm_options && Array.isArray(p.printing_pricing.gsm_options)) {
+          const activeGsm = p.printing_pricing.gsm_options.filter(
+            (o: any) => o.is_active !== false && o.active !== false
+          );
+          if (activeGsm.length > 0) {
+            setGsmOptions(activeGsm);
+            const defGsm = activeGsm.find((o: any) => o.is_default) || activeGsm[0];
+            setSelectedGsmId(defGsm.id);
+          } else {
+            setGsmOptions(DEFAULT_PAPER_STOCKS);
+            setSelectedGsmId(DEFAULT_PAPER_STOCKS[0].id);
+          }
+        } else {
+          setGsmOptions(DEFAULT_PAPER_STOCKS);
+          setSelectedGsmId(DEFAULT_PAPER_STOCKS[0].id);
+        }
+
+        // 2. Printing Side Options
+        if (p?.printing_pricing?.enabled && Array.isArray(p.printing_pricing.options)) {
           const activeOpts = p.printing_pricing.options.filter(
             (o: any) => o.is_active !== false && o.active !== false
           );
@@ -82,13 +109,37 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
           if (activeOpts.length > 0) {
             const defOpt = activeOpts.find((o: any) => o.is_default) || activeOpts[0];
             setPrintingSide(defOpt.id || 'front_only');
-            if (defOpt.tiers && defOpt.tiers.length > 0) {
-              setQuantity(defOpt.tiers[0].quantity);
-            }
           }
         }
+
+        // 3. Folding Options
+        if (p?.folding_pricing?.enabled) {
+          const rawOpts = p.folding_pricing.options;
+          let list: any[] = [];
+          if (Array.isArray(rawOpts)) {
+            list = rawOpts.filter((o: any) => o.active !== false && o.is_active !== false);
+          } else if (rawOpts && typeof rawOpts === 'object') {
+            list = Object.entries(rawOpts)
+              .filter(([_, o]: [string, any]) => o.active !== false && o.is_active !== false)
+              .map(([k, o]: [string, any]) => ({ id: o.id || k, name: o.name || k, ...o }));
+          }
+
+          // Always ensure "No Folding" option exists
+          const hasNoFold = list.some(
+            (o: any) => o.id === 'no_fold' || o.type === 'no_fold' || (o.name && o.name.toLowerCase().includes('no fold'))
+          );
+          const finalFoldingList = hasNoFold
+            ? list
+            : [{ id: 'no_fold', name: 'No Folding (Flat)', pricing_method: 'per_order', charge: 0 }, ...list];
+
+          setFoldingOptions(finalFoldingList);
+          setSelectedFolding('no_fold');
+        } else {
+          setFoldingOptions([]);
+          setSelectedFolding('no_fold');
+        }
       } catch (err) {
-        console.warn('Could not load product printing configuration:', err);
+        console.warn('Could not load product configuration:', err);
       }
     };
 
@@ -99,51 +150,34 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     };
   }, [isOpen, productId]);
 
-  // Available quantities based on selected printing configuration
+  const activeGsmObj = gsmOptions.find((g) => g.id === selectedGsmId) || gsmOptions[0] || null;
   const currentPrintingConfig = printingOptions.find((o) => o.id === printingSide) || printingOptions[0] || null;
+  const activeFoldingObj = foldingOptions.find((f) => f.id === selectedFolding) || null;
 
-  // GSM categories for active printing side
-  const [selectedGsmCategoryId, setSelectedGsmCategoryId] = useState<string>('');
-
-  const availableGsmCategories = useMemo(() => {
-    if (!currentPrintingConfig?.gsm_categories) return [];
-    return currentPrintingConfig.gsm_categories.filter(
-      (g: any) => g.is_active !== false && g.active !== false
-    );
-  }, [currentPrintingConfig]);
-
-  useEffect(() => {
-    if (availableGsmCategories.length > 0) {
-      const exists = availableGsmCategories.some((g: any) => g.id === selectedGsmCategoryId);
-      if (!exists) {
-        const def = availableGsmCategories.find((g: any) => g.is_default) || availableGsmCategories[0];
-        setSelectedGsmCategoryId(def.id);
+  // Available quantities based on selected GSM and printing configuration
+  const availableQuantities = React.useMemo(() => {
+    if (activeGsmObj) {
+      if (activeGsmObj.side_tiers && activeGsmObj.side_tiers[printingSide]) {
+        return activeGsmObj.side_tiers[printingSide].map((t: any) => t.quantity);
       }
-    } else {
-      setSelectedGsmCategoryId('');
+      if (activeGsmObj.tiers && activeGsmObj.tiers.length > 0) {
+        return activeGsmObj.tiers.map((t: any) => t.quantity);
+      }
     }
-  }, [availableGsmCategories, selectedGsmCategoryId]);
+    if (currentPrintingConfig?.tiers && currentPrintingConfig.tiers.length > 0) {
+      return currentPrintingConfig.tiers.map((t: any) => t.quantity);
+    }
+    return QUANTITY_OPTIONS;
+  }, [activeGsmObj, printingSide, currentPrintingConfig]);
 
-  const currentGsmCategory = useMemo(() => {
-    if (availableGsmCategories.length === 0) return null;
-    return availableGsmCategories.find((g: any) => g.id === selectedGsmCategoryId) || availableGsmCategories[0] || null;
-  }, [availableGsmCategories, selectedGsmCategoryId]);
-
-  const availableQuantities =
-    currentGsmCategory?.tiers && currentGsmCategory.tiers.length > 0
-      ? currentGsmCategory.tiers.map((t: any) => t.quantity)
-      : currentPrintingConfig?.tiers && currentPrintingConfig.tiers.length > 0
-      ? currentPrintingConfig.tiers.map((t: any) => t.quantity)
-      : QUANTITY_OPTIONS;
-
-  // When printing side or GSM category changes, ensure quantity matches an available tier
+  // When options change, ensure quantity matches an available tier
   useEffect(() => {
     if (availableQuantities.length > 0 && !availableQuantities.includes(quantity)) {
       setQuantity(availableQuantities[0]);
     }
-  }, [printingSide, selectedGsmCategoryId, availableQuantities, quantity]);
+  }, [availableQuantities, quantity]);
 
-  // Fetch dynamic price whenever quantity, paperStock, printingSide, or selectedGsmCategoryId changes
+  // Fetch dynamic authoritative price whenever quantity, GSM, printingSide, or folding changes
   useEffect(() => {
     if (!isOpen || !productId) return;
 
@@ -152,12 +186,15 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
       setLoadingPrice(true);
       setError(null);
       try {
-        const selected_options: Record<string, any> = { paper_stock: paperStock };
+        const selected_options: Record<string, any> = {
+          gsm_id: selectedGsmId,
+          paper_stock: activeGsmObj?.name || activeGsmObj?.stock_name || 'Standard',
+        };
         if (printingSide) {
           selected_options.printing_side_id = printingSide;
         }
-        if (selectedGsmCategoryId) {
-          selected_options.gsm_category_id = selectedGsmCategoryId;
+        if (selectedFolding && selectedFolding !== 'no_fold') {
+          selected_options.folding_style = selectedFolding;
         }
 
         const response = await apiClient.post('/pricing/calculate', {
@@ -168,15 +205,21 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
 
         if (isMounted && response.data?.success && response.data?.data) {
           const d = response.data.data;
+          const printingDetails = d.printing_config_details || {};
+          const foldingDetails = d.folding_details || {};
+
           setPricing({
             subtotalExGst: Number(d.subtotal_ex_gst || 0),
             gstAmount: Number(d.gst_amount || 0),
             totalIncGst: Number(d.total_inc_gst || 0),
             unitPriceExGst: Number(d.unit_price_ex_gst || 0),
-            perCardPrice: d.printing_config_details?.per_card_price,
-            isPrintingConfig: Boolean(d.printing_config_details?.enabled),
-            configName: d.printing_config_details?.option_name,
-            gsmCategoryName: d.printing_config_details?.gsm_category_name,
+            perCardPrice: printingDetails.per_card_price || (quantity > 0 ? Number(printingDetails.fixed_total_price || d.subtotal_ex_gst) / quantity : 0),
+            printingPrice: Number(printingDetails.fixed_total_price ?? d.subtotal_ex_gst),
+            foldingCharge: Number(foldingDetails.folding_charge || 0),
+            foldingName: foldingDetails.style_name || activeFoldingObj?.name,
+            isPrintingConfig: Boolean(printingDetails.enabled),
+            configName: printingDetails.option_name,
+            gsmName: printingDetails.gsm_name || activeGsmObj?.name,
           });
         }
       } catch (err: any) {
@@ -195,7 +238,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, productId, quantity, paperStock, printingSide, selectedGsmCategoryId]);
+  }, [isOpen, productId, quantity, selectedGsmId, printingSide, selectedFolding, activeGsmObj, activeFoldingObj]);
 
   if (!isOpen) return null;
 
@@ -210,7 +253,9 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
 
     try {
       const selectedOpts: Record<string, any> = {
-        paper_stock: currentGsmCategory?.name || PAPER_STOCKS.find((p) => p.id === paperStock)?.label || paperStock,
+        gsm_id: selectedGsmId,
+        gsm_name: activeGsmObj?.name || 'Standard GSM',
+        paper_stock: activeGsmObj?.name || activeGsmObj?.stock_name || 'Standard Art Paper',
         artwork_name: artworkName,
       };
 
@@ -221,10 +266,10 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
         }
       }
 
-      if (selectedGsmCategoryId) {
-        selectedOpts.gsm_category_id = selectedGsmCategoryId;
-        if (currentGsmCategory?.name) {
-          selectedOpts.gsm_category_name = currentGsmCategory.name;
+      if (selectedFolding && selectedFolding !== 'no_fold') {
+        selectedOpts.folding_style = selectedFolding;
+        if (activeFoldingObj?.name) {
+          selectedOpts.folding_name = activeFoldingObj.name;
         }
       }
 
@@ -362,34 +407,6 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
                 </div>
               )}
 
-              {/* GSM / Paper Stock Category (When side configuration has GSM categories) */}
-              {availableGsmCategories.length > 0 && (
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    GSM / Paper Stock
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {availableGsmCategories.map((gOpt: any) => (
-                      <button
-                        key={gOpt.id}
-                        type="button"
-                        onClick={() => setSelectedGsmCategoryId(gOpt.id)}
-                        className={`p-2.5 rounded-xl border text-left text-xs font-semibold transition flex items-center justify-between ${
-                          selectedGsmCategoryId === gOpt.id
-                            ? 'bg-indigo-50 border-indigo-500 text-indigo-900 ring-1 ring-indigo-500 shadow-2xs'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        <span className="truncate">{gOpt.name}</span>
-                        {selectedGsmCategoryId === gOpt.id && (
-                          <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Quantity Breaks */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
@@ -413,73 +430,144 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
                 </div>
               </div>
 
-              {/* Generic Paper Stock (Only shown when product does NOT have configured GSM categories) */}
-              {availableGsmCategories.length === 0 && (
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Material & Paper Stock
-                  </label>
-                  <div className="space-y-1.5">
-                    {PAPER_STOCKS.map((stock) => (
-                      <label
-                        key={stock.id}
-                        className={`flex items-center gap-3 p-2.5 rounded-xl border text-xs cursor-pointer transition ${
-                          paperStock === stock.id
-                            ? 'bg-sky-50/70 border-sky-300 text-sky-900 font-semibold'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
+              {/* Paper Stock / GSM Options */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Paper Stock &amp; Weight (GSM)
+                </label>
+                <div className="space-y-1.5">
+                  {gsmOptions.map((stock) => (
+                    <label
+                      key={stock.id}
+                      className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition ${
+                        selectedGsmId === stock.id
+                          ? 'bg-sky-50/70 border-sky-300 text-sky-900 font-semibold ring-1 ring-sky-300'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
                         <input
                           type="radio"
-                          name="paper_stock"
+                          name="gsm_option"
                           value={stock.id}
-                          checked={paperStock === stock.id}
-                          onChange={() => setPaperStock(stock.id)}
+                          checked={selectedGsmId === stock.id}
+                          onChange={() => setSelectedGsmId(stock.id)}
                           className="text-sky-600 focus:ring-sky-500"
                         />
-                        <span>{stock.label}</span>
-                      </label>
-                    ))}
+                        <span>{stock.name}</span>
+                        {stock.stock_name && (
+                          <span className="text-[11px] text-slate-400 font-normal">
+                            ({stock.stock_name})
+                          </span>
+                        )}
+                      </div>
+                      {stock.gsm && (
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                          {stock.gsm} GSM
+                        </span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Folding Options (When folding is configured for product) */}
+              {foldingOptions.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Folding Option (Add-on)
+                    </label>
+                    <span className="text-[10px] text-slate-400">Optional finishing</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {foldingOptions.map((fold) => {
+                      const isSelected = selectedFolding === fold.id;
+                      const isNoFold = fold.id === 'no_fold' || fold.type === 'no_fold' || fold.name?.toLowerCase().includes('no fold');
+                      return (
+                        <button
+                          key={fold.id}
+                          type="button"
+                          onClick={() => setSelectedFolding(fold.id)}
+                          className={`p-2.5 rounded-xl border text-left text-xs font-semibold transition flex items-center justify-between ${
+                            isSelected
+                              ? 'bg-sky-50 border-sky-500 text-sky-900 ring-1 ring-sky-500 shadow-2xs'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="truncate">
+                            <span className="block truncate">{fold.name}</span>
+                            <span className="text-[10px] font-normal text-slate-400">
+                              {isNoFold ? 'No charge ($0.00)' : fold.pricing_method ? `${fold.pricing_method.replace('_', ' ')}` : 'Add-on finishing'}
+                            </span>
+                          </div>
+                          {isSelected && <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0" />}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
-              {/* Live Pricing Breakdown */}
-              <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-3">
-                {pricing?.isPrintingConfig && pricing?.configName && (
-                  <div className="flex items-center justify-between text-[11px] text-sky-300 pb-2 border-b border-slate-800">
-                    <span className="font-semibold">Configuration:</span>
-                    <span className="font-bold text-white truncate max-w-[240px] text-right">
-                      {pricing.configName}
-                      {pricing.gsmCategoryName ? ` • ${pricing.gsmCategoryName}` : ''}
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>{pricing?.isPrintingConfig ? 'Price Per Card:' : 'Unit Price:'}</span>
-                  <span>
-                    {loadingPrice
-                      ? '...'
-                      : pricing?.isPrintingConfig
-                      ? `$${((pricing?.perCardPrice || pricing?.unitPriceExGst) || 0).toFixed(2)} / card`
-                      : `$${(pricing?.unitPriceExGst || 0).toFixed(4)} / each`}
+              {/* Authoritative Live Pricing Breakdown */}
+              <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-2.5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span className="text-xs font-bold text-slate-300">Live Price Breakdown</span>
+                  <span className="text-[10px] font-semibold text-sky-400 bg-sky-950 px-2 py-0.5 rounded border border-sky-800">
+                    Authoritative Backend Pricing
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>{pricing?.isPrintingConfig ? 'Fixed Package Subtotal (ex GST):' : 'Subtotal (ex GST):'}</span>
+                {/* Stock & Sides Summary */}
+                <div className="text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-1 pt-0.5">
+                  <span>Selected Specs:</span>
+                  <span className="text-slate-200 font-medium">
+                    {activeGsmObj?.name || 'Standard'} • {currentPrintingConfig?.name || 'Single-Sided'} • {quantity.toLocaleString()} qty
+                  </span>
+                </div>
+
+                {/* Printing Fixed Total */}
+                <div className="flex items-center justify-between text-xs text-slate-300">
+                  <span>Printing Total ({quantity} cards):</span>
+                  <span className="font-semibold text-white">
+                    {loadingPrice ? '...' : `$${(pricing?.printingPrice ?? pricing?.subtotalExGst ?? 0).toFixed(2)}`}
+                  </span>
+                </div>
+
+                {/* Folding Charge */}
+                {pricing && pricing.foldingCharge !== undefined && pricing.foldingCharge > 0 && (
+                  <div className="flex items-center justify-between text-xs text-amber-300">
+                    <span>Folding ({pricing.foldingName || 'Finishing'}):</span>
+                    <span className="font-semibold">+${pricing.foldingCharge.toFixed(2)}</span>
+                  </div>
+                )}
+
+                {/* Price per card */}
+                <div className="flex items-center justify-between text-xs text-emerald-400">
+                  <span>Price Per Card (Auto):</span>
+                  <span className="font-mono font-bold">
+                    {loadingPrice
+                      ? '...'
+                      : `$${(pricing?.perCardPrice || (quantity > 0 ? (pricing?.printingPrice || 0) / quantity : 0)).toFixed(2)} / card`}
+                  </span>
+                </div>
+
+                {/* Subtotal Ex GST */}
+                <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-800/80">
+                  <span>Subtotal (ex GST):</span>
                   <span>{loadingPrice ? '...' : `$${(pricing?.subtotalExGst || 0).toFixed(2)}`}</span>
                 </div>
 
+                {/* GST */}
                 <div className="flex items-center justify-between text-xs text-slate-400">
                   <span>GST (10% AU):</span>
                   <span>{loadingPrice ? '...' : `$${(pricing?.gstAmount || 0).toFixed(2)}`}</span>
                 </div>
 
+                {/* Total Inc GST */}
                 <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
                   <div>
-                    <span className="text-xs text-slate-300 font-bold block">Total Payable</span>
+                    <span className="text-xs text-slate-300 font-bold block">Final Total Payable</span>
                     <span className="text-[10px] text-emerald-400 flex items-center gap-1">
                       <ShieldCheck className="w-3 h-3" />
                       Free AU Delivery &gt; $150

@@ -35,7 +35,7 @@ export const ProductAttributes: React.FC<ProductAttributesProps> = ({
         </div>
 
         {/* Right 1 Col: Live Storefront Option Preview Widget */}
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1 self-start sticky top-6 z-10">
           <FrontendOptionPreview
             productName={formData.name}
             basePrice={formData.base_price}
