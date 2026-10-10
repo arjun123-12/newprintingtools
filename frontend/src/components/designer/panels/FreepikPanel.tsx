@@ -658,7 +658,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
             </span>
 
             <span>
-              Freepik / Magnific Library
+              Erry Imprints Library
             </span>
           </div>
 

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/services/api/client';
 import { cartService } from '@/services/cartService';
+import { useEnquiry } from '@/context/EnquiryContext';
 
 interface AddToCartModalProps {
   isOpen: boolean;
@@ -240,9 +241,24 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     };
   }, [isOpen, productId, quantity, selectedGsmId, printingSide, selectedFolding, activeGsmObj, activeFoldingObj]);
 
-  if (!isOpen) return null;
+  const { openEnquiryModal, isAdmin } = useEnquiry();
 
   const handleAddToCart = async () => {
+    if (!isAdmin) {
+      onClose();
+      openEnquiryModal({
+        productId,
+        productName: artworkName || 'Custom Artwork',
+        quantity,
+        specifications: {
+          gsm: activeGsmObj?.name || activeGsmObj?.stock_name,
+          printing_sides: currentPrintingConfig?.name || printingSide,
+          folding: activeFoldingObj?.name || selectedFolding,
+        },
+      });
+      return;
+    }
+
     if (!artworkId) {
       setError('Please wait a moment while your artwork is saving to the database.');
       return;

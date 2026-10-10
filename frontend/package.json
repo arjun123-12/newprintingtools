@@ -82,6 +82,7 @@
     "zustand": "^4.5.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@types/jest": "^29.0.0",
     "@types/node": "^20.14.2",
     "@types/pdfkit": "^0.17.6",

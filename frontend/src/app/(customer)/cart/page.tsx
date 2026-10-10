@@ -21,10 +21,12 @@ import {
 import { cartService, CartData, CartItemData } from '@/services/cartService';
 import { useCartStore } from '@/stores/cartStore';
 import { useAuth } from '@/context/AuthContext';
+import { useEnquiry } from '@/context/EnquiryContext';
 
 export default function CartPage() {
   const router = useRouter();
   const { user, isAuthenticated } = useAuth();
+  const { openEnquiryModal, isAdmin } = useEnquiry();
   const { cart, fetchCart } = useCartStore();
 
   const [loading, setLoading] = useState(true);
@@ -306,13 +308,30 @@ export default function CartPage() {
             </div>
 
             <div className="space-y-3">
-              <Link
-                href="/checkout"
-                className="w-full py-3.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-2xl shadow-lg shadow-sky-600/20 hover:shadow-xl transition flex items-center justify-center gap-2"
-              >
-                <span>Proceed to Checkout</span>
-                <ArrowRight className="w-4 h-4" />
-              </Link>
+              {isAdmin ? (
+                <Link
+                  href="/checkout"
+                  className="w-full py-3.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-2xl shadow-lg shadow-sky-600/20 hover:shadow-xl transition flex items-center justify-center gap-2"
+                >
+                  <span>Proceed to Checkout</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    openEnquiryModal({
+                      productName: items.map((i) => i.product?.name).filter(Boolean).join(', ') || 'Cart Items',
+                      quantity: items.reduce((acc, i) => acc + (i.quantity || 0), 0) || undefined,
+                      sourceUrl: '/cart',
+                    })
+                  }
+                  className="w-full py-3.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-2xl shadow-lg shadow-sky-600/20 hover:shadow-xl transition flex items-center justify-center gap-2"
+                >
+                  <span>Request Quote for Cart Items</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
 
               <Link
                 href="/products"

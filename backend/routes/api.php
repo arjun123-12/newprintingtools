@@ -241,6 +241,15 @@ Route::prefix('auth')->group(function () {
 });
 
 // ==========================================
+// CUSTOMER ENQUIRIES (PUBLIC)
+// ==========================================
+
+Route::post('/enquiries', [
+    App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+    'store',
+])->middleware('throttle:30,1');
+
+// ==========================================
 // GUEST CART
 // ==========================================
 
@@ -552,6 +561,24 @@ Route::middleware(['auth:sanctum'])
         Route::get('/customers/{id}', [
             App\Http\Controllers\Api\V1\Admin\CustomerController::class,
             'show',
+        ]);
+
+        // Customer Enquiries Management
+        Route::get('/enquiries', [
+            App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+            'index',
+        ]);
+        Route::get('/enquiries/{id}', [
+            App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+            'show',
+        ]);
+        Route::patch('/enquiries/{id}', [
+            App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+            'update',
+        ]);
+        Route::delete('/enquiries/{id}', [
+            App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+            'destroy',
         ]);
     });
 Route::prefix('client-brief-auth')->group(function () {

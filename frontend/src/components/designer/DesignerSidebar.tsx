@@ -65,7 +65,7 @@ const SIDEBAR_TABS: TabItem[] = [
   { id: 'text', label: 'Text', icon: Type },
   { id: 'uploads', label: 'Uploads', icon: UploadCloud },
   { id: 'photos', label: 'Photos', icon: ImageIcon },
-  { id: 'freepik', label: 'Freepik', icon: Sparkles },
+  { id: 'freepik', label: 'Erry Imprints', icon: Sparkles },
   { id: 'icons', label: 'Icons', icon: Smile },
   { id: 'frames', label: 'Frames', icon: Crop },
   { id: 'draw', label: 'Draw', icon: Paintbrush },

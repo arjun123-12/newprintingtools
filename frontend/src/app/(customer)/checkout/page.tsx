@@ -24,6 +24,7 @@ import {
   Check,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useEnquiry } from '@/context/EnquiryContext';
 import {
   checkoutService,
   CheckoutDataResponse,
@@ -47,6 +48,7 @@ const AU_STATES = [
 export default function CheckoutPage() {
   const router = useRouter();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { openEnquiryModal, isAdmin } = useEnquiry();
 
   // Checkout Data State from Backend
   const [loading, setLoading] = useState(true);
@@ -267,6 +269,40 @@ export default function CheckoutPage() {
       <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-4">
         <Loader2 className="w-10 h-10 text-sky-600 animate-spin" />
         <p className="text-sm font-semibold text-slate-600">Verifying secure checkout session...</p>
+      </div>
+    );
+  }
+
+  // 1.1 Public visitor guard: Enquiry Mode active (Only authenticated admins can access full checkout)
+  if (!isAdmin) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-20 text-center space-y-6">
+        <div className="w-16 h-16 bg-sky-50 text-sky-600 rounded-3xl flex items-center justify-center mx-auto shadow-sm">
+          <Sparkles className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+            Checkout Operating in Enquiry Mode
+          </h1>
+          <p className="text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+            Our storefront is operating in <strong>Customer Enquiry & Custom Quotation Mode</strong>. Direct online checkout is reserved for authorized administrators. Please submit an enquiry to receive a formal quotation and invoice.
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => openEnquiryModal({ sourceUrl: '/checkout' })}
+            className="w-full sm:w-auto px-6 py-3 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm rounded-xl shadow-md transition"
+          >
+            Request a Quote / Submit Enquiry
+          </button>
+          <Link
+            href="/"
+            className="w-full sm:w-auto px-6 py-3 border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold text-sm rounded-xl transition"
+          >
+            Return to Homepage
+          </Link>
+        </div>
       </div>
     );
   }
