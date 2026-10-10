@@ -111,6 +111,26 @@ export default function DesignEditorClient({
         }
       };
       void resolveArtworkProduct();
+    } else if (!initialProductId || initialProductId === 'default') {
+      const controller = new AbortController();
+      const resolveDefaultProduct = async () => {
+        try {
+          const res = await fetch(`${API_URL}/products`, {
+            signal: controller.signal,
+            headers: { Accept: 'application/json' },
+          });
+          if (res.ok) {
+            const result = await res.json();
+            const firstProduct = result?.data?.[0];
+            if (firstProduct?.id) {
+              setResolvedProductId(String(firstProduct.id));
+            }
+          }
+        } catch {
+          // ignore network or abort errors
+        }
+      };
+      void resolveDefaultProduct();
     }
 
     if (mode !== 'admin-template') {

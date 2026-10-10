@@ -302,6 +302,7 @@ export default function Designer({
   documentSettingsRef.current = documentSettings;
 
   const artworkIdRef = useRef<string | null>(artworkIdProp || null);
+  const [currentArtworkId, setCurrentArtworkId] = useState<string | null>(artworkIdProp || null);
   const pagesRef = useRef<PageData[]>(pages);
   pagesRef.current = pages;
   const activePageIndexRef = useRef<number>(activePageIndex);
@@ -1269,6 +1270,7 @@ export default function Designer({
           );
 
           artworkIdRef.current = savedArtwork.id;
+          setCurrentArtworkId(savedArtwork.id);
           designerService.rememberArtworkId(
             currentProductId,
             savedArtwork.id
@@ -2792,7 +2794,7 @@ export default function Designer({
         isOpen={isAddToCartOpen}
         onClose={() => setIsAddToCartOpen(false)}
         productId={productId || 'default'}
-        artworkId={artworkIdRef.current}
+        artworkId={currentArtworkId || artworkIdRef.current}
         artworkName={designName}
         previewDataUrl={previewThumbnailUrl}
         dimensionsText={`${documentSettings.width} × ${documentSettings.height} ${documentSettings.unit || 'mm'} (${documentSettings.dpi || 300} DPI)`}

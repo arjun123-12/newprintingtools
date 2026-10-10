@@ -16,6 +16,7 @@ import {
 import { apiClient } from '@/services/api/client';
 import { cartService } from '@/services/cartService';
 import { useEnquiry } from '@/context/EnquiryContext';
+import { safeLocalStorage } from '@/utils/storageHelper';
 
 interface AddToCartModalProps {
   isOpen: boolean;
@@ -259,7 +260,12 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
       return;
     }
 
-    if (!artworkId) {
+    let effectiveArtworkId = artworkId;
+    if (!effectiveArtworkId && productId) {
+      effectiveArtworkId = safeLocalStorage.getItem<string>('remembered_artwork_id_' + productId) || null;
+    }
+
+    if (!effectiveArtworkId) {
       setError('Please wait a moment while your artwork is saving to the database.');
       return;
     }
@@ -291,12 +297,15 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
 
       await cartService.addItem({
         product_id: productId,
-        artwork_id: artworkId,
+        artwork_id: effectiveArtworkId,
         quantity,
         selected_options: selectedOpts,
       });
 
       setAddedSuccess(true);
+      // Navigate directly to cart page
+      onClose();
+      router.push('/cart');
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Could not add item to cart.');
     } finally {
@@ -307,7 +316,12 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add Customized Design to Cart"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+    >
       <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-slate-50/50">
