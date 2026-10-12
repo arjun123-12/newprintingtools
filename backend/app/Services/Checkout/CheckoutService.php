@@ -25,7 +25,7 @@ class CheckoutService
      * Retrieve the initial checkout state for the authenticated user,
      * including their cart, saved addresses, and shipping options.
      */
-    public function getCheckoutData(User $user, ?string $sessionId = null): array
+    public function getCheckoutData(User $user, ?string $sessionId = null, ?array $addressOverride = null): array
     {
         // 1. Fetch user's cart from database
         $cart = Cart::where('user_id', $user->id)->first();
@@ -84,16 +84,18 @@ class CheckoutService
         // 3. Recalculate & format all cart items
         $recalculated = $this->recalculateCartItems($cart);
 
-        // 4. Calculate available shipping rates
-        $postcode = $defaultShipping?->postcode ?? '2000';
-        $state = $defaultShipping?->state ?? 'NSW';
-        $shippingRates = $this->getAvailableShippingRates($postcode, $state, $recalculated['subtotal_inc_gst']);
+        // 4. Calculate available shipping rates (using address override if supplied)
+        $postcode = (string) ($addressOverride['postcode'] ?? $defaultShipping?->postcode ?? '');
+        $state = (string) ($addressOverride['state'] ?? $defaultShipping?->state ?? 'NSW');
+        $suburb = (string) ($addressOverride['suburb'] ?? $addressOverride['city'] ?? $defaultShipping?->suburb ?? $defaultShipping?->city ?? '');
+        $shippingRates = $this->getAvailableShippingRates($postcode, $state, $recalculated['subtotal_inc_gst'], $suburb);
 
         $selectedRate = $shippingRates[0] ?? [
-            'id' => 'auspost_standard',
-            'name' => 'Australia Post Standard',
+            'id' => 'cp_standard',
+            'carrier' => 'CouriersPlease',
+            'name' => 'CouriersPlease Standard Delivery',
             'price_inc_gst' => 12.50,
-            'estimated_days' => '3-5 Business Days',
+            'estimated_days' => '2-4 Business Days',
         ];
 
         $shippingAmount = (float) $selectedRate['price_inc_gst'];
@@ -122,6 +124,7 @@ class CheckoutService
             'default_billing_address' => $defaultBilling,
             'available_shipping_methods' => $shippingRates,
             'selected_shipping_method' => $selectedRate,
+            'shipping_carrier_status' => $this->shippingCalculator->getCouriersPleaseService()->getConfigStatus(),
         ];
     }
 
@@ -150,19 +153,21 @@ class CheckoutService
             : $data['billing_address'];
 
         // 4. Calculate shipping rate
-        $postcode = (string) ($shipping['postcode'] ?? '2000');
+        $postcode = (string) ($shipping['postcode'] ?? '');
         $state = (string) ($shipping['state'] ?? 'NSW');
-        $availableRates = $this->getAvailableShippingRates($postcode, $state, $recalculated['subtotal_inc_gst']);
+        $suburb = (string) ($shipping['suburb'] ?? $shipping['city'] ?? '');
+        $availableRates = $this->getAvailableShippingRates($postcode, $state, $recalculated['subtotal_inc_gst'], $suburb);
 
-        $chosenMethodId = $data['shipping_method_id'] ?? 'auspost_standard';
+        $chosenMethodId = $data['shipping_method_id'] ?? 'cp_standard';
         $selectedRate = collect($availableRates)->firstWhere('id', $chosenMethodId);
 
         if (!$selectedRate) {
             $selectedRate = $availableRates[0] ?? [
-                'id' => 'auspost_standard',
-                'name' => 'Australia Post Standard',
+                'id' => 'cp_standard',
+                'carrier' => 'CouriersPlease',
+                'name' => 'CouriersPlease Standard Delivery',
                 'price_inc_gst' => 12.50,
-                'estimated_days' => '3-5 Business Days',
+                'estimated_days' => '2-4 Business Days',
             ];
         }
 
@@ -229,7 +234,7 @@ class CheckoutService
     /**
      * Recalculate each item in the cart from authoritative database models.
      */
-    protected function recalculateCartItems(Cart $cart): array
+    public function recalculateCartItems(Cart $cart): array
     {
         $cart->load([
             'items.product',
@@ -321,21 +326,24 @@ class CheckoutService
     /**
      * Compute available shipping options, applying Free Standard Shipping over $150 AUD.
      */
-    protected function getAvailableShippingRates(string $postcode, string $state, float $subtotalIncGst): array
+    public function getAvailableShippingRates(string $postcode, string $state, float $subtotalIncGst, string $suburb = '', array $items = []): array
     {
-        $rawRates = $this->shippingCalculator->calculateRates($postcode, $state);
+        $rawRates = $this->shippingCalculator->calculateRates($postcode, $state, 1.0, $suburb, $items);
 
         return array_map(function ($rate) use ($subtotalIncGst) {
-            $isStandard = $rate['id'] === 'auspost_standard';
+            $isStandard = str_contains($rate['id'], 'standard');
             $isFree = $isStandard && ($subtotalIncGst >= self::FREE_SHIPPING_THRESHOLD);
 
             return [
                 'id' => $rate['id'],
+                'carrier' => $rate['carrier'] ?? 'CouriersPlease',
                 'name' => $rate['name'],
+                'rate_card_code' => $rate['rate_card_code'] ?? null,
                 'price_inc_gst' => $isFree ? 0.00 : (float) $rate['price_inc_gst'],
                 'original_price' => (float) $rate['price_inc_gst'],
                 'is_free' => $isFree,
                 'estimated_days' => $rate['estimated_days'],
+                'cutoff_time' => $rate['cutoff_time'] ?? null,
             ];
         }, $rawRates);
     }

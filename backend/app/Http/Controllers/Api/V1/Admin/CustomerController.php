@@ -108,6 +108,147 @@ class CustomerController extends Controller
     }
 
     /**
+     * Create a new customer with contact details, billing/shipping address, and preferences.
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => 'nullable|string|max:255',
+            'customer_display_name' => 'nullable|string|max:255',
+            'first_name' => 'nullable|string|max:100',
+            'middle_name' => 'nullable|string|max:100',
+            'last_name' => 'nullable|string|max:100',
+            'title' => 'nullable|string|max:50',
+            'suffix' => 'nullable|string|max:50',
+            'company_name' => 'nullable|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:50',
+            'mobile_number' => 'nullable|string|max:50',
+            'fax' => 'nullable|string|max:50',
+            'other' => 'nullable|string|max:50',
+            'website' => 'nullable|string|max:255',
+            'cc' => 'nullable|string|max:255',
+            'bcc' => 'nullable|string|max:255',
+            'abn' => 'nullable|string|max:20',
+            'is_sub_customer' => 'nullable|boolean',
+            'billing_address' => 'nullable|array',
+            'shipping_address' => 'nullable|array',
+            'notes' => 'nullable|string',
+            'primary_payment_method' => 'nullable|string|max:100',
+            'terms' => 'nullable|string|max:100',
+        ]);
+
+        $displayName = $validated['customer_display_name'] 
+            ?? $validated['name'] 
+            ?? trim(($validated['first_name'] ?? '') . ' ' . ($validated['last_name'] ?? ''));
+
+        if (empty($displayName)) {
+            $displayName = $validated['company_name'] ?? 'New Customer';
+        }
+
+        $email = !empty($validated['email']) ? strtolower(trim($validated['email'])) : null;
+        if ($email && User::where('email', $email)->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A customer with this email address already exists.',
+            ], 422);
+        }
+
+        if (!$email) {
+            $email = 'cust_' . \Illuminate\Support\Str::random(8) . '@erryimprints.internal';
+        }
+
+        $user = User::create([
+            'name' => $displayName,
+            'email' => $email,
+            'phone' => $validated['phone'] ?? $validated['mobile_number'] ?? null,
+            'company_name' => $validated['company_name'] ?? null,
+            'abn' => $validated['abn'] ?? null,
+            'role' => User::ROLE_CUSTOMER,
+            'password' => \Illuminate\Support\Facades\Hash::make(\Illuminate\Support\Str::random(16)),
+        ]);
+
+        // Save Billing Address if provided
+        if (!empty($validated['billing_address'])) {
+            $ba = $validated['billing_address'];
+            $user->addresses()->create([
+                'type' => 'billing',
+                'name' => $displayName,
+                'company' => $validated['company_name'] ?? null,
+                'address_line_1' => $ba['address_line_1'] ?? $ba['street1'] ?? $ba['street_address_1'] ?? '',
+                'address_line_2' => $ba['address_line_2'] ?? $ba['street2'] ?? $ba['street_address_2'] ?? null,
+                'suburb' => $ba['city'] ?? $ba['suburb'] ?? 'Sydney',
+                'state' => in_array($ba['state'] ?? '', ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']) ? $ba['state'] : 'NSW',
+                'postcode' => $ba['postcode'] ?? '2000',
+                'country' => $ba['country'] ?? 'AU',
+                'phone' => $validated['phone'] ?? $validated['mobile_number'] ?? '0000000000',
+                'is_default' => true,
+            ]);
+        }
+
+        // Save Shipping Address if provided
+        if (!empty($validated['shipping_address'])) {
+            $sa = $validated['shipping_address'];
+            $user->addresses()->create([
+                'type' => 'shipping',
+                'name' => $displayName,
+                'company' => $validated['company_name'] ?? null,
+                'address_line_1' => $sa['address_line_1'] ?? $sa['street1'] ?? $sa['street_address_1'] ?? '',
+                'address_line_2' => $sa['address_line_2'] ?? $sa['street2'] ?? $sa['street_address_2'] ?? null,
+                'suburb' => $sa['city'] ?? $sa['suburb'] ?? 'Sydney',
+                'state' => in_array($sa['state'] ?? '', ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']) ? $sa['state'] : 'NSW',
+                'postcode' => $sa['postcode'] ?? '2000',
+                'country' => $sa['country'] ?? 'AU',
+                'phone' => $validated['phone'] ?? $validated['mobile_number'] ?? '0000000000',
+                'is_default' => true,
+            ]);
+        }
+
+        $user->load(['addresses', 'orders', 'artworks']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Customer created successfully',
+            'data' => $this->formatUser($user),
+        ], 201);
+    }
+
+    /**
+     * Update an existing customer.
+     */
+    public function update(Request $request, string $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+        $validated = $request->validate([
+            'name' => 'nullable|string|max:255',
+            'customer_display_name' => 'nullable|string|max:255',
+            'company_name' => 'nullable|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:50',
+            'abn' => 'nullable|string|max:20',
+            'billing_address' => 'nullable|array',
+            'shipping_address' => 'nullable|array',
+        ]);
+
+        $displayName = $validated['customer_display_name'] ?? $validated['name'] ?? $user->name;
+        $user->update([
+            'name' => $displayName,
+            'email' => !empty($validated['email']) ? $validated['email'] : $user->email,
+            'phone' => $validated['phone'] ?? $user->phone,
+            'company_name' => $validated['company_name'] ?? $user->company_name,
+            'abn' => $validated['abn'] ?? $user->abn,
+        ]);
+
+        $user->load(['addresses', 'orders', 'artworks']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Customer updated successfully',
+            'data' => $this->formatUser($user),
+        ]);
+    }
+
+    /**
      * Retrieve artworks created by guest sessions (unregistered users).
      */
     public function guestArtworks(Request $request): JsonResponse

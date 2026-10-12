@@ -42,6 +42,11 @@ class ProductController extends Controller
         $pricingTiersData = $request->input('pricing_tiers', []);
         unset($validated['sides'], $validated['attributes'], $validated['pricing_tiers']);
 
+        // Auto-derive base_price if not provided or 0
+        if (!isset($validated['base_price']) || (float)$validated['base_price'] <= 0) {
+            $validated['base_price'] = $this->deriveStartingPrice($validated, $pricingTiersData);
+        }
+
         $product = $this->productService->createProduct($validated);
         
         if (!empty($sides)) {
@@ -119,6 +124,14 @@ class ProductController extends Controller
         $attributesData = $request->has('attributes') ? $request->input('attributes') : null;
         $pricingTiersData = $request->has('pricing_tiers') ? $request->input('pricing_tiers') : null;
         unset($validated['attributes'], $validated['pricing_tiers']);
+
+        // Auto-derive base_price if explicitly 0 or not provided and product has 0 base_price
+        if ((isset($validated['base_price']) && (float)$validated['base_price'] <= 0) || (!isset($validated['base_price']) && (float)$product->base_price <= 0)) {
+            $derived = $this->deriveStartingPrice($validated, $pricingTiersData);
+            if ($derived > 0) {
+                $validated['base_price'] = $derived;
+            }
+        }
 
         DB::transaction(function () use ($product, $validated, $attributesData, $pricingTiersData) {
             if (isset($validated['sides'])) {
@@ -533,5 +546,80 @@ class ProductController extends Controller
             'message' => "{$count} product(s) restored successfully.",
             'restored_count' => $count,
         ]);
+    }
+
+    /**
+     * Auto-derive starting base price from sale price, printing pricing tiers, or quantity tiers.
+     */
+    protected function deriveStartingPrice(array $validated, ?array $pricingTiersData): float
+    {
+        if (isset($validated['sale_price']) && (float) $validated['sale_price'] > 0) {
+            return round((float) $validated['sale_price'], 2);
+        }
+
+        $printingPricing = $validated['printing_pricing'] ?? null;
+        if (is_string($printingPricing)) {
+            $printingPricing = json_decode($printingPricing, true);
+        }
+
+        if (!empty($printingPricing) && is_array($printingPricing)) {
+            $gsmOptions = $printingPricing['gsm_options'] ?? [];
+            if (!empty($gsmOptions) && is_array($gsmOptions)) {
+                $minPrice = 0.0;
+                foreach ($gsmOptions as $gsm) {
+                    $tiers = $gsm['tiers'] ?? [];
+                    if (!empty($tiers) && is_array($tiers)) {
+                        foreach ($tiers as $t) {
+                            $price = (float) ($t['total_price'] ?? $t['per_card_price'] ?? 0);
+                            if ($price > 0 && ($minPrice === 0.0 || $price < $minPrice)) {
+                                $minPrice = $price;
+                            }
+                        }
+                    }
+                }
+                if ($minPrice > 0.0) {
+                    return round($minPrice, 2);
+                }
+            }
+
+            $options = $printingPricing['options'] ?? [];
+            if (!empty($options) && is_array($options)) {
+                $minPrice = 0.0;
+                foreach ($options as $opt) {
+                    $tiers = $opt['tiers'] ?? [];
+                    if (!empty($tiers) && is_array($tiers)) {
+                        foreach ($tiers as $t) {
+                            $price = (float) ($t['total_price'] ?? $t['per_card_price'] ?? 0);
+                            if ($price > 0 && ($minPrice === 0.0 || $price < $minPrice)) {
+                                $minPrice = $price;
+                            }
+                        }
+                    }
+                }
+                if ($minPrice > 0.0) {
+                    return round($minPrice, 2);
+                }
+            }
+
+            $sqm = $printingPricing['sqm_pricing'] ?? null;
+            if (!empty($sqm['enabled']) && !empty($sqm['price_per_sqm'])) {
+                return round((float) $sqm['price_per_sqm'], 2);
+            }
+        }
+
+        if (!empty($pricingTiersData) && is_array($pricingTiersData)) {
+            $minTier = 0.0;
+            foreach ($pricingTiersData as $tier) {
+                $p = (float) ($tier['price'] ?? $tier['unit_price_ex_gst'] ?? 0);
+                if ($p > 0 && ($minTier === 0.0 || $p < $minTier)) {
+                    $minTier = $p;
+                }
+            }
+            if ($minTier > 0.0) {
+                return round($minTier, 2);
+            }
+        }
+
+        return 0.00;
     }
 }

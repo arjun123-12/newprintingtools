@@ -38,9 +38,12 @@ class ProductResource extends JsonResource
             'product_type' => $this->product_type?->value ?? $this->product_type,
             'min_quantity' => $this->min_quantity,
             'turnaround_days' => $this->turnaround_days,
-            'base_price' => $this->base_price,
-            'sale_price' => $this->sale_price,
-            'cost_price' => $this->cost_price,
+            'base_price' => (float) ($this->base_price > 0 ? $this->base_price : $this->calculateStartingPrice()),
+            'sale_price' => $this->sale_price !== null && (float) $this->sale_price > 0 ? (float) $this->sale_price : null,
+            'cost_price' => $this->cost_price !== null && (float) $this->cost_price > 0 ? (float) $this->cost_price : null,
+            'starting_price' => $this->calculateStartingPrice(),
+            'display_price' => $this->calculateStartingPrice(),
+            'price' => $this->calculateStartingPrice(),
             'featured_image_url' => $featuredImage,
             'images' => $images, // Keeping this for backward compatibility
             
@@ -128,5 +131,80 @@ class ProductResource extends JsonResource
             'deleted_at' => $this->deleted_at?->toIso8601String(),
             'is_archived' => $this->trashed(),
         ];
+    }
+
+    /**
+     * Determine the authentic starting retail price from base_price, sale_price, or printing configuration tiers.
+     */
+    protected function calculateStartingPrice(): float
+    {
+        // 1. If promotional sale price exists and is positive
+        if ($this->sale_price !== null && (float) $this->sale_price > 0) {
+            return round((float) $this->sale_price, 2);
+        }
+
+        // 2. If standard base price is positive
+        if ($this->base_price !== null && (float) $this->base_price > 0) {
+            return round((float) $this->base_price, 2);
+        }
+
+        // 3. Inspect printing_pricing options / GSM tiers
+        if (!empty($this->printing_pricing) && is_array($this->printing_pricing)) {
+            // Check GSM options
+            $gsmOptions = $this->printing_pricing['gsm_options'] ?? [];
+            if (!empty($gsmOptions) && is_array($gsmOptions)) {
+                $minGsmPrice = 0.0;
+                foreach ($gsmOptions as $gsm) {
+                    $tiers = $gsm['tiers'] ?? [];
+                    if (!empty($tiers) && is_array($tiers)) {
+                        foreach ($tiers as $t) {
+                            $price = (float) ($t['total_price'] ?? $t['per_card_price'] ?? 0);
+                            if ($price > 0 && ($minGsmPrice === 0.0 || $price < $minGsmPrice)) {
+                                $minGsmPrice = $price;
+                            }
+                        }
+                    }
+                }
+                if ($minGsmPrice > 0.0) {
+                    return round($minGsmPrice, 2);
+                }
+            }
+
+            // Check Sides options
+            $sidesOptions = $this->printing_pricing['options'] ?? [];
+            if (!empty($sidesOptions) && is_array($sidesOptions)) {
+                $minSidePrice = 0.0;
+                foreach ($sidesOptions as $side) {
+                    $tiers = $side['tiers'] ?? [];
+                    if (!empty($tiers) && is_array($tiers)) {
+                        foreach ($tiers as $t) {
+                            $price = (float) ($t['total_price'] ?? $t['per_card_price'] ?? 0);
+                            if ($price > 0 && ($minSidePrice === 0.0 || $price < $minSidePrice)) {
+                                $minSidePrice = $price;
+                            }
+                        }
+                    }
+                }
+                if ($minSidePrice > 0.0) {
+                    return round($minSidePrice, 2);
+                }
+            }
+
+            // Check Square Meter Pricing
+            $sqm = $this->printing_pricing['sqm_pricing'] ?? null;
+            if (!empty($sqm['enabled']) && !empty($sqm['price_per_sqm'])) {
+                return round((float) $sqm['price_per_sqm'], 2);
+            }
+        }
+
+        // 4. Inspect pricingMatrices (quantity tiers)
+        if ($this->relationLoaded('pricingMatrices') && $this->pricingMatrices->isNotEmpty()) {
+            $minTierPrice = (float) $this->pricingMatrices->min('unit_price_ex_gst');
+            if ($minTierPrice > 0) {
+                return round($minTierPrice, 2);
+            }
+        }
+
+        return (float) ($this->base_price ?? 0.00);
     }
 }

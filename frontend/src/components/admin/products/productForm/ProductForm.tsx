@@ -130,7 +130,11 @@ const normalizeProduct = (p: any): ProductFormData => ({
   status: p.status || (p.is_active ? 'published' : 'draft'),
   attributes: Array.isArray(p.attributes) ? p.attributes : [],
   variants: Array.isArray(p.variants) ? p.variants : [],
-  base_price: typeof p.base_price === 'number' ? p.base_price : parseFloat(p.base_price) || 0,
+  base_price: (typeof p.base_price === 'number' && p.base_price > 0)
+    ? p.base_price
+    : (parseFloat(p.base_price) > 0
+        ? parseFloat(p.base_price)
+        : (p.starting_price ? parseFloat(p.starting_price) : (p.display_price ? parseFloat(p.display_price) : 0))),
   sale_price: p.sale_price !== null && p.sale_price !== undefined && p.sale_price !== '' ? parseFloat(p.sale_price) : '',
   cost_price: p.cost_price !== null && p.cost_price !== undefined && p.cost_price !== '' ? parseFloat(p.cost_price) : '',
   pricing_tiers: Array.isArray(p.pricing_tiers) ? p.pricing_tiers : [],
@@ -417,6 +421,49 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     // Sync permanent URLs back to local state
     setFormData((prev) => ({ ...prev, sides: processedSides }));
 
+    // Calculate effective base price (or auto-derive from lowest tier if 0)
+    let calculatedBasePrice = Number(formData.base_price) || 0;
+    if (calculatedBasePrice <= 0) {
+      if (formData.pricing_tiers && formData.pricing_tiers.length > 0) {
+        const firstTier = Number(formData.pricing_tiers[0]?.price) || 0;
+        if (firstTier > 0) calculatedBasePrice = firstTier;
+      }
+      if (calculatedBasePrice <= 0 && formData.printing_pricing) {
+        const gsmOpts = formData.printing_pricing.gsm_options || [];
+        for (const gsm of gsmOpts) {
+          if (gsm.tiers && gsm.tiers.length > 0) {
+            const minT = gsm.tiers.reduce((min, t) => {
+              const p = Number(t.total_price || t.per_card_price || 0);
+              return p > 0 && (min === 0 || p < min) ? p : min;
+            }, 0);
+            if (minT > 0) {
+              calculatedBasePrice = minT;
+              break;
+            }
+          }
+        }
+        if (calculatedBasePrice <= 0) {
+          const sideOpts = formData.printing_pricing.options || [];
+          for (const side of sideOpts) {
+            if (side.tiers && side.tiers.length > 0) {
+              const minT = side.tiers.reduce((min, t) => {
+                const p = Number(t.total_price || t.per_card_price || 0);
+                return p > 0 && (min === 0 || p < min) ? p : min;
+              }, 0);
+              if (minT > 0) {
+                calculatedBasePrice = minT;
+                break;
+              }
+            }
+          }
+        }
+      }
+      if (calculatedBasePrice <= 0 && formData.sqm_pricing?.enabled) {
+        const sqmRate = Number(formData.sqm_pricing.price_per_sqm) || 0;
+        if (sqmRate > 0) calculatedBasePrice = sqmRate;
+      }
+    }
+
     const payload = {
       name: formData.name.trim(),
       slug: formData.slug.trim() || formData.name.toLowerCase().replace(/\s+/g, '-'),
@@ -427,7 +474,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       description: formData.description || null,
       min_quantity: Number(formData.min_quantity) || 1,
       turnaround_days: Number(formData.turnaround_days) || 3,
-      base_price: Number(formData.base_price) || 0,
+      base_price: calculatedBasePrice,
       sale_price: formData.sale_price !== '' && formData.sale_price !== null ? Number(formData.sale_price) : null,
       cost_price: formData.cost_price !== '' && formData.cost_price !== null ? Number(formData.cost_price) : null,
       featured_image_url: featuredUrlToSend,

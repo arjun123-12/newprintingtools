@@ -18,6 +18,9 @@ export interface CheckoutAddress {
 export interface CheckoutShippingMethod {
   id: string;
   name: string;
+  carrier?: string;
+  rate_card_code?: string;
+  cutoff_time?: string;
   price_inc_gst: number;
   original_price?: number;
   is_free?: boolean;
@@ -135,11 +138,29 @@ export interface CreatedOrder {
 }
 
 class CheckoutService {
+  public async getCheckoutData(params?: {
+    postcode?: string;
+    suburb?: string;
+    city?: string;
+    state?: string;
+  }): Promise<CheckoutDataResponse> {
+    const response = await apiClient.get(API_ENDPOINTS.CHECKOUT_DATA, { params });
+    return response.data?.data;
+  }
+
   /**
-   * Loads initial checkout data (user details, cart contents, saved addresses, shipping options)
+   * Re-calculate shipping rates dynamically when an address is selected or updated.
    */
-  public async getCheckoutData(): Promise<CheckoutDataResponse> {
-    const response = await apiClient.get(API_ENDPOINTS.CHECKOUT_DATA);
+  public async getShippingRates(payload: {
+    postcode: string;
+    suburb?: string;
+    city?: string;
+    state?: string;
+  }): Promise<{
+    available_shipping_methods: CheckoutShippingMethod[];
+    selected_shipping_method?: CheckoutShippingMethod;
+  }> {
+    const response = await apiClient.post(API_ENDPOINTS.CHECKOUT_SHIPPING_RATES, payload);
     return response.data?.data;
   }
 

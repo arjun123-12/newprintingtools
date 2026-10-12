@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import {
   FileText,
   DollarSign,
@@ -27,6 +28,8 @@ import {
   X,
   ExternalLink,
   ChevronDown,
+  Plus,
+  Edit2,
 } from 'lucide-react';
 import {
   invoiceService,
@@ -283,6 +286,15 @@ export default function AdminInvoicesPage() {
 
         {/* Header Action Buttons */}
         <div className="flex items-center gap-2.5 self-start md:self-auto">
+          <Link
+            href="/admin/invoices/new"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#0d5c3a] hover:bg-[#09472c] text-sm font-bold text-white transition shadow-sm"
+            title="Create Custom Tax Invoice"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Invoice</span>
+          </Link>
+
           <button
             onClick={() => fetchInvoiceData(true)}
             disabled={isRefreshing}
@@ -700,6 +712,15 @@ export default function AdminInvoicesPage() {
                       {/* Actions */}
                       <td className="py-3.5 px-4 align-top text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          <Link
+                            href={`/admin/invoices/${order.id}/edit`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 text-xs font-medium transition"
+                            title="Edit in Invoice Editor"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </Link>
+
                           <button
                             onClick={() => setSelectedInvoiceOrder(order)}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/20 text-xs font-medium transition"

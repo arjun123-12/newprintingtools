@@ -20,6 +20,7 @@ export const API_ENDPOINTS = {
   CART: '/cart',
   CART_ITEMS: '/cart/items',
   CHECKOUT_DATA: '/checkout/data',
+  CHECKOUT_SHIPPING_RATES: '/checkout/shipping-rates',
   CHECKOUT_VALIDATE: '/checkout/validate',
   CHECKOUT_PROCESS: '/checkout/process',
   ADDRESSES: '/addresses',
@@ -53,5 +54,16 @@ export const API_ENDPOINTS = {
   ADMIN_CUSTOMER_GUEST_ARTWORKS: '/admin/customers/guest-artworks',
   ADMIN_INVOICES: '/admin/invoices',
   ADMIN_INVOICE_DETAIL: (id: string | number) => `/admin/invoices/${id}`,
+
+  // Shipping & CouriersPlease Carrier Endpoints
+  ADMIN_SHIPPING_STATUS: '/admin/shipping/status',
+  ADMIN_SHIPPING_ORIGIN: '/admin/shipping/origin',
+  ADMIN_SHIPPING_ORDERS: '/admin/shipping/orders',
+  ADMIN_SHIPPING_CREATE: (orderId: string | number) => `/admin/shipping/orders/${orderId}/create-shipment`,
+  ADMIN_SHIPPING_LABEL: (consignmentNumber: string) => `/admin/shipping/shipments/${consignmentNumber}/label`,
+  ADMIN_SHIPPING_TRACK: (consignmentNumber: string) => `/admin/shipping/shipments/${consignmentNumber}/track`,
+  ADMIN_SHIPPING_DELIVERY_CHOICES: '/admin/shipping/delivery-choices',
+  ADMIN_SHIPPING_BOOK_PICKUP: '/admin/shipping/book-pickup',
+  CUSTOMER_ORDER_TRACKING: (orderId: string | number) => `/orders/${orderId}/tracking`,
 } as const;
 

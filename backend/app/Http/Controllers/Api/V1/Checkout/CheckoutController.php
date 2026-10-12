@@ -26,11 +26,64 @@ class CheckoutController extends Controller
         $user = $request->user();
         $sessionId = $request->header('X-Session-ID');
 
-        $data = $this->checkoutService->getCheckoutData($user, $sessionId);
+        $addressOverride = null;
+        if ($request->filled('postcode') || $request->filled('city') || $request->filled('suburb')) {
+            $addressOverride = [
+                'postcode' => $request->query('postcode'),
+                'suburb' => $request->query('suburb') ?? $request->query('city'),
+                'state' => $request->query('state'),
+            ];
+        }
+
+        $data = $this->checkoutService->getCheckoutData($user, $sessionId, $addressOverride);
 
         return response()->json([
             'success' => true,
             'data' => $data,
+        ]);
+    }
+
+    /**
+     * Re-calculate shipping rates dynamically when an address is selected or updated.
+     */
+    public function getShippingRates(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'postcode' => ['required', 'string', 'regex:/^[0-9]{4}$/'],
+            'suburb' => ['nullable', 'string', 'max:100'],
+            'city' => ['nullable', 'string', 'max:100'],
+            'state' => ['nullable', 'string'],
+        ]);
+
+        $suburb = $validated['suburb'] ?? $validated['city'] ?? '';
+        $state = strtoupper($validated['state'] ?? 'NSW');
+        $postcode = $validated['postcode'];
+
+        $user = $request->user();
+        $cart = \App\Models\Cart::where('user_id', $user->id)->first();
+        $subtotalIncGst = 0.00;
+        $items = [];
+
+        if ($cart) {
+            $recalculated = $this->checkoutService->recalculateCartItems($cart);
+            $subtotalIncGst = $recalculated['subtotal_inc_gst'];
+            $items = $recalculated['items'];
+        }
+
+        $shippingRates = $this->checkoutService->getAvailableShippingRates(
+            $postcode,
+            $state,
+            $subtotalIncGst,
+            $suburb,
+            $items
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'available_shipping_methods' => $shippingRates,
+                'selected_shipping_method' => $shippingRates[0] ?? null,
+            ],
         ]);
     }
 
@@ -73,7 +126,7 @@ class CheckoutController extends Controller
             'billing_address.postcode' => ['required_if:billing_address_same_as_shipping,false', 'nullable', 'string', 'regex:/^[0-9]{4}$/'],
             'billing_address.country' => ['nullable', 'string'],
 
-            'shipping_method_id' => ['required', 'string', 'in:auspost_standard,auspost_express,startrack_premium'],
+            'shipping_method_id' => ['required', 'string'],
             'customer_notes' => ['nullable', 'string', 'max:1000'],
             'save_address' => ['nullable', 'boolean'],
         ], [

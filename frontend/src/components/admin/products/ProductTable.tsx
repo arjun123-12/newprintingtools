@@ -17,6 +17,10 @@ export interface ProductListItem {
   product_type: string;
   base_price: number;
   sale_price?: number | null;
+  cost_price?: number | null;
+  starting_price?: number | null;
+  display_price?: number | null;
+  price?: number | null;
   featured_image_url?: string;
   status: string;
   is_active: boolean;
@@ -160,14 +164,39 @@ export const ProductTable: React.FC<ProductTableProps> = ({
 
                   {/* Price */}
                   <td className="py-3 px-4 font-semibold text-gray-900">
-                    <div className="flex items-baseline gap-1.5">
-                      <span>${Number(product.base_price || 0).toFixed(2)}</span>
-                      {product.sale_price && Number(product.sale_price) > 0 && (
-                        <span className="text-[10px] text-rose-600 font-bold bg-rose-50 px-1.5 py-0.2 rounded">
-                          Sale: ${Number(product.sale_price).toFixed(2)}
-                        </span>
-                      )}
-                    </div>
+                    {(() => {
+                      const basePrice = Number(product.base_price ?? 0);
+                      const startingPrice = Number(product.starting_price ?? product.display_price ?? product.price ?? 0);
+                      const salePrice = Number(product.sale_price ?? 0);
+                      const regularPrice = basePrice > 0 ? basePrice : startingPrice;
+                      const hasSale = salePrice > 0 && (regularPrice <= 0 || salePrice < regularPrice);
+
+                      if (hasSale) {
+                        return (
+                          <div className="flex flex-col">
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-emerald-700 font-bold">${salePrice.toFixed(2)}</span>
+                              {regularPrice > 0 && (
+                                <span className="text-[10px] text-gray-400 line-through">
+                                  ${regularPrice.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[9px] text-rose-600 font-semibold uppercase tracking-wider">Sale</span>
+                          </div>
+                        );
+                      }
+
+                      const finalPrice = regularPrice > 0 ? regularPrice : (salePrice > 0 ? salePrice : 0);
+                      return (
+                        <div className="flex items-baseline gap-1.5">
+                          <span>${finalPrice.toFixed(2)}</span>
+                          {basePrice <= 0 && startingPrice > 0 && (
+                            <span className="text-[9px] text-gray-400 font-medium">from</span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
 
                   {/* Status */}

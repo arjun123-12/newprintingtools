@@ -119,4 +119,20 @@ export const customerService = {
     );
     return response.data;
   },
+
+  async createCustomer(data: any): Promise<{ success: boolean; data: CustomerItem; message: string }> {
+    const response = await apiClient.post<{ success: boolean; data: CustomerItem; message: string }>(
+      API_ENDPOINTS.ADMIN_CUSTOMERS,
+      data
+    );
+    return response.data;
+  },
+
+  async updateCustomer(id: string | number, data: any): Promise<{ success: boolean; data: CustomerItem; message: string }> {
+    const response = await apiClient.put<{ success: boolean; data: CustomerItem; message: string }>(
+      API_ENDPOINTS.ADMIN_CUSTOMER_DETAIL(id),
+      data
+    );
+    return response.data;
+  },
 };

@@ -322,12 +322,22 @@ Route::middleware(['auth:sanctum'])->group(function () {
             '/{orderNumber}/process-payment',
             [PaymentController::class, 'processPayment']
         );
+
+        Route::get(
+            '/{orderNumber}/tracking',
+            [App\Http\Controllers\Api\V1\Admin\AdminShippingController::class, 'customerTracking']
+        );
     });
 
     Route::prefix('checkout')->group(function () {
         Route::get('/data', [
             App\Http\Controllers\Api\V1\Checkout\CheckoutController::class,
             'getCheckoutData',
+        ]);
+
+        Route::post('/shipping-rates', [
+            App\Http\Controllers\Api\V1\Checkout\CheckoutController::class,
+            'getShippingRates',
         ]);
 
         Route::post('/validate', [
@@ -548,10 +558,21 @@ Route::middleware(['auth:sanctum'])
             App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
             'index',
         ]);
-
+        Route::post('/invoices', [
+            App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+            'store',
+        ]);
         Route::get('/invoices/{id}', [
             App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
             'show',
+        ]);
+        Route::put('/invoices/{id}', [
+            App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+            'update',
+        ]);
+        Route::delete('/invoices/{id}', [
+            App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+            'destroy',
         ]);
 
         Route::get('/artwork-queue', [
@@ -564,6 +585,10 @@ Route::middleware(['auth:sanctum'])
             App\Http\Controllers\Api\V1\Admin\CustomerController::class,
             'index',
         ]);
+        Route::post('/customers', [
+            App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+            'store',
+        ]);
         Route::get('/customers/guest-artworks', [
             App\Http\Controllers\Api\V1\Admin\CustomerController::class,
             'guestArtworks',
@@ -571,6 +596,10 @@ Route::middleware(['auth:sanctum'])
         Route::get('/customers/{id}', [
             App\Http\Controllers\Api\V1\Admin\CustomerController::class,
             'show',
+        ]);
+        Route::put('/customers/{id}', [
+            App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+            'update',
         ]);
 
         // Customer Enquiries Management
@@ -590,6 +619,46 @@ Route::middleware(['auth:sanctum'])
             App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
             'destroy',
         ]);
+
+        // Shipping Management & CouriersPlease Carrier Integration
+        Route::prefix('shipping')->group(function () {
+            Route::get('/status', [
+                App\Http\Controllers\Api\V1\Admin\AdminShippingController::class,
+                'status',
+            ]);
+            Route::post('/origin', [
+                App\Http\Controllers\Api\V1\Admin\AdminShippingController::class,
+                'updateOrigin',
+            ]);
+            Route::get('/orders', [
+                App\Http\Controllers\Api\V1\Admin\AdminShippingController::class,
+                'orders',
+            ]);
+            Route::post('/orders/{id}/create-shipment', [
+                App\Http\Controllers\Api\V1\Admin\AdminShippingController::class,
+                'createShipment',
+            ]);
+            Route::get('/shipments/{consignmentNumber}/label', [
+                App\Http\Controllers\Api\V1\Admin\AdminShippingController::class,
+                'downloadLabel',
+            ]);
+            Route::get('/shipments/{consignmentNumber}/track', [
+                App\Http\Controllers\Api\V1\Admin\AdminShippingController::class,
+                'trackParcel',
+            ]);
+            Route::get('/delivery-choices', [
+                App\Http\Controllers\Api\V1\Admin\AdminShippingController::class,
+                'deliveryChoices',
+            ]);
+            Route::post('/book-pickup', [
+                App\Http\Controllers\Api\V1\Admin\AdminShippingController::class,
+                'bookPickup',
+            ]);
+            Route::get('/locations', [
+                App\Http\Controllers\Api\V1\Admin\AdminShippingController::class,
+                'locations',
+            ]);
+        });
     });
 Route::prefix('client-brief-auth')->group(function () {
 

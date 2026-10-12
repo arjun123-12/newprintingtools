@@ -181,9 +181,31 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         <div className="flex items-center justify-between pt-2 border-t border-gray-100 text-xs">
           <div>
             <span className="text-[10px] text-gray-400 block">From</span>
-            <span className="font-bold text-gray-900">
-              ${Number(product.base_price || 0).toFixed(2)}
-            </span>
+            {(() => {
+              const basePrice = Number(product.base_price ?? 0);
+              const startingPrice = Number(product.starting_price ?? product.display_price ?? product.price ?? 0);
+              const salePrice = Number(product.sale_price ?? 0);
+              const regularPrice = basePrice > 0 ? basePrice : startingPrice;
+              const hasSale = salePrice > 0 && (regularPrice <= 0 || salePrice < regularPrice);
+
+              if (hasSale) {
+                return (
+                  <div className="flex items-baseline gap-1">
+                    <span className="font-bold text-emerald-700">${salePrice.toFixed(2)}</span>
+                    {regularPrice > 0 && (
+                      <span className="text-[10px] text-gray-400 line-through">${regularPrice.toFixed(2)}</span>
+                    )}
+                  </div>
+                );
+              }
+
+              const finalPrice = regularPrice > 0 ? regularPrice : (salePrice > 0 ? salePrice : 0);
+              return (
+                <span className="font-bold text-gray-900">
+                  ${finalPrice.toFixed(2)}
+                </span>
+              );
+            })()}
           </div>
 
           {isArchivedView ? (

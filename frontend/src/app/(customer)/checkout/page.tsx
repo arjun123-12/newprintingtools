@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -22,7 +22,12 @@ import {
   Clock,
   Sparkles,
   Check,
+  RefreshCw,
+  Navigation,
 } from 'lucide-react';
+import GoogleAddressAutocomplete, {
+  SelectedAustralianAddress,
+} from '@/components/checkout/GoogleAddressAutocomplete';
 import { useAuth } from '@/context/AuthContext';
 import { useEnquiry } from '@/context/EnquiryContext';
 import {
@@ -177,7 +182,79 @@ export default function CheckoutPage() {
     };
 
     void loadData();
-  }, [isAuthenticated, authLoading]);
+  }, [authLoading, isAuthenticated]);
+
+  // Shipping Rates Dynamic Refresh State
+  const [isUpdatingRates, setIsUpdatingRates] = useState(false);
+  const [ratesUpdatedNotification, setRatesUpdatedNotification] = useState<string | null>(null);
+  const streetInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchShippingRates = async (postcode: string, suburb?: string, state?: string) => {
+    if (!postcode || postcode.length !== 4) return;
+    try {
+      setIsUpdatingRates(true);
+      const res = await checkoutService.getShippingRates({
+        postcode,
+        suburb: suburb || shippingAddress.city,
+        city: suburb || shippingAddress.city,
+        state: state || shippingAddress.state,
+      });
+
+      if (res?.available_shipping_methods?.length) {
+        setCheckoutData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            available_shipping_methods: res.available_shipping_methods,
+          };
+        });
+
+        // If currently selected method is not in returned list, select first
+        const currentStillValid = res.available_shipping_methods.some(
+          (m) => m.id === selectedShippingMethodId
+        );
+        if (!currentStillValid) {
+          setSelectedShippingMethodId(res.available_shipping_methods[0].id);
+        }
+
+        const locationName = suburb || shippingAddress.city || `Postcode ${postcode}`;
+        setRatesUpdatedNotification(`Updated delivery rates for ${locationName} (${postcode})`);
+        setTimeout(() => setRatesUpdatedNotification(null), 4000);
+      }
+    } catch (err) {
+      console.warn('Could not refresh shipping rates for address:', err);
+    } finally {
+      setIsUpdatingRates(false);
+    }
+  };
+
+  const handleAddressSelectFromGoogle = (selected: SelectedAustralianAddress) => {
+    setShippingAddress((prev) => ({
+      ...prev,
+      address_line_1: selected.address_line_1,
+      city: selected.city,
+      state: selected.state,
+      postcode: selected.postcode,
+    }));
+
+    // Trigger shipping quotes after address is selected
+    if (selected.postcode && selected.city) {
+      fetchShippingRates(selected.postcode, selected.city, selected.state);
+    }
+  };
+
+  const handleManualAddressBlurOrSubmit = () => {
+    if (shippingAddress.postcode.length === 4 && shippingAddress.city.trim()) {
+      fetchShippingRates(shippingAddress.postcode, shippingAddress.city, shippingAddress.state);
+    }
+  };
+
+  const handleFocusManualAddress = () => {
+    if (streetInputRef.current) {
+      streetInputRef.current.focus();
+      streetInputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
 
   // Dynamic Shipping Rate Calculation
   const activeShippingMethod = useMemo(() => {
@@ -545,22 +622,62 @@ export default function CheckoutPage() {
 
           {/* Section 2: Shipping Address */}
           <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
-            <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
-              <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-sm">
-                2
-              </div>
-              <div>
-                <h2 className="text-base font-black text-slate-900 leading-tight">Shipping Address (Australia)</h2>
-                <p className="text-xs text-slate-400">Physical street address for Australia Post & courier delivery</p>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-sm">
+                  2
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-slate-900 leading-tight">Shipping Address (Australia)</h2>
+                  <p className="text-xs text-slate-400">Physical street address for CouriersPlease and parcel delivery</p>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-4">
+            {/* Google Places Autocomplete Search Box */}
+            <div className="space-y-1.5 p-4 rounded-2xl bg-sky-50/50 border border-sky-100/80">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  Address Autocomplete (Instant Lookup)
+                </label>
+                <span className="text-[10px] font-medium text-slate-500">
+                  Optional • Google Places
+                </span>
+              </div>
+              <GoogleAddressAutocomplete
+                onAddressSelect={handleAddressSelectFromGoogle}
+                onManualEntryClick={handleFocusManualAddress}
+              />
+            </div>
+
+            {/* Notification when rates are updated */}
+            {ratesUpdatedNotification && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium flex items-center gap-2 animate-in fade-in duration-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{ratesUpdatedNotification}</span>
+              </div>
+            )}
+
+            <div className="space-y-4 pt-1">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Manual Address Details
+                </span>
+                {isUpdatingRates && (
+                  <span className="text-xs text-sky-600 flex items-center gap-1 font-medium">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Calculating courier rates...
+                  </span>
+                )}
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Street Address *</label>
                 <div className="relative">
                   <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                   <input
+                    ref={streetInputRef}
                     type="text"
                     required
                     value={shippingAddress.address_line_1}
@@ -597,6 +714,7 @@ export default function CheckoutPage() {
                     required
                     value={shippingAddress.city}
                     onChange={(e) => setShippingAddress({ ...shippingAddress, city: e.target.value })}
+                    onBlur={handleManualAddressBlurOrSubmit}
                     placeholder="Melbourne"
                     className={`w-full px-3 py-2 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 ${
                       validationErrors['shipping_address.city'] ? 'border-red-400 bg-red-50/50' : 'border-slate-200'
@@ -613,7 +731,13 @@ export default function CheckoutPage() {
                   <label className="block text-xs font-bold text-slate-700 mb-1">State / Territory *</label>
                   <select
                     value={shippingAddress.state}
-                    onChange={(e) => setShippingAddress({ ...shippingAddress, state: e.target.value })}
+                    onChange={(e) => {
+                      const newState = e.target.value;
+                      setShippingAddress({ ...shippingAddress, state: newState });
+                      if (shippingAddress.postcode.length === 4) {
+                        fetchShippingRates(shippingAddress.postcode, shippingAddress.city, newState);
+                      }
+                    }}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-sky-500"
                   >
                     {AU_STATES.map((st) => (
@@ -632,7 +756,14 @@ export default function CheckoutPage() {
                     maxLength={4}
                     pattern="[0-9]{4}"
                     value={shippingAddress.postcode}
-                    onChange={(e) => setShippingAddress({ ...shippingAddress, postcode: e.target.value.replace(/\D/g, '') })}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '');
+                      setShippingAddress({ ...shippingAddress, postcode: val });
+                      if (val.length === 4 && shippingAddress.city.trim()) {
+                        fetchShippingRates(val, shippingAddress.city, shippingAddress.state);
+                      }
+                    }}
+                    onBlur={handleManualAddressBlurOrSubmit}
                     placeholder="3000"
                     className={`w-full px-3 py-2 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 ${
                       validationErrors['shipping_address.postcode'] ? 'border-red-400 bg-red-50/50' : 'border-slate-200'
@@ -644,6 +775,23 @@ export default function CheckoutPage() {
                     </p>
                   )}
                 </div>
+              </div>
+
+              {/* Refresh delivery quotes action */}
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={handleManualAddressBlurOrSubmit}
+                  disabled={
+                    isUpdatingRates ||
+                    shippingAddress.postcode.length !== 4 ||
+                    !shippingAddress.city.trim()
+                  }
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-600 hover:text-sky-700 disabled:opacity-40 transition-colors"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isUpdatingRates ? 'animate-spin' : ''}`} />
+                  Update Delivery Quotes for this Suburb/Postcode
+                </button>
               </div>
 
               <div className="pt-2">

@@ -35,6 +35,10 @@ interface ProductItem {
   };
   description?: string;
   starting_price?: number | string;
+  base_price?: number | string;
+  sale_price?: number | string;
+  display_price?: number | string;
+  price?: number | string;
   is_custom_design_enabled?: boolean;
   images?: { id: string; url: string; is_primary?: boolean }[];
 }
@@ -272,10 +276,16 @@ export default function CategoryDetailPage({ params }: CategoryDetailPageProps) 
                     <div className="space-y-2.5 pt-3 border-t border-slate-100">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-slate-400">Starting from</span>
-                        <span className="text-base font-extrabold text-slate-900">
-                          ${product.starting_price || '25.00'}{' '}
-                          <span className="text-[10px] font-normal text-slate-400">inc GST</span>
-                        </span>
+                        {(() => {
+                          const rawPrice = product.starting_price ?? product.sale_price ?? product.base_price ?? product.display_price ?? product.price ?? 0;
+                          const priceNum = Number(rawPrice) || 0;
+                          return (
+                            <span className="text-base font-extrabold text-slate-900">
+                              ${priceNum.toFixed(2)}{' '}
+                              <span className="text-[10px] font-normal text-slate-400">inc GST</span>
+                            </span>
+                          );
+                        })()}
                       </div>
 
                       <div className="grid grid-cols-2 gap-2">

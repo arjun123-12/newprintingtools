@@ -17,6 +17,10 @@ interface ProductDetail {
   category?: { id: string; name: string };
   description?: string;
   starting_price?: number | string;
+  base_price?: number | string;
+  sale_price?: number | string;
+  display_price?: number | string;
+  price?: number | string;
   images?: { id: string; url: string; is_primary?: boolean }[];
 }
 
@@ -134,10 +138,22 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
       {/* Product Hero Info */}
       <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div className="space-y-2 max-w-2xl">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-sky-50 text-sky-700 border border-sky-200">
               {product.category?.name || 'Commercial Print'}
             </span>
+            {(() => {
+              const rawPrice = product.starting_price ?? product.sale_price ?? product.base_price ?? product.display_price ?? product.price ?? 0;
+              const priceNum = Number(rawPrice) || 0;
+              if (priceNum > 0) {
+                return (
+                  <span className="px-3 py-1 rounded-full text-[11px] font-bold tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    From ${priceNum.toFixed(2)} inc GST
+                  </span>
+                );
+              }
+              return null;
+            })()}
           </div>
 
           <h1 className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight">

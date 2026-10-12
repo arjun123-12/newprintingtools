@@ -51,6 +51,8 @@ export interface InvoiceOrderItem {
   options_snapshot?: Record<string, any> | null;
   production_status?: string;
   artwork_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface LinkedInvoice {
@@ -165,6 +167,29 @@ export const invoiceService = {
 
   async getInvoiceDetail(id: string): Promise<FetchInvoiceDetailResponse> {
     const response = await apiClient.get<FetchInvoiceDetailResponse>(
+      API_ENDPOINTS.ADMIN_INVOICE_DETAIL(id)
+    );
+    return response.data;
+  },
+
+  async createInvoice(payload: any): Promise<{ success: boolean; data: TaxInvoiceOrder; message?: string }> {
+    const response = await apiClient.post<{ success: boolean; data: TaxInvoiceOrder; message?: string }>(
+      API_ENDPOINTS.ADMIN_INVOICES,
+      payload
+    );
+    return response.data;
+  },
+
+  async updateInvoice(id: string, payload: any): Promise<{ success: boolean; data: TaxInvoiceOrder; message?: string }> {
+    const response = await apiClient.put<{ success: boolean; data: TaxInvoiceOrder; message?: string }>(
+      API_ENDPOINTS.ADMIN_INVOICE_DETAIL(id),
+      payload
+    );
+    return response.data;
+  },
+
+  async deleteInvoice(id: string): Promise<{ success: boolean; message: string }> {
+    const response = await apiClient.delete<{ success: boolean; message: string }>(
       API_ENDPOINTS.ADMIN_INVOICE_DETAIL(id)
     );
     return response.data;

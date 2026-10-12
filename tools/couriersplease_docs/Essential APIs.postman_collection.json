@@ -1,0 +1,241 @@
+{
+	"info": {
+		"_postman_id": "e194b6f2-dd4e-4a8c-876b-dcdd4c8994e8",
+		"name": "Essential APIs",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "30239866"
+	},
+	"item": [
+		{
+			"name": "Domestic Quote V1",
+			"request": {
+				"auth": {
+					"type": "basic",
+					"basic": [
+						{
+							"key": "password",
+							"value": "cc995cb9-38b9-4b40-995a-01f3a427a579",
+							"type": "string"
+						},
+						{
+							"key": "username",
+							"value": "WD00000006",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"fromSuburb\": \"Manly\",\r\n    \"fromPostcode\": 2095,\r\n    \"toSuburb\": \"Ball Bay\",\r\n    \"toPostcode\": 4741,\r\n    \"items\": [\r\n        {\r\n            \"quantity\": \"1\",\r\n            \"length\": \"11\",\r\n            \"width\": \"10\",\r\n            \"height\": \"20\",\r\n            \"physicalWeight\": \"2\"\r\n        }\r\n    ]\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://api-test.couriersplease.com.au/v1/domestic/quote",
+					"protocol": "https",
+					"host": [
+						"api-test",
+						"couriersplease",
+						"com",
+						"au"
+					],
+					"path": [
+						"v1",
+						"domestic",
+						"quote"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Domestic Shipment Create V1",
+			"request": {
+				"auth": {
+					"type": "basic",
+					"basic": [
+						{
+							"key": "username",
+							"value": "WD00000006",
+							"type": "string"
+						},
+						{
+							"key": "password",
+							"value": "cc995cb9-38b9-4b40-995a-01f3a427a579",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"items\": [\r\n        {\r\n            \"length\": 20,\r\n            \"width\": 30,\r\n            \"height\": 40,\r\n            \"physicalWeight\": 10,\r\n            \"quantity\": 1\r\n        }\r\n    ],\r\n    \"specialInstruction\": \"Testing API request\",\r\n    \"termsAccepted\": true,\r\n    \"dangerousGoods\": false,\r\n    \"rateCardId\": \"L55\",\r\n    \"pickupDeliveryChoiceID\": 4919,\r\n    \"pickupFirstName\": \"Kathy\",\r\n    \"pickupLastName\": \"Lee\",\r\n    \"pickupCompanyName\": null,\r\n    \"pickupEmail\": \"test@couriersplease.com.au\",\r\n    \"pickupAddress1\": \"Unit 2, Test Court\",\r\n    \"pickupAddress2\": null,\r\n    \"pickupSuburb\": \"ASHWOOD\",\r\n    \"pickupState\": \"VIC\",\r\n    \"pickupPostcode\": \"3147\",\r\n    \"pickupPhone\": \"0422219140\",\r\n    \"pickupIsBusiness\": false,\r\n    \"destinationDeliveryChoiceID\": 728,\r\n    \"destinationFirstName\": \"Boomerang\",\r\n    \"destinationLastName\": \"Returns\",\r\n    \"destinationCompanyName\": \"CouriersPlease\",\r\n    \"destinationEmail\": \"test@couriersplease.com.au\",\r\n    \"destinationAddress1\": \"C/- CouriersPlease\",\r\n    \"destinationAddress2\": \"2-20 McDonalds Lane\",\r\n    \"destinationSuburb\": \"Mulgrave\",\r\n    \"destinationState\": \"VIC\",\r\n    \"destinationPostcode\": \"3170\",\r\n    \"destinationPhone\": \"1300 361 000\",\r\n    \"destinationIsBusiness\": true,\r\n    \"contactFirstName\": \"Boomerang\",\r\n    \"contactLastName\": \"Returns\",\r\n    \"contactCompanyName\": \"CouriersPlease\",\r\n    \"contactEmail\": \"test@couriersplease.com.au\",\r\n    \"contactAddress1\": \"133 Foundation Road\",\r\n    \"contactAddress2\": null,\r\n    \"contactSuburb\": \"Truganina\",\r\n    \"contactState\": \"VIC\",\r\n    \"contactPostcode\": \"3029\",\r\n    \"contactPhone\": \"1300 361 000\",\r\n    \"contactIsBusiness\": true,\r\n    \"readyDateTime\": null,\r\n    \"isSignatureRequired\": false,\r\n    \"referenceNumber\": \"318727\",\r\n    \"isATL\": false\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://api-test.couriersplease.com.au/v1/domestic/shipment/create",
+					"protocol": "https",
+					"host": [
+						"api-test",
+						"couriersplease",
+						"com",
+						"au"
+					],
+					"path": [
+						"v1",
+						"domestic",
+						"shipment",
+						"create"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "https://api.couriersplease.com.au/v2/domestic/locateParcel?trackingCode=CPAFXLC18669399",
+			"request": {
+				"auth": {
+					"type": "basic",
+					"basic": [
+						{
+							"key": "password",
+							"value": "cc995cb9-38b9-4b40-995a-01f3a427a579",
+							"type": "string"
+						},
+						{
+							"key": "username",
+							"value": "WD00000006",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://api-test.couriersplease.com.au/v2/domestic/locateParcel?trackingCode=CPAFXLT19736855",
+					"protocol": "https",
+					"host": [
+						"api-test",
+						"couriersplease",
+						"com",
+						"au"
+					],
+					"path": [
+						"v2",
+						"domestic",
+						"locateParcel"
+					],
+					"query": [
+						{
+							"key": "trackingCode",
+							"value": "CPAFXLT19736855"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "https://api-test.couriersplease.com.au/v1/domestic/shipment/label?consignmentNumber=CPWGEC000003024-TEST",
+			"request": {
+				"auth": {
+					"type": "basic",
+					"basic": [
+						{
+							"key": "username",
+							"value": "WD00000006",
+							"type": "string"
+						},
+						{
+							"key": "password",
+							"value": "cc995cb9-38b9-4b40-995a-01f3a427a579",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "https://api-test.couriersplease.com.au/v1/domestic/shipment/label?consignmentNumber=CPWGEC000003024-TEST",
+					"protocol": "https",
+					"host": [
+						"api-test",
+						"couriersplease",
+						"com",
+						"au"
+					],
+					"path": [
+						"v1",
+						"domestic",
+						"shipment",
+						"label"
+					],
+					"query": [
+						{
+							"key": "consignmentNumber",
+							"value": "CPWGEC000003024-TEST"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "https://api-test.couriersplease.com.au/v2/domestic/bookPickup",
+			"request": {
+				"auth": {
+					"type": "basic",
+					"basic": [
+						{
+							"key": "username",
+							"value": "112926829",
+							"type": "string"
+						},
+						{
+							"key": "password",
+							"value": "617108C2828EBF6E46C21B79F5E6EE10BCB70B52CA1CD13BAEA7D6C4F15E6ED0",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"AccountName\": \"BOBANGLES\",\r\n    \"ContactName\": \"Joe Someone\",\r\n    \"ContactEmail\": \"DISPATCH@Couriersplease.COM.AU\",\r\n    \"ReadyDateTime\": \"2025-06-03 01:00 PM\",\r\n    \"SpecialInstructions\": null,\r\n    \"ConsignmentCount\": \"3\",\r\n    \"ConsignmentCode\": null,\r\n    \"TotalItemCount\": \"3\",\r\n    \"TotalWeight\": \"22\",\r\n    \"Pickup\": {\r\n        \"PhoneNumber\": \"0399991111\",\r\n        \"CompanyName\": \"BOBANGLES\",\r\n        \"Address1\": \"18 TEST COURT\",\r\n        \"Address2\": \"\",\r\n        \"Address3\": \"\",\r\n        \"Postcode\": \"3173\",\r\n        \"Suburb\": \"KEYSBOROUGH\"\r\n    },\r\n    \"Delivery\": {\r\n        \"PhoneNumber\": null,\r\n        \"CompanyName\": \"Test Name\",\r\n        \"Address1\": \"90 Something Road\",\r\n        \"Address2\": \"\",\r\n        \"Postcode\": \"6009\",\r\n        \"Suburb\": \"NEDLANDS\"\r\n    }\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://api-test.couriersplease.com.au/v2/domestic/bookPickup",
+					"protocol": "https",
+					"host": [
+						"api-test",
+						"couriersplease",
+						"com",
+						"au"
+					],
+					"path": [
+						"v2",
+						"domestic",
+						"bookPickup"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

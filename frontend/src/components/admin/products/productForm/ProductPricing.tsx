@@ -1761,8 +1761,76 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
       description="Set standard retail unit pricing, promotional sales, cost tracking, printing configuration fixed-total tiers, folding add-on rates, and volume discounts."
     >
       <div className="space-y-6">
+        {/* Core Retail & Cost Pricing */}
+        <div className="bg-white p-5 rounded-2xl border border-gray-200/90 shadow-2xs space-y-4">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                <DollarSign className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-gray-900 tracking-tight">
+                  Standard Product Pricing
+                </h4>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Set the primary base unit price, optional promotional sale price, and internal cost per unit.
+                </p>
+              </div>
+            </div>
+          </div>
 
+          <FormGrid cols={3} gap="md">
+            <AdminNumberInput
+              label="Base / Retail Price ($ AUD)"
+              prefix="$"
+              placeholder="0.00"
+              step={0.01}
+              min={0}
+              required
+              error={errors.base_price}
+              value={formData.base_price === 0 ? '' : formData.base_price}
+              onChange={(val) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  base_price: val === '' || val === null ? 0 : Number(val),
+                }))
+              }
+              helperText="Starting retail price displayed across the store and admin catalog."
+            />
 
+            <AdminNumberInput
+              label="Sale / Promotional Price ($ AUD)"
+              prefix="$"
+              placeholder="Optional"
+              step={0.01}
+              min={0}
+              value={formData.sale_price ?? ''}
+              onChange={(val) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  sale_price: val === '' || val === null ? '' : Number(val),
+                }))
+              }
+              helperText="Overrides base price with a special discounted rate."
+            />
+
+            <AdminNumberInput
+              label="Cost Price ($ AUD)"
+              prefix="$"
+              placeholder="Optional"
+              step={0.01}
+              min={0}
+              value={formData.cost_price ?? ''}
+              onChange={(val) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  cost_price: val === '' || val === null ? '' : Number(val),
+                }))
+              }
+              helperText="Internal cost per unit for margin calculation (hidden from customers)."
+            />
+          </FormGrid>
+        </div>
 
         {/* Profit Margin Indicator */}
         {margin && (
