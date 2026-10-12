@@ -340,6 +340,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
             'getShippingRates',
         ]);
 
+        Route::get('/locations', [
+            App\Http\Controllers\Api\V1\Checkout\CheckoutController::class,
+            'searchLocations',
+        ]);
+
         Route::post('/validate', [
             App\Http\Controllers\Api\V1\Checkout\CheckoutController::class,
             'validateCheckout',

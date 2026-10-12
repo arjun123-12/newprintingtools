@@ -165,6 +165,27 @@ class CheckoutService {
   }
 
   /**
+   * Search serviceable Australian suburbs and postcodes.
+   */
+  public async searchLocations(query: string): Promise<Array<{
+    Suburb: string;
+    Postcode: string;
+    State: string;
+    SuburbDetails: string;
+    PickUpFlag?: string;
+  }>> {
+    if (!query || query.trim().length < 2) return [];
+    try {
+      const response = await apiClient.get(API_ENDPOINTS.CHECKOUT_LOCATIONS, {
+        params: { query: query.trim() },
+      });
+      return response.data?.data || [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Validates checkout information with authoritative backend verification.
    * Recalculates prices, verifies availability, and returns verified order totals.
    */

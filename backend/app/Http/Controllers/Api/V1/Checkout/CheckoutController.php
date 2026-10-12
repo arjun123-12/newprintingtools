@@ -237,4 +237,19 @@ class CheckoutController extends Controller
             ],
         ], 201);
     }
+
+    /**
+     * Search serviceable Australian suburbs and postcodes for autocomplete.
+     */
+    public function searchLocations(Request $request): JsonResponse
+    {
+        $query = (string) $request->query('query', $request->query('suburbOrPostcode', ''));
+        $couriersPleaseService = app(\App\Services\Shipping\Carriers\CouriersPleaseService::class);
+        $locations = $couriersPleaseService->searchLocations($query);
+
+        return response()->json([
+            'success' => true,
+            'data' => $locations,
+        ]);
+    }
 }

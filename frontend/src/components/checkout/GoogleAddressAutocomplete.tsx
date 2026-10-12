@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Search, MapPin, X, Loader2, Check, Sparkles, Navigation } from 'lucide-react';
+import { checkoutService } from '@/services/checkoutService';
 
 declare global {
   interface Window {
@@ -19,11 +20,17 @@ export interface SelectedAustralianAddress {
 }
 
 interface GoogleAddressAutocompleteProps {
+  value?: string;
+  onChange?: (val: string) => void;
   onAddressSelect: (address: SelectedAustralianAddress) => void;
   onManualEntryClick?: () => void;
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  required?: boolean;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+  error?: string;
+  id?: string;
 }
 
 interface PlacePrediction {
@@ -31,6 +38,10 @@ interface PlacePrediction {
   description: string;
   main_text: string;
   secondary_text: string;
+  source: 'google' | 'locations';
+  suburb?: string;
+  state?: string;
+  postcode?: string;
 }
 
 // Global script loading state
@@ -38,18 +49,26 @@ let isGoogleScriptLoading = false;
 let isGoogleScriptLoaded = false;
 
 export default function GoogleAddressAutocomplete({
+  value,
+  onChange,
   onAddressSelect,
-  onManualEntryClick,
-  placeholder = 'Start typing your Australian address (e.g. 100 George St, Sydney)...',
+  placeholder = 'e.g. 142 Collins Street or 3 Catrina Avenue',
   className = '',
   disabled = false,
+  required = false,
+  inputRef,
+  error,
+  id,
 }: GoogleAddressAutocompleteProps) {
   const apiKey =
     process.env.NEXT_PUBLIC_GOOGLE_PLACES_API_KEY ||
     process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
     '';
 
-  const [query, setQuery] = useState('');
+  // Local state for uncontrolled or controlled input
+  const [internalQuery, setInternalQuery] = useState(value || '');
+  const activeQuery = value !== undefined ? value : internalQuery;
+
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -58,7 +77,9 @@ export default function GoogleAddressAutocomplete({
   const [sessionToken, setSessionToken] = useState<any>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const localInputRef = useRef<HTMLInputElement>(null);
+  const effectiveInputRef = inputRef || localInputRef;
+
   const autocompleteServiceRef = useRef<any>(null);
   const placesServiceRef = useRef<any>(null);
   const dummyElementRef = useRef<HTMLDivElement | null>(null);
@@ -75,9 +96,7 @@ export default function GoogleAddressAutocomplete({
 
   // Dynamically load Google Maps Places script if API key is provided
   useEffect(() => {
-    if (!apiKey) {
-      return;
-    }
+    if (!apiKey) return;
 
     if (window.google?.maps?.places) {
       setScriptReady(true);
@@ -156,11 +175,20 @@ export default function GoogleAddressAutocomplete({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Query Places API with debouncing and Australia restriction
-  useEffect(() => {
-    const trimmed = query.trim();
+  // Handle user typing
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (value === undefined) {
+      setInternalQuery(val);
+    }
+    onChange?.(val);
+  };
 
-    if (!trimmed || trimmed.length < 3 || !scriptReady || !autocompleteServiceRef.current) {
+  // Query Places API or fallback locations with debouncing
+  useEffect(() => {
+    const trimmed = activeQuery.trim();
+
+    if (!trimmed || trimmed.length < 3) {
       setPredictions([]);
       setIsOpen(false);
       setIsLoading(false);
@@ -169,66 +197,120 @@ export default function GoogleAddressAutocomplete({
 
     setIsLoading(true);
 
-    const timer = setTimeout(() => {
-      // Ensure we have an active session token per Google billing recommendations
-      let activeToken = sessionToken;
-      if (!activeToken) {
-        activeToken = refreshSessionToken();
-      }
-
-      autocompleteServiceRef.current.getPlacePredictions(
-        {
-          input: trimmed,
-          componentRestrictions: { country: 'au' }, // Strictly restricted to Australia
-          types: ['address'],
-          sessionToken: activeToken,
-        },
-        (results: any[], status: any) => {
-          setIsLoading(false);
-
-          if (
-            status === window.google?.maps?.places?.PlacesServiceStatus?.OK &&
-            Array.isArray(results)
-          ) {
-            const formatted = results.map((r) => ({
-              place_id: r.place_id,
-              description: r.description,
-              main_text: r.structured_formatting?.main_text || r.description,
-              secondary_text: r.structured_formatting?.secondary_text || 'Australia',
-            }));
-            setPredictions(formatted);
-            setIsOpen(true);
-            setHighlightedIndex(-1);
-          } else {
-            setPredictions([]);
-            setIsOpen(false);
-          }
+    const timer = setTimeout(async () => {
+      // 1. If Google Places is ready, query Google Places API
+      if (scriptReady && autocompleteServiceRef.current) {
+        let activeToken = sessionToken;
+        if (!activeToken) {
+          activeToken = refreshSessionToken();
         }
-      );
-    }, 250);
+
+        autocompleteServiceRef.current.getPlacePredictions(
+          {
+            input: trimmed,
+            componentRestrictions: { country: 'au' }, // Strictly restricted to Australia
+            types: ['address'],
+            sessionToken: activeToken,
+          },
+          async (results: any[], status: any) => {
+            setIsLoading(false);
+
+            if (
+              status === window.google?.maps?.places?.PlacesServiceStatus?.OK &&
+              Array.isArray(results) &&
+              results.length > 0
+            ) {
+              const formatted: PlacePrediction[] = results.map((r) => ({
+                place_id: r.place_id,
+                description: r.description,
+                main_text: r.structured_formatting?.main_text || r.description,
+                secondary_text: r.structured_formatting?.secondary_text || 'Australia',
+                source: 'google',
+              }));
+              setPredictions(formatted);
+              setIsOpen(true);
+              setHighlightedIndex(-1);
+            } else {
+              // Fallback to CouriersPlease / Australian Locations directory
+              queryFallbackLocations(trimmed);
+            }
+          }
+        );
+      } else {
+        // No Google Places key or script not loaded: query Australian Locations API directly
+        await queryFallbackLocations(trimmed);
+      }
+    }, 280);
 
     return () => clearTimeout(timer);
-  }, [query, scriptReady, sessionToken, refreshSessionToken]);
+  }, [activeQuery, scriptReady, sessionToken, refreshSessionToken]);
+
+  const queryFallbackLocations = async (trimmed: string) => {
+    try {
+      const locs = await checkoutService.searchLocations(trimmed);
+      setIsLoading(false);
+      if (Array.isArray(locs) && locs.length > 0) {
+        const mapped: PlacePrediction[] = locs.slice(0, 6).map((l, idx) => ({
+          place_id: `loc_${l.Postcode}_${l.Suburb}_${idx}`,
+          description: `${trimmed}, ${l.Suburb} ${l.State} ${l.Postcode}`,
+          main_text: trimmed,
+          secondary_text: `${l.Suburb}, ${l.State} ${l.Postcode}`,
+          source: 'locations',
+          suburb: l.Suburb,
+          state: l.State,
+          postcode: l.Postcode,
+        }));
+        setPredictions(mapped);
+        setIsOpen(true);
+        setHighlightedIndex(-1);
+      } else {
+        setPredictions([]);
+        setIsOpen(false);
+      }
+    } catch {
+      setIsLoading(false);
+      setPredictions([]);
+      setIsOpen(false);
+    }
+  };
 
   // Handle Place Selection
   const handleSelectPrediction = (prediction: PlacePrediction) => {
+    if (prediction.source === 'locations') {
+      // Selected from Australian Locations directory
+      setIsLoading(false);
+      setIsOpen(false);
+      const streetPart = prediction.main_text || activeQuery.trim();
+      if (value === undefined) {
+        setInternalQuery(streetPart);
+      }
+      onChange?.(streetPart);
+
+      onAddressSelect({
+        address_line_1: streetPart,
+        city: prediction.suburb || '',
+        state: prediction.state || 'NSW',
+        postcode: prediction.postcode || '',
+        formatted_address: prediction.description,
+      });
+      return;
+    }
+
     if (!placesServiceRef.current || !prediction.place_id) {
       return;
     }
 
     setIsLoading(true);
     setIsOpen(false);
-    setQuery(prediction.description);
 
     placesServiceRef.current.getDetails(
       {
         placeId: prediction.place_id,
         fields: ['address_components', 'formatted_address'],
-        sessionToken: sessionToken, // Passes current session token
+        sessionToken: sessionToken,
       },
       (place: any, status: any) => {
         setIsLoading(false);
-        // Refresh token for next session as this search session has completed
         refreshSessionToken();
 
         if (status === window.google?.maps?.places?.PlacesServiceStatus?.OK && place) {
@@ -236,6 +318,11 @@ export default function GoogleAddressAutocomplete({
             place.address_components || [],
             place.formatted_address || prediction.description
           );
+
+          if (value === undefined) {
+            setInternalQuery(extracted.address_line_1);
+          }
+          onChange?.(extracted.address_line_1);
 
           onAddressSelect(extracted);
         }
@@ -286,94 +373,98 @@ export default function GoogleAddressAutocomplete({
   };
 
   const handleClear = () => {
-    setQuery('');
+    if (value === undefined) {
+      setInternalQuery('');
+    }
+    onChange?.('');
     setPredictions([]);
     setIsOpen(false);
     setHighlightedIndex(-1);
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
+    effectiveInputRef.current?.focus();
   };
+
+  const hasGoogleResults = predictions.some((p) => p.source === 'google');
 
   return (
     <div ref={containerRef} className={`relative w-full ${className}`}>
-      {/* Search Input Bar */}
+      {/* Input Field with MapPin Icon */}
       <div className="relative">
-        <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none text-sky-600">
-          <Navigation className="w-4 h-4" />
-        </div>
+        <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
 
         <input
-          ref={inputRef}
+          ref={effectiveInputRef as any}
+          id={id}
           type="text"
+          required={required}
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={isOpen}
-          aria-controls="google-places-autocomplete-list"
+          aria-controls="australian-address-autocomplete-list"
           aria-activedescendant={
-            highlightedIndex >= 0 ? `place-option-${highlightedIndex}` : undefined
+            highlightedIndex >= 0 ? `address-option-${highlightedIndex}` : undefined
           }
           disabled={disabled}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          value={activeQuery}
+          onChange={handleInputChange}
           onFocus={() => {
-            if (predictions.length > 0) setIsIsOpenTrue();
+            if (predictions.length > 0) setIsOpen(true);
           }}
           onKeyDown={handleKeyDown}
-          placeholder={apiKey ? placeholder : 'Google Autocomplete disabled (Enter address manually below)'}
-          className={`w-full pl-9 pr-20 py-2.5 text-xs sm:text-sm font-medium border rounded-2xl bg-white shadow-2xs transition-all focus:outline-hidden focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 ${
-            apiKey
-              ? 'border-sky-200 hover:border-sky-300 placeholder:text-slate-400 text-slate-800'
-              : 'border-slate-200 bg-slate-50 text-slate-500 cursor-not-allowed'
+          placeholder={placeholder}
+          autoComplete="off"
+          className={`w-full pl-9 pr-16 py-2 text-sm border rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 transition-all ${
+            error
+              ? 'border-red-400 bg-red-50/50'
+              : 'border-slate-200 bg-white hover:border-slate-300'
           }`}
         />
 
-        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+        <div className="absolute right-2.5 top-2.5 flex items-center gap-1.5">
           {isLoading && <Loader2 className="w-4 h-4 animate-spin text-sky-500" />}
 
-          {query && !isLoading && (
+          {activeQuery && !isLoading && (
             <button
               type="button"
               onClick={handleClear}
               className="p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-              title="Clear address search"
+              title="Clear input"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           )}
 
-          {apiKey && (
-            <span className="hidden sm:inline-flex text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-100">
-              AU Only
-            </span>
-          )}
+          <span className="hidden sm:inline-flex text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+            AU
+          </span>
         </div>
       </div>
 
       {/* Predictions Dropdown */}
       {isOpen && predictions.length > 0 && (
         <div
-          id="google-places-autocomplete-list"
+          id="australian-address-autocomplete-list"
           role="listbox"
-          className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-slate-200/90 rounded-2xl shadow-xl overflow-hidden divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1 duration-150"
+          className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1 duration-150"
         >
-          <div className="max-h-64 overflow-y-auto">
+          <div className="max-h-60 overflow-y-auto">
             {predictions.map((p, index) => {
               const isSelected = index === highlightedIndex;
               return (
                 <div
                   key={p.place_id}
-                  id={`place-option-${index}`}
+                  id={`address-option-${index}`}
                   role="option"
                   aria-selected={isSelected}
                   onMouseEnter={() => setHighlightedIndex(index)}
                   onClick={() => handleSelectPrediction(p)}
-                  className={`px-4 py-3 flex items-start gap-3 cursor-pointer transition-colors ${
-                    isSelected ? 'bg-sky-50/80 text-sky-950' : 'hover:bg-slate-50/80 text-slate-800'
+                  className={`px-3.5 py-2.5 flex items-start gap-2.5 cursor-pointer transition-colors ${
+                    isSelected
+                      ? 'bg-sky-50/90 text-sky-950 font-medium'
+                      : 'hover:bg-slate-50 text-slate-800'
                   }`}
                 >
                   <MapPin
-                    className={`w-4 h-4 mt-0.5 shrink-0 transition-colors ${
+                    className={`w-3.5 h-3.5 mt-0.5 shrink-0 transition-colors ${
                       isSelected ? 'text-sky-600' : 'text-slate-400'
                     }`}
                   />
@@ -390,61 +481,44 @@ export default function GoogleAddressAutocomplete({
             })}
           </div>
 
-          {/* Mandatory Google Attribution Footer */}
-          <div className="px-4 py-2 bg-slate-50/90 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 select-none">
-            <span className="flex items-center gap-1.5 text-[10px]">
+          {/* Footer attribution and keyboard tips */}
+          <div className="px-3.5 py-1.5 bg-slate-50/90 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 select-none">
+            <span className="flex items-center gap-1 text-[9px]">
               <span>Use</span>
-              <kbd className="px-1 py-0.5 rounded bg-white border border-slate-200 text-[9px] font-mono shadow-2xs">
+              <kbd className="px-1 py-0.5 rounded bg-white border border-slate-200 text-[8px] font-mono shadow-2xs">
                 ↑
               </kbd>
-              <kbd className="px-1 py-0.5 rounded bg-white border border-slate-200 text-[9px] font-mono shadow-2xs">
+              <kbd className="px-1 py-0.5 rounded bg-white border border-slate-200 text-[8px] font-mono shadow-2xs">
                 ↓
               </kbd>
               <span>to navigate,</span>
-              <kbd className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[9px] font-mono shadow-2xs">
+              <kbd className="px-1 py-0.5 rounded bg-white border border-slate-200 text-[8px] font-mono shadow-2xs">
                 Enter
               </kbd>
               <span>to select</span>
             </span>
 
-            {/* Official Google Attribution */}
-            <div className="flex items-center gap-1 opacity-80 hover:opacity-100 transition-opacity">
-              <span className="text-[10px] text-slate-400 font-medium">Powered by</span>
-              <svg className="h-3 w-auto" viewBox="0 0 272 92" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M115.75 47.18c0 12.77-9.99 22.18-22.25 22.18s-22.25-9.41-22.25-22.18c0-12.85 9.99-22.18 22.25-22.18s22.25 9.33 22.25 22.18zm-9.74 0c0-7.98-5.79-13.6-12.51-13.6-6.73 0-12.52 5.62-12.52 13.6 0 7.9 5.79 13.6 12.52 13.6 6.72 0 12.51-5.7 12.51-13.6z" fill="#EA4335"/>
-                <path d="M163.75 47.18c0 12.77-9.99 22.18-22.25 22.18s-22.25-9.41-22.25-22.18c0-12.85 9.99-22.18 22.25-22.18s22.25 9.33 22.25 22.18zm-9.74 0c0-7.98-5.79-13.6-12.51-13.6-6.73 0-12.52 5.62-12.52 13.6 0 7.9 5.79 13.6 12.52 13.6 6.72 0 12.51-5.7 12.51-13.6z" fill="#FBBC05"/>
-                <path d="M209.75 26.34v41.25c0 16.97-10.08 23.94-22.09 23.94-11.26 0-18.06-7.56-20.66-13.69l8.57-3.57c1.51 3.7 5.21 8.07 12.09 8.07 7.9 0 12.77-4.87 12.77-14.12v-3.44h-.34c-2.35 2.94-6.89 5.55-12.6 5.55-12.01 0-22.93-10.5-22.93-23.77 0-13.44 10.92-23.94 22.93-23.94 5.71 0 10.25 2.61 12.6 5.46h.34v-3.95h9.32v.21zm-8.65 21.09c0-7.81-5.21-13.61-12.01-13.61-6.8 0-12.6 5.79-12.6 13.61 0 7.73 5.79 13.52 12.6 13.52 6.8 0 12.01-5.79 12.01-13.52z" fill="#4285F4"/>
-                <path d="M225.75 3.18v66.18h-9.58V3.18h9.58z" fill="#34A853"/>
-                <path d="M261.27 54.49l7.64 5.12c-2.44 3.61-8.32 9.75-18.48 9.75-12.52 0-21.84-9.66-21.84-22.18 0-13.19 9.41-22.18 20.83-22.18 11.51 0 17.14 9.16 18.98 14.12l1.01 2.52-29.23 12.1c2.27 4.45 5.79 6.72 10.75 6.72 4.96 0 8.32-2.44 10.34-6.04v-.01zm-21.67-8.07l19.57-8.15c-1.09-2.77-4.37-4.71-8.32-4.71-4.96 0-10.75 4.37-11.25 12.86z" fill="#EA4335"/>
-                <path d="M35.61 41.52v9.33h22.6c-.67 5.29-2.44 9.16-5.21 11.93-3.28 3.28-8.4 6.89-17.39 6.89-13.78 0-24.53-11.09-24.53-24.87s10.75-24.87 24.53-24.87c7.48 0 12.85 2.94 16.88 6.8l6.64-6.64C53.51 4.54 45.86.84 35.61.84 16.29.84.5 16.55.5 35.87s15.79 35.03 35.11 35.03c10.42 0 18.23-3.44 24.36-9.75 6.3-6.3 8.32-15.21 8.32-22.35 0-2.27-.17-4.37-.5-6.3H35.61v-.02z" fill="#4285F4"/>
-              </svg>
-            </div>
+            {hasGoogleResults ? (
+              /* Official Google Attribution */
+              <div className="flex items-center gap-1 opacity-80 hover:opacity-100 transition-opacity">
+                <span className="text-[9px] text-slate-400 font-medium">Powered by</span>
+                <svg className="h-2.5 w-auto" viewBox="0 0 272 92" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M115.75 47.18c0 12.77-9.99 22.18-22.25 22.18s-22.25-9.41-22.25-22.18c0-12.85 9.99-22.18 22.25-22.18s22.25 9.33 22.25 22.18zm-9.74 0c0-7.98-5.79-13.6-12.51-13.6-6.73 0-12.52 5.62-12.52 13.6 0 7.9 5.79 13.6 12.52 13.6 6.72 0 12.51-5.7 12.51-13.6z" fill="#EA4335"/>
+                  <path d="M163.75 47.18c0 12.77-9.99 22.18-22.25 22.18s-22.25-9.41-22.25-22.18c0-12.85 9.99-22.18 22.25-22.18s22.25 9.33 22.25 22.18zm-9.74 0c0-7.98-5.79-13.6-12.51-13.6-6.73 0-12.52 5.62-12.52 13.6 0 7.9 5.79 13.6 12.52 13.6 6.72 0 12.51-5.7 12.51-13.6z" fill="#FBBC05"/>
+                  <path d="M209.75 26.34v41.25c0 16.97-10.08 23.94-22.09 23.94-11.26 0-18.06-7.56-20.66-13.69l8.57-3.57c1.51 3.7 5.21 8.07 12.09 8.07 7.9 0 12.77-4.87 12.77-14.12v-3.44h-.34c-2.35 2.94-6.89 5.55-12.6 5.55-12.01 0-22.93-10.5-22.93-23.77 0-13.44 10.92-23.94 22.93-23.94 5.71 0 10.25 2.61 12.6 5.46h.34v-3.95h9.32v.21zm-8.65 21.09c0-7.81-5.21-13.61-12.01-13.61-6.8 0-12.6 5.79-12.6 13.61 0 7.73 5.79 13.52 12.6 13.52 6.8 0 12.01-5.79 12.01-13.52z" fill="#4285F4"/>
+                  <path d="M225.75 3.18v66.18h-9.58V3.18h9.58z" fill="#34A853"/>
+                  <path d="M261.27 54.49l7.64 5.12c-2.44 3.61-8.32 9.75-18.48 9.75-12.52 0-21.84-9.66-21.84-22.18 0-13.19 9.41-22.18 20.83-22.18 11.51 0 17.14 9.16 18.98 14.12l1.01 2.52-29.23 12.1c2.27 4.45 5.79 6.72 10.75 6.72 4.96 0 8.32-2.44 10.34-6.04v-.01zm-21.67-8.07l19.57-8.15c-1.09-2.77-4.37-4.71-8.32-4.71-4.96 0-10.75 4.37-11.25 12.86z" fill="#EA4335"/>
+                  <path d="M35.61 41.52v9.33h22.6c-.67 5.29-2.44 9.16-5.21 11.93-3.28 3.28-8.4 6.89-17.39 6.89-13.78 0-24.53-11.09-24.53-24.87s10.75-24.87 24.53-24.87c7.48 0 12.85 2.94 16.88 6.8l6.64-6.64C53.51 4.54 45.86.84 35.61.84 16.29.84.5 16.55.5 35.87s15.79 35.03 35.11 35.03c10.42 0 18.23-3.44 24.36-9.75 6.3-6.3 8.32-15.21 8.32-22.35 0-2.27-.17-4.37-.5-6.3H35.61v-.02z" fill="#4285F4"/>
+                </svg>
+              </div>
+            ) : (
+              <span className="text-[9px] text-slate-400">Australia Delivery Directory</span>
+            )}
           </div>
-        </div>
-      )}
-
-      {/* Manual Entry Quick Action */}
-      {onManualEntryClick && (
-        <div className="mt-1.5 flex items-center justify-between text-[11px] px-1 text-slate-500">
-          <span className="flex items-center gap-1">
-            <Sparkles className="w-3 h-3 text-amber-500" />
-            <span>Select an address to autofill street, suburb, state, and postcode</span>
-          </span>
-          <button
-            type="button"
-            onClick={onManualEntryClick}
-            className="text-sky-600 hover:text-sky-700 font-semibold underline underline-offset-2 transition-colors"
-          >
-            Enter address manually
-          </button>
         </div>
       )}
     </div>
   );
-
-  function setIsIsOpenTrue() {
-    setIsOpen(true);
-  }
 }
 
 /**

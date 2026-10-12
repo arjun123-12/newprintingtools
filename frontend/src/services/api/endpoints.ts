@@ -21,6 +21,7 @@ export const API_ENDPOINTS = {
   CART_ITEMS: '/cart/items',
   CHECKOUT_DATA: '/checkout/data',
   CHECKOUT_SHIPPING_RATES: '/checkout/shipping-rates',
+  CHECKOUT_LOCATIONS: '/checkout/locations',
   CHECKOUT_VALIDATE: '/checkout/validate',
   CHECKOUT_PROCESS: '/checkout/process',
   ADDRESSES: '/addresses',

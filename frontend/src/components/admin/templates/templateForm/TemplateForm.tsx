@@ -8,10 +8,6 @@ import { getAuthToken } from '@/utils/storageHelper';
 import { LoadingState } from '@/components/admin/shared';
 import { BasicTemplateInfo } from './BasicTemplateInfo';
 import { TemplatePrintDimensions } from './TemplatePrintDimensions';
-import { TemplateCanvasConfig } from './TemplateCanvasConfig';
-import { TemplateThumbnail } from './TemplateThumbnail';
-import { TemplateAttributes } from './TemplateAttributes';
-import { TemplateStatus } from './TemplateStatus';
 import { TemplateFormData, TemplateFormErrors, ProductOption } from './types';
 import {
   createTemplateDraft,
@@ -25,12 +21,6 @@ import {
   Palette,
   ExternalLink,
   Save,
-  FileText,
-  Sparkles,
-  Sliders,
-  ImageIcon,
-  ChevronRight,
-  ChevronLeft,
 } from 'lucide-react';
 
 const API_URL =
@@ -70,22 +60,7 @@ const defaultInitialForm: TemplateFormData = {
   attributes: [],
 };
 
-type TemplateTab = 'details' | 'canvas' | 'options' | 'thumbnail_status';
 
-const TABS: {
-  id: TemplateTab;
-  label: string;
-  icon: React.FC<{ className?: string }>;
-}[] = [
-    { id: 'details', label: '1. Basic Info & Product', icon: FileText },
-    { id: 'canvas', label: '2. Visual Studio & Canvas', icon: Sparkles },
-    { id: 'options', label: '3. Printing Options', icon: Sliders },
-    {
-      id: 'thumbnail_status',
-      label: '4. Preview & Publishing',
-      icon: ImageIcon,
-    },
-  ];
 
 export const TemplateForm: React.FC<TemplateFormProps> = ({
   mode,
@@ -102,8 +77,6 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
   const [productsLoading, setProductsLoading] = useState<boolean>(true);
   const [hasCustomizedMeasurements, setHasCustomizedMeasurements] =
     useState<boolean>(false);
-  const [currentTab, setCurrentTab] =
-    useState<TemplateTab>('details');
 
   const [loading, setLoading] = useState<boolean>(
     Boolean(mode === 'edit' && !initialData)
@@ -221,8 +194,6 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         type: 'error',
         text: 'Please select a product.',
       });
-
-      setCurrentTab('details');
       return;
     }
 
@@ -236,8 +207,6 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         type: 'error',
         text: `Selected product has an invalid UUID: ${productId} `,
       });
-
-      setCurrentTab('details');
       return;
     }
 
@@ -251,8 +220,6 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         type: 'error',
         text: 'Template name is required.',
       });
-
-      setCurrentTab('details');
       return;
     }
 
@@ -669,11 +636,6 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
     }
 
     setErrors(errs);
-
-    if (Object.keys(errs).length > 0) {
-      setCurrentTab('details');
-    }
-
     return Object.keys(errs).length === 0;
   };
 
@@ -814,39 +776,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
     }
   };
 
-  const nextTab = () => {
-    const currentIndex = TABS.findIndex(
-      (t) => t.id === currentTab
-    );
 
-    if (currentIndex < TABS.length - 1) {
-      setCurrentTab(
-        TABS[currentIndex + 1].id
-      );
-
-      window.scrollTo({
-        top: 0,
-        behavior: 'smooth',
-      });
-    }
-  };
-
-  const prevTab = () => {
-    const currentIndex = TABS.findIndex(
-      (t) => t.id === currentTab
-    );
-
-    if (currentIndex > 0) {
-      setCurrentTab(
-        TABS[currentIndex - 1].id
-      );
-
-      window.scrollTo({
-        top: 0,
-        behavior: 'smooth',
-      });
-    }
-  };
 
   if (loading) {
     return (
@@ -974,47 +904,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         </div>
       )}
 
-      {/* Tab Navigation Pill Bar */}
-      <div className="bg-white p-1.5 rounded-2xl border border-gray-200 shadow-xs flex items-center overflow-x-auto gap-1">
-        {TABS.map((tab) => {
-          const Icon = tab.icon;
-          const isActive =
-            currentTab === tab.id;
-          const hasError =
-            tab.id === 'details' &&
-            (errors.name ||
-              errors.product_id);
-
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() =>
-                setCurrentTab(tab.id)
-              }
-              className={`flex items - center gap - 2 px - 3.5 py - 2 rounded - xl text - xs font - bold whitespace - nowrap transition - all ${isActive
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/70'
-                } `}
-            >
-              <Icon
-                className={`w - 4 h - 4 ${isActive
-                    ? 'text-white'
-                    : 'text-gray-400'
-                  } `}
-              />
-
-              <span>{tab.label}</span>
-
-              {hasError && (
-                <span className="w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white ml-0.5" />
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Tabbed Form Sections */}
+      {/* Form Content */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1022,156 +912,91 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         }}
         className="space-y-6"
       >
-        {currentTab === 'details' && (
-          <div className="space-y-6 animate-in fade-in duration-150">
-            {mode === 'edit' &&
-              selectedProduct &&
-              ((
-                selectedProduct.width_mm &&
-                formData.width_mm &&
+        <div className="space-y-6 animate-in fade-in duration-150">
+          {mode === 'edit' &&
+            selectedProduct &&
+            ((
+              selectedProduct.width_mm &&
+              formData.width_mm &&
+              Math.abs(
+                Number(
+                  selectedProduct.width_mm
+                ) -
+                Number(
+                  formData.width_mm
+                )
+              ) > 0.5
+            ) ||
+              (selectedProduct.height_mm &&
+                formData.height_mm &&
                 Math.abs(
                   Number(
-                    selectedProduct.width_mm
+                    selectedProduct.height_mm
                   ) -
                   Number(
-                    formData.width_mm
+                    formData.height_mm
                   )
-                ) > 0.5
-              ) ||
-                (selectedProduct.height_mm &&
-                  formData.height_mm &&
-                  Math.abs(
-                    Number(
-                      selectedProduct.height_mm
-                    ) -
-                    Number(
-                      formData.height_mm
-                    )
-                  ) > 0.5)) && (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200 flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                ) > 0.5)) && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
 
-                  <div>
-                    <span className="font-bold text-amber-300 block mb-0.5">
-                      Product Configuration Notice
-                    </span>
+                <div>
+                  <span className="font-bold text-amber-300 block mb-0.5">
+                    Product Configuration Notice
+                  </span>
 
-                    This product&apos;s print configuration has changed. Existing templates using this product may require layout verification.
-                  </div>
+                  This product&apos;s print configuration has changed. Existing templates using this product may require layout verification.
                 </div>
-              )}
+              </div>
+            )}
 
-            <BasicTemplateInfo
-              formData={formData}
-              setFormData={setFormData}
-              errors={errors}
-              products={products}
-              productsLoading={
-                productsLoading
-              }
-              onProductSelect={
-                handleProductSelect
-              }
-            />
+          <BasicTemplateInfo
+            formData={formData}
+            setFormData={setFormData}
+            errors={errors}
+            products={products}
+            productsLoading={
+              productsLoading
+            }
+            onProductSelect={
+              handleProductSelect
+            }
+          />
 
-            <TemplatePrintDimensions
-              formData={formData}
-              setFormData={setFormData}
-              selectedProduct={
-                selectedProduct
-              }
-              onCustomize={() =>
-                setHasCustomizedMeasurements(
-                  true
-                )
-              }
-              errors={errors}
-            />
-          </div>
-        )}
+          <TemplatePrintDimensions
+            formData={formData}
+            setFormData={setFormData}
+            selectedProduct={
+              selectedProduct
+            }
+            onCustomize={() =>
+              setHasCustomizedMeasurements(
+                true
+              )
+            }
+            errors={errors}
+          />
+        </div>
 
-        {currentTab === 'canvas' && (
-          <div className="animate-in fade-in duration-150">
-            <TemplateCanvasConfig
-              formData={formData}
-              onLaunchStudio={
-                handleLaunchStudio
-              }
-              isLaunchingStudio={
-                isLaunchingStudio
-              }
-            />
-          </div>
-        )}
-
-        {currentTab === 'options' && (
-          <div className="animate-in fade-in duration-150">
-            <TemplateAttributes
-              formData={formData}
-              setFormData={setFormData}
-            />
-          </div>
-        )}
-
-        {currentTab ===
-          'thumbnail_status' && (
-            <div className="space-y-6 animate-in fade-in duration-150">
-              <TemplateThumbnail
-                formData={formData}
-                setFormData={setFormData}
-              />
-
-              <TemplateStatus
-                formData={formData}
-                setFormData={setFormData}
-              />
-            </div>
-          )}
-
-        {/* Step Navigation Bar */}
+        {/* Action Bar */}
         <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs flex items-center justify-between gap-4">
           <div>
-            {currentTab !== 'details' ? (
-              <button
-                type="button"
-                onClick={prevTab}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                <span>
-                  Previous Tab
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={
-                  onCancel ||
-                  (() =>
-                    router.push(
-                      '/admin/templates'
-                    ))
-                }
-                className="px-4 py-2 text-xs font-semibold text-gray-500 hover:text-gray-800 transition-colors"
-              >
-                Cancel
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={
+                onCancel ||
+                (() =>
+                  router.push(
+                    '/admin/templates'
+                  ))
+              }
+              className="px-4 py-2 text-xs font-semibold text-gray-500 hover:text-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
           </div>
 
           <div className="flex items-center gap-2">
-            {currentTab !==
-              'thumbnail_status' ? (
-              <button
-                type="button"
-                onClick={nextTab}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100/70 transition-colors"
-              >
-                <span>Next Tab</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            ) : null}
-
             <button
               type="submit"
               disabled={
@@ -1189,7 +1014,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
                     : 'Create & Design'
                   : isSubmitting
                     ? 'Saving…'
-                    : 'Save Template'}
+                    : 'Save Changes'}
               </span>
             </button>
           </div>
