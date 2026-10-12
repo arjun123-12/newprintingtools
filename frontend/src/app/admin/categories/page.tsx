@@ -96,12 +96,15 @@ export default function AdminCategoriesPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<Category | null>(null);
 
   // Multi-select & Bulk Action State
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false);
   const [isBulkRestoring, setIsBulkRestoring] = useState<boolean>(false);
-  const [confirmBulkDialog, setConfirmBulkDialog] = useState<boolean>(false);
+  const [confirmBulkArchiveDialog, setConfirmBulkArchiveDialog] = useState<boolean>(false);
+  const [confirmBulkDeleteDialog, setConfirmBulkDeleteDialog] = useState<boolean>(false);
 
   const loadCategories = useCallback(async () => {
     try {
@@ -296,10 +299,11 @@ export default function AdminCategoriesPage() {
 
   const handleArchiveCategory = async (id: string) => {
     try {
+      setIsDeleting(true);
       const token = getAuthToken();
 
-      const response = await fetch(`${API_URL}/admin/categories/${id}`, {
-        method: 'DELETE',
+      const response = await fetch(`${API_URL}/admin/categories/${id}/archive`, {
+        method: 'POST',
         headers: {
           Accept: 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -312,10 +316,44 @@ export default function AdminCategoriesPage() {
       }
 
       setMessage({ type: 'success', text: 'Category moved to archive successfully.' });
+      setArchiveTarget(null);
       await loadCategories();
     } catch (err: any) {
       console.error('Failed to archive category:', err);
       setMessage({ type: 'error', text: err.message || 'Failed to archive category.' });
+      setArchiveTarget(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handlePermanentDeleteCategory = async (id: string) => {
+    try {
+      setIsDeleting(true);
+      const token = getAuthToken();
+
+      const response = await fetch(`${API_URL}/admin/categories/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to permanently delete category.');
+      }
+
+      setMessage({ type: 'success', text: 'Category permanently deleted successfully.' });
+      setDeleteTarget(null);
+      await loadCategories();
+    } catch (err: any) {
+      console.error('Failed to delete category:', err);
+      setMessage({ type: 'error', text: err.message || 'Failed to delete category.' });
+      setDeleteTarget(null);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -346,7 +384,7 @@ export default function AdminCategoriesPage() {
       setIsBulkDeleting(true);
       const token = getAuthToken();
 
-      const response = await fetch(`${API_URL}/admin/categories/bulk-delete`, {
+      const response = await fetch(`${API_URL}/admin/categories/bulk-archive`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -363,11 +401,48 @@ export default function AdminCategoriesPage() {
 
       setMessage({ type: 'success', text: `${ids.length} category(ies) moved to archive successfully.` });
       setSelectedCategoryIds(new Set());
-      setConfirmBulkDialog(false);
+      setConfirmBulkArchiveDialog(false);
       await loadCategories();
     } catch (err: any) {
       console.error('Bulk archive categories failed:', err);
       setMessage({ type: 'error', text: err.message || 'Failed to archive categories' });
+      setConfirmBulkArchiveDialog(false);
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  const handleBulkPermanentDeleteCategories = async () => {
+    const ids = Array.from(selectedCategoryIds);
+    if (ids.length === 0) return;
+
+    try {
+      setIsBulkDeleting(true);
+      const token = getAuthToken();
+
+      const response = await fetch(`${API_URL}/admin/categories/bulk-delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ ids }),
+      });
+
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to permanently delete categories');
+      }
+
+      setMessage({ type: 'success', text: `${ids.length} category(ies) permanently deleted successfully.` });
+      setSelectedCategoryIds(new Set());
+      setConfirmBulkDeleteDialog(false);
+      await loadCategories();
+    } catch (err: any) {
+      console.error('Bulk delete categories failed:', err);
+      setMessage({ type: 'error', text: err.message || 'Failed to delete categories' });
+      setConfirmBulkDeleteDialog(false);
     } finally {
       setIsBulkDeleting(false);
     }
@@ -688,25 +763,47 @@ export default function AdminCategoriesPage() {
 
             {selectedCategoryIds.size > 0 && (
               activeTab === 'active' ? (
-                <button
-                  type="button"
-                  onClick={() => setConfirmBulkDialog(true)}
-                  disabled={isBulkDeleting}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
-                >
-                  <Archive className="w-3.5 h-3.5" />
-                  <span>Archive Selected ({selectedCategoryIds.size})</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBulkArchiveDialog(true)}
+                    disabled={isBulkDeleting}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                  >
+                    <Archive className="w-3.5 h-3.5" />
+                    <span>Archive Selected ({selectedCategoryIds.size})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBulkDeleteDialog(true)}
+                    disabled={isBulkDeleting}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Selected ({selectedCategoryIds.size})</span>
+                  </button>
+                </>
               ) : (
-                <button
-                  type="button"
-                  onClick={handleBulkRestoreCategories}
-                  disabled={isBulkRestoring}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs transition"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Restore Selected ({selectedCategoryIds.size})</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={handleBulkRestoreCategories}
+                    disabled={isBulkRestoring}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Restore Selected ({selectedCategoryIds.size})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBulkDeleteDialog(true)}
+                    disabled={isBulkDeleting}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Selected ({selectedCategoryIds.size})</span>
+                  </button>
+                </>
               )
             )}
           </div>
@@ -853,33 +950,53 @@ export default function AdminCategoriesPage() {
 
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openEditForm(category)}
-                            className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Edit Category"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
                           {activeTab === 'archived' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleRestoreCategory(category.id)}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors shadow-2xs"
-                              title="Restore Category"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Restore</span>
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleRestoreCategory(category.id)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors shadow-2xs"
+                                title="Restore Category"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Restore</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget(category)}
+                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                title="Delete permanently"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget(category)}
-                              className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                              title="Move to archive"
-                            >
-                              <Archive className="w-3.5 h-3.5" />
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openEditForm(category)}
+                                className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Edit Category"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setArchiveTarget(category)}
+                                className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                title="Move to archive"
+                              >
+                                <Archive className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget(category)}
+                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                title="Delete permanently"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -894,28 +1011,56 @@ export default function AdminCategoriesPage() {
 
       {/* Archive Single Confirmation Modal */}
       <ConfirmDialog
+        isOpen={Boolean(archiveTarget)}
+        onClose={() => setArchiveTarget(null)}
+        onConfirm={() => {
+          if (archiveTarget) {
+            handleArchiveCategory(archiveTarget.id);
+          }
+        }}
+        title="Move Category to Archive"
+        message={`Are you sure you want to move category "${archiveTarget?.name}" to archive? It will be hidden from the storefront, but existing products referencing it will keep its details intact. You can restore it at any time.`}
+        confirmLabel="Move to archive"
+        variant="warning"
+        isLoading={isDeleting}
+      />
+
+      {/* Permanently Delete Single Confirmation Modal */}
+      <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
         onConfirm={() => {
           if (deleteTarget) {
-            handleArchiveCategory(deleteTarget.id);
-            setDeleteTarget(null);
+            handlePermanentDeleteCategory(deleteTarget.id);
           }
         }}
-        title="Move Category to Archive"
-        message={`Are you sure you want to move category "${deleteTarget?.name}" to archive? It will be hidden from the storefront, but existing products referencing it will keep its details intact. You can restore it at any time.`}
-        confirmLabel="Move to archive"
+        title="Permanently Delete Category"
+        message={`Are you sure you want to permanently delete category "${deleteTarget?.name}"? This action CANNOT be undone and will permanently remove this category from the database. Note that categories with assigned products or subcategories cannot be deleted.`}
+        confirmLabel="Delete Permanently"
         variant="danger"
+        isLoading={isDeleting}
       />
 
       {/* Archive Multiple Confirmation Modal */}
       <ConfirmDialog
-        isOpen={confirmBulkDialog}
-        onClose={() => setConfirmBulkDialog(false)}
+        isOpen={confirmBulkArchiveDialog}
+        onClose={() => setConfirmBulkArchiveDialog(false)}
         onConfirm={handleBulkArchiveCategories}
         title={`Move ${selectedCategoryIds.size} Selected Categories to Archive`}
         message={`Are you sure you want to move the ${selectedCategoryIds.size} selected categories to archive? They will be hidden from storefront listings, but products referencing them will remain intact and you can restore them at any time.`}
         confirmLabel="Move to archive"
+        variant="warning"
+        isLoading={isBulkDeleting}
+      />
+
+      {/* Permanently Delete Multiple Confirmation Modal */}
+      <ConfirmDialog
+        isOpen={confirmBulkDeleteDialog}
+        onClose={() => setConfirmBulkDeleteDialog(false)}
+        onConfirm={handleBulkPermanentDeleteCategories}
+        title={`Permanently Delete ${selectedCategoryIds.size} Selected Categories`}
+        message={`Are you sure you want to permanently delete the ${selectedCategoryIds.size} selected categories? This action CANNOT be undone and will permanently remove them from the database. Categories with assigned products or subcategories cannot be deleted.`}
+        confirmLabel="Delete Permanently"
         variant="danger"
         isLoading={isBulkDeleting}
       />

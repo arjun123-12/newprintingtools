@@ -4,9 +4,12 @@ namespace App\Http\Controllers\Api\V1\Categories;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\Product;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class CategoryController extends Controller
@@ -179,10 +182,17 @@ class CategoryController extends Controller
 
     /**
      * Archive (soft-delete) a category.
-     * Existing products referencing this category remain completely intact.
      */
-    public function destroy(string $id): JsonResponse
+    public function archive(Request $request, string $id): JsonResponse
     {
+        $user = $request->user();
+        if ($user && method_exists($user, 'isAdmin') && !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Administrator access required.',
+            ], 403);
+        }
+
         $category = Category::withTrashed()->find($id);
 
         if (!$category) {
@@ -209,17 +219,23 @@ class CategoryController extends Controller
 
     /**
      * Bulk archive (soft-delete) categories.
-     * Existing products referencing these categories remain completely intact.
      */
-    public function bulkDestroy(Request $request): JsonResponse
+    public function bulkArchive(Request $request): JsonResponse
     {
+        $user = $request->user();
+        if ($user && method_exists($user, 'isAdmin') && !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Administrator access required.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'ids' => ['required', 'array', 'min:1'],
             'ids.*' => ['required', 'string'],
         ]);
 
         $ids = array_values(array_unique($validated['ids']));
-
         $count = Category::whereIn('id', $ids)->delete();
 
         return response()->json([
@@ -228,6 +244,162 @@ class CategoryController extends Controller
             'archived_count' => $count,
             'deleted_count' => $count,
         ]);
+    }
+
+    /**
+     * Permanently delete a category (or archive if requested).
+     * Prevents deletion if products or child subcategories are assigned to it.
+     */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $user = $request->user();
+        if ($user && method_exists($user, 'isAdmin') && !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Administrator access required.',
+            ], 403);
+        }
+
+        $category = Category::withTrashed()->find($id);
+
+        if (!$category) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Category not found.',
+            ], 404);
+        }
+
+        if ($request->boolean('archive')) {
+            return $this->archive($request, $id);
+        }
+
+        // Check if products exist in that category (including soft-deleted products)
+        $productsCount = Product::withTrashed()->where('category_id', $category->id)->count();
+        if ($productsCount > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => "Cannot delete category '{$category->name}' because {$productsCount} product(s) are assigned to it. Please move or delete those products first.",
+            ], 422);
+        }
+
+        // Check if child categories exist
+        $childrenCount = Category::withTrashed()->where('parent_id', $category->id)->count();
+        if ($childrenCount > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => "Cannot delete category '{$category->name}' because {$childrenCount} subcategory(ies) exist under it. Please reassign or delete the subcategories first.",
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Delete uploaded category image if stored locally
+            if (!empty($category->image_url) && str_contains($category->image_url, '/storage/categories/')) {
+                $path = str_replace(Storage::disk('public')->url(''), '', $category->image_url);
+                $path = ltrim($path, '/');
+                if (Storage::disk('public')->exists($path)) {
+                    Storage::disk('public')->delete($path);
+                }
+            }
+
+            $category->forceDelete();
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Category permanently deleted successfully.',
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error("Failed to permanently delete category {$id}: " . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to permanently delete category: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Bulk permanently delete categories (or bulk archive if requested).
+     */
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        if ($user && method_exists($user, 'isAdmin') && !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Administrator access required.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['required', 'string'],
+            'archive' => ['nullable', 'boolean'],
+        ]);
+
+        $ids = array_values(array_unique($validated['ids']));
+
+        if ($request->boolean('archive')) {
+            return $this->bulkArchive($request);
+        }
+
+        // Check all selected categories for products or child categories
+        $categories = Category::withTrashed()->whereIn('id', $ids)->get();
+
+        foreach ($categories as $category) {
+            $pCount = Product::withTrashed()->where('category_id', $category->id)->count();
+            if ($pCount > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Cannot delete category '{$category->name}' because {$pCount} product(s) are assigned to it. Please move or delete those products first.",
+                ], 422);
+            }
+
+            $cCount = Category::withTrashed()->where('parent_id', $category->id)->count();
+            if ($cCount > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Cannot delete category '{$category->name}' because {$cCount} subcategory(ies) exist under it. Please reassign or delete the subcategories first.",
+                ], 422);
+            }
+        }
+
+        DB::beginTransaction();
+        try {
+            $deletedCount = 0;
+            foreach ($categories as $category) {
+                if (!empty($category->image_url) && str_contains($category->image_url, '/storage/categories/')) {
+                    $path = str_replace(Storage::disk('public')->url(''), '', $category->image_url);
+                    $path = ltrim($path, '/');
+                    if (Storage::disk('public')->exists($path)) {
+                        Storage::disk('public')->delete($path);
+                    }
+                }
+                $category->forceDelete();
+                $deletedCount++;
+            }
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => "{$deletedCount} category(ies) permanently deleted successfully.",
+                'deleted_count' => $deletedCount,
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error("Failed bulk permanent delete of categories: " . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to permanently delete categories: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**

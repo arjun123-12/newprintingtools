@@ -169,12 +169,21 @@ class UpdateProductRequest extends FormRequest
                 'numeric',
                 'min:0',
             ],
+            'cost_price' => [
+                'nullable',
+                'numeric',
+                'min:0',
+            ],
             'status' => [
                 'sometimes',
                 'string',
                 'in:draft,published,archived',
             ],
             'is_active' => [
+                'sometimes',
+                'boolean',
+            ],
+            'is_featured' => [
                 'sometimes',
                 'boolean',
             ],
@@ -185,6 +194,15 @@ class UpdateProductRequest extends FormRequest
             'allow_customer_upload' => [
                 'sometimes',
                 'boolean',
+            ],
+            'meta_title' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'meta_description' => [
+                'nullable',
+                'string',
             ],
             'featured_image_url' => [
                 'nullable',

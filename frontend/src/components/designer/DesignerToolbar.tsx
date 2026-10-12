@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import NextImage from 'next/image';
 import {
   Printer,
   Save,
@@ -149,13 +150,15 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
         </a>
 
         {/* Logo / Brand Icon */}
-        <div className="flex items-center gap-2 pr-2 border-r border-gray-200">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-xs">
-            <Printer className="w-4 h-4" />
-          </div>
-          <span className="font-bold text-xs tracking-tight text-gray-900 hidden md:inline">
-            PrintStudio Pro
-          </span>
+        <div className="flex items-center pr-3 border-r border-gray-200">
+          <NextImage
+            src="/assets/images/erry_imprints_logo.png"
+            alt="Erry Imprints"
+            width={130}
+            height={32}
+            className="h-7 w-auto object-contain"
+            priority
+          />
         </div>
 
         {/* Menus: File, View, Size */}

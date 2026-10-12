@@ -23,12 +23,15 @@ import { CategoryOption } from '@/components/admin/products/productForm/types';
 import {
   Package,
   CheckCircle2,
+  AlertCircle,
   FileEdit,
   Layers,
   LayoutGrid,
   List,
   Archive,
   RotateCcw,
+  Trash2,
+  X,
 } from 'lucide-react';
 
 const API_URL =
@@ -43,6 +46,7 @@ export default function AdminProductsPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
 
   const [filters, setFilters] = useState<ProductFiltersState>({
@@ -54,6 +58,7 @@ export default function AdminProductsPage() {
 
   // Multi-select & Bulk Action State
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState<boolean>(false);
   const [isBulkRestoring, setIsBulkRestoring] = useState<boolean>(false);
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -201,13 +206,14 @@ export default function AdminProductsPage() {
       title: 'Move to Archive',
       message: `Are you sure you want to move "${product?.name || 'this product'}" to archive? It will be removed from the active catalog and storefront, but can be restored at any time.`,
       confirmLabel: 'Move to archive',
-      variant: 'danger',
+      variant: 'warning',
       onConfirm: async () => {
         try {
+          setIsDeleting(true);
           const token = getAuthToken();
 
-          const response = await fetch(`${API_URL}/admin/products/${productId}`, {
-            method: 'DELETE',
+          const response = await fetch(`${API_URL}/admin/products/${productId}/archive`, {
+            method: 'POST',
             credentials: 'include',
             headers: {
               Accept: 'application/json',
@@ -222,9 +228,54 @@ export default function AdminProductsPage() {
           }
 
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          setNotification({ type: 'success', text: `Product "${product?.name || ''}" moved to archive successfully.` });
           await loadData(true);
         } catch (err: any) {
-          alert('Failed to archive product: ' + (err.message || 'Unknown error'));
+          setNotification({ type: 'error', text: err.message || 'Failed to archive product.' });
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        } finally {
+          setIsDeleting(false);
+        }
+      },
+    });
+  };
+
+  const handleDeleteProduct = (productId: string) => {
+    const product = [...products, ...archivedProducts].find((p) => p.id === productId);
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Permanently Delete Product',
+      message: `Are you sure you want to permanently delete "${product?.name || 'this product'}"? This action CANNOT be undone and will permanently remove the product specification, variants, images, and pricing matrices from the database.`,
+      confirmLabel: 'Delete Permanently',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsDeleting(true);
+          const token = getAuthToken();
+
+          const response = await fetch(`${API_URL}/admin/products/${productId}`, {
+            method: 'DELETE',
+            credentials: 'include',
+            headers: {
+              Accept: 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+          });
+
+          const data = await response.json().catch(() => null);
+
+          if (!response.ok) {
+            throw new Error(data?.message || 'Failed to permanently delete product');
+          }
+
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          setNotification({ type: 'success', text: `Product "${product?.name || ''}" permanently deleted from database.` });
+          await loadData(true);
+        } catch (err: any) {
+          setNotification({ type: 'error', text: err.message || 'Failed to delete product.' });
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        } finally {
+          setIsDeleting(false);
         }
       },
     });
@@ -239,6 +290,52 @@ export default function AdminProductsPage() {
       title: `Move ${ids.length} Product${ids.length > 1 ? 's' : ''} to Archive`,
       message: `Are you sure you want to move the ${ids.length} selected product${ids.length > 1 ? 's' : ''} to archive? They will be removed from the active catalog and storefront, but can be restored at any time.`,
       confirmLabel: 'Move to archive',
+      variant: 'warning',
+      onConfirm: async () => {
+        try {
+          setIsBulkDeleting(true);
+          const token = getAuthToken();
+
+          const response = await fetch(`${API_URL}/admin/products/bulk-archive`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ ids }),
+          });
+
+          const data = await response.json().catch(() => null);
+
+          if (!response.ok) {
+            throw new Error(data?.message || 'Failed to archive products');
+          }
+
+          setSelectedProductIds(new Set());
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          setNotification({ type: 'success', text: `${ids.length} product(s) moved to archive successfully.` });
+          await loadData(true);
+        } catch (err: any) {
+          setNotification({ type: 'error', text: err.message || 'Failed to archive products.' });
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        } finally {
+          setIsBulkDeleting(false);
+        }
+      },
+    });
+  };
+
+  const handleBulkDeleteProducts = () => {
+    const ids = Array.from(selectedProductIds);
+    if (ids.length === 0) return;
+
+    setConfirmDialog({
+      isOpen: true,
+      title: `Permanently Delete ${ids.length} Product${ids.length > 1 ? 's' : ''}`,
+      message: `Are you sure you want to permanently delete the ${ids.length} selected product${ids.length > 1 ? 's' : ''} from the database? This action CANNOT be undone and will permanently remove all associated variants, images, and pricing matrices.`,
+      confirmLabel: 'Delete Permanently',
       variant: 'danger',
       onConfirm: async () => {
         try {
@@ -259,14 +356,16 @@ export default function AdminProductsPage() {
           const data = await response.json().catch(() => null);
 
           if (!response.ok) {
-            throw new Error(data?.message || 'Failed to archive products');
+            throw new Error(data?.message || 'Failed to permanently delete products');
           }
 
           setSelectedProductIds(new Set());
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          setNotification({ type: 'success', text: `${ids.length} product(s) permanently deleted successfully.` });
           await loadData(true);
         } catch (err: any) {
-          alert('Failed to archive products: ' + (err.message || 'Unknown error'));
+          setNotification({ type: 'error', text: err.message || 'Failed to delete products.' });
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         } finally {
           setIsBulkDeleting(false);
         }
@@ -293,9 +392,10 @@ export default function AdminProductsPage() {
         throw new Error(data?.message || 'Failed to restore product');
       }
 
+      setNotification({ type: 'success', text: 'Product restored successfully.' });
       await loadData(true);
     } catch (err: any) {
-      alert('Failed to restore product: ' + (err.message || 'Unknown error'));
+      setNotification({ type: 'error', text: err.message || 'Failed to restore product.' });
     }
   };
 
@@ -333,9 +433,11 @@ export default function AdminProductsPage() {
 
           setSelectedProductIds(new Set());
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+          setNotification({ type: 'success', text: `${ids.length} product(s) restored successfully.` });
           await loadData(true);
         } catch (err: any) {
-          alert('Failed to restore products: ' + (err.message || 'Unknown error'));
+          setNotification({ type: 'error', text: err.message || 'Failed to restore products.' });
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         } finally {
           setIsBulkRestoring(false);
         }
@@ -417,25 +519,47 @@ export default function AdminProductsPage() {
 
               {selectedProductIds.size > 0 && (
                 activeTab === 'active' ? (
-                  <button
-                    type="button"
-                    onClick={handleBulkArchiveProducts}
-                    disabled={isBulkDeleting}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
-                  >
-                    <Archive className="w-3.5 h-3.5" />
-                    <span>Archive Selected ({selectedProductIds.size})</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleBulkArchiveProducts}
+                      disabled={isBulkDeleting}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                    >
+                      <Archive className="w-3.5 h-3.5" />
+                      <span>Archive Selected ({selectedProductIds.size})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleBulkDeleteProducts}
+                      disabled={isBulkDeleting}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Selected ({selectedProductIds.size})</span>
+                    </button>
+                  </>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={handleBulkRestoreProducts}
-                    disabled={isBulkRestoring}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs transition"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Restore Selected ({selectedProductIds.size})</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleBulkRestoreProducts}
+                      disabled={isBulkRestoring}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Restore Selected ({selectedProductIds.size})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleBulkDeleteProducts}
+                      disabled={isBulkDeleting}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete Selected ({selectedProductIds.size})</span>
+                    </button>
+                  </>
                 )
               )}
             </div>
@@ -471,6 +595,33 @@ export default function AdminProductsPage() {
           <ProductActions onRefresh={() => loadData(true)} isRefreshing={refreshing} />
         </div>
       </div>
+
+      {/* Notice Banner */}
+      {notification && (
+        <div
+          className={`p-4 rounded-xl border flex items-center justify-between gap-3 animate-in fade-in duration-200 ${
+            notification.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-800'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 text-xs font-medium">
+            {notification.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span>{notification.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNotification(null)}
+            className="text-xs font-bold opacity-60 hover:opacity-100"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Catalog Views Tabs */}
       <div className="flex items-center gap-2 border-b border-gray-200">
@@ -623,7 +774,8 @@ export default function AdminProductsPage() {
           onToggleSelect={toggleProductSelection}
           onToggleSelectAll={toggleSelectAllProducts}
           onToggleActive={activeTab === 'active' ? handleToggleActive : undefined}
-          onDeleteProduct={activeTab === 'active' ? handleArchiveProduct : undefined}
+          onArchiveProduct={activeTab === 'active' ? handleArchiveProduct : undefined}
+          onDeleteProduct={handleDeleteProduct}
           onRestoreProduct={activeTab === 'archived' ? handleRestoreProduct : undefined}
           isArchivedView={activeTab === 'archived'}
         />
@@ -636,7 +788,8 @@ export default function AdminProductsPage() {
               isSelected={selectedProductIds.has(product.id)}
               onToggleSelect={toggleProductSelection}
               onToggleActive={activeTab === 'active' ? handleToggleActive : undefined}
-              onDeleteProduct={activeTab === 'active' ? handleArchiveProduct : undefined}
+              onArchiveProduct={activeTab === 'active' ? handleArchiveProduct : undefined}
+              onDeleteProduct={handleDeleteProduct}
               onRestoreProduct={activeTab === 'archived' ? handleRestoreProduct : undefined}
               isArchivedView={activeTab === 'archived'}
             />
@@ -653,7 +806,7 @@ export default function AdminProductsPage() {
         message={confirmDialog.message}
         confirmLabel={confirmDialog.confirmLabel || (activeTab === 'archived' ? 'Restore' : 'Move to archive')}
         variant={confirmDialog.variant || 'danger'}
-        isLoading={isBulkDeleting || isBulkRestoring}
+        isLoading={isDeleting || isBulkDeleting || isBulkRestoring}
       />
     </div>
   );

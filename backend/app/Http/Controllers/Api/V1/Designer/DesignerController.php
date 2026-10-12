@@ -272,6 +272,8 @@ class DesignerController extends Controller
         $allowedHosts = array_filter([
             'localhost',
             '127.0.0.1',
+            'erryimprints.com.au',
+            'artwork.erryimprints.com.au',
             'artwork.printecommerce.com.au',
             'printecommerce.com.au',
             parse_url(config('app.url', ''), PHP_URL_HOST),

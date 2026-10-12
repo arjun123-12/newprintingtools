@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 
 import {
@@ -311,16 +312,27 @@ export default function ClientBriefsPage() {
             {/* HEADER */}
 
             <div className="border-b border-slate-200 bg-white">
-                <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5">
-
-                    <div>
-                        <p className="text-xs font-bold uppercase tracking-widest text-purple-600">
-                            Client Brief Desk
-                        </p>
-
-                        <h1 className="mt-1 text-2xl font-bold text-slate-900">
-                            Client Briefs
-                        </h1>
+                <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
+                    <div className="flex items-center gap-4">
+                        <Link href="/admin/dashboard" className="flex items-center">
+                            <Image
+                                src="/assets/images/erry_imprints_logo.png"
+                                alt="Erry Imprints"
+                                width={160}
+                                height={38}
+                                className="h-8 w-auto object-contain"
+                                priority
+                            />
+                        </Link>
+                        <div className="hidden h-6 w-px bg-slate-200 sm:block" />
+                        <div>
+                            <p className="text-[11px] font-bold uppercase tracking-widest text-purple-600">
+                                Client Brief Desk
+                            </p>
+                            <h1 className="text-lg font-bold text-slate-900 leading-tight">
+                                Client Briefs
+                            </h1>
+                        </div>
                     </div>
 
                     <div className="flex items-center gap-4">

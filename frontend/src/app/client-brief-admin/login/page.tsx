@@ -6,6 +6,7 @@ import React, {
 } from 'react';
 
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 import {
     Loader2,
@@ -122,11 +123,20 @@ export default function ClientBriefLoginPage() {
         <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
             <div className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900 p-7 shadow-2xl sm:p-9">
 
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-purple-600 text-white">
-                    <LockKeyhole className="h-6 w-6" />
+                <div className="flex justify-center">
+                    <div className="bg-white px-4 py-2.5 rounded-xl shadow-md inline-block">
+                        <Image
+                            src="/assets/images/erry_imprints_logo.png"
+                            alt="Erry Imprints"
+                            width={180}
+                            height={42}
+                            className="h-10 w-auto object-contain"
+                            priority
+                        />
+                    </div>
                 </div>
 
-                <div className="mt-6 text-center">
+                <div className="mt-5 text-center">
                     <h1 className="text-2xl font-bold text-white">
                         Client Brief Desk
                     </h1>

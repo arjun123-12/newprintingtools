@@ -20,42 +20,32 @@ export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
 
   try {
-    let token = window.sessionStorage.getItem(AUTH_TOKEN_KEY);
+    let token =
+      window.localStorage.getItem(AUTH_TOKEN_KEY) ||
+      window.sessionStorage.getItem(AUTH_TOKEN_KEY);
+
     if (!token) {
-      token = window.sessionStorage.getItem(LEGACY_TOKEN_KEY);
+      token =
+        window.localStorage.getItem(LEGACY_TOKEN_KEY) ||
+        window.sessionStorage.getItem(LEGACY_TOKEN_KEY);
+
       if (token) {
+        window.localStorage.setItem(AUTH_TOKEN_KEY, token);
         window.sessionStorage.setItem(AUTH_TOKEN_KEY, token);
-        window.sessionStorage.removeItem(LEGACY_TOKEN_KEY);
-      }
-    }
-
-    // Backward compatibility: If a token exists in legacy localStorage, migrate it once
-    if (!token) {
-      const legacyToken =
-        window.localStorage.getItem(AUTH_TOKEN_KEY) ||
-        window.localStorage.getItem(LEGACY_TOKEN_KEY);
-
-      if (legacyToken) {
-        // Ensure it's a raw string, not a serialized JSON response
-        const cleanToken = extractRawTokenString(legacyToken);
-        if (cleanToken) {
-          window.sessionStorage.setItem(AUTH_TOKEN_KEY, cleanToken);
-          token = cleanToken;
-        }
-        window.localStorage.removeItem(AUTH_TOKEN_KEY);
         window.localStorage.removeItem(LEGACY_TOKEN_KEY);
+        window.sessionStorage.removeItem(LEGACY_TOKEN_KEY);
       }
     }
 
     return token ? extractRawTokenString(token) : null;
   } catch (err) {
-    console.warn('Error reading auth token from sessionStorage:', err);
+    console.warn('Error reading auth token from storage:', err);
     return null;
   }
 }
 
 /**
- * Stores the authentication token strictly in sessionStorage.
+ * Stores the authentication token in both localStorage and sessionStorage for reliable persistence across refreshes.
  * Guaranteed to store only the raw token string (never entire response objects).
  */
 export function setAuthToken(tokenOrResponse: unknown): void {
@@ -68,27 +58,26 @@ export function setAuthToken(tokenOrResponse: unknown): void {
   }
 
   try {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, rawToken);
     window.sessionStorage.setItem(AUTH_TOKEN_KEY, rawToken);
-    // Cleanup any lingering tokens elsewhere
-    window.sessionStorage.removeItem(LEGACY_TOKEN_KEY);
-    window.localStorage.removeItem(AUTH_TOKEN_KEY);
     window.localStorage.removeItem(LEGACY_TOKEN_KEY);
+    window.sessionStorage.removeItem(LEGACY_TOKEN_KEY);
   } catch (err) {
-    console.error('Failed to set auth token in sessionStorage:', err);
+    console.error('Failed to set auth token in storage:', err);
   }
 }
 
 /**
- * Clears authentication tokens from session and removes any obsolete local tokens.
+ * Clears authentication tokens from session and local storage.
  */
 export function removeAuthToken(): void {
   if (typeof window === 'undefined') return;
 
   try {
-    window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
-    window.sessionStorage.removeItem(LEGACY_TOKEN_KEY);
     window.localStorage.removeItem(AUTH_TOKEN_KEY);
     window.localStorage.removeItem(LEGACY_TOKEN_KEY);
+    window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
+    window.sessionStorage.removeItem(LEGACY_TOKEN_KEY);
   } catch (err) {
     console.warn('Error clearing auth token:', err);
   }

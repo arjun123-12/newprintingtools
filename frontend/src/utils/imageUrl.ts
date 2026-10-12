@@ -65,6 +65,7 @@ export function formatImageUrl(url?: string | null): string {
       const shouldUseConfiguredBackend =
         parsed.hostname === 'localhost' ||
         parsed.hostname === '127.0.0.1' ||
+        parsed.hostname.includes('erryimprints.com.au') ||
         parsed.hostname.includes('printecommerce.com.au') ||
         parsed.origin === backend.origin;
 

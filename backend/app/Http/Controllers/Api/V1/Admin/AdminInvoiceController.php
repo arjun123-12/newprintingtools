@@ -16,11 +16,11 @@ class AdminInvoiceController extends Controller
      * Store metadata for Australian Tax Invoices (ATO Compliant)
      */
     protected array $storeInfo = [
-        'name' => 'Print Ecommerce Pty Ltd',
-        'trading_name' => 'PrintOps Australia',
+        'name' => 'Erry Imprints Pty Ltd',
+        'trading_name' => 'Erry Imprints',
         'abn' => '12 345 678 901',
-        'email' => 'accounts@printecommerce.com.au',
-        'phone' => '1300 000 789',
+        'email' => 'orders@erryimprints.com.au',
+        'phone' => '1300 000 000',
         'address_line_1' => 'Level 1, 100 George Street',
         'city' => 'Sydney',
         'state' => 'NSW',

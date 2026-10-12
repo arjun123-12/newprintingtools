@@ -269,7 +269,9 @@ export default function Header() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Mail className="w-4 h-4 text-sky-600" />
-                  <span>orders@printstore.com.au</span>
+                  <a href="mailto:orders@erryimprints.com.au" className="hover:text-sky-600 transition-colors">
+                    orders@erryimprints.com.au
+                  </a>
                 </div>
               </div>
             </div>

@@ -6,9 +6,9 @@ import { Providers } from './providers';
 import { ConditionalShell } from '@/components/customer/ConditionalShell';
 
 export const metadata: Metadata = {
-  title: 'PrintStore  | Commercial & Retail Custom Online Printing',
+  title: 'Erry Imprints | Commercial & Retail Custom Online Printing',
   description:
-    'High-impact custom printing for n businesses. Premium business cards, flyers, banners, signage, and merchandise with instant live pricing and fast dispatch.',
+    'High-impact custom printing for Australian businesses. Premium business cards, flyers, banners, signage, and merchandise with instant live pricing and fast dispatch.',
 };
 
 export default function RootLayout({

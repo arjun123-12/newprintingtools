@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Enquiries\StoreCustomerEnquiryRequest;
 use App\Http\Requests\Enquiries\UpdateCustomerEnquiryRequest;
 use App\Models\CustomerEnquiry;
+use App\Services\Notification\OrderNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -70,6 +71,13 @@ class CustomerEnquiryController extends Controller
             'ip_address' => $request->ip(),
             'user_agent' => substr((string) $request->userAgent(), 0, 500),
         ]);
+
+        // Send enquiry notification to linked admin email (erryimprints@gmail.com) from orders@erryimprints.com.au
+        try {
+            (new OrderNotificationService())->sendCustomerEnquiryNotification($enquiry);
+        } catch (\Throwable $e) {
+            // Non-blocking log
+        }
 
         return response()->json([
             'success' => true,

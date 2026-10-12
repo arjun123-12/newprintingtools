@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
+import Image from 'next/image';
 import {
   FileText,
   DollarSign,
@@ -37,10 +38,10 @@ import {
 
 // Default store info if API is loading or offline
 const DEFAULT_STORE_INFO: StoreTaxInfo = {
-  name: 'Print Ecommerce Pty Ltd',
-  trading_name: 'PrintOps Australia',
+  name: 'Erry Imprints Pty Ltd',
+  trading_name: 'Erry Imprints',
   abn: '12 345 678 901',
-  email: 'accounts@printecommerce.com.au',
+  email: 'orders@erryimprints.com.au',
   phone: '1300 000 789',
   address_line_1: 'Level 1, 100 George Street',
   city: 'Sydney',
@@ -763,6 +764,15 @@ export default function AdminInvoicesPage() {
               {/* Header section with ATO Title & Seller ABN */}
               <div className="flex flex-col sm:flex-row justify-between items-start gap-6 border-b-2 border-slate-900 pb-6">
                 <div>
+                  <div className="mb-3">
+                    <Image
+                      src="/assets/images/erry_imprints_logo.png"
+                      alt="Erry Imprints"
+                      width={180}
+                      height={42}
+                      className="h-10 w-auto object-contain"
+                    />
+                  </div>
                   <div className="text-3xl font-extrabold tracking-tight text-slate-950 uppercase">
                     TAX INVOICE
                   </div>

@@ -118,6 +118,43 @@ class PrintSettingsAndSidesWorkflowTest extends TestCase
     }
 
     /**
+     * Test 2b: Updating product saves meta_title and meta_description.
+     */
+    public function test_update_product_saves_meta_title_and_meta_description(): void
+    {
+        $product = Product::create([
+            'category_id' => $this->category->id,
+            'name' => 'SEO Test Product',
+            'slug' => 'seo-test-product-' . uniqid(),
+            'sku' => 'SEO-' . strtoupper(uniqid()),
+            'base_price' => 12.00,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->adminUser, 'sanctum')
+            ->patchJson("/api/v1/admin/products/{$product->id}", [
+                'meta_title' => 'Custom Meta Title 123',
+                'meta_description' => 'Custom Meta Description Content for Search Engines',
+            ]);
+
+        $response->assertStatus(200);
+        $response->assertJsonPath('data.meta_title', 'Custom Meta Title 123');
+        $response->assertJsonPath('data.meta_description', 'Custom Meta Description Content for Search Engines');
+
+        $product->refresh();
+        $this->assertEquals('Custom Meta Title 123', $product->meta_title);
+        $this->assertEquals('Custom Meta Description Content for Search Engines', $product->meta_description);
+
+        // Verify show endpoint returns it
+        $showResponse = $this->actingAs($this->adminUser, 'sanctum')
+            ->getJson("/api/v1/admin/products/{$product->id}");
+
+        $showResponse->assertStatus(200);
+        $showResponse->assertJsonPath('data.meta_title', 'Custom Meta Title 123');
+        $showResponse->assertJsonPath('data.meta_description', 'Custom Meta Description Content for Search Engines');
+    }
+
+    /**
      * Test 3: Creating a front-only template.
      */
     public function test_create_front_only_template(): void

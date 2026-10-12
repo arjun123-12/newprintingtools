@@ -2,9 +2,9 @@
 
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
-  Layers,
   Phone,
   Mail,
   MapPin,
@@ -31,7 +31,7 @@ export default function Footer() {
               <Truck className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="font-semibold text-white text-sm">-Wide Delivery</h4>
+              <h4 className="font-semibold text-white text-sm">Australia-Wide Delivery</h4>
               <p className="text-xs text-slate-400">Fast courier dispatch to Sydney, Melb, Bris & beyond.</p>
             </div>
           </div>
@@ -61,7 +61,7 @@ export default function Footer() {
               <CreditCard className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="font-semibold text-white text-sm">n Tax Invoices</h4>
+              <h4 className="font-semibold text-white text-sm">Australian Tax Invoices</h4>
               <p className="text-xs text-slate-400">10% GST itemized breakdowns and instant ABN invoicing.</p>
             </div>
           </div>
@@ -72,16 +72,19 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
         {/* Brand Col */}
         <div className="lg:col-span-2 space-y-4">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-500 flex items-center justify-center text-white shadow-md">
-              <Layers className="w-5 h-5" />
+          <Link href="/" className="inline-block group">
+            <div className="bg-white px-3.5 py-2 rounded-xl inline-block shadow-sm transition-transform duration-200 group-hover:scale-105">
+              <Image
+                src="/assets/images/erry_imprints_logo.png"
+                alt="Erry Imprints"
+                width={180}
+                height={42}
+                className="h-9 w-auto object-contain"
+              />
             </div>
-            <span className="text-xl font-bold text-white tracking-tight">
-              Print<span className="text-sky-500">Store</span>
-            </span>
           </Link>
           <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
-            Commercial and trade custom printing services delivering high-grade business stationery, marketing collateral, outdoor banners, packaging, and promo merch across .
+            Commercial and trade custom printing services delivering high-grade business stationery, marketing collateral, outdoor banners, packaging, and promo merch across Australia.
           </p>
           <div className="space-y-2 text-xs text-slate-300">
             <div className="flex items-center gap-2">
@@ -90,7 +93,9 @@ export default function Footer() {
             </div>
             <div className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-sky-400" />
-              <span>orders@printstore.com.au</span>
+              <a href="mailto:orders@erryimprints.com.au" className="hover:text-white transition-colors">
+                orders@erryimprints.com.au
+              </a>
             </div>
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-sky-400" />
@@ -140,7 +145,7 @@ export default function Footer() {
       {/* Bottom Bar */}
       <div className="border-t border-slate-800/80 py-6 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-          <p>© {new Date().getFullYear()} PrintStore  Pty Ltd. ABN 00 000 000 000. All prices in AUD include 10% GST.</p>
+          <p>© {new Date().getFullYear()} Erry Imprints Pty Ltd. All prices in AUD include 10% GST.</p>
           <div className="flex items-center gap-4">
             <Link href="/about" className="hover:text-slate-400 transition-colors">About Us</Link>
             <span>•</span>

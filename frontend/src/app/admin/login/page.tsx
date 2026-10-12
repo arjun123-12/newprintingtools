@@ -1,13 +1,15 @@
 
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import axios from 'axios';
 import { Button } from '@/components/common/Button';
 import { Input } from '@/components/common/Input';
 import { apiClient } from '@/services/api/client';
 import { API_ENDPOINTS } from '@/services/api/endpoints';
+import { getAuthToken, setAuthToken, removeAuthToken } from '@/utils/storageHelper';
 
 interface LoginResponse {
   success: boolean;
@@ -33,6 +35,14 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState('SecretAdmin2026!');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // If already authenticated with a valid token, navigate directly to dashboard
+  useEffect(() => {
+    const existingToken = getAuthToken();
+    if (existingToken) {
+      router.replace('/admin/dashboard');
+    }
+  }, [router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -65,8 +75,8 @@ export default function AdminLoginPage() {
       }
 
       // Only admin users can access the admin panel.
-      if (user.role !== 'admin' || user.is_admin !== true) {
-        sessionStorage.removeItem('auth_token');
+      if (user.role !== 'admin' && !user.is_admin) {
+        removeAuthToken();
 
         setError(
           'Only administrator accounts can access the admin panel.'
@@ -75,14 +85,14 @@ export default function AdminLoginPage() {
         return;
       }
 
-      // Store authentication token only for the current browser tab/session.
-      sessionStorage.setItem('auth_token', token);
+      // Store authentication token across both localStorage and sessionStorage
+      setAuthToken(token);
 
       router.replace('/admin/dashboard');
       router.refresh();
     } catch (error: unknown) {
       // Remove any invalid/stale authentication token.
-      sessionStorage.removeItem('auth_token');
+      removeAuthToken();
 
       if (axios.isAxiosError(error)) {
         setError(
@@ -107,7 +117,20 @@ export default function AdminLoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-950 p-4">
       <div className="w-full max-w-md space-y-6 rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
-        <div className="space-y-2 text-center">
+        <div className="space-y-3 text-center">
+          <div className="flex justify-center">
+            <div className="bg-white px-4 py-2.5 rounded-xl shadow-md inline-block">
+              <Image
+                src="/assets/images/erry_imprints_logo.png"
+                alt="Erry Imprints"
+                width={180}
+                height={42}
+                className="h-10 w-auto object-contain"
+                priority
+              />
+            </div>
+          </div>
+
           <h1 className="text-2xl font-bold tracking-tight text-white">
             Admin Portal
           </h1>

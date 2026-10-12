@@ -375,12 +375,17 @@ Route::middleware(['auth:sanctum'])
 
         Route::post('/categories/bulk-archive', [
             App\Http\Controllers\Api\V1\Categories\CategoryController::class,
-            'bulkDestroy',
+            'bulkArchive',
         ]);
 
         Route::post('/categories/{id}/restore', [
             App\Http\Controllers\Api\V1\Categories\CategoryController::class,
             'restore',
+        ]);
+
+        Route::post('/categories/{id}/archive', [
+            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+            'archive',
         ]);
 
         Route::get('/categories', [
@@ -420,12 +425,17 @@ Route::middleware(['auth:sanctum'])
 
         Route::post('/products/bulk-archive', [
             App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'bulkDestroy',
+            'bulkArchive',
         ]);
 
         Route::post('/products/{id}/restore', [
             App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
             'restore',
+        ]);
+
+        Route::post('/products/{id}/archive', [
+            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+            'archive',
         ]);
 
         Route::get('/products', [

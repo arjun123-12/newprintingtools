@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\User;
 use App\Services\Checkout\CheckoutService;
+use App\Services\Notification\OrderNotificationService;
 use Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -140,6 +141,13 @@ class OrderService
             }
 
             Log::info("Order {$order->order_number} created successfully for user {$user->id}. Total: AUD {$order->total_inc_gst}");
+
+            // Notify customer from orders@erryimprints.com.au and alert linked admin erryimprints@gmail.com
+            try {
+                (new OrderNotificationService())->sendOrderConfirmation($order->order_number, $user->email, $order);
+            } catch (\Throwable $e) {
+                // Non-blocking log
+            }
 
             // DO NOT clear cart here - cart remains intact until payment verification in next stage
             return $order->load(['items.product', 'items.artwork', 'user:id,name,email,phone']);

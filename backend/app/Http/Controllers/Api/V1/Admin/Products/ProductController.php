@@ -10,6 +10,8 @@ use App\Http\Resources\Admin\Products\ProductResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class ProductController extends Controller
 {
@@ -231,8 +233,16 @@ class ProductController extends Controller
     /**
      * Archive (soft-delete) a product.
      */
-    public function destroy(string $id): JsonResponse
+    public function archive(Request $request, string $id): JsonResponse
     {
+        $user = $request->user();
+        if ($user && method_exists($user, 'isAdmin') && !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Administrator access required.',
+            ], 403);
+        }
+
         $product = Product::withTrashed()->find($id);
 
         if (!$product) {
@@ -260,14 +270,23 @@ class ProductController extends Controller
     /**
      * Bulk archive (soft-delete) products.
      */
-    public function bulkDestroy(Request $request): JsonResponse
+    public function bulkArchive(Request $request): JsonResponse
     {
+        $user = $request->user();
+        if ($user && method_exists($user, 'isAdmin') && !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Administrator access required.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'ids' => ['required', 'array', 'min:1'],
             'ids.*' => ['required', 'string'],
         ]);
 
-        $count = Product::whereIn('id', $validated['ids'])->delete();
+        $ids = array_values(array_unique($validated['ids']));
+        $count = Product::whereIn('id', $ids)->delete();
 
         return response()->json([
             'success' => true,
@@ -275,6 +294,194 @@ class ProductController extends Controller
             'archived_count' => $count,
             'deleted_count' => $count,
         ]);
+    }
+
+    /**
+     * Delete a product permanently from the database (or archive if explicitly requested).
+     */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $user = $request->user();
+        if ($user && method_exists($user, 'isAdmin') && !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Administrator access required.',
+            ], 403);
+        }
+
+        $product = Product::withTrashed()->find($id);
+
+        if (!$product) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found.',
+            ], 404);
+        }
+
+        // Check if soft-delete / archive was explicitly requested
+        if ($request->boolean('archive')) {
+            return $this->archive($request, $id);
+        }
+
+        // Prevent permanent deletion if customer orders reference this product (FK restrict)
+        $hasOrders = DB::table('order_items')->where('product_id', $product->id)->exists();
+        if ($hasOrders) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot permanently delete product because it is associated with existing customer orders. You may archive it instead.',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $this->performPermanentProductDelete($product);
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Product permanently deleted successfully.',
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error("Failed to permanently delete product {$id}: " . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to permanently delete product: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Bulk permanently delete (or bulk archive) products.
+     */
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        if ($user && method_exists($user, 'isAdmin') && !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Administrator access required.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['required', 'string'],
+            'archive' => ['nullable', 'boolean'],
+        ]);
+
+        $ids = array_values(array_unique($validated['ids']));
+
+        if ($request->boolean('archive')) {
+            return $this->bulkArchive($request);
+        }
+
+        // Check if any product is associated with existing customer orders
+        $productsWithOrders = DB::table('order_items')
+            ->whereIn('product_id', $ids)
+            ->pluck('product_id')
+            ->unique();
+
+        if ($productsWithOrders->isNotEmpty()) {
+            $countWithOrders = $productsWithOrders->count();
+            return response()->json([
+                'success' => false,
+                'message' => "Cannot permanently delete selected products: {$countWithOrders} product(s) are associated with existing customer orders. You may archive them instead.",
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $products = Product::withTrashed()->whereIn('id', $ids)->get();
+            $deletedCount = 0;
+
+            foreach ($products as $product) {
+                $this->performPermanentProductDelete($product);
+                $deletedCount++;
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => "{$deletedCount} product(s) permanently deleted successfully.",
+                'deleted_count' => $deletedCount,
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error("Failed bulk permanent delete: " . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to permanently delete products: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper to permanently delete a product and cleanly handle product-owned records and files.
+     */
+    private function performPermanentProductDelete(Product $product): void
+    {
+        // 1. Clean up product-owned cart items
+        DB::table('cart_items')->where('product_id', $product->id)->delete();
+
+        // 2. Clean up product-owned mockups, shipping, inventory records
+        DB::table('product_mockups')->where('product_id', $product->id)->delete();
+        DB::table('product_shippings')->where('product_id', $product->id)->delete();
+        DB::table('product_inventories')->where('product_id', $product->id)->delete();
+
+        // 3. Nullify product_id in customer enquiries
+        DB::table('customer_enquiries')->where('product_id', $product->id)->update(['product_id' => null]);
+
+        // 4. Nullify product_id on saved user artworks (do not delete customer artworks)
+        DB::table('artworks')->where('product_id', $product->id)->update(['product_id' => null]);
+
+        // 5. Clean up product-owned design templates and their template pages
+        $productTemplateIds = DB::table('design_templates')
+            ->where('product_id', $product->id)
+            ->pluck('id');
+
+        if ($productTemplateIds->isNotEmpty()) {
+            DB::table('design_template_pages')
+                ->whereIn('design_template_id', $productTemplateIds)
+                ->delete();
+
+            DB::table('design_templates')
+                ->whereIn('id', $productTemplateIds)
+                ->delete();
+        }
+
+        // 6. Delete design_template_pages referencing this product's sides
+        $sideIds = DB::table('product_sides')
+            ->where('product_id', $product->id)
+            ->pluck('id');
+
+        if ($sideIds->isNotEmpty()) {
+            DB::table('design_template_pages')
+                ->whereIn('product_side_id', $sideIds)
+                ->delete();
+        }
+
+        // 7. Delete local image files owned specifically by this product from storage
+        $productImages = $product->images;
+        foreach ($productImages as $image) {
+            if (!empty($image->url) && str_contains($image->url, '/storage/products/')) {
+                $path = str_replace(Storage::disk('public')->url(''), '', $image->url);
+                $path = ltrim($path, '/');
+                if (Storage::disk('public')->exists($path)) {
+                    Storage::disk('public')->delete($path);
+                }
+            }
+        }
+
+        // 8. Permanently delete the product model (cascades variants, images, sides, print areas, attributes, pricing matrices)
+        $product->forceDelete();
     }
 
     /**

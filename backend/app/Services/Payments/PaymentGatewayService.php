@@ -9,6 +9,7 @@ use App\Models\CartItem;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\User;
+use App\Services\Notification\OrderNotificationService;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -271,6 +272,16 @@ class PaymentGatewayService
                     if ($cart) {
                         CartItem::where('cart_id', $cart->id)->delete();
                     }
+                }
+
+                // Dispatch order notification linked to erryimprints@gmail.com
+                try {
+                    $targetEmail = $user?->email ?? $order->user?->email ?? ($order->shipping_address['email'] ?? null);
+                    if ($targetEmail) {
+                        (new OrderNotificationService())->sendOrderConfirmation($order->order_number, $targetEmail, $order);
+                    }
+                } catch (\Throwable $e) {
+                    // Non-blocking log
                 }
 
                 return [

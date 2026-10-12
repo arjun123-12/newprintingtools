@@ -59,27 +59,6 @@ export function AuthProvider({
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchCurrentUser = useCallback(
-    async (authToken: string): Promise<CustomerUser | null> => {
-      try {
-        const response = await apiClient.get(API_ENDPOINTS.AUTH_ME, {
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-          },
-        });
-
-        if (response.data?.success && response.data?.data) {
-          return response.data.data as CustomerUser;
-        }
-
-        return null;
-      } catch {
-        return null;
-      }
-    },
-    []
-  );
-
   const refreshUser = useCallback(async () => {
     const storedToken = getAuthToken();
 
@@ -92,18 +71,27 @@ export function AuthProvider({
 
     setToken(storedToken);
 
-    const currentUser = await fetchCurrentUser(storedToken);
+    try {
+      const response = await apiClient.get(API_ENDPOINTS.AUTH_ME, {
+        headers: {
+          Authorization: `Bearer ${storedToken}`,
+        },
+      });
 
-    if (currentUser) {
-      setUser(currentUser);
-    } else {
-      removeAuthToken();
-      setUser(null);
-      setToken(null);
+      if (response.data?.success && response.data?.data) {
+        setUser(response.data.data as CustomerUser);
+      }
+    } catch (err: any) {
+      // Only clear credentials if backend explicitly confirms unauthorized (401)
+      if (err?.response?.status === 401) {
+        removeAuthToken();
+        setUser(null);
+        setToken(null);
+      }
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
-  }, [fetchCurrentUser]);
+  }, []);
 
   useEffect(() => {
     void refreshUser();

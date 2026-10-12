@@ -2,8 +2,8 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { StatusBadge, ConfirmDialog } from '@/components/admin/shared';
-import { Edit2, Eye, Archive, RotateCcw, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { StatusBadge } from '@/components/admin/shared';
+import { Edit2, Eye, Archive, RotateCcw, Trash2, Image as ImageIcon, Sparkles } from 'lucide-react';
 import { formatImageUrl } from '@/utils/imageUrl';
 
 export interface ProductListItem {
@@ -31,6 +31,7 @@ export interface ProductTableProps {
   onToggleSelect?: (productId: string) => void;
   onToggleSelectAll?: () => void;
   onToggleActive?: (product: ProductListItem) => void;
+  onArchiveProduct?: (productId: string) => void;
   onDeleteProduct?: (productId: string) => void;
   onRestoreProduct?: (productId: string) => void;
   isArchivedView?: boolean;
@@ -43,12 +44,12 @@ export const ProductTable: React.FC<ProductTableProps> = ({
   onToggleSelect,
   onToggleSelectAll,
   onToggleActive,
+  onArchiveProduct,
   onDeleteProduct,
   onRestoreProduct,
   isArchivedView = false,
   isLoading = false,
 }) => {
-  const [deleteTarget, setDeleteTarget] = React.useState<ProductListItem | null>(null);
 
   const formatTypeLabel = (type: string) => {
     return type
@@ -225,6 +226,17 @@ export const ProductTable: React.FC<ProductTableProps> = ({
                               <span>Restore</span>
                             </button>
                           )}
+
+                          {onDeleteProduct && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteProduct(product.id)}
+                              className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="Delete permanently"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </>
                       ) : (
                         <>
@@ -247,14 +259,25 @@ export const ProductTable: React.FC<ProductTableProps> = ({
                             <Edit2 className="w-3.5 h-3.5" />
                           </Link>
 
-                          {onDeleteProduct && (
+                          {onArchiveProduct && (
                             <button
                               type="button"
-                              onClick={() => setDeleteTarget(product)}
-                              className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              onClick={() => onArchiveProduct(product.id)}
+                              className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                               title="Move to archive"
                             >
                               <Archive className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {onDeleteProduct && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteProduct(product.id)}
+                              className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="Delete permanently"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </>
@@ -267,22 +290,6 @@ export const ProductTable: React.FC<ProductTableProps> = ({
           </tbody>
         </table>
       </div>
-
-      {/* Archive Confirmation Modal */}
-      <ConfirmDialog
-        isOpen={Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={() => {
-          if (deleteTarget) {
-            onDeleteProduct?.(deleteTarget.id);
-            setDeleteTarget(null);
-          }
-        }}
-        title="Move to Archive"
-        message={`Are you sure you want to move "${deleteTarget?.name}" to archive? It will be removed from the active catalog and storefront, but can be restored at any time.`}
-        confirmLabel="Move to archive"
-        variant="danger"
-      />
     </div>
   );
 };

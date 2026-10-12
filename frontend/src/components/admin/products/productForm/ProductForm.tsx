@@ -108,6 +108,79 @@ const defaultInitialForm: ProductFormData = {
 
 type FormTab = 'general' | 'pricing' | 'inventory' | 'seo' | string;
 
+const normalizeProduct = (p: any): ProductFormData => ({
+  name: p.name || '',
+  slug: p.slug || '',
+  sku: p.sku || '',
+  category_id: p.category_id || p.category?.id || '',
+  product_type: p.product_type || 'standard_print',
+  short_description: p.short_description || '',
+  description: p.description || '',
+  featured_image_url: p.featured_image_url || '',
+  media: {
+    front: p.media?.front ? p.media.front.map((img: any) => img.url).filter((url: string) => url !== p.featured_image_url) : (Array.isArray(p.images) ? p.images.filter((i: any) => i.side === 'front').map((img: any) => img.url).filter((url: string) => url !== p.featured_image_url) : []),
+    back: p.media?.back ? p.media.back.map((img: any) => img.url) : (Array.isArray(p.images) ? p.images.filter((i: any) => i.side === 'back').map((img: any) => img.url) : []),
+  },
+  min_quantity: typeof p.min_quantity === 'number' ? p.min_quantity : 1,
+  turnaround_days: typeof p.turnaround_days === 'number' ? p.turnaround_days : 3,
+  allow_custom_design: p.allow_custom_design !== false,
+  allow_customer_upload: p.allow_customer_upload !== false,
+  is_active: p.is_active !== false,
+  is_featured: Boolean(p.is_featured),
+  status: p.status || (p.is_active ? 'published' : 'draft'),
+  attributes: Array.isArray(p.attributes) ? p.attributes : [],
+  variants: Array.isArray(p.variants) ? p.variants : [],
+  base_price: typeof p.base_price === 'number' ? p.base_price : parseFloat(p.base_price) || 0,
+  sale_price: p.sale_price !== null && p.sale_price !== undefined && p.sale_price !== '' ? parseFloat(p.sale_price) : '',
+  cost_price: p.cost_price !== null && p.cost_price !== undefined && p.cost_price !== '' ? parseFloat(p.cost_price) : '',
+  pricing_tiers: Array.isArray(p.pricing_tiers) ? p.pricing_tiers : [],
+  sides_count: Array.isArray(p.sides) && p.sides.length > 0 ? p.sides.length : 1,
+  sides: Array.isArray(p.sides) && p.sides.length > 0
+    ? p.sides.map((side: any) => ({
+      id: side.id,
+      side_number: side.side_number,
+      name: side.name,
+      type: side.type,
+      sort_order: side.sort_order,
+      is_active: side.is_active !== false,
+      background_color: side.background_color,
+      background_image_url: side.background_image_url,
+      preview_image_url: side.preview_image_url,
+      mockup_image_url: side.mockup_image_url,
+      print_areas: Array.isArray(side.print_areas) ? side.print_areas : [],
+    }))
+    : [
+      {
+        side_number: 1,
+        name: 'Front',
+        type: 'front',
+        sort_order: 1,
+        is_active: true,
+        print_areas: [],
+      }
+    ],
+  width_mm: p.width_mm !== null && p.width_mm !== undefined && p.width_mm !== '' ? parseFloat(p.width_mm) : null,
+  height_mm: p.height_mm !== null && p.height_mm !== undefined && p.height_mm !== '' ? parseFloat(p.height_mm) : null,
+  margin_mm: p.margin_mm !== null && p.margin_mm !== undefined && p.margin_mm !== '' ? parseFloat(p.margin_mm) : 0,
+  bleed_mm: p.bleed_mm !== null && p.bleed_mm !== undefined && p.bleed_mm !== '' ? parseFloat(p.bleed_mm) : 0,
+  safe_area_mm: p.safe_area_mm !== null && p.safe_area_mm !== undefined && p.safe_area_mm !== '' ? parseFloat(p.safe_area_mm) : 0,
+  print_layout: p.print_layout ?? null,
+  folding_pricing: p.folding_pricing ?? null,
+  printing_pricing: p.printing_pricing ?? null,
+  sqm_pricing: p.sqm_pricing ?? p.printing_pricing?.sqm_pricing ?? null,
+  design_template_ids: Array.isArray(p.design_template_ids) ? p.design_template_ids : [],
+  track_inventory: Boolean(p.track_inventory),
+  stock_quantity: typeof p.stock_quantity === 'number' ? p.stock_quantity : 0,
+  low_stock_threshold: typeof p.low_stock_threshold === 'number' ? p.low_stock_threshold : 10,
+  weight_kg: p.weight_kg ?? '',
+  length_cm: p.length_cm ?? '',
+  width_cm: p.width_cm ?? '',
+  height_cm: p.height_cm ?? '',
+  free_shipping: Boolean(p.free_shipping),
+  meta_title: p.meta_title || '',
+  meta_description: p.meta_description || '',
+});
+
 export const ProductForm: React.FC<ProductFormProps> = ({
   mode,
   productId,
@@ -196,79 +269,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({
 
   // Normalize and load initial data
   useEffect(() => {
-    const normalizeProduct = (p: any): ProductFormData => ({
-      name: p.name || '',
-      slug: p.slug || '',
-      sku: p.sku || '',
-      category_id: p.category_id || p.category?.id || '',
-      product_type: p.product_type || 'standard_print',
-      short_description: p.short_description || '',
-      description: p.description || '',
-      featured_image_url: p.featured_image_url || '',
-      media: {
-        front: p.media?.front ? p.media.front.map((img: any) => img.url).filter((url: string) => url !== p.featured_image_url) : (Array.isArray(p.images) ? p.images.filter((i: any) => i.side === 'front').map((img: any) => img.url).filter((url: string) => url !== p.featured_image_url) : []),
-        back: p.media?.back ? p.media.back.map((img: any) => img.url) : (Array.isArray(p.images) ? p.images.filter((i: any) => i.side === 'back').map((img: any) => img.url) : []),
-      },
-      min_quantity: typeof p.min_quantity === 'number' ? p.min_quantity : 1,
-      turnaround_days: typeof p.turnaround_days === 'number' ? p.turnaround_days : 3,
-      allow_custom_design: p.allow_custom_design !== false,
-      allow_customer_upload: p.allow_customer_upload !== false,
-      is_active: p.is_active !== false,
-      is_featured: Boolean(p.is_featured),
-      status: p.status || (p.is_active ? 'published' : 'draft'),
-      attributes: Array.isArray(p.attributes) ? p.attributes : [],
-      variants: Array.isArray(p.variants) ? p.variants : [],
-      base_price: typeof p.base_price === 'number' ? p.base_price : parseFloat(p.base_price) || 0,
-      sale_price: p.sale_price !== null && p.sale_price !== undefined && p.sale_price !== '' ? parseFloat(p.sale_price) : '',
-      cost_price: p.cost_price !== null && p.cost_price !== undefined && p.cost_price !== '' ? parseFloat(p.cost_price) : '',
-      pricing_tiers: Array.isArray(p.pricing_tiers) ? p.pricing_tiers : [],
-      sides_count: Array.isArray(p.sides) && p.sides.length > 0 ? p.sides.length : 1,
-      sides: Array.isArray(p.sides) && p.sides.length > 0
-        ? p.sides.map((side: any) => ({
-          id: side.id,
-          side_number: side.side_number,
-          name: side.name,
-          type: side.type,
-          sort_order: side.sort_order,
-          is_active: side.is_active !== false,
-          background_color: side.background_color,
-          background_image_url: side.background_image_url,
-          preview_image_url: side.preview_image_url,
-          mockup_image_url: side.mockup_image_url,
-          print_areas: Array.isArray(side.print_areas) ? side.print_areas : [],
-        }))
-        : [
-          {
-            side_number: 1,
-            name: 'Front',
-            type: 'front',
-            sort_order: 1,
-            is_active: true,
-            print_areas: [],
-          }
-        ],
-      width_mm: p.width_mm !== null && p.width_mm !== undefined && p.width_mm !== '' ? parseFloat(p.width_mm) : null,
-      height_mm: p.height_mm !== null && p.height_mm !== undefined && p.height_mm !== '' ? parseFloat(p.height_mm) : null,
-      margin_mm: p.margin_mm !== null && p.margin_mm !== undefined && p.margin_mm !== '' ? parseFloat(p.margin_mm) : 0,
-      bleed_mm: p.bleed_mm !== null && p.bleed_mm !== undefined && p.bleed_mm !== '' ? parseFloat(p.bleed_mm) : 0,
-      safe_area_mm: p.safe_area_mm !== null && p.safe_area_mm !== undefined && p.safe_area_mm !== '' ? parseFloat(p.safe_area_mm) : 0,
-      print_layout: p.print_layout ?? null,
-      folding_pricing: p.folding_pricing ?? null,
-      printing_pricing: p.printing_pricing ?? null,
-      sqm_pricing: p.sqm_pricing ?? p.printing_pricing?.sqm_pricing ?? null,
-      design_template_ids: Array.isArray(p.design_template_ids) ? p.design_template_ids : [],
-      track_inventory: Boolean(p.track_inventory),
-      stock_quantity: typeof p.stock_quantity === 'number' ? p.stock_quantity : 0,
-      low_stock_threshold: typeof p.low_stock_threshold === 'number' ? p.low_stock_threshold : 10,
-      weight_kg: p.weight_kg ?? '',
-      length_cm: p.length_cm ?? '',
-      width_cm: p.width_cm ?? '',
-      height_cm: p.height_cm ?? '',
-      free_shipping: Boolean(p.free_shipping),
-      meta_title: p.meta_title || '',
-      meta_description: p.meta_description || '',
-    });
-
     if (initialData) {
       setFormData(normalizeProduct(initialData));
       setLoading(false);
@@ -597,6 +597,10 @@ export const ProductForm: React.FC<ProductFormProps> = ({
         type: 'success',
         text: isEdit ? 'Product updated successfully!' : 'Product created successfully!',
       });
+
+      if (savedProduct) {
+        setFormData(normalizeProduct(savedProduct));
+      }
 
       onSuccess?.(savedProduct);
 

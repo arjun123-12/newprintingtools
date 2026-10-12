@@ -32,7 +32,7 @@ export const ProductSeo: React.FC<ProductSeoProps> = ({
         <FormGrid cols={1} gap="md">
           <AdminInput
             label="Meta Title"
-            placeholder={formData.name ? `${formData.name} | PrintOps` : 'Custom Print Products | PrintOps'}
+            placeholder={formData.name ? `${formData.name} | Erry Imprints` : 'Custom Print Products | Erry Imprints'}
             value={formData.meta_title}
             maxLength={70}
             error={errors.meta_title}
@@ -62,7 +62,7 @@ export const ProductSeo: React.FC<ProductSeoProps> = ({
 
           <div className="p-4 bg-white border border-gray-200 rounded-xl max-w-xl space-y-1 shadow-2xs font-sans">
             <div className="text-xs text-gray-500 truncate">
-              https://printops.com/products/{displaySlug}
+              https://erryimprints.com.au/products/{displaySlug}
             </div>
             <div className="text-sm font-semibold text-blue-700 hover:underline cursor-pointer truncate">
               {displayTitle}

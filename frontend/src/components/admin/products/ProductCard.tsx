@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/admin/shared';
 import { ProductListItem } from './ProductTable';
-import { Edit2, Eye, Archive, RotateCcw, Image as ImageIcon } from 'lucide-react';
+import { Edit2, Eye, Archive, RotateCcw, Trash2, Image as ImageIcon } from 'lucide-react';
 import { formatImageUrl } from '@/utils/imageUrl';
 
 export interface ProductCardProps {
@@ -12,6 +12,7 @@ export interface ProductCardProps {
   onToggleActive?: (product: ProductListItem) => void;
   isSelected?: boolean;
   onToggleSelect?: (productId: string) => void;
+  onArchiveProduct?: (productId: string) => void;
   onDeleteProduct?: (productId: string) => void;
   onRestoreProduct?: (productId: string) => void;
   isArchivedView?: boolean;
@@ -22,6 +23,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onToggleActive,
   isSelected = false,
   onToggleSelect,
+  onArchiveProduct,
   onDeleteProduct,
   onRestoreProduct,
   isArchivedView = false,
@@ -95,6 +97,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                   <RotateCcw className="w-3.5 h-3.5" />
                 </button>
               )}
+              {onDeleteProduct && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteProduct(product.id);
+                  }}
+                  className="p-1.5 bg-white/90 backdrop-blur-xs text-rose-600 hover:bg-rose-50 rounded-lg shadow-sm"
+                  title="Delete permanently"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -115,6 +130,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               >
                 <Edit2 className="w-3.5 h-3.5" />
               </Link>
+              {onArchiveProduct && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onArchiveProduct(product.id);
+                  }}
+                  className="p-1.5 bg-white/90 backdrop-blur-xs text-amber-600 hover:bg-amber-50 rounded-lg shadow-sm"
+                  title="Move to archive"
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                </button>
+              )}
               {onDeleteProduct && (
                 <button
                   type="button"
@@ -123,9 +151,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                     onDeleteProduct(product.id);
                   }}
                   className="p-1.5 bg-white/90 backdrop-blur-xs text-rose-600 hover:bg-rose-50 rounded-lg shadow-sm"
-                  title="Move to archive"
+                  title="Delete permanently"
                 >
-                  <Archive className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               )}
             </>

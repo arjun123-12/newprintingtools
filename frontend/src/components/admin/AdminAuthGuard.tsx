@@ -20,17 +20,19 @@ export default function AdminAuthGuard({
     const router = useRouter();
     const pathname = usePathname();
 
-    const [authStatus, setAuthStatus] =
-        useState<AuthStatus>('checking');
-
     const isLoginPage = pathname === '/admin/login';
+
+    // If an auth token is already stored, initialize state to 'authorized' immediately.
+    // This allows page refresh to cleanly reload the page without kicking the admin to login.
+    const [authStatus, setAuthStatus] = useState<AuthStatus>(() => {
+        if (typeof window === 'undefined') return 'checking';
+        return getAuthToken() ? 'authorized' : 'checking';
+    });
 
     useEffect(() => {
         if (isLoginPage) {
             return;
         }
-
-        setAuthStatus('checking');
 
         const token = getAuthToken();
 
@@ -53,30 +55,39 @@ export default function AdminAuthGuard({
                     signal: controller.signal,
                 });
 
+                // Explicit unauthorized or forbidden response from backend
+                if (response.status === 401 || response.status === 403) {
+                    removeAuthToken();
+                    setAuthStatus('unauthorized');
+                    router.replace('/admin/login');
+                    return;
+                }
+
+                // If non-auth server error (e.g. 500, 502, 503), do not boot admin out on reload
                 if (!response.ok) {
-                    throw new Error('Authentication failed.');
+                    return;
                 }
 
                 const result = await response.json();
                 const user = result?.data;
 
-                if (
-                    !user ||
-                    user.role !== 'admin' ||
-                    user.is_admin !== true
-                ) {
-                    throw new Error('Administrator access required.');
-                }
+                // Validate admin permissions safely
+                const isAdmin = user && (user.role === 'admin' || Boolean(user.is_admin));
 
-                setAuthStatus('authorized');
-            } catch {
-                if (controller.signal.aborted) {
+                if (!isAdmin) {
+                    removeAuthToken();
+                    setAuthStatus('unauthorized');
+                    router.replace('/admin/login');
                     return;
                 }
 
-                removeAuthToken();
-                setAuthStatus('unauthorized');
-                router.replace('/admin/login');
+                setAuthStatus('authorized');
+            } catch (err: any) {
+                // If request was aborted (e.g. React StrictMode unmount/remount), ignore
+                if (controller.signal.aborted || err?.name === 'AbortError') {
+                    return;
+                }
+                // On transient network errors during reload, preserve existing token and don't redirect
             }
         };
 
@@ -92,15 +103,18 @@ export default function AdminAuthGuard({
         return <>{children}</>;
     }
 
-    // Never render admin content until authorization succeeds.
-    if (authStatus !== 'authorized') {
+    if (authStatus === 'unauthorized') {
         return (
             <div className="flex min-h-screen items-center justify-center bg-slate-950">
-                <p className="text-sm text-slate-400">
-                    {authStatus === 'checking'
-                        ? 'Checking administrator access...'
-                        : 'Redirecting to login...'}
-                </p>
+                <p className="text-sm text-slate-400">Redirecting to login...</p>
+            </div>
+        );
+    }
+
+    if (authStatus === 'checking') {
+        return (
+            <div className="flex min-h-screen items-center justify-center bg-slate-950">
+                <p className="text-sm text-slate-400">Checking administrator access...</p>
             </div>
         );
     }

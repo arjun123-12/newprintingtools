@@ -105,7 +105,7 @@ class StoreProductRequest extends FormRequest
             'allow_customer_upload' => ['boolean'],
             
             'meta_title' => ['nullable', 'string', 'max:255'],
-            'meta_description' => ['nullable', 'string', 'max:255'],
+            'meta_description' => ['nullable', 'string'],
             
             'sides' => ['nullable', 'array'],
             'sides.*.id' => ['nullable', 'string'],

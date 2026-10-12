@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { removeAuthToken } from '@/utils/storageHelper';
 
@@ -138,17 +139,16 @@ export default function AdminSidebar() {
     <aside className="fixed top-0 left-0 bottom-0 z-30 w-60 h-screen bg-white border-r border-gray-200 flex flex-col shrink-0 font-sans select-none">
       {/* Logo */}
       <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-xs">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-sm font-bold text-gray-900 leading-none">PrintOps</p>
-            <p className="text-[10px] font-semibold text-blue-600 mt-0.5 tracking-wide">ADMIN SYSTEM</p>
-          </div>
-        </div>
+        <Link href="/admin/dashboard" className="flex items-center group">
+          <Image
+            src="/assets/images/erry_imprints_logo.png"
+            alt="Erry Imprints"
+            width={160}
+            height={38}
+            className="h-8.5 w-auto object-contain transition-opacity hover:opacity-90"
+            priority
+          />
+        </Link>
       </div>
 
       {/* Nav */}
