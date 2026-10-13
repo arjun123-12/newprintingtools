@@ -119,16 +119,14 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-md space-y-6 rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
         <div className="space-y-3 text-center">
           <div className="flex justify-center">
-            <div className="bg-white px-4 py-2.5 rounded-xl shadow-md inline-block">
-              <Image
-                src="/assets/images/erry_imprints_logo.png"
-                alt="Erry Imprints"
-                width={180}
-                height={42}
-                className="h-10 w-auto object-contain"
-                priority
-              />
-            </div>
+            <Image
+              src="/assets/images/erry_imprints_logo_white.png"
+              alt="Erry Imprints"
+              width={200}
+              height={48}
+              className="h-11 w-auto object-contain"
+              priority
+            />
           </div>
 
           <h1 className="text-2xl font-bold tracking-tight text-white">

@@ -2793,6 +2793,8 @@ export default function Designer({
         artworkName={designName}
         previewDataUrl={previewThumbnailUrl}
         dimensionsText={`${documentSettings.width} × ${documentSettings.height} ${documentSettings.unit || 'mm'} (${documentSettings.dpi || 300} DPI)`}
+        printSides={printSides}
+        pageCount={pages.length}
       />
 
       {/* AI Upscaling & Multi-Format Download Modal */}

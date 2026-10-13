@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ProductController extends Controller
 {
@@ -546,6 +547,170 @@ class ProductController extends Controller
             'message' => "{$count} product(s) restored successfully.",
             'restored_count' => $count,
         ]);
+    }
+
+    /**
+     * Duplicate (copy) an existing product with all configurations, sides, print areas, attributes, and pricing.
+     */
+    public function duplicate(Request $request, string $id): JsonResponse
+    {
+        $user = $request->user();
+        if ($user && method_exists($user, 'isAdmin') && !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Administrator access required.',
+            ], 403);
+        }
+
+        $source = Product::withTrashed()
+            ->with(['sides.printAreas', 'attributes.values', 'pricingMatrices', 'images'])
+            ->find($id);
+
+        if (!$source) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Product not found.',
+            ], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Generate unique slug
+            $baseSlug = Str::slug($source->name . ' copy');
+            $uniqueSlug = $baseSlug;
+            $counter = 1;
+            while (Product::withTrashed()->where('slug', $uniqueSlug)->exists()) {
+                $uniqueSlug = "{$baseSlug}-{$counter}";
+                $counter++;
+            }
+
+            // Generate unique SKU
+            $baseSku = $source->sku ? ($source->sku . '-COPY') : ('COPY-' . strtoupper(Str::random(6)));
+            $uniqueSku = $baseSku;
+            $skuCounter = 1;
+            while ($uniqueSku && Product::withTrashed()->where('sku', $uniqueSku)->exists()) {
+                $uniqueSku = "{$baseSku}-{$skuCounter}";
+                $skuCounter++;
+            }
+
+            // Replicate main product model
+            $newProduct = $source->replicate([
+                'id',
+                'created_at',
+                'updated_at',
+                'deleted_at',
+            ]);
+
+            $newProduct->name = $source->name . ' (Copy)';
+            $newProduct->slug = $uniqueSlug;
+            $newProduct->sku = $uniqueSku;
+            $newProduct->status = 'draft';
+            $newProduct->is_active = true;
+            $newProduct->save();
+
+            // 1. Copy sides and their print areas
+            foreach ($source->sides as $side) {
+                $newSide = $side->replicate([
+                    'id',
+                    'product_id',
+                    'created_at',
+                    'updated_at',
+                ]);
+                $newSide->product_id = $newProduct->id;
+                $newSide->save();
+
+                foreach ($side->printAreas as $area) {
+                    $newArea = $area->replicate([
+                        'id',
+                        'product_id',
+                        'product_side_id',
+                        'created_at',
+                        'updated_at',
+                    ]);
+                    $newArea->product_id = $newProduct->id;
+                    $newArea->product_side_id = $newSide->id;
+                    $newArea->save();
+                }
+            }
+
+            // 2. Copy custom attributes and values
+            foreach ($source->attributes as $attr) {
+                $newAttr = $attr->replicate([
+                    'id',
+                    'product_id',
+                    'created_at',
+                    'updated_at',
+                ]);
+                $newAttr->product_id = $newProduct->id;
+                $newAttr->save();
+
+                foreach ($attr->values as $val) {
+                    $newVal = $val->replicate([
+                        'id',
+                        'product_attribute_id',
+                        'created_at',
+                        'updated_at',
+                    ]);
+                    $newVal->product_attribute_id = $newAttr->id;
+                    $newVal->save();
+                }
+            }
+
+            // 3. Copy quantity pricing matrices
+            foreach ($source->pricingMatrices as $matrix) {
+                $newMatrix = $matrix->replicate([
+                    'id',
+                    'product_id',
+                    'created_at',
+                    'updated_at',
+                ]);
+                $newMatrix->product_id = $newProduct->id;
+                $newMatrix->save();
+            }
+
+            // 4. Copy images (referencing same asset URLs)
+            foreach ($source->images as $img) {
+                $newImg = $img->replicate([
+                    'id',
+                    'product_id',
+                    'created_at',
+                    'updated_at',
+                ]);
+                $newImg->product_id = $newProduct->id;
+                $newImg->save();
+            }
+
+            // 5. Copy shipping dimensions/weight if configured
+            $sourceShipping = DB::table('product_shippings')->where('product_id', $source->id)->first();
+            if ($sourceShipping) {
+                $shippingData = (array) $sourceShipping;
+                unset($shippingData['id'], $shippingData['created_at'], $shippingData['updated_at']);
+                $shippingData['product_id'] = $newProduct->id;
+                $shippingData['created_at'] = now();
+                $shippingData['updated_at'] = now();
+                DB::table('product_shippings')->insert($shippingData);
+            }
+
+            DB::commit();
+
+            $newProduct->load(['category', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices']);
+
+            return response()->json([
+                'success' => true,
+                'message' => "Product copied successfully as \"{$newProduct->name}\".",
+                'data' => new ProductResource($newProduct),
+            ], 201);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error("Failed to copy product {$id}: " . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to copy product: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**

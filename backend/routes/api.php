@@ -453,6 +453,11 @@ Route::middleware(['auth:sanctum'])
             'archive',
         ]);
 
+        Route::post('/products/{id}/duplicate', [
+            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+            'duplicate',
+        ]);
+
         Route::get('/products', [
             App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
             'index',

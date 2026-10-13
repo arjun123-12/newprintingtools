@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/admin/shared';
 import { ProductListItem } from './ProductTable';
-import { Edit2, Eye, Archive, RotateCcw, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Edit2, Eye, Archive, RotateCcw, Trash2, Image as ImageIcon, Copy } from 'lucide-react';
 import { formatImageUrl } from '@/utils/imageUrl';
 
 export interface ProductCardProps {
@@ -15,6 +15,7 @@ export interface ProductCardProps {
   onArchiveProduct?: (productId: string) => void;
   onDeleteProduct?: (productId: string) => void;
   onRestoreProduct?: (productId: string) => void;
+  onCopyProduct?: (productId: string) => void;
   isArchivedView?: boolean;
 }
 
@@ -26,6 +27,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onArchiveProduct,
   onDeleteProduct,
   onRestoreProduct,
+  onCopyProduct,
   isArchivedView = false,
 }) => {
   const categoryName = product.category_name || product.category?.name || 'Uncategorized';
@@ -130,6 +132,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               >
                 <Edit2 className="w-3.5 h-3.5" />
               </Link>
+              {onCopyProduct && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCopyProduct(product.id);
+                  }}
+                  className="p-1.5 bg-white/90 backdrop-blur-xs text-gray-700 hover:text-indigo-600 rounded-lg shadow-sm"
+                  title="Copy Product"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
+              )}
               {onArchiveProduct && (
                 <button
                   type="button"

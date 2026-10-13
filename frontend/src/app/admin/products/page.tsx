@@ -399,6 +399,43 @@ export default function AdminProductsPage() {
     }
   };
 
+  const handleCopyProduct = async (productId: string) => {
+    const product = products.find((p) => p.id === productId);
+    try {
+      setRefreshing(true);
+      const token = getAuthToken();
+
+      const response = await fetch(`${API_URL}/admin/products/${productId}/duplicate`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(data?.message || 'Failed to copy product');
+      }
+
+      setNotification({
+        type: 'success',
+        text: `Product "${product?.name || ''}" copied successfully as "${data?.data?.name || 'New Copy'}". You can now edit its configuration.`,
+      });
+
+      await loadData(true);
+    } catch (err: any) {
+      setNotification({
+        type: 'error',
+        text: err.message || 'Failed to copy product.',
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const handleBulkRestoreProducts = () => {
     const ids = Array.from(selectedProductIds);
     if (ids.length === 0) return;
@@ -777,6 +814,7 @@ export default function AdminProductsPage() {
           onArchiveProduct={activeTab === 'active' ? handleArchiveProduct : undefined}
           onDeleteProduct={handleDeleteProduct}
           onRestoreProduct={activeTab === 'archived' ? handleRestoreProduct : undefined}
+          onCopyProduct={activeTab === 'active' ? handleCopyProduct : undefined}
           isArchivedView={activeTab === 'archived'}
         />
       ) : (
@@ -791,6 +829,7 @@ export default function AdminProductsPage() {
               onArchiveProduct={activeTab === 'active' ? handleArchiveProduct : undefined}
               onDeleteProduct={handleDeleteProduct}
               onRestoreProduct={activeTab === 'archived' ? handleRestoreProduct : undefined}
+              onCopyProduct={activeTab === 'active' ? handleCopyProduct : undefined}
               isArchivedView={activeTab === 'archived'}
             />
           ))}

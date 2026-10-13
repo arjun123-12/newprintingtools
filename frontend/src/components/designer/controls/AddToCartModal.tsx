@@ -32,6 +32,39 @@ interface AddToCartModalProps {
   artworkName: string;
   previewDataUrl: string | null;
   dimensionsText?: string;
+  printSides?: string;
+  pageCount?: number;
+}
+
+function isDoubleSidedPrintingOption(opt: any): boolean {
+  if (!opt) return false;
+  const id = String(opt.id || '').toLowerCase();
+  const type = String(opt.side_type || opt.sideType || opt.type || '').toLowerCase();
+  const name = String(opt.name || opt.label || '').toLowerCase();
+
+  if (type === 'front_back' || type === 'both' || type === 'double' || type === 'two_sides') {
+    return true;
+  }
+  if (type === 'front_only' || type === 'single' || type === 'one_side' || type === 'front') {
+    return false;
+  }
+  if (id === 'front_back' || id === 'both' || id === 'double' || id.includes('double') || id.includes('front_back')) {
+    return true;
+  }
+  if (id === 'front_only' || id === 'single' || id === 'front') {
+    return false;
+  }
+  if (
+    name.includes('double') ||
+    name.includes('front and back') ||
+    name.includes('front & back') ||
+    name.includes('both sides') ||
+    name.includes('2 sides') ||
+    name.includes('two sides')
+  ) {
+    return true;
+  }
+  return false;
 }
 
 const QUANTITY_OPTIONS = [100, 250, 500, 1000, 2500, 5000];
@@ -46,6 +79,8 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
   artworkName,
   previewDataUrl,
   dimensionsText,
+  printSides,
+  pageCount,
 }) => {
   const router = useRouter();
 
@@ -117,15 +152,30 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
           setSelectedGsmId(DEFAULT_PAPER_STOCKS[0].id);
         }
 
-        // 2. Printing Side Options
+        // 2. Printing Side Options (Lock to single side or double side based on product/design selection)
         if (p?.printing_pricing?.enabled && Array.isArray(p.printing_pricing.options)) {
           const activeOpts = p.printing_pricing.options.filter(
             (o: any) => o.is_active !== false && o.active !== false
           );
-          setPrintingOptions(activeOpts);
           if (activeOpts.length > 0) {
-            const defOpt = activeOpts.find((o: any) => o.is_default) || activeOpts[0];
-            setPrintingSide(defOpt.id || 'front_only');
+            let isDouble = false;
+            if (printSides !== undefined || pageCount !== undefined) {
+              isDouble = printSides === 'both' || printSides === 'double' || (pageCount !== undefined && pageCount > 1);
+            } else if (p?.print_sides) {
+              isDouble = p.print_sides === 'both' || p.print_sides === 'double';
+            } else if (Array.isArray(p?.sides)) {
+              isDouble = p.sides.length > 1;
+            }
+
+            const targetOpt = isDouble
+              ? activeOpts.find(isDoubleSidedPrintingOption) || activeOpts[0]
+              : activeOpts.find((o: any) => !isDoubleSidedPrintingOption(o)) || activeOpts[0];
+
+            setPrintingOptions([targetOpt]);
+            setPrintingSide(targetOpt.id || (isDouble ? 'front_back' : 'front_only'));
+          } else {
+            setPrintingOptions([]);
+            setPrintingSide('');
           }
         }
 
@@ -165,7 +215,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, productId]);
+  }, [isOpen, productId, printSides, pageCount]);
 
   const activeGsmObj = gsmOptions.find((g) => g.id === selectedGsmId) || gsmOptions[0] || null;
   const currentPrintingConfig = printingOptions.find((o) => o.id === printingSide) || printingOptions[0] || null;
@@ -439,27 +489,21 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
                 </div>
               </div>
 
-              {/* Printing Configuration / Sides (When product has printing configurations) */}
+              {/* Printing Configuration / Sides (Locked to chosen product sides: single or double) */}
               {printingOptions.length > 0 && (
                 <div className="space-y-2">
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
                     Printing Side Option
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2">
                     {printingOptions.map((opt) => (
-                      <button
+                      <div
                         key={opt.id}
-                        type="button"
-                        onClick={() => setPrintingSide(opt.id)}
-                        className={`p-2.5 rounded-xl border text-left text-xs font-semibold transition flex items-center justify-between ${
-                          printingSide === opt.id
-                            ? 'bg-sky-50 border-sky-500 text-sky-900 ring-1 ring-sky-500 shadow-2xs'
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                        }`}
+                        className="p-2.5 rounded-xl border text-left text-xs font-semibold flex items-center justify-between bg-sky-50 border-sky-500 text-sky-900 ring-1 ring-sky-500 shadow-2xs"
                       >
                         <span className="truncate">{opt.name}</span>
-                        {printingSide === opt.id && <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0" />}
-                      </button>
+                        <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0" />
+                      </div>
                     ))}
                   </div>
                 </div>

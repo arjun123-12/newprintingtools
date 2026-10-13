@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { StatusBadge } from '@/components/admin/shared';
-import { Edit2, Eye, Archive, RotateCcw, Trash2, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { Edit2, Eye, Archive, RotateCcw, Trash2, Image as ImageIcon, Sparkles, Copy } from 'lucide-react';
 import { formatImageUrl } from '@/utils/imageUrl';
 
 export interface ProductListItem {
@@ -38,6 +38,7 @@ export interface ProductTableProps {
   onArchiveProduct?: (productId: string) => void;
   onDeleteProduct?: (productId: string) => void;
   onRestoreProduct?: (productId: string) => void;
+  onCopyProduct?: (productId: string) => void;
   isArchivedView?: boolean;
   isLoading?: boolean;
 }
@@ -51,6 +52,7 @@ export const ProductTable: React.FC<ProductTableProps> = ({
   onArchiveProduct,
   onDeleteProduct,
   onRestoreProduct,
+  onCopyProduct,
   isArchivedView = false,
   isLoading = false,
 }) => {
@@ -287,6 +289,17 @@ export const ProductTable: React.FC<ProductTableProps> = ({
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </Link>
+
+                          {onCopyProduct && (
+                            <button
+                              type="button"
+                              onClick={() => onCopyProduct(product.id)}
+                              className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="Copy Product"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                          )}
 
                           {onArchiveProduct && (
                             <button

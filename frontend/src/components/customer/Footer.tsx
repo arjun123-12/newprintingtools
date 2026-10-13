@@ -73,15 +73,13 @@ export default function Footer() {
         {/* Brand Col */}
         <div className="lg:col-span-2 space-y-4">
           <Link href="/" className="inline-block group">
-            <div className="bg-white px-3.5 py-2 rounded-xl inline-block shadow-sm transition-transform duration-200 group-hover:scale-105">
-              <Image
-                src="/assets/images/erry_imprints_logo.png"
-                alt="Erry Imprints"
-                width={180}
-                height={42}
-                className="h-9 w-auto object-contain"
-              />
-            </div>
+            <Image
+              src="/assets/images/erry_imprints_logo_white.png"
+              alt="Erry Imprints"
+              width={200}
+              height={48}
+              className="h-10 w-auto object-contain transition-transform duration-200 group-hover:scale-105"
+            />
           </Link>
           <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
             Commercial and trade custom printing services delivering high-grade business stationery, marketing collateral, outdoor banners, packaging, and promo merch across Australia.
@@ -99,7 +97,7 @@ export default function Footer() {
             </div>
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-sky-400" />
-              <span>Production Hubs: Sydney NSW & Melbourne VIC</span>
+              <span>Production Hubs: Adelaide, SA | Melbourne, VIC | Sydney, NSW</span>
             </div>
           </div>
         </div>
