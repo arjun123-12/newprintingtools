@@ -277,14 +277,14 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         const token = getAuthToken();
 
         const res = await fetch(
-          `${API_URL} /admin/design - templates / ${templateId} `,
+          `${API_URL}/admin/design-templates/${templateId}`,
           {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
               Accept: 'application/json',
               ...(token
-                ? { Authorization: `Bearer ${token} ` }
+                ? { Authorization: `Bearer ${token}` }
                 : {}),
             },
             credentials: 'include',
@@ -299,7 +299,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         }
 
         router.push(
-          `/ design ? mode = admin - template & templateId=${templateId} `
+          `/design?mode=admin-template&templateId=${templateId}`
         );
 
         return;
@@ -351,7 +351,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
       });
 
       router.push(
-        `/ design ? mode = admin - template & templateId=${template.id} `
+        `/design?mode=admin-template&templateId=${template.id}`
       );
 
       return;
@@ -380,13 +380,13 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
 
         const token = getAuthToken();
 
-        const res = await fetch(
-          `${API_URL} /admin/products`,
+        let res = await fetch(
+          `${API_URL}/admin/products`,
           {
             headers: {
               Accept: 'application/json',
               ...(token
-                ? { Authorization: `Bearer ${token} ` }
+                ? { Authorization: `Bearer ${token}` }
                 : {}),
             },
             credentials: 'include',
@@ -394,15 +394,23 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
           }
         );
 
-        const json = await res.json();
+        if (!res.ok) {
+          res = await fetch(`${API_URL}/products`, {
+            headers: { Accept: 'application/json' },
+            cache: 'no-store',
+          });
+        }
 
-        if (
-          isMounted &&
-          json.success &&
-          Array.isArray(json.data)
-        ) {
+        const json = await res.json();
+        const productList = Array.isArray(json?.data)
+          ? json.data
+          : Array.isArray(json)
+            ? json
+            : [];
+
+        if (isMounted && productList.length > 0) {
           setProducts(
-            json.data.map((p: any) => ({
+            productList.map((p: any) => ({
               id: p.id,
               name: p.name,
               slug: p.slug,
@@ -531,12 +539,12 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
       const token = getAuthToken();
 
       fetch(
-        `${API_URL} /admin/design - templates / ${templateId} `,
+        `${API_URL}/admin/design-templates/${templateId}`,
         {
           headers: {
             Accept: 'application/json',
             ...(token
-              ? { Authorization: `Bearer ${token} ` }
+              ? { Authorization: `Bearer ${token}` }
               : {}),
           },
           credentials: 'include',
@@ -545,7 +553,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
       )
         .then((res) => {
           if (!res.ok) {
-            throw new Error(`HTTP ${res.status} `);
+            throw new Error(`HTTP ${res.status}`);
           }
 
           return res.json();
@@ -695,14 +703,14 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
       const token = getAuthToken();
 
       const res = await fetch(
-        `${API_URL} /admin/design - templates / ${templateId} `,
+        `${API_URL}/admin/design-templates/${templateId}`,
         {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json',
             ...(token
-              ? { Authorization: `Bearer ${token} ` }
+              ? { Authorization: `Bearer ${token}` }
               : {}),
           },
           credentials: 'include',

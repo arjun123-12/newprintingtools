@@ -1,3 +1,4 @@
+import { FabricImage } from 'fabric';
 import { CanvasManager } from '../canvas/CanvasManager';
 import {
   getObjectVisualSilhouette,
@@ -881,12 +882,20 @@ export async function rasterizeFramesForVectorPdf(
   const topLevelFrames = canvas.getObjects().filter((obj: any) => {
     if (!obj) return false;
 
-    return Boolean(
+    const isFrame = Boolean(
       obj.get?.('isFrame' as any) ||
       obj.isFrame ||
       obj.isPhotoShapeGroup ||
       obj.isCustomFrame
     );
+
+    const isRoundedImage =
+      (obj instanceof FabricImage || (obj as any).type === 'image' || (obj as any).type === 'FabricImage') &&
+      (Number((obj as any).cornerRadius) > 0 ||
+        Number((obj as any)._requestedRadius) > 0 ||
+        Boolean(obj.clipPath && (obj.clipPath as any).isCornerRoundingClip));
+
+    return isFrame || isRoundedImage;
   });
 
   if (topLevelFrames.length === 0) {
@@ -1141,17 +1150,49 @@ export function validateSvgExport(
 }
 
 /**
- * Rasterizes hollow text objects in exported SVG documents into high-resolution transparent PNG images.
+ * Detects whether a Fabric text object has hollow fill, border, or stroke outline.
+ * Any stroked or bordered text must be rasterized cleanly for PDF export to avoid
+ * PDF text rendering Mode 2 contour overlap lines and inner lap glitches.
+ */
+export function isStrokedOrHollowText(obj: any): boolean {
+  if (!isFabricText(obj)) return false;
+  if (isHollowTextObject(obj)) return true;
+
+  const stroke = obj.stroke;
+  const strokeWidth = Number(obj.strokeWidth) || 0;
+  const hasVisibleStroke =
+    Boolean(stroke) &&
+    stroke !== 'transparent' &&
+    stroke !== 'none' &&
+    stroke !== 'rgba(0,0,0,0)' &&
+    strokeWidth > 0;
+
+  return Boolean(
+    hasVisibleStroke ||
+    obj._activeEffects?.outline ||
+    obj._activeEffects?.neon ||
+    obj._isHollow ||
+    obj.isHollow ||
+    (Number(obj.baseStrokeWidth) || 0) > 0 ||
+    (Number((obj as any).cornerRadius) || 0) > 0 ||
+    (Number((obj as any)._requestedRadius) || 0) > 0 ||
+    (Number((obj as any).rx) || 0) > 0
+  );
+}
+
+/**
+ * Rasterizes hollow or stroked/bordered text objects in exported SVG documents into high-resolution transparent PNG images.
  *
  * Why this is needed:
- * Native PDF and SVG renderers (such as SVG-to-PDFKit, svg2pdf.js, Adobe Acrobat, and standalone SVG viewers)
- * draw stroked text by stroking each glyph contour individually. This inevitably causes internal
- * crossbars and stem intersections ("inner laps") to show through, and turns drop shadows into
- * overlapping stroke outlines. SVG masks (<mask id="...">) are completely ignored by PDF vector engines.
+ * Native PDF renderers (such as SVG-to-PDFKit, PDFKit, and Adobe Acrobat) draw stroked text using PDF
+ * text rendering Mode 2 (Fill, then Stroke), which draws the stroke centered on glyph contours.
+ * This inevitable traces every internal contour of font glyphs (cutting through crossbars in 'A',
+ * bowls in 'd' and 'b', arches in 'h', loops in 'g', and loops in 'e'), leaving ugly inner overlap lines,
+ * holes, and dark blobs.
  *
- * By rasterizing the hollow text object using the canvas's clean destination-out knockout renderer at
+ * By rasterizing stroked/bordered text using the canvas's clean destination-out and paintFirst renderer at
  * ultra-high resolution (4x / 300+ DPI) and embedding it as a lossless transparent PNG <image> element:
- * 1. The downloaded file matches the on-screen canvas 100% identically with crisp borders and transparent centers.
+ * 1. The downloaded PDF matches the on-screen canvas 100% identically with crisp borders and clean centers.
  * 2. Inner contour overlap lines and crossbar intersections are completely eliminated.
  * 3. All other normal text objects remain genuine vector fonts.
  */
@@ -1168,16 +1209,16 @@ export async function rasterizeHollowTextForExport(
   if (!canvas) return 0;
 
   const allObjects = collectFabricObjectsRecursively(canvas);
-  const hollowTexts = allObjects.filter((obj: any) => isFabricText(obj) && isHollowTextObject(obj));
+  const targetTexts = allObjects.filter((obj: any) => isStrokedOrHollowText(obj));
 
-  if (hollowTexts.length === 0) return 0;
+  if (targetTexts.length === 0) return 0;
 
   const preferredMultiplier = Math.max(2, Math.min(6, options?.preferredMultiplier ?? 4));
   const maxLongEdgePx = Math.max(1024, options?.maxLongEdgePx ?? 8192);
 
   let replacedCount = 0;
 
-  for (const textObj of hollowTexts) {
+  for (const textObj of targetTexts) {
     const targetEl = findSvgElementForFabricObject(svgDoc, textObj, allObjects);
     if (!targetEl) continue;
 
@@ -1220,9 +1261,26 @@ export async function rasterizeHollowTextForExport(
     imageEl.setAttribute('href', dataUrl);
     imageEl.setAttribute('xlink:href', dataUrl);
 
-    // Remove any previously applied SVG mask or clip-path from preserveHollowTextInSvg
+    // Remove any previously applied SVG mask, clip-path, or stroke from parent/target
     targetEl.removeAttribute('mask');
     targetEl.removeAttribute('clip-path');
+    targetEl.removeAttribute('stroke');
+    targetEl.removeAttribute('stroke-width');
+    targetEl.removeAttribute('paint-order');
+
+    const existingStyle = targetEl.getAttribute('style');
+    if (existingStyle) {
+      const cleanedStyle = existingStyle
+        .replace(/stroke\s*:[^;]+(;|\s*$)/gi, '')
+        .replace(/stroke-width\s*:[^;]+(;|\s*$)/gi, '')
+        .replace(/paint-order\s*:[^;]+(;|\s*$)/gi, '')
+        .trim();
+      if (cleanedStyle) {
+        targetEl.setAttribute('style', cleanedStyle);
+      } else {
+        targetEl.removeAttribute('style');
+      }
+    }
 
     if (targetEl.tagName.toLowerCase() === 'g') {
       const textChildren = Array.from(targetEl.querySelectorAll('text'));
