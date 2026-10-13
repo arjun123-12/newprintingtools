@@ -330,9 +330,30 @@ class PricingCalculatorService
                                 : (float) $product->base_price;
                         }
                     } else {
-                        $baseUnitPriceExGst = $product->sale_price !== null && (float) $product->sale_price > 0
-                            ? (float) $product->sale_price
-                            : (float) $product->base_price;
+                        $weightPricing = $product->weight_pricing ?? ($product->printing_pricing['weight_pricing'] ?? null);
+                        if (!empty($weightPricing['enabled']) && !empty($weightPricing['price_per_kg'])) {
+                            $unitW = (float) ($selectedOptions['weight_kg'] ?? $weightPricing['unit_weight_kg'] ?? ($product->shipping->weight ?? 0.5));
+                            $minW = (float) ($weightPricing['min_billable_weight_kg'] ?? 0);
+                            $billableW = max($unitW, $minW);
+                            $rate = (float) $weightPricing['price_per_kg'];
+                            if (!empty($weightPricing['tiers']) && is_array($weightPricing['tiers'])) {
+                                foreach ($weightPricing['tiers'] as $wt) {
+                                    $minTierW = (float) ($wt['min_weight_kg'] ?? 0);
+                                    $maxTierW = isset($wt['max_weight_kg']) && $wt['max_weight_kg'] !== null ? (float) $wt['max_weight_kg'] : null;
+                                    if ($billableW >= $minTierW && ($maxTierW === null || $billableW <= $maxTierW)) {
+                                        if (!empty($wt['price_per_kg'])) {
+                                            $rate = (float) $wt['price_per_kg'];
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            $baseUnitPriceExGst = ($billableW * $rate);
+                        } else {
+                            $baseUnitPriceExGst = $product->sale_price !== null && (float) $product->sale_price > 0
+                                ? (float) $product->sale_price
+                                : (float) $product->base_price;
+                        }
                     }
                 }
             } else {

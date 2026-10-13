@@ -97,6 +97,21 @@ export interface PrintingSideConfig {
   tiers: PrintingPricingTier[];
 }
 
+export interface WeightPricingTier {
+  id: string;
+  min_weight_kg: number;
+  max_weight_kg: number | null;
+  price_per_kg: number;
+}
+
+export interface WeightPricingConfig {
+  enabled: boolean;
+  unit_weight_kg: number | '';
+  price_per_kg: number | '';
+  min_billable_weight_kg?: number | '';
+  tiers?: WeightPricingTier[];
+}
+
 export interface SqmPricingConfig {
   enabled: boolean;
   price_per_sqm: number | '';
@@ -184,6 +199,7 @@ export interface ProductFormData {
   sale_price: number | '';
   cost_price: number | '';
   sqm_pricing?: SqmPricingConfig | null;
+  weight_pricing?: WeightPricingConfig | null;
   pricing_tiers: PricingTierItem[];
   folding_pricing?: FoldingPricingConfig | null;
   printing_pricing?: PrintingPricingConfig | null;

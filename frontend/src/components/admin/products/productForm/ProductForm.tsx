@@ -12,7 +12,6 @@ import { ProductAttributes } from './ProductAttributes';
 import { ProductVariants } from './ProductVariants';
 import { ProductPricing } from './ProductPricing';
 import { ProductPrintDimensions } from './ProductPrintDimensions';
-import { ProductPrintAreas } from './ProductPrintAreas';
 import { ProductTemplates } from './ProductTemplates';
 import { ProductInventory } from './ProductInventory';
 import { ProductShipping } from './ProductShipping';
@@ -26,7 +25,6 @@ import {
   FileText,
   Sliders,
   Image as ImageIcon,
-  Printer,
   Package,
   Search,
   ChevronRight,
@@ -74,6 +72,13 @@ const defaultInitialForm: ProductFormData = {
   cost_price: '',
   pricing_tiers: [],
   sqm_pricing: null,
+  weight_pricing: {
+    enabled: true,
+    unit_weight_kg: 0.5,
+    price_per_kg: 20.0,
+    min_billable_weight_kg: 0.1,
+    tiers: [],
+  },
   folding_pricing: null,
   printing_pricing: null,
   sides_count: 1,
@@ -172,6 +177,13 @@ const normalizeProduct = (p: any): ProductFormData => ({
   folding_pricing: p.folding_pricing ?? null,
   printing_pricing: p.printing_pricing ?? null,
   sqm_pricing: p.sqm_pricing ?? p.printing_pricing?.sqm_pricing ?? null,
+  weight_pricing: p.weight_pricing ?? p.printing_pricing?.weight_pricing ?? {
+    enabled: true,
+    unit_weight_kg: typeof p.weight_kg === 'number' && p.weight_kg > 0 ? p.weight_kg : 0.5,
+    price_per_kg: 20.0,
+    min_billable_weight_kg: 0.1,
+    tiers: [],
+  },
   design_template_ids: Array.isArray(p.design_template_ids) ? p.design_template_ids : [],
   track_inventory: Boolean(p.track_inventory),
   stock_quantity: typeof p.stock_quantity === 'number' ? p.stock_quantity : 0,
@@ -421,8 +433,14 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     // Sync permanent URLs back to local state
     setFormData((prev) => ({ ...prev, sides: processedSides }));
 
-    // Calculate effective base price (or auto-derive from lowest tier if 0)
+    // Calculate effective base price from weight pricing or auto-derive
     let calculatedBasePrice = Number(formData.base_price) || 0;
+    if (formData.weight_pricing && formData.weight_pricing.price_per_kg) {
+      const uW = Number(formData.weight_pricing.unit_weight_kg) || 0.5;
+      const minW = Number(formData.weight_pricing.min_billable_weight_kg) || 0;
+      const r = Number(formData.weight_pricing.price_per_kg) || 20;
+      calculatedBasePrice = Math.round(Math.max(uW, minW) * r * 100) / 100;
+    }
     if (calculatedBasePrice <= 0) {
       if (formData.pricing_tiers && formData.pricing_tiers.length > 0) {
         const firstTier = Number(formData.pricing_tiers[0]?.price) || 0;
@@ -485,16 +503,20 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       safe_area_mm: typeof formData.safe_area_mm === 'number' && !isNaN(formData.safe_area_mm) ? formData.safe_area_mm : 0,
       print_layout: formData.print_layout ?? null,
       folding_pricing: formData.folding_pricing ?? null,
+      weight_pricing: formData.weight_pricing ?? null,
+      weight_kg: formData.weight_pricing?.unit_weight_kg || formData.weight_kg || 0.5,
       printing_pricing: formData.printing_pricing
         ? {
             ...formData.printing_pricing,
             sqm_pricing: formData.sqm_pricing ?? formData.printing_pricing.sqm_pricing ?? null,
+            weight_pricing: formData.weight_pricing ?? null,
           }
-        : formData.sqm_pricing
+        : formData.sqm_pricing || formData.weight_pricing
         ? {
             enabled: false,
             options: [],
-            sqm_pricing: formData.sqm_pricing,
+            sqm_pricing: formData.sqm_pricing ?? null,
+            weight_pricing: formData.weight_pricing ?? null,
           }
         : null,
       sqm_pricing: formData.sqm_pricing ?? null,
@@ -836,7 +858,6 @@ export const ProductForm: React.FC<ProductFormProps> = ({
                 sideIndex={index}
                 onSelectSide={(targetIndex) => setCurrentTab(`side_${targetIndex}`)}
               />
-              <ProductPrintAreas formData={formData} setFormData={setFormData} sideIndex={index} />
               {index === 0 && <ProductTemplates formData={formData} setFormData={setFormData} />}
             </div>
           );

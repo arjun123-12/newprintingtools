@@ -420,8 +420,8 @@ const SidePreviewCard: React.FC<SidePreviewCardProps> = ({
       {/* Side Card Meta Footer */}
       <div className="p-3 bg-white border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
         <div className="flex items-center gap-2 truncate">
-          <span className="font-semibold text-gray-700">Print Areas:</span>
-          <span>{side.print_areas?.length || 0} configured</span>
+          <span className="font-semibold text-gray-700">Side Type:</span>
+          <span className="capitalize">{side.type || 'Print'}</span>
         </div>
 
         {hasValidImage && (

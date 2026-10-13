@@ -105,56 +105,43 @@ export async function loadFont(font: FontFamilyItem): Promise<boolean> {
     return true;
   }
 
-  // 1. Fontsource font loading (loaded via @fontsource CSS with font-display: swap)
-  if (font.source === 'fontsource') {
-    try {
-      if (document.fonts) {
-        void document.fonts.load(`16px "${font.name}"`);
-        await document.fonts.ready;
-      }
+  // Standard system fonts do not require network loading
+  if (font.source === 'system' && !font.googleFont) {
+    loadedFonts.add(font.id);
+    return true;
+  }
+
+  // Load font on-demand via Google Fonts API
+  const googleFamily = font.googleFont || `${encodeURIComponent(font.name.replace(/ /g, '+'))}:wght@400;700`;
+  return new Promise((resolve) => {
+    const linkId = `google-font-${font.id}`;
+    if (document.getElementById(linkId)) {
       loadedFonts.add(font.id);
-      return true;
-    } catch {
-      loadedFonts.add(font.id);
-      return true;
+      resolve(true);
+      return;
     }
-  }
 
-  // 2. Google Fonts API fallback
-  if (font.googleFont) {
-    return new Promise((resolve) => {
-      const linkId = `google-font-${font.id}`;
-      if (document.getElementById(linkId)) {
-        loadedFonts.add(font.id);
+    const link = document.createElement('link');
+    link.id = linkId;
+    link.rel = 'stylesheet';
+    link.href = `https://fonts.googleapis.com/css2?family=${googleFamily}&display=swap`;
+
+    link.onload = () => {
+      loadedFonts.add(font.id);
+      if (document.fonts) {
+        document.fonts.ready.then(() => resolve(true));
+      } else {
         resolve(true);
-        return;
       }
+    };
 
-      const link = document.createElement('link');
-      link.id = linkId;
-      link.rel = 'stylesheet';
-      link.href = `https://fonts.googleapis.com/css2?family=${font.googleFont}&display=swap`;
+    link.onerror = () => {
+      console.warn(`Failed to load web font: ${font.name}`);
+      resolve(false);
+    };
 
-      link.onload = () => {
-        loadedFonts.add(font.id);
-        if (document.fonts) {
-          document.fonts.ready.then(() => resolve(true));
-        } else {
-          resolve(true);
-        }
-      };
-
-      link.onerror = () => {
-        console.warn(`Failed to load Google Font: ${font.name}`);
-        resolve(false);
-      };
-
-      document.head.appendChild(link);
-    });
-  }
-
-  loadedFonts.add(font.id);
-  return true;
+    document.head.appendChild(link);
+  });
 }
 
 /**

@@ -246,7 +246,9 @@ class UpdateProductRequest extends FormRequest
             'printing_pricing.options' => ['sometimes', 'nullable', 'array'],
             'printing_pricing.gsm_options' => ['sometimes', 'nullable', 'array'],
             'printing_pricing.sqm_pricing' => ['sometimes', 'nullable', 'array'],
+            'printing_pricing.weight_pricing' => ['sometimes', 'nullable', 'array'],
             'sqm_pricing' => ['sometimes', 'nullable', 'array'],
+            'weight_pricing' => ['sometimes', 'nullable', 'array'],
 
             // Attributes and Dynamic Pricing Matrix
             'attributes' => ['sometimes', 'nullable', 'array'],

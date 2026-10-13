@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import '@/css/hero.css';
-import '@/css/fontsource.css';
 import { Providers } from './providers';
 import { ConditionalShell } from '@/components/customer/ConditionalShell';
 

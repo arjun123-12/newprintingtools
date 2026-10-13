@@ -141,7 +141,9 @@ class StoreProductRequest extends FormRequest
             'printing_pricing.options' => ['nullable', 'array'],
             'printing_pricing.gsm_options' => ['nullable', 'array'],
             'printing_pricing.sqm_pricing' => ['nullable', 'array'],
+            'printing_pricing.weight_pricing' => ['nullable', 'array'],
             'sqm_pricing' => ['nullable', 'array'],
+            'weight_pricing' => ['nullable', 'array'],
 
             // Attributes and Dynamic Pricing Matrix
             'attributes' => ['nullable', 'array'],

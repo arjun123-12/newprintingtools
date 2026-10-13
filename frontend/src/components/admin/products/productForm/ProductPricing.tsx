@@ -16,6 +16,8 @@ import {
   GsmOptionConfig,
   GsmPricingTier,
   SqmPricingConfig,
+  WeightPricingConfig,
+  WeightPricingTier,
 } from './types';
 import {
   Plus,
@@ -38,6 +40,7 @@ import {
   Copy,
   Maximize2,
   Calculator,
+  Scale,
 } from 'lucide-react';
 
 interface ProductPricingProps {
@@ -1674,22 +1677,129 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
     });
   };
 
-  const calculateMargin = () => {
-    if (typeof formData.cost_price !== 'number' || formData.cost_price <= 0) return null;
-    const effectivePrice =
-      typeof formData.sale_price === 'number' && formData.sale_price > 0
-        ? formData.sale_price
-        : formData.base_price;
-    if (effectivePrice <= 0) return null;
-    const profit = effectivePrice - formData.cost_price;
-    const marginPct = (profit / effectivePrice) * 100;
+  // ── WEIGHT-BASED PRICING STATE & HANDLERS ─────────────────────────────────
+  const rawWeightPricing = (formData as any).weight_pricing ?? (formData.printing_pricing as any)?.weight_pricing;
+
+  const weightConfig: WeightPricingConfig = useMemo(() => {
+    const rawUnit = rawWeightPricing?.unit_weight_kg;
+    const rawPrice = rawWeightPricing?.price_per_kg;
+    const fallbackUnit = typeof formData.weight_kg === 'number' && formData.weight_kg > 0 ? formData.weight_kg : 0.5;
+    const fallbackPrice = 20.0;
+
     return {
-      profit: profit.toFixed(2),
-      marginPct: marginPct.toFixed(1),
+      enabled: true,
+      unit_weight_kg: rawUnit !== undefined && rawUnit !== '' ? rawUnit : fallbackUnit,
+      price_per_kg: rawPrice !== undefined && rawPrice !== '' ? rawPrice : fallbackPrice,
+      min_billable_weight_kg: rawWeightPricing?.min_billable_weight_kg ?? '',
+      tiers: Array.isArray(rawWeightPricing?.tiers) ? rawWeightPricing.tiers : [],
     };
+  }, [rawWeightPricing, formData.weight_kg]);
+
+  const updateWeightField = (field: keyof WeightPricingConfig, val: any) => {
+    const numVal = val === '' ? '' : (typeof val === 'number' ? val : parseFloat(val) || 0);
+    const updated: WeightPricingConfig = {
+      ...weightConfig,
+      [field]: numVal,
+    };
+
+    const uWeight = typeof updated.unit_weight_kg === 'number' ? updated.unit_weight_kg : 0;
+    const minW = typeof updated.min_billable_weight_kg === 'number' ? updated.min_billable_weight_kg : 0;
+    const pKg = typeof updated.price_per_kg === 'number' ? updated.price_per_kg : 0;
+    const billableW = Math.max(uWeight, minW);
+    const calculatedBase = Math.round(billableW * pKg * 100) / 100;
+
+    setFormData((prev) => ({
+      ...prev,
+      weight_pricing: updated,
+      weight_kg: field === 'unit_weight_kg' && typeof numVal === 'number' ? numVal : prev.weight_kg,
+      base_price: calculatedBase > 0 ? calculatedBase : (prev.base_price || 20),
+      printing_pricing: prev.printing_pricing
+        ? ({
+            ...prev.printing_pricing,
+            weight_pricing: updated,
+          } as any)
+        : prev.printing_pricing,
+    }));
   };
 
-  const margin = calculateMargin();
+  const addWeightTier = () => {
+    const currentTiers = weightConfig.tiers || [];
+    const lastTier = currentTiers[currentTiers.length - 1];
+    const nextMin = lastTier && lastTier.max_weight_kg !== null ? lastTier.max_weight_kg : (currentTiers.length === 0 ? 0 : 5);
+    const newTier: WeightPricingTier = {
+      id: `wtier_${Date.now()}`,
+      min_weight_kg: nextMin,
+      max_weight_kg: nextMin + 5,
+      price_per_kg: typeof weightConfig.price_per_kg === 'number' ? Math.max(1, weightConfig.price_per_kg - 2) : 15,
+    };
+    const updated: WeightPricingConfig = {
+      ...weightConfig,
+      tiers: [...currentTiers, newTier],
+    };
+    setFormData((prev) => ({
+      ...prev,
+      weight_pricing: updated,
+      printing_pricing: prev.printing_pricing
+        ? ({ ...prev.printing_pricing, weight_pricing: updated } as any)
+        : prev.printing_pricing,
+    }));
+  };
+
+  const updateWeightTier = (tierIdx: number, field: keyof WeightPricingTier, val: any) => {
+    const currentTiers = [...(weightConfig.tiers || [])];
+    currentTiers[tierIdx] = { ...currentTiers[tierIdx], [field]: val === '' ? null : (typeof val === 'number' ? val : parseFloat(val) || 0) };
+    const updated: WeightPricingConfig = {
+      ...weightConfig,
+      tiers: currentTiers,
+    };
+    setFormData((prev) => ({
+      ...prev,
+      weight_pricing: updated,
+      printing_pricing: prev.printing_pricing
+        ? ({ ...prev.printing_pricing, weight_pricing: updated } as any)
+        : prev.printing_pricing,
+    }));
+  };
+
+  const removeWeightTier = (tierIdx: number) => {
+    const currentTiers = (weightConfig.tiers || []).filter((_, i) => i !== tierIdx);
+    const updated: WeightPricingConfig = {
+      ...weightConfig,
+      tiers: currentTiers,
+    };
+    setFormData((prev) => ({
+      ...prev,
+      weight_pricing: updated,
+      printing_pricing: prev.printing_pricing
+        ? ({ ...prev.printing_pricing, weight_pricing: updated } as any)
+        : prev.printing_pricing,
+    }));
+  };
+
+  const weightCalculation = useMemo(() => {
+    const unitW = typeof weightConfig.unit_weight_kg === 'number' ? weightConfig.unit_weight_kg : 0.5;
+    const minW = typeof weightConfig.min_billable_weight_kg === 'number' ? weightConfig.min_billable_weight_kg : 0;
+    const billableW = Math.max(unitW, minW);
+    let rate = typeof weightConfig.price_per_kg === 'number' ? weightConfig.price_per_kg : 20.0;
+
+    if (weightConfig.tiers && weightConfig.tiers.length > 0) {
+      for (const t of weightConfig.tiers) {
+        if (billableW >= t.min_weight_kg && (t.max_weight_kg === null || billableW <= t.max_weight_kg)) {
+          rate = t.price_per_kg;
+          break;
+        }
+      }
+    }
+
+    const totalPrice = Math.round(billableW * rate * 100) / 100;
+    return {
+      unitW,
+      minW,
+      billableW,
+      rate,
+      totalPrice,
+    };
+  }, [weightConfig]);
 
   // ── C. SQUARE METER (M²) PRICING STATE & HANDLERS ─────────────────────────
   const rawSqmPricing = formData.sqm_pricing ?? formData.printing_pricing?.sqm_pricing;
@@ -1761,19 +1871,24 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
       description="Set standard retail unit pricing, promotional sales, cost tracking, printing configuration fixed-total tiers, folding add-on rates, and volume discounts."
     >
       <div className="space-y-6">
-        {/* Core Retail & Cost Pricing */}
+        {/* Physical Weight-Based Pricing (Mandatory Primary Pricing) */}
         <div className="bg-white p-5 rounded-2xl border border-gray-200/90 shadow-2xs space-y-4">
-          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+          <div className="flex flex-wrap items-center justify-between border-b border-gray-100 pb-3 gap-2">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center shadow-xs">
-                <DollarSign className="w-4 h-4" />
+                <Scale className="w-4 h-4" />
               </div>
               <div>
-                <h4 className="text-xs font-bold text-gray-900 tracking-tight">
-                  Standard Product Pricing
-                </h4>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold text-gray-900 tracking-tight">
+                    Weight-Based Pricing
+                  </h4>
+                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border bg-blue-50 text-blue-700 border-blue-200">
+                    Mandatory
+                  </span>
+                </div>
                 <p className="text-[11px] text-gray-500 mt-0.5">
-                  Set the primary base unit price, optional promotional sale price, and internal cost per unit.
+                  Set unit physical weight and rate per kilogram ($/kg) to determine primary product pricing and live courier calculation.
                 </p>
               </div>
             </div>
@@ -1781,71 +1896,152 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
 
           <FormGrid cols={3} gap="md">
             <AdminNumberInput
-              label="Base / Retail Price ($ AUD)"
+              label="Physical Unit Weight (kg)"
+              suffix="kg"
+              placeholder="0.5"
+              step={0.01}
+              min={0.01}
+              required
+              value={weightConfig.unit_weight_kg}
+              onChange={(val) => updateWeightField('unit_weight_kg', val)}
+              helperText="Physical weight of a single product unit in kilograms."
+            />
+
+            <AdminNumberInput
+              label="Price per Kilogram ($ AUD / kg)"
               prefix="$"
-              placeholder="0.00"
+              suffix="/ kg"
+              placeholder="20.00"
               step={0.01}
               min={0}
               required
-              error={errors.base_price}
-              value={formData.base_price === 0 ? '' : formData.base_price}
-              onChange={(val) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  base_price: val === '' || val === null ? 0 : Number(val),
-                }))
-              }
-              helperText="Starting retail price displayed across the store and admin catalog."
+              value={weightConfig.price_per_kg}
+              onChange={(val) => updateWeightField('price_per_kg', val)}
+              helperText="Authoritative billing rate charged per kilogram."
             />
 
             <AdminNumberInput
-              label="Sale / Promotional Price ($ AUD)"
-              prefix="$"
-              placeholder="Optional"
+              label="Min Billable Weight (kg)"
+              suffix="kg"
+              placeholder="Optional (e.g. 0.2)"
               step={0.01}
               min={0}
-              value={formData.sale_price ?? ''}
-              onChange={(val) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  sale_price: val === '' || val === null ? '' : Number(val),
-                }))
-              }
-              helperText="Overrides base price with a special discounted rate."
-            />
-
-            <AdminNumberInput
-              label="Cost Price ($ AUD)"
-              prefix="$"
-              placeholder="Optional"
-              step={0.01}
-              min={0}
-              value={formData.cost_price ?? ''}
-              onChange={(val) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  cost_price: val === '' || val === null ? '' : Number(val),
-                }))
-              }
-              helperText="Internal cost per unit for margin calculation (hidden from customers)."
+              value={weightConfig.min_billable_weight_kg ?? ''}
+              onChange={(val) => updateWeightField('min_billable_weight_kg', val)}
+              helperText="Minimum billable threshold applied before calculating unit rate."
             />
           </FormGrid>
-        </div>
 
-        {/* Profit Margin Indicator */}
-        {margin && (
-          <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2 text-emerald-800 font-medium">
-              <DollarSign className="w-4 h-4 text-emerald-600" />
+          {/* Live Weight Calculation Banner */}
+          <div className="p-3 bg-gradient-to-r from-blue-50/70 via-indigo-50/30 to-blue-50/70 border border-blue-200/80 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5 text-blue-950 font-medium">
+              <Calculator className="w-4 h-4 text-blue-600 shrink-0" />
               <span>
-                Estimated Profit per Unit: <strong>${margin.profit}</strong>
+                Calculated Base Price:{' '}
+                <strong>
+                  ${weightCalculation.totalPrice.toFixed(2)} AUD
+                </strong>
+                <span className="text-gray-400 font-normal ml-1">
+                  ({weightCalculation.billableW} kg × ${weightCalculation.rate.toFixed(2)}/kg)
+                </span>
               </span>
             </div>
-            <span className="font-bold text-emerald-700 bg-white px-2.5 py-0.5 rounded-md border border-emerald-200">
-              {margin.marginPct}% Margin
-            </span>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-blue-700 font-semibold bg-white px-2.5 py-1 rounded-lg border border-blue-200">
+                Rate: ${weightCalculation.rate.toFixed(2)} / kg
+              </span>
+            </div>
           </div>
-        )}
+
+          {/* Optional Weight Tier Overrides */}
+          <div className="pt-2 border-t border-gray-100 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-gray-800">
+                  Tiered Weight Rate Discounts ({weightConfig.tiers?.length || 0})
+                </span>
+                <p className="text-[11px] text-gray-500">
+                  Optional: Offer discounted $/kg rates for higher package or shipment weights.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={addWeightTier}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Weight Tier</span>
+              </button>
+            </div>
+
+            {weightConfig.tiers && weightConfig.tiers.length > 0 && (
+              <div className="overflow-x-auto rounded-xl border border-gray-200">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold">
+                    <tr>
+                      <th className="py-2 px-3">Min Weight (kg)</th>
+                      <th className="py-2 px-3">Max Weight (kg)</th>
+                      <th className="py-2 px-3">Discounted Rate ($/kg)</th>
+                      <th className="py-2 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white">
+                    {weightConfig.tiers.map((tier, tIdx) => (
+                      <tr key={tier.id || tIdx}>
+                        <td className="py-2 px-3">
+                          <input
+                            type="number"
+                            step={0.1}
+                            min={0}
+                            value={tier.min_weight_kg}
+                            onChange={(e) => updateWeightTier(tIdx, 'min_weight_kg', e.target.value)}
+                            className="w-24 h-7 px-2 border border-gray-300 rounded text-xs"
+                          />
+                        </td>
+                        <td className="py-2 px-3">
+                          <input
+                            type="number"
+                            step={0.1}
+                            min={0}
+                            placeholder="No limit"
+                            value={tier.max_weight_kg ?? ''}
+                            onChange={(e) => updateWeightTier(tIdx, 'max_weight_kg', e.target.value)}
+                            className="w-24 h-7 px-2 border border-gray-300 rounded text-xs"
+                          />
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className="flex items-center gap-1">
+                            <span>$</span>
+                            <input
+                              type="number"
+                              step={0.01}
+                              min={0}
+                              value={tier.price_per_kg}
+                              onChange={(e) => updateWeightTier(tIdx, 'price_per_kg', e.target.value)}
+                              className="w-24 h-7 px-2 border border-gray-300 rounded text-xs"
+                            />
+                            <span className="text-gray-400">/kg</span>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => removeWeightTier(tIdx)}
+                            className="p-1 text-gray-400 hover:text-rose-600"
+                            title="Remove tier"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Square Meter (m²) Pricing Panel */}
         <div className="p-4 bg-gradient-to-r from-amber-50/60 via-white to-amber-50/30 border border-amber-200/90 rounded-2xl space-y-3.5 shadow-2xs">

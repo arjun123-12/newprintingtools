@@ -59,6 +59,7 @@ class Product extends Model
         'print_layout',
         'folding_pricing',
         'printing_pricing',
+        'weight_pricing',
 
         // SEO
         'meta_title',
@@ -86,6 +87,7 @@ class Product extends Model
         'print_layout' => 'array',
         'folding_pricing' => 'array',
         'printing_pricing' => 'array',
+        'weight_pricing' => 'array',
 
         // Pricing
         'base_price' => 'decimal:2',
