@@ -17,47 +17,51 @@ import {
   ShieldCheck,
   Eye,
   Building,
+  CreditCard,
+  LogIn,
+  Package,
+  Palette,
 } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'About Erry Imprints | Quality Print Specialists for Over 8 Years',
+  title: 'About Erry Imprints | Quality Print Specialists for Over 9 Years',
   description:
-    'Unleashing Imagination: Where Pixels Become Print and Ideas Bloom into Reality. Learn about Erry Imprints, our 8+ years of commercial print expertise, and our seamless 4-step work process.',
+    'Unleashing Imagination: Where Pixels Become Print and Ideas Bloom into Reality. Learn about Erry Imprints, our 9+ years of commercial print expertise, and our seamless 4-step work process.',
 };
 
 export default function AboutPage() {
   const processSteps = [
     {
       number: '01',
-      title: 'Connect your store',
+      title: 'Login to Your Account',
       description:
-        'with the Erry Imprints system. This allows for seamless syncing of your products and ensures that incoming orders for processing.',
-      icon: Store,
-      badge: 'Integration',
+        'Create an account or sign in to save your custom artwork, access trade pricing, and seamlessly track live order progress.',
+      icon: LogIn,
+      badge: 'Step 1: Sign In',
     },
     {
       number: '02',
-      title: 'Customer places order',
+      title: 'Choose Your Product',
       description:
-        'Because your store is connected, the order details and shipping information are instantly captured and sent to the fulfillment team.',
-      icon: ShoppingCart,
-      badge: 'Instant Capture',
+        'Browse our wide catalog of business cards, banners, signage, posters, and marketing collateral with real-time price breakdowns.',
+      icon: Package,
+      badge: 'Step 2: Selection',
     },
     {
       number: '03',
-      title: 'Print fulfills the order',
+      title: 'Design Your Product',
       description:
-        'Erry Imprints handles the heavy lifting. This stage includes picking the raw inventory, high-quality printing of your designs.',
-      icon: Printer,
-      badge: 'Production',
+        'Customize your artwork directly in our interactive online design studio with 300 DPI canvas tools, or upload print-ready files.',
+      icon: Palette,
+      badge: 'Step 3: Customization',
     },
     {
       number: '04',
-      title: 'Execution & Delivery',
+      title: 'Get the Product',
       description:
-        'Erry Imprints manages the logistics and shipping, providing tracking information so both you and your customer can monitor the package.',
-      icon: Send,
-      badge: 'Dispatch',
+        'We manufacture your order with high-precision commercial printing and dispatch via tracked express courier straight to your doorstep.',
+      icon: Truck,
+      badge: 'Step 4: Doorstep Delivery',
     },
   ];
 
@@ -176,19 +180,30 @@ export default function AboutPage() {
       ───────────────────────────────────────────────────────────── */}
       <section className="bg-slate-50 border-b border-slate-200/80 py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            {/* Stat 1 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Stat 1: Banners */}
             <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-xs flex items-center gap-6">
               <div className="w-16 h-16 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
                 <Printer className="w-8 h-8" />
               </div>
               <div>
-                <span className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight block">65K+</span>
+                <span className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight block">45K+</span>
                 <span className="text-sm font-bold text-slate-600 mt-1 block">Banners Printing</span>
               </div>
             </div>
 
-            {/* Stat 2 */}
+            {/* Stat 2: Business Cards */}
+            <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-xs flex items-center gap-6">
+              <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                <CreditCard className="w-8 h-8" />
+              </div>
+              <div>
+                <span className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight block">94K+</span>
+                <span className="text-sm font-bold text-slate-600 mt-1 block">Business Cards</span>
+              </div>
+            </div>
+
+            {/* Stat 3: Signages & Posters */}
             <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-xs flex items-center gap-6">
               <div className="w-16 h-16 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
                 <Layers className="w-8 h-8" />
@@ -199,13 +214,13 @@ export default function AboutPage() {
               </div>
             </div>
 
-            {/* Stat 3 */}
+            {/* Stat 4: Experience */}
             <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-xs flex items-center gap-6">
               <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                 <Award className="w-8 h-8" />
               </div>
               <div>
-                <span className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight block">8+ Years</span>
+                <span className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tight block">9+ Years</span>
                 <span className="text-sm font-bold text-slate-600 mt-1 block">Quality Manufacturing</span>
               </div>
             </div>
@@ -290,7 +305,7 @@ export default function AboutPage() {
               Our Work Process
             </h2>
             <p className="text-sm text-slate-500 font-medium">
-              From store integration to doorstep delivery, our automated workflow ensures swift, precision manufacturing.
+              From seamless login to doorstep delivery, our 4-step workflow makes ordering custom commercial printing effortless.
             </p>
           </div>
 
@@ -398,7 +413,7 @@ export default function AboutPage() {
             Ready to Transform Your Ideas into Print?
           </h2>
           <p className="text-blue-100 text-sm sm:text-base max-w-xl mx-auto">
-            Experience the Erry Imprints standard: 8+ years of expertise, 65K+ banners printed, and industry-leading turnaround.
+            Experience the Erry Imprints standard: 8+ years of expertise, 45K+ banners printed, 94K+ business cards, and industry-leading turnaround.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
             <Link
