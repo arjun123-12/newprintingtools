@@ -13,6 +13,8 @@ import {
   findSvgElementForFabricObject,
   rasterizeHollowTextForExport,
   rasterizeFramesForVectorPdf,
+  embedFontsInSvgDefs,
+  preserveHollowTextInSvg,
 } from '../utils/svgExportHelpers';
 import { Shadow } from 'fabric';
 
@@ -1249,7 +1251,7 @@ function collectEmbeddedSvgFontFaces(
       const weightMatch = block.match(/font-weight\s*:\s*([^;]+);/i);
       const styleMatch = block.match(/font-style\s*:\s*([^;]+);/i);
       const dataMatch = block.match(
-        /src\s*:[^;]*url\((['\"]?)(data:font\/[^)'\"]+)\1\)[^;]*;/i
+        /src\s*:[^;]*url\((['\"]?)(data:[^)'\"]+)\1\)[^;]*;/i
       );
 
       if (!familyMatch?.[2] || !dataMatch?.[2]) continue;
@@ -1283,6 +1285,72 @@ function collectEmbeddedSvgFontFaces(
           `[PDF Export] Could not decode embedded font "${family}":`,
           error
         );
+      }
+    }
+  }
+
+  return faces;
+}
+
+/**
+ * Decodes any base64 TTF/OTF @font-face rules injected into document.head
+ * (e.g. from user or admin custom font asset uploads) so they can be registered directly in PDFKit.
+ */
+export function collectDocumentHeadFontFaces(): EmbeddedSvgFontFace[] {
+  if (typeof document === 'undefined' || typeof window === 'undefined') {
+    return [];
+  }
+
+  const faces: EmbeddedSvgFontFace[] = [];
+  const seen = new Set<string>();
+
+  const styleElements = Array.from(document.querySelectorAll('style'));
+  for (const styleEl of styleElements) {
+    const css = styleEl.textContent || '';
+    if (!css.includes('@font-face') || !css.includes('data:')) continue;
+
+    const blocks = css.match(/@font-face\s*{[\s\S]*?}/gi) || [];
+    for (const block of blocks) {
+      const familyMatch = block.match(
+        /font-family\s*:\s*(['\"]?)([^;'\"}]+)\1\s*;/i
+      );
+      const weightMatch = block.match(/font-weight\s*:\s*([^;]+);/i);
+      const styleMatch = block.match(/font-style\s*:\s*([^;]+);/i);
+      const dataMatch = block.match(
+        /src\s*:[^;]*url\((['\"]?)(data:[^)'\"]+)\1\)[^;]*;/i
+      );
+
+      if (!familyMatch?.[2] || !dataMatch?.[2]) continue;
+
+      const family = normalizePdfFontFamily(familyMatch[2]);
+      const weight = normalizePdfFontWeight(weightMatch?.[1] || '400');
+      const italic =
+        (styleMatch?.[1] || 'normal').trim().toLowerCase() !== 'normal';
+
+      const dataUrl = dataMatch[2];
+      const commaIndex = dataUrl.indexOf(',');
+      if (commaIndex < 0) continue;
+
+      const header = dataUrl.slice(0, commaIndex);
+      const payload = dataUrl.slice(commaIndex + 1);
+      if (!/;base64/i.test(header)) continue;
+
+      const key = `${family.toLowerCase()}|${weight}|${italic ? 1 : 0}`;
+      if (seen.has(key)) continue;
+
+      try {
+        const data = base64ToUint8Array(payload);
+        if (isPdfSafeSfntFont(data)) {
+          faces.push({
+            family,
+            weight,
+            italic,
+            data,
+          });
+          seen.add(key);
+        }
+      } catch {
+        // ignore
       }
     }
   }
@@ -1898,12 +1966,80 @@ async function fetchRemotePdfFontFace(
   return null;
 }
 
+const fontSubsetTestCache = new Map<string, boolean>();
+
+/**
+ * Validates that PDFKit's internal fontkit engine can actually subset-encode glyphs
+ * for this font program without crashing (e.g. Variable fonts with HVAR/CFF2/MVAR tables
+ * cause fontkit's VersionedStruct to throw "Not a fixed size").
+ */
+export async function testPdfKitFontSubset(data: Uint8Array): Promise<boolean> {
+  if (!isPdfSafeSfntFont(data)) return false;
+
+  let hash = 0;
+  for (let i = 0; i < Math.min(data.byteLength, 128); i++) {
+    hash = ((hash << 5) - hash + data[i]) | 0;
+  }
+  const cacheKey = `${data.byteLength}_${hash}`;
+  if (fontSubsetTestCache.has(cacheKey)) {
+    return fontSubsetTestCache.get(cacheKey)!;
+  }
+
+  const result = await new Promise<boolean>((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(false);
+      }
+    }, 2000);
+
+    try {
+      const doc = new PDFDocument({ autoFirstPage: false });
+      doc.addPage();
+      const testName = `T_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      doc.registerFont(testName, data);
+      doc.font(testName).fontSize(12).text('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!?');
+
+      doc.on('error', () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve(false);
+        }
+      });
+      doc.on('data', () => {});
+      doc.on('end', () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve(true);
+        }
+      });
+
+      doc.end();
+    } catch {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeout);
+        resolve(false);
+      }
+    }
+  });
+
+  fontSubsetTestCache.set(cacheKey, result);
+  return result;
+}
+
 async function registerSvgFontsForPdf(
   pdf: InstanceType<typeof PDFDocument>,
   svgs: string[]
 ): Promise<PdfFontFace[]> {
   const requests = collectSvgFontRequests(svgs);
-  const embeddedFaces = collectEmbeddedSvgFontFaces(svgs);
+  const embeddedFaces = [
+    ...collectEmbeddedSvgFontFaces(svgs),
+    ...collectDocumentHeadFontFaces(),
+  ];
   const registered: PdfFontFace[] = [];
 
   for (const request of requests) {
@@ -1994,6 +2130,16 @@ async function registerSvgFontsForPdf(
       continue;
     }
 
+    // Verify PDFKit/fontkit can actually subset-encode this font program
+    const isSubsettable = await testPdfKitFontSubset(data);
+    if (!isSubsettable) {
+      console.warn(
+        `[PDF Export] Font "${request.family}" ${request.weight}${request.italic ? ' italic' : ''} ` +
+        `cannot be subset-encoded by PDFKit (variable font or unsupported tables). Skipping vector registration.`
+      );
+      continue;
+    }
+
     const safeFamily = request.family.replace(
       /[^a-z0-9]+/gi,
       '_'
@@ -2026,6 +2172,60 @@ async function registerSvgFontsForPdf(
   }
 
   return registered;
+}
+
+/**
+ * Determines whether a given font family can be registered as a genuine Acrobat-safe vector font in PDFKit.
+ * If false, the PDF export pipeline should render the text faithfully at high resolution on canvas to
+ * prevent Helvetica fallback, glyph distortion, width changes, and clipping.
+ */
+export async function isSafePdfFontFamily(
+  family: string,
+  weight: number = 400,
+  italic: boolean = false
+): Promise<boolean> {
+  const norm = normalizePdfFontFamily(family).toLowerCase();
+  if (!norm) return true;
+  if (isPdfStandardFamily(norm)) return true;
+
+  // Local static TTFs: verify the file actually exists and can be subsetted
+  if (LOCAL_PDF_FONT_FAMILIES[norm]) {
+    try {
+      const localResult = await fetchLocalPdfFontFace(family, weight, italic);
+      if (localResult && isPdfSafeSfntFont(localResult.data)) {
+        const isSubsettable = await testPdfKitFontSubset(localResult.data);
+        if (isSubsettable) return true;
+      }
+    } catch {
+      // not available locally, check fallbacks
+    }
+  }
+
+  // Check document head font faces - only if fontkit can actually subset it!
+  const headFaces = collectDocumentHeadFontFaces();
+  const embedded = findEmbeddedSvgFontFace(headFaces, norm, weight, italic);
+  if (embedded && embedded.data) {
+    const isSubsettable = await testPdfKitFontSubset(embedded.data);
+    if (isSubsettable) return true;
+  }
+
+  // Any other remote font (Google variable font, Fontsource CDN, etc.)
+  // must be tested with testPdfKitFontSubset before being declared safe for PDFKit vector embedding.
+  // If fontkit cannot subset it (throws "Not a fixed size"), return false so that the text
+  // is faithfully pre-rendered at 4x on canvas using the browser's loaded font.
+  try {
+    const remoteData = await fetchRemotePdfFontFace(family, weight, italic);
+    if (remoteData && isPdfSafeSfntFont(remoteData)) {
+      const isSubsettable = await testPdfKitFontSubset(remoteData);
+      if (isSubsettable) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return false;
 }
 
 function resolveRegisteredPdfFont(
@@ -2283,7 +2483,11 @@ export async function exportPreparedVectorPdf(
 
   console.info('[PDF Shadow] Vector artwork rendered above shadow layer');
 
-  pdf.end();
+  try {
+    pdf.end();
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(String(err));
+  }
   await endPromise;
 
   if (chunks.length === 0) {
@@ -2365,9 +2569,31 @@ export async function exportVectorPdf(
       });
     });
 
+    if (typeof document !== 'undefined' && document.fonts) {
+      try {
+        await document.fonts.ready;
+      } catch { }
+    }
+
     for (let svg of svgs) {
       if (typeof svg !== 'string' || svg.trim() === '') {
         throw new Error('An empty or invalid SVG page was provided');
+      }
+
+      // Normalize root SVG width and height to match PDF points exactly.
+      // SVGtoPDF converts "mm" using 96 DPI CSS pixels instead of 72 DPI PDF points (96/72 = 1.333x scale mismatch).
+      // Setting width and height in exact PDF points guarantees 1:1 scale alignment with the PDF page and shadow layer.
+      if (width > 0 && height > 0) {
+        svg = svg.replace(
+          /<svg\b([^>]*?)(\/?>)/i,
+          (match, attrs, close) => {
+            const clean = attrs
+              .replace(/\bwidth\s*=\s*["'][^"']*["']/gi, '')
+              .replace(/\bheight\s*=\s*["'][^"']*["']/gi, '')
+              .trim();
+            return `<svg ${clean} width="${width}" height="${height}"${close}`;
+          }
+        );
       }
 
       if (options.canvasManager && typeof DOMParser !== 'undefined') {
@@ -2375,6 +2601,8 @@ export async function exportVectorPdf(
         const svgDoc = parser.parseFromString(svg, 'image/svg+xml');
         if (!svgDoc.querySelector('parsererror')) {
           await rasterizeHollowTextForExport(svgDoc, options.canvasManager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
+          preserveHollowTextInSvg(svgDoc, options.canvasManager);
+          await embedFontsInSvgDefs(svgDoc, options.canvasManager);
           await rasterizeFramesForVectorPdf(svgDoc, options.canvasManager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
           if (options.geometry) {
             const bounds = getArtworkExportBounds(options.geometry, 300);

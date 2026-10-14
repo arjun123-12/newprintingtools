@@ -10,6 +10,7 @@ import {
   LOCAL_PDF_FONT_FAMILIES,
   pdfWeightStyleName,
   isPdfSafeSfntFont,
+  isSafePdfFontFamily,
 } from '../services/exportService';
 
 /** Cache for in-memory embedded base64 fonts to avoid duplicate network fetches during session */
@@ -279,18 +280,40 @@ export async function embedFontsInSvgDefs(
   for (const { family, weight, italic } of fontRequests.values()) {
     if (isStandardSystemFont(family)) continue;
 
-    const escapedFamily = encodeURIComponent(family).replace(/%20/g, '+');
-    const importUrl = `https://fonts.googleapis.com/css2?family=${escapedFamily}:ital,wght@${italic ? 1 : 0
-      },${weight}&display=swap`;
-    importUrls.push(`@import url('${importUrl}');`);
-
-    try {
-      const fontFaceCss = await fetchAndCreateFontFace(family, weight, italic);
-      if (fontFaceCss) {
-        fontFaceRules.push(fontFaceCss);
+    // Check if there is an in-document custom font-face rule (e.g. from user/admin font upload)
+    let customRuleFound = false;
+    if (typeof document !== 'undefined') {
+      const styles = Array.from(document.querySelectorAll('style'));
+      for (const s of styles) {
+        const text = s.textContent || '';
+        if (
+          text.includes('@font-face') &&
+          text.includes('data:') &&
+          (text.toLowerCase().includes(`"${family.toLowerCase()}"`) ||
+            text.toLowerCase().includes(`'${family.toLowerCase()}'`) ||
+            text.toLowerCase().includes(`font-family: ${family.toLowerCase()}`))
+        ) {
+          fontFaceRules.push(text);
+          customRuleFound = true;
+          break;
+        }
       }
-    } catch (err) {
-      console.warn(`Could not embed binary font-face for ${family}:`, err);
+    }
+
+    if (!customRuleFound) {
+      const escapedFamily = encodeURIComponent(family).replace(/%20/g, '+');
+      const importUrl = `https://fonts.googleapis.com/css2?family=${escapedFamily}:ital,wght@${italic ? 1 : 0
+        },${weight}&display=swap`;
+      importUrls.push(`@import url('${importUrl}');`);
+
+      try {
+        const fontFaceCss = await fetchAndCreateFontFace(family, weight, italic);
+        if (fontFaceCss) {
+          fontFaceRules.push(fontFaceCss);
+        }
+      } catch (err) {
+        console.warn(`Could not embed binary font-face for ${family}:`, err);
+      }
     }
   }
 
@@ -397,8 +420,26 @@ export function findSvgElementForFabricObject(
     }
   }
 
-  // Only use top-level visual objects for order fallback. Nested children have
-  // their own group-relative SVG structure and must not shift this index.
+  // Fallback 1: If object belongs to a group, look inside the parent group element
+  if (obj.group) {
+    const parentEl = findSvgElementForFabricObject(svgDoc, obj.group, allObjects);
+    if (parentEl) {
+      const groupObjects = (obj.group._objects || (typeof obj.group.getObjects === 'function' ? obj.group.getObjects() : [])) as any[];
+      const idxInGroup = groupObjects.indexOf(obj);
+      if (idxInGroup >= 0) {
+        // Direct child elements of group
+        const groupChildren = Array.from(parentEl.children).filter((el) => {
+          const t = el.tagName.toLowerCase();
+          return t === 'g' || t === 'rect' || t === 'path' || t === 'image' || t === 'text' || t === 'polygon' || t === 'circle' || t === 'ellipse';
+        });
+        if (groupChildren[idxInGroup]) {
+          return groupChildren[idxInGroup];
+        }
+      }
+    }
+  }
+
+  // Fallback 2: Top-level visual objects order fallback
   const topLevelObjects = allObjects.filter((item) => {
     if (!item) return false;
     if (item.isGuide || item.isPrintGuide || item.isRulerGuide || item.isCropOverlayPhoto) {
@@ -411,8 +452,28 @@ export function findSvgElementForFabricObject(
   if (objectIndex < 0) return null;
 
   const root = svgDoc.documentElement;
-  const candidates = Array.from(root.children).filter((element) => {
+  // If wrapped in clip-path group or artwork redline group, search inside the container group
+  let container: Element = root;
+  const clipWrapper =
+    root.querySelector('g[clip-path*="artwork-redline-clip"]') ||
+    (root.children.length >= 2 &&
+      root.children[0].tagName.toLowerCase() === 'defs' &&
+      root.children[1].tagName.toLowerCase() === 'g'
+      ? root.children[1]
+      : null);
+  if (clipWrapper) {
+    container = clipWrapper;
+  }
+
+  const candidates = Array.from(container.children).filter((element) => {
     const tag = element.tagName.toLowerCase();
+    if (
+      element.getAttribute('data-pdf-background') === 'true' ||
+      element.getAttribute('id') === 'export-canvas-background' ||
+      element.getAttribute('id') === 'canvas-background-rect'
+    ) {
+      return false;
+    }
     return (
       tag === 'g' ||
       tag === 'image' ||
@@ -941,14 +1002,6 @@ export function requiresRasterizationForVectorPdf(obj: any): boolean {
     return true;
   }
 
-  // 7. Groups containing any children that require rasterization
-  if (typeof (obj as any).getObjects === 'function') {
-    const children: any[] = (obj as any).getObjects();
-    if (children.some((child) => requiresRasterizationForVectorPdf(child))) {
-      return true;
-    }
-  }
-
   return false;
 }
 
@@ -983,13 +1036,26 @@ export async function rasterizeFramesForVectorPdf(
 
   const allObjects = collectFabricObjectsRecursively(canvas);
 
-  const targetObjects = canvas.getObjects().filter((obj: any) => {
+  const targetObjects = allObjects.filter((obj: any) => {
     return requiresRasterizationForVectorPdf(obj);
   });
 
   if (targetObjects.length === 0) {
     return 0;
   }
+
+  // If a parent composite group (such as a frame) is already in targetObjects,
+  // do not duplicate rasterization for its child parts.
+  const filteredTargets = targetObjects.filter((obj: any) => {
+    let p = obj.group;
+    while (p) {
+      if (targetObjects.includes(p)) {
+        return false;
+      }
+      p = p.group;
+    }
+    return true;
+  });
 
   const preferredMultiplier = Math.max(
     2,
@@ -1003,7 +1069,7 @@ export async function rasterizeFramesForVectorPdf(
 
   let replacedCount = 0;
 
-  for (const obj of targetObjects as any[]) {
+  for (const obj of filteredTargets as any[]) {
     const targetEl = findSvgElementForFabricObject(
       svgDoc,
       obj,
@@ -1056,15 +1122,21 @@ export async function rasterizeFramesForVectorPdf(
     try {
       let rasterCanvas: HTMLCanvasElement | null = null;
 
-      if (typeof obj.toCanvasElement === 'function') {
-        rasterCanvas = obj.toCanvasElement({
-          multiplier: safeMultiplier,
-          withoutTransform: true,
-          // Keep visual fill, stroke, and corner radius but avoid double-applying
-          // shadow because shadow is handled by the dedicated high-res shadow layer.
-          withoutShadow: true,
-          enableRetinaScaling: false,
-        } as any);
+      const origGroup = obj.group;
+      try {
+        obj.group = undefined;
+        if (typeof obj.toCanvasElement === 'function') {
+          rasterCanvas = obj.toCanvasElement({
+            multiplier: safeMultiplier,
+            withoutTransform: true,
+            // Keep visual fill, stroke, and corner radius but avoid double-applying
+            // shadow because shadow is handled by the dedicated high-res shadow layer.
+            withoutShadow: true,
+            enableRetinaScaling: false,
+          } as any);
+        }
+      } finally {
+        obj.group = origGroup;
       }
 
       if (!rasterCanvas) {
@@ -1158,6 +1230,15 @@ export async function rasterizeFramesForVectorPdf(
         const id = targetEl.getAttribute('id');
         if (id) {
           replacementGroup.setAttribute('id', id);
+        }
+
+        const targetX = targetEl.getAttribute('x');
+        const targetY = targetEl.getAttribute('y');
+        if (targetX !== null && !transform) {
+          imageEl.setAttribute('x', targetX);
+        }
+        if (targetY !== null && !transform) {
+          imageEl.setAttribute('y', targetY);
         }
 
         replacementGroup.appendChild(imageEl);
@@ -1300,6 +1381,83 @@ export function isStrokedOrHollowText(obj: any): boolean {
  * 2. Inner contour overlap lines and crossbar intersections are completely eliminated.
  * 3. All other normal text objects remain genuine vector fonts.
  */
+/**
+ * Determines whether a Fabric text object requires faithful high-resolution rasterization
+ * for PDF export.
+ *
+ * Text MUST be rendered faithfully when:
+ * 1. It has hollow fill, border, stroke outline, or active stroke effects (to prevent PDF Mode 2 inner contour lines).
+ * 2. It has non-zero charSpacing / letter-spacing (SVG-to-PDFKit completely drops CSS letter-spacing!).
+ * 3. It has curved text on a path (SVG-to-PDFKit does not support <textPath>).
+ * 4. It has gradient or pattern fills.
+ * 5. It has non-zero corner radius.
+ * 6. Its selected font cannot be guaranteed as an Acrobat-safe TTF/OTF vector in PDFKit
+ *    (preventing Helvetica/Times fallback which alters font metrics, changes text width, and causes text clipping).
+ */
+export async function requiresFaithfulTextRasterization(
+  obj: any,
+  safeFamiliesCache?: Map<string, boolean>
+): Promise<boolean> {
+  if (!isFabricText(obj)) return false;
+
+  // 1. Hollow or stroked text (PDF Mode 2 overlap prevention)
+  if (isStrokedOrHollowText(obj)) return true;
+
+  // 2. Letter spacing / charSpacing (SVGtoPDF drops letter-spacing!)
+  if ((Number(obj.charSpacing) || 0) !== 0) return true;
+
+  // 3. Text on a path / curved text (SVGtoPDF doesn't support textPath)
+  if (Boolean(obj.path)) return true;
+
+  // 4. Complex gradient / pattern fill
+  if (typeof obj.fill === 'object' && obj.fill !== null) return true;
+
+  // 5. Active outline or neon effects
+  if (
+    obj._activeEffects?.outline ||
+    obj._activeEffects?.neon ||
+    (Number(obj.baseStrokeWidth) || 0) > 0
+  ) {
+    return true;
+  }
+
+  // 6. Corner radius on text
+  const cornerRadius =
+    Number((obj as any).cornerRadius) ||
+    Number((obj as any)._requestedRadius) ||
+    Number((obj as any).rx) ||
+    0;
+  if (cornerRadius > 0) return true;
+
+  // 7. Font availability: check if font can be safely embedded in PDFKit as genuine vector font
+  const rawFamily = ((obj.fontFamily || '').split(',')[0] || '').trim().replace(/^['"]|['"]$/g, '');
+  if (!rawFamily) return false;
+
+  const weight = normalizeFontWeight(obj.fontWeight);
+  const italic = String(obj.fontStyle || '').toLowerCase() === 'italic';
+  const cacheKey = `${rawFamily.toLowerCase()}|${weight}|${italic ? 1 : 0}`;
+
+  if (safeFamiliesCache?.has(cacheKey)) {
+    return !safeFamiliesCache.get(cacheKey);
+  }
+
+  const isSafe = await isSafePdfFontFamily(rawFamily, weight, italic);
+  safeFamiliesCache?.set(cacheKey, isSafe);
+
+  // If NOT safe, text MUST be rendered faithfully so it doesn't fall back to Helvetica
+  return !isSafe;
+}
+
+/**
+ * Rasterizes hollow, stroked/bordered, or custom-font text objects in exported SVG documents
+ * into high-resolution transparent PNG images (4x / 300+ DPI).
+ *
+ * Ensures:
+ * 1. Stroked text never draws ugly PDF Mode 2 inner contour overlap lines.
+ * 2. Unregistered or custom webfonts never silently fall back to Helvetica with distorted widths and clipping.
+ * 3. Text letter-spacing, line breaks, colors, and exact bounds match the editor 100%.
+ * 4. Text using standard or registered TTF vector fonts remains true crisp vectors.
+ */
 export async function rasterizeHollowTextForExport(
   svgDoc: Document,
   canvasManager: CanvasManager | null,
@@ -1312,8 +1470,22 @@ export async function rasterizeHollowTextForExport(
   const canvas = canvasManager.getCanvas();
   if (!canvas) return 0;
 
+  // Ensure all fonts in document are ready before rendering text to canvas
+  if (typeof document !== 'undefined' && document.fonts) {
+    try {
+      await document.fonts.ready;
+    } catch { }
+  }
+
   const allObjects = collectFabricObjectsRecursively(canvas);
-  const targetTexts = allObjects.filter((obj: any) => isStrokedOrHollowText(obj));
+  const safeFamiliesCache = new Map<string, boolean>();
+
+  const targetTexts: any[] = [];
+  for (const obj of allObjects) {
+    if (await requiresFaithfulTextRasterization(obj, safeFamiliesCache)) {
+      targetTexts.push(obj);
+    }
+  }
 
   if (targetTexts.length === 0) return 0;
 
@@ -1326,6 +1498,15 @@ export async function rasterizeHollowTextForExport(
     const targetEl = findSvgElementForFabricObject(svgDoc, textObj, allObjects);
     if (!targetEl) continue;
 
+    // Skip if targetEl is already a rasterized image from a previous pass
+    if (
+      targetEl.getAttribute('data-pdf-rasterized') === 'true' ||
+      (targetEl.tagName.toLowerCase() === 'image' &&
+        targetEl.getAttribute('href')?.startsWith('data:image/png'))
+    ) {
+      continue;
+    }
+
     const localWidth = Math.max(1, Number(textObj.width) || 1);
     const localHeight = Math.max(1, Number(textObj.height) || 1);
     const strokeWidth = Number(textObj.strokeWidth) || 0;
@@ -1337,13 +1518,19 @@ export async function rasterizeHollowTextForExport(
     );
 
     let rasterCanvas: HTMLCanvasElement | null = null;
-    if (typeof textObj.toCanvasElement === 'function') {
-      rasterCanvas = textObj.toCanvasElement({
-        multiplier: safeMultiplier,
-        withoutTransform: true,
-        withoutShadow: true,
-        enableRetinaScaling: false,
-      } as any);
+    const origGroup = textObj.group;
+    try {
+      textObj.group = undefined;
+      if (typeof textObj.toCanvasElement === 'function') {
+        rasterCanvas = textObj.toCanvasElement({
+          multiplier: safeMultiplier,
+          withoutTransform: true,
+          withoutShadow: true,
+          enableRetinaScaling: false,
+        } as any);
+      }
+    } finally {
+      textObj.group = origGroup;
     }
 
     if (!rasterCanvas) continue;
@@ -1364,6 +1551,7 @@ export async function rasterizeHollowTextForExport(
     imageEl.setAttribute('preserveAspectRatio', 'none');
     imageEl.setAttribute('href', dataUrl);
     imageEl.setAttribute('xlink:href', dataUrl);
+    imageEl.setAttribute('data-pdf-rasterized', 'true');
 
     // Remove any previously applied SVG mask, clip-path, or stroke from parent/target
     targetEl.removeAttribute('mask');
@@ -1410,6 +1598,8 @@ export async function rasterizeHollowTextForExport(
 
   return replacedCount;
 }
+
+export const rasterizeFaithfulTextForExport = rasterizeHollowTextForExport;
 
 /**
  * Ensures hollow text objects in exported SVG do not render internal contour overlap lines (inner laps).

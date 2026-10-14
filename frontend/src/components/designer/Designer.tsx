@@ -23,6 +23,8 @@ import {
   collectFabricObjectsRecursively,
   rasterizeHollowTextForExport,
   rasterizeFramesForVectorPdf,
+  embedFontsInSvgDefs,
+  preserveHollowTextInSvg,
 } from './utils/svgExportHelpers';
 import {
   getArtworkExportGeometry,
@@ -2201,6 +2203,11 @@ export default function Designer({
       }
       canvas.requestRenderAll();
 
+      await manager.waitForAllImagesToLoad(15000);
+      if (typeof document !== 'undefined' && document.fonts) {
+        await document.fonts.ready;
+      }
+
       const bounds = getArtworkExportBounds(dimensionsRef.current, 300);
       const canvasWidth = bounds.widthPx;
       const canvasHeight = bounds.heightPx;
@@ -2221,11 +2228,13 @@ export default function Designer({
         },
       });
 
-      // Process SVG for hollow text, photo frames, and visible BLACK trim line
+      // Process SVG for faithful text, photo frames, and visible BLACK trim line
       const parser = new DOMParser();
       let svgDoc = parser.parseFromString(svg, 'image/svg+xml');
       if (!svgDoc.querySelector('parsererror')) {
         await rasterizeHollowTextForExport(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
+        preserveHollowTextInSvg(svgDoc, manager);
+        await embedFontsInSvgDefs(svgDoc, manager);
         await rasterizeFramesForVectorPdf(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
         injectVisibleTrimLineInSvg(svgDoc, bounds);
         const foldingConfig = dimensionsRef.current.printLayout?.folding || documentSettings.printLayout?.folding || manager.getPrintLayout()?.folding;
