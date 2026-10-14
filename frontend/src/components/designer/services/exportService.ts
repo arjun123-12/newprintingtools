@@ -333,7 +333,7 @@ export async function ensureSafePngOrJpegDataUrl(
  * svg-to-pdfkit cannot reliably fetch those browser URLs, so convert them to
  * embedded PNG or JPEG data URLs before handing the SVG to PDFKit.
  */
-async function inlineExternalSvgImages(svg: string): Promise<string> {
+export async function inlineExternalSvgImages(svg: string): Promise<string> {
   if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
     return svg;
   }
@@ -2602,6 +2602,16 @@ export async function exportVectorPdf(
       }
 
       if (options.canvasManager && typeof DOMParser !== 'undefined') {
+        const canvas = options.canvasManager.getCanvas();
+        if (canvas) {
+          const allCanvasObjs = collectFabricObjectsRecursively(canvas);
+          allCanvasObjs.forEach((obj, idx) => {
+            if (!obj.id) {
+              obj.id = `export_obj_${idx}_${Date.now()}`;
+            }
+            (obj as any)._svgExportId = obj.id;
+          });
+        }
         const parser = new DOMParser();
         const svgDoc = parser.parseFromString(svg, 'image/svg+xml');
         if (!svgDoc.querySelector('parsererror')) {

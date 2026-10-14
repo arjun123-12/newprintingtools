@@ -1520,7 +1520,7 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           await processCroppedElementsForSvgExport(svgDoc, canvasManager);
 
           // 5. Knock out inner laps on hollow text elements in SVG via high-resolution rasterization
-          await rasterizeHollowTextForExport(svgDoc, canvasManager);
+          await rasterizeHollowTextForExport(svgDoc, canvasManager, { isForPdf: false });
           preserveHollowTextInSvg(svgDoc, canvasManager);
 
           // 6. Embed true font files as base64 @font-face rules directly in SVG defs

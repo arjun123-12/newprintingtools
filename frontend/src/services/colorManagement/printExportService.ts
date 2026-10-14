@@ -8,7 +8,18 @@ import {
   renderVisibleTrimLineOnCanvas,
   injectVisibleTrimLineInSvg,
 } from '@/components/designer/utils/exportGeometry';
-import { exportPreparedVectorPdf } from '@/components/designer/services/exportService';
+import { exportPreparedVectorPdf, inlineExternalSvgImages } from '@/components/designer/services/exportService';
+import {
+  collectFabricObjectsRecursively,
+  expandSvgFilterRegions,
+  injectSilhouetteShadowsInSvg,
+  processCroppedElementsForSvgExport,
+  rasterizeHollowTextForExport,
+  preserveHollowTextInSvg,
+  embedFontsInSvgDefs,
+  rasterizeFramesForVectorPdf,
+  normalizeSvgStrokeWeightsForPdf,
+} from '@/components/designer/utils/svgExportHelpers';
 
 /**
  * Creates an authentic 4-channel CMYK TIFF binary conforming to TIFF 6.0 specification.
@@ -178,27 +189,128 @@ class PrintExportService {
     const canvas = canvasManager.getCanvas();
     if (!canvas) throw new Error('Canvas not available');
 
+    await canvasManager.waitForAllImagesToLoad(15000);
+    if (typeof document !== 'undefined' && document.fonts) {
+      await document.fonts.ready;
+    }
+
+    const guidesWereVisible = canvasManager.getGuidesVisible();
+    const previousZoom = canvasManager.getZoom();
+    const previousVpt = canvas.viewportTransform
+      ? ([...canvas.viewportTransform] as [number, number, number, number, number, number])
+      : undefined;
+
+    const allCanvasObjs = collectFabricObjectsRecursively(canvas);
+    const originalIds = new Map<any, string | undefined>();
+    const originalExcludeFromExport = new Map<any, boolean | undefined>();
+
+    allCanvasObjs.forEach((obj, idx) => {
+      originalIds.set(obj, obj.id);
+      originalExcludeFromExport.set(obj, (obj as any).excludeFromExport);
+
+      if (!obj.id) {
+        obj.id = `cmyk_pdf_export_obj_${idx}_${Date.now()}`;
+      }
+      (obj as any)._svgExportId = obj.id;
+
+      if (
+        (obj as any).isEffectHelper === true &&
+        (obj as any).excludeFromVisualExport !== true
+      ) {
+        (obj as any).excludeFromExport = false;
+      }
+    });
+
     const bounds = getArtworkExportBounds(dimensions, 300);
     const widthMm = bounds.widthMm;
     const heightMm = bounds.heightMm;
 
-    let svgMarkup = canvas.toSVG({
-      suppressPreamble: true,
-      width: `${widthMm}mm`,
-      height: `${heightMm}mm`,
-      viewBox: {
-        x: 0,
-        y: 0,
-        width: bounds.widthPx,
-        height: bounds.heightPx,
-      },
-    });
+    let svgMarkup = '';
 
-    const parser = new DOMParser();
-    const svgDoc = parser.parseFromString(svgMarkup, 'image/svg+xml');
-    if (!svgDoc.querySelector('parsererror')) {
-      injectVisibleTrimLineInSvg(svgDoc, bounds);
+    try {
+      canvasManager.setGuidesVisible(false);
+      canvas.discardActiveObject();
+      canvasManager.setZoom(1);
+      if (canvas.viewportTransform) {
+        canvas.viewportTransform = [1, 0, 0, 1, 0, 0];
+      }
+      canvas.requestRenderAll();
+
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+
+      svgMarkup = canvas.toSVG({
+        suppressPreamble: true,
+        width: `${widthMm}mm`,
+        height: `${heightMm}mm`,
+        viewBox: {
+          x: 0,
+          y: 0,
+          width: bounds.widthPx,
+          height: bounds.heightPx,
+        },
+      });
+
+      const inlinedSvg = await inlineExternalSvgImages(svgMarkup);
+      const parser = new DOMParser();
+      let svgDoc = parser.parseFromString(inlinedSvg, 'image/svg+xml');
+
+      if (svgDoc.querySelector('parsererror')) {
+        const repairedSvg = inlinedSvg.replace(/&(?!(amp|lt|gt|quot|apos|#\d+|#x[a-f\d]+);)/gi, '&amp;');
+        const retryDoc = parser.parseFromString(repairedSvg, 'image/svg+xml');
+        if (!retryDoc.querySelector('parsererror')) {
+          svgDoc = retryDoc;
+        }
+      }
+
+      expandSvgFilterRegions(svgDoc);
+      injectSilhouetteShadowsInSvg(svgDoc, canvasManager);
+
+      await rasterizeHollowTextForExport(svgDoc, canvasManager, {
+        preferredMultiplier: 4,
+        maxLongEdgePx: 8192,
+        isForPdf: true,
+      });
+      preserveHollowTextInSvg(svgDoc, canvasManager);
+      await embedFontsInSvgDefs(svgDoc, canvasManager);
+      await processCroppedElementsForSvgExport(svgDoc, canvasManager);
+      await rasterizeFramesForVectorPdf(svgDoc, canvasManager, {
+        preferredMultiplier: 4,
+        maxLongEdgePx: 8192,
+      });
+
+      if (includeTrimMarks) {
+        injectVisibleTrimLineInSvg(svgDoc, bounds);
+      }
+
+      normalizeSvgStrokeWeightsForPdf(svgDoc, canvasManager);
+
       svgMarkup = new XMLSerializer().serializeToString(svgDoc);
+    } finally {
+      allCanvasObjs.forEach((obj) => {
+        const orig = originalIds.get(obj);
+        if (orig !== undefined) {
+          obj.id = orig;
+        } else {
+          delete obj.id;
+        }
+        delete (obj as any)._svgExportId;
+
+        const origExclude = originalExcludeFromExport.get(obj);
+        if (origExclude !== undefined) {
+          (obj as any).excludeFromExport = origExclude;
+        } else {
+          delete (obj as any).excludeFromExport;
+        }
+      });
+
+      canvasManager.setGuidesVisible(guidesWereVisible);
+      canvasManager.setZoom(previousZoom);
+      if (previousVpt) {
+        canvas.viewportTransform = previousVpt;
+      }
+      canvas.requestRenderAll();
     }
 
     onProgress?.(50, 'Converting vector colors and assigning CMYK profile...');

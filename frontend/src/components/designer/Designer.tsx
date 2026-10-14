@@ -26,6 +26,7 @@ import {
   processCroppedElementsForSvgExport,
   embedFontsInSvgDefs,
   preserveHollowTextInSvg,
+  normalizeSvgStrokeWeightsForPdf,
 } from './utils/svgExportHelpers';
 import {
   getArtworkExportGeometry,
@@ -2238,6 +2239,7 @@ export default function Designer({
         await embedFontsInSvgDefs(svgDoc, manager);
         await processCroppedElementsForSvgExport(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
         await rasterizeFramesForVectorPdf(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
+        normalizeSvgStrokeWeightsForPdf(svgDoc, manager);
         injectVisibleTrimLineInSvg(svgDoc, bounds);
         const foldingConfig = dimensionsRef.current.printLayout?.folding || documentSettings.printLayout?.folding || manager.getPrintLayout()?.folding;
         if (foldingConfig?.enabled) {

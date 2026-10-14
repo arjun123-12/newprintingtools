@@ -1,4 +1,4 @@
-import { FabricImage } from 'fabric';
+import { FabricImage, Point } from 'fabric';
 import { CanvasManager } from '../canvas/CanvasManager';
 import {
   getObjectVisualSilhouette,
@@ -1023,6 +1023,11 @@ export function isObjectCropped(obj: any): boolean {
     return true;
   }
 
+  // Any non-frame object with a clipPath (e.g. element rectangular crop)
+  if (obj.clipPath && !(obj as any).isFrame) {
+    return true;
+  }
+
   const isImg =
     obj instanceof FabricImage ||
     (obj as any).type === 'image' ||
@@ -1034,12 +1039,118 @@ export function isObjectCropped(obj: any): boolean {
     }
     const cropX = Number(obj.cropX ?? (typeof obj.get === 'function' ? obj.get('cropX' as any) : 0)) || 0;
     const cropY = Number(obj.cropY ?? (typeof obj.get === 'function' ? obj.get('cropY' as any) : 0)) || 0;
+    const natW = Number(obj._element?.naturalWidth || (obj as any).naturalWidth || 0);
+    const natH = Number(obj._element?.naturalHeight || (obj as any).naturalHeight || 0);
+    const curW = Number(obj.width) || 0;
+    const curH = Number(obj.height) || 0;
     if (cropX > 0 || cropY > 0) {
+      return true;
+    }
+    if (natW > 0 && curW > 0 && Math.abs(curW - natW) > 1) {
+      return true;
+    }
+    if (natH > 0 && curH > 0 && Math.abs(curH - natH) > 1) {
       return true;
     }
   }
 
   return false;
+}
+
+/**
+ * Renders a Fabric object onto an offscreen canvas at native dimensions + stroke padding,
+ * completely bypassing CanvaControls selection box and ensuring outer strokes are never clipped.
+ */
+export function renderFabricObjectToRasterCanvas(
+  obj: any,
+  options: {
+    multiplier: number;
+    avgScale?: number;
+  }
+): HTMLCanvasElement | null {
+  if (!obj || typeof obj.toCanvasElement !== 'function') return null;
+
+  const origGroup = obj.group;
+  const origStrokeWidth = Number(obj.strokeWidth) || 0;
+  const origBaseStrokeWidth = (obj as any).baseStrokeWidth;
+  const isStrokeUniform = (obj as any).strokeUniform !== false;
+  const avgScale = options.avgScale ?? 1;
+
+  // Temporarily preserve any own properties on the instance
+  const origInstanceCalcACoords = Object.prototype.hasOwnProperty.call(obj, 'calcACoords')
+    ? (obj as any).calcACoords
+    : undefined;
+  const origInstanceGetNonTransformedDimensions = Object.prototype.hasOwnProperty.call(
+    obj,
+    '_getNonTransformedDimensions'
+  )
+    ? (obj as any)._getNonTransformedDimensions
+    : undefined;
+
+  let rasterCanvas: HTMLCanvasElement | null = null;
+
+  try {
+    obj.group = undefined;
+
+    // Compensate stroke width under group scale transform if stroke is uniform
+    if (origStrokeWidth > 0 && isStrokeUniform && avgScale > 0.0001 && Math.abs(avgScale - 1) > 0.001) {
+      obj.strokeWidth = origStrokeWidth / avgScale;
+      if (typeof origBaseStrokeWidth === 'number') {
+        (obj as any).baseStrokeWidth = origBaseStrokeWidth / avgScale;
+      }
+    }
+
+    // Ensure non-transformed dimensions include full stroke padding so borders are never clipped
+    (obj as any)._getNonTransformedDimensions = function (this: any) {
+      const sw = Number(this.strokeWidth) || 0;
+      return new Point(Number(this.width) || 1, Number(this.height) || 1).scalarAdd(sw);
+    };
+
+    // Ensure calcACoords evaluates native untransformed dimensions centered at (0, 0)
+    // without CanvaControls visual selection box displacement
+    (obj as any).calcACoords = function (this: any) {
+      const dim = this._getTransformedDimensions();
+      const w = dim.x / 2;
+      const h = dim.y / 2;
+      return {
+        tl: new Point(-w, -h),
+        tr: new Point(w, -h),
+        bl: new Point(-w, h),
+        br: new Point(w, h),
+      };
+    };
+
+    rasterCanvas = obj.toCanvasElement({
+      multiplier: options.multiplier,
+      withoutTransform: true,
+      withoutShadow: true,
+      enableRetinaScaling: false,
+    });
+  } catch (err) {
+    console.warn('[SVG/PDF Export] Failed to render raster canvas for object:', err);
+  } finally {
+    // Restore stroke widths
+    obj.strokeWidth = origStrokeWidth;
+    if (typeof origBaseStrokeWidth === 'number') {
+      (obj as any).baseStrokeWidth = origBaseStrokeWidth;
+    }
+    obj.group = origGroup;
+
+    // Restore own method overrides
+    if (origInstanceCalcACoords !== undefined) {
+      (obj as any).calcACoords = origInstanceCalcACoords;
+    } else {
+      delete (obj as any).calcACoords;
+    }
+
+    if (origInstanceGetNonTransformedDimensions !== undefined) {
+      (obj as any)._getNonTransformedDimensions = origInstanceGetNonTransformedDimensions;
+    } else {
+      delete (obj as any)._getNonTransformedDimensions;
+    }
+  }
+
+  return rasterCanvas;
 }
 
 /**
@@ -1158,44 +1269,14 @@ export async function rasterizeFramesForVectorPdf(
     );
 
     try {
-      let rasterCanvas: HTMLCanvasElement | null = null;
-
-      const origGroup = obj.group;
-      const origStrokeWidth = Number(obj.strokeWidth) || 0;
-      const origBaseStrokeWidth = (obj as any).baseStrokeWidth;
       const objScaleX = Math.abs(Number(obj.scaleX) || 1);
       const objScaleY = Math.abs(Number(obj.scaleY) || 1);
       const avgScale = (objScaleX + objScaleY) / 2;
 
-      try {
-        obj.group = undefined;
-        // In Fabric canvas, strokeUniform renders strokes at unscaled visual width on screen.
-        // When rendered into an unscaled raster image and placed inside <g transform="matrix(scaleX...)">,
-        // the group transform scales the image by avgScale. We divide strokeWidth by avgScale
-        // so that (strokeWidth / avgScale) * avgScale equals the exact canvas stroke width in the PDF.
-        if (origStrokeWidth > 0 && avgScale > 0.0001 && Math.abs(avgScale - 1) > 0.001) {
-          obj.strokeWidth = origStrokeWidth / avgScale;
-          if (typeof origBaseStrokeWidth === 'number') {
-            (obj as any).baseStrokeWidth = origBaseStrokeWidth / avgScale;
-          }
-        }
-        if (typeof obj.toCanvasElement === 'function') {
-          rasterCanvas = obj.toCanvasElement({
-            multiplier: safeMultiplier,
-            withoutTransform: true,
-            // Keep visual fill, stroke, and corner radius but avoid double-applying
-            // shadow because shadow is handled by the dedicated high-res shadow layer.
-            withoutShadow: true,
-            enableRetinaScaling: false,
-          } as any);
-        }
-      } finally {
-        obj.strokeWidth = origStrokeWidth;
-        if (typeof origBaseStrokeWidth === 'number') {
-          (obj as any).baseStrokeWidth = origBaseStrokeWidth;
-        }
-        obj.group = origGroup;
-      }
+      const rasterCanvas = renderFabricObjectToRasterCanvas(obj, {
+        multiplier: safeMultiplier,
+        avgScale,
+      });
 
       if (!rasterCanvas) {
         continue;
@@ -1401,37 +1482,14 @@ export async function processCroppedElementsForSvgExport(
         Math.min(preferredMultiplier, maxLongEdgePx / sourceLongEdge)
       );
 
-      let rasterCanvas: HTMLCanvasElement | null = null;
-      const origGroup = obj.group;
-      const origStrokeWidth = Number(obj.strokeWidth) || 0;
-      const origBaseStrokeWidth = (obj as any).baseStrokeWidth;
       const objScaleX = Math.abs(Number(obj.scaleX) || 1);
       const objScaleY = Math.abs(Number(obj.scaleY) || 1);
       const avgScale = (objScaleX + objScaleY) / 2;
 
-      try {
-        obj.group = undefined;
-        if (origStrokeWidth > 0 && avgScale > 0.0001 && Math.abs(avgScale - 1) > 0.001) {
-          obj.strokeWidth = origStrokeWidth / avgScale;
-          if (typeof origBaseStrokeWidth === 'number') {
-            (obj as any).baseStrokeWidth = origBaseStrokeWidth / avgScale;
-          }
-        }
-        rasterCanvas = obj.toCanvasElement({
-          multiplier: safeMultiplier,
-          withoutTransform: true,
-          withoutShadow: true,
-          enableRetinaScaling: false,
-        } as any);
-      } catch (err) {
-        console.warn('[SVG Export] Failed to render cropped canvas element:', err);
-      } finally {
-        obj.strokeWidth = origStrokeWidth;
-        if (typeof origBaseStrokeWidth === 'number') {
-          (obj as any).baseStrokeWidth = origBaseStrokeWidth;
-        }
-        obj.group = origGroup;
-      }
+      const rasterCanvas = renderFabricObjectToRasterCanvas(obj, {
+        multiplier: safeMultiplier,
+        avgScale,
+      });
 
       if (rasterCanvas) {
         const croppedDataUrl = rasterCanvas.toDataURL('image/png');
@@ -1637,15 +1695,18 @@ export function isStrokedOrHollowText(obj: any): boolean {
  */
 export async function requiresFaithfulTextRasterization(
   obj: any,
-  safeFamiliesCache?: Map<string, boolean>
+  safeFamiliesCache?: Map<string, boolean>,
+  options?: { isForPdf?: boolean }
 ): Promise<boolean> {
   if (!isFabricText(obj)) return false;
 
-  // 1. Hollow or stroked text (PDF Mode 2 overlap prevention)
+  const isForPdf = options?.isForPdf !== false;
+
+  // 1. Hollow or stroked text (PDF Mode 2 overlap prevention, and hollow knockout)
   if (isStrokedOrHollowText(obj)) return true;
 
   // 2. Letter spacing / charSpacing (SVGtoPDF drops letter-spacing!)
-  if ((Number(obj.charSpacing) || 0) !== 0) return true;
+  if (isForPdf && (Number(obj.charSpacing) || 0) !== 0) return true;
 
   // 3. Text on a path / curved text (SVGtoPDF doesn't support textPath)
   if (Boolean(obj.path)) return true;
@@ -1671,6 +1732,11 @@ export async function requiresFaithfulTextRasterization(
   if (cornerRadius > 0) return true;
 
   // 7. Font availability: check if font can be safely embedded in PDFKit as genuine vector font
+  if (!isForPdf) {
+    // For standalone SVG downloads, embedded @font-face rules in defs faithfully render webfonts
+    return false;
+  }
+
   const rawFamily = ((obj.fontFamily || '').split(',')[0] || '').trim().replace(/^['"]|['"]$/g, '');
   if (!rawFamily) return false;
 
@@ -1705,6 +1771,7 @@ export async function rasterizeHollowTextForExport(
   options?: {
     preferredMultiplier?: number;
     maxLongEdgePx?: number;
+    isForPdf?: boolean;
   }
 ): Promise<number> {
   if (!canvasManager) return 0;
@@ -1723,7 +1790,7 @@ export async function rasterizeHollowTextForExport(
 
   const targetTexts: any[] = [];
   for (const obj of allObjects) {
-    if (await requiresFaithfulTextRasterization(obj, safeFamiliesCache)) {
+    if (await requiresFaithfulTextRasterization(obj, safeFamiliesCache, { isForPdf: options?.isForPdf })) {
       targetTexts.push(obj);
     }
   }
@@ -1758,38 +1825,14 @@ export async function rasterizeHollowTextForExport(
       Math.min(preferredMultiplier, maxLongEdgePx / sourceLongEdge)
     );
 
-    let rasterCanvas: HTMLCanvasElement | null = null;
-    const origGroup = textObj.group;
-    const origStrokeWidth = Number(textObj.strokeWidth) || 0;
-    const origBaseStrokeWidth = (textObj as any).baseStrokeWidth;
     const textScaleX = Math.abs(Number(textObj.scaleX) || 1);
     const textScaleY = Math.abs(Number(textObj.scaleY) || 1);
     const textAvgScale = (textScaleX + textScaleY) / 2;
 
-    try {
-      textObj.group = undefined;
-      // Compensate text stroke width so scaling inside SVG group reproduces exact visual border weight
-      if (origStrokeWidth > 0 && textAvgScale > 0.0001 && Math.abs(textAvgScale - 1) > 0.001) {
-        textObj.strokeWidth = origStrokeWidth / textAvgScale;
-        if (typeof origBaseStrokeWidth === 'number') {
-          (textObj as any).baseStrokeWidth = origBaseStrokeWidth / textAvgScale;
-        }
-      }
-      if (typeof textObj.toCanvasElement === 'function') {
-        rasterCanvas = textObj.toCanvasElement({
-          multiplier: safeMultiplier,
-          withoutTransform: true,
-          withoutShadow: true,
-          enableRetinaScaling: false,
-        } as any);
-      }
-    } finally {
-      textObj.strokeWidth = origStrokeWidth;
-      if (typeof origBaseStrokeWidth === 'number') {
-        (textObj as any).baseStrokeWidth = origBaseStrokeWidth;
-      }
-      textObj.group = origGroup;
-    }
+    const rasterCanvas = renderFabricObjectToRasterCanvas(textObj, {
+      multiplier: safeMultiplier,
+      avgScale: textAvgScale,
+    });
 
     if (!rasterCanvas) continue;
 
