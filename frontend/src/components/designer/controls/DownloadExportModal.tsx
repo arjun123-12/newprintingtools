@@ -36,6 +36,7 @@ import {
   rasterizeHollowTextForExport,
   rasterizeFramesForVectorPdf,
   validateSvgExport,
+  normalizeSvgStrokeWeightsForPdf,
 } from '../utils/svgExportHelpers';
 import { iccProfileService } from '@/services/colorManagement/iccProfileService';
 import { printExportService, downloadBinaryFile } from '@/services/colorManagement/printExportService';
@@ -1892,6 +1893,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
               maxLongEdgePx: 8192,
             }
           );
+
+          normalizeSvgStrokeWeightsForPdf(svgDoc, canvasManager);
 
           const finalSvgMarkup =
             new XMLSerializer().serializeToString(svgDoc);

@@ -15,6 +15,7 @@ import {
   rasterizeFramesForVectorPdf,
   embedFontsInSvgDefs,
   preserveHollowTextInSvg,
+  normalizeSvgStrokeWeightsForPdf,
 } from '../utils/svgExportHelpers';
 import { Shadow } from 'fabric';
 
@@ -881,6 +882,7 @@ async function prepareSvgFiltersForVectorPdf(
     vectorDoc.querySelectorAll('[data-shadow-element="true"]').forEach((node) => {
       node.remove();
     });
+    normalizeSvgStrokeWeightsForPdf(vectorDoc, canvasManager);
     return {
       backgroundSvg: null,
       vectorSvg: new XMLSerializer().serializeToString(vectorDoc.documentElement),
@@ -1025,6 +1027,8 @@ async function prepareSvgFiltersForVectorPdf(
       );
     }
   }
+
+  normalizeSvgStrokeWeightsForPdf(vectorDoc, canvasManager);
 
   const vectorSvgString = new XMLSerializer().serializeToString(
     vectorDoc.documentElement
@@ -2608,6 +2612,7 @@ export async function exportVectorPdf(
             const bounds = getArtworkExportBounds(options.geometry, 300);
             injectVisibleTrimLineInSvg(svgDoc, bounds);
           }
+          normalizeSvgStrokeWeightsForPdf(svgDoc, options.canvasManager);
           svg = new XMLSerializer().serializeToString(svgDoc);
         }
       }

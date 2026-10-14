@@ -977,27 +977,15 @@ export function requiresRasterizationForVectorPdf(obj: any): boolean {
     return true;
   }
 
-  // 4. Any object with a visible stroke / border
-  const stroke = obj.stroke;
-  const strokeWidth = Number(obj.strokeWidth) || 0;
-  const hasVisibleStroke =
-    Boolean(stroke) &&
-    stroke !== 'transparent' &&
-    stroke !== 'none' &&
-    stroke !== 'rgba(0,0,0,0)' &&
-    strokeWidth > 0;
-  if (hasVisibleStroke) return true;
-
-  // 5. Active visual stroke effects (outline, neon, baseStrokeWidth)
+  // 4. Active visual stroke effects (outline, neon)
   if (
     obj._activeEffects?.outline ||
-    obj._activeEffects?.neon ||
-    (Number(obj.baseStrokeWidth) || 0) > 0
+    obj._activeEffects?.neon
   ) {
     return true;
   }
 
-  // 6. Any object with a clipPath
+  // 5. Any object with a clipPath
   if (obj.clipPath) {
     return true;
   }
@@ -1123,8 +1111,24 @@ export async function rasterizeFramesForVectorPdf(
       let rasterCanvas: HTMLCanvasElement | null = null;
 
       const origGroup = obj.group;
+      const origStrokeWidth = Number(obj.strokeWidth) || 0;
+      const origBaseStrokeWidth = (obj as any).baseStrokeWidth;
+      const objScaleX = Math.abs(Number(obj.scaleX) || 1);
+      const objScaleY = Math.abs(Number(obj.scaleY) || 1);
+      const avgScale = (objScaleX + objScaleY) / 2;
+
       try {
         obj.group = undefined;
+        // In Fabric canvas, strokeUniform renders strokes at unscaled visual width on screen.
+        // When rendered into an unscaled raster image and placed inside <g transform="matrix(scaleX...)">,
+        // the group transform scales the image by avgScale. We divide strokeWidth by avgScale
+        // so that (strokeWidth / avgScale) * avgScale equals the exact canvas stroke width in the PDF.
+        if (origStrokeWidth > 0 && avgScale > 0.0001 && Math.abs(avgScale - 1) > 0.001) {
+          obj.strokeWidth = origStrokeWidth / avgScale;
+          if (typeof origBaseStrokeWidth === 'number') {
+            (obj as any).baseStrokeWidth = origBaseStrokeWidth / avgScale;
+          }
+        }
         if (typeof obj.toCanvasElement === 'function') {
           rasterCanvas = obj.toCanvasElement({
             multiplier: safeMultiplier,
@@ -1136,6 +1140,10 @@ export async function rasterizeFramesForVectorPdf(
           } as any);
         }
       } finally {
+        obj.strokeWidth = origStrokeWidth;
+        if (typeof origBaseStrokeWidth === 'number') {
+          (obj as any).baseStrokeWidth = origBaseStrokeWidth;
+        }
         obj.group = origGroup;
       }
 
@@ -1519,8 +1527,21 @@ export async function rasterizeHollowTextForExport(
 
     let rasterCanvas: HTMLCanvasElement | null = null;
     const origGroup = textObj.group;
+    const origStrokeWidth = Number(textObj.strokeWidth) || 0;
+    const origBaseStrokeWidth = (textObj as any).baseStrokeWidth;
+    const textScaleX = Math.abs(Number(textObj.scaleX) || 1);
+    const textScaleY = Math.abs(Number(textObj.scaleY) || 1);
+    const textAvgScale = (textScaleX + textScaleY) / 2;
+
     try {
       textObj.group = undefined;
+      // Compensate text stroke width so scaling inside SVG group reproduces exact visual border weight
+      if (origStrokeWidth > 0 && textAvgScale > 0.0001 && Math.abs(textAvgScale - 1) > 0.001) {
+        textObj.strokeWidth = origStrokeWidth / textAvgScale;
+        if (typeof origBaseStrokeWidth === 'number') {
+          (textObj as any).baseStrokeWidth = origBaseStrokeWidth / textAvgScale;
+        }
+      }
       if (typeof textObj.toCanvasElement === 'function') {
         rasterCanvas = textObj.toCanvasElement({
           multiplier: safeMultiplier,
@@ -1530,6 +1551,10 @@ export async function rasterizeHollowTextForExport(
         } as any);
       }
     } finally {
+      textObj.strokeWidth = origStrokeWidth;
+      if (typeof origBaseStrokeWidth === 'number') {
+        (textObj as any).baseStrokeWidth = origBaseStrokeWidth;
+      }
       textObj.group = origGroup;
     }
 
@@ -1686,6 +1711,215 @@ export function preserveHollowTextInSvg(
     // Apply knockout mask to the stroked text element
     textEl.setAttribute('mask', `url(#${maskId})`);
   }
+}
+
+export type Matrix2D = [number, number, number, number, number, number];
+
+export function identityMatrix(): Matrix2D {
+  return [1, 0, 0, 1, 0, 0];
+}
+
+export function multiplyMatrix2D(m1: Matrix2D, m2: Matrix2D): Matrix2D {
+  return [
+    m1[0] * m2[0] + m1[2] * m2[1],
+    m1[1] * m2[0] + m1[3] * m2[1],
+    m1[0] * m2[2] + m1[2] * m2[3],
+    m1[1] * m2[2] + m1[3] * m2[3],
+    m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+    m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+  ];
+}
+
+export function parseSvgTransform(transformStr: string | null): Matrix2D {
+  if (!transformStr || !transformStr.trim()) {
+    return identityMatrix();
+  }
+
+  let result = identityMatrix();
+  const fnRegex = /([a-zA-Z]+)\s*\(([^)]+)\)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = fnRegex.exec(transformStr)) !== null) {
+    const fn = match[1].toLowerCase();
+    const args = match[2]
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number)
+      .filter((n) => Number.isFinite(n));
+
+    let m: Matrix2D = identityMatrix();
+
+    if (fn === 'matrix' && args.length >= 6) {
+      m = [args[0], args[1], args[2], args[3], args[4], args[5]];
+    } else if (fn === 'scale' && args.length >= 1) {
+      const sx = args[0];
+      const sy = args.length >= 2 ? args[1] : sx;
+      m = [sx, 0, 0, sy, 0, 0];
+    } else if (fn === 'translate' && args.length >= 1) {
+      const tx = args[0];
+      const ty = args.length >= 2 ? args[1] : 0;
+      m = [1, 0, 0, 1, tx, ty];
+    } else if (fn === 'rotate' && args.length >= 1) {
+      const rad = (args[0] * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      if (args.length >= 3) {
+        const cx = args[1];
+        const cy = args[2];
+        const t1: Matrix2D = [1, 0, 0, 1, cx, cy];
+        const r: Matrix2D = [cos, sin, -sin, cos, 0, 0];
+        const t2: Matrix2D = [1, 0, 0, 1, -cx, -cy];
+        m = multiplyMatrix2D(multiplyMatrix2D(t1, r), t2);
+      } else {
+        m = [cos, sin, -sin, cos, 0, 0];
+      }
+    } else if (fn === 'skewx' && args.length >= 1) {
+      const rad = (args[0] * Math.PI) / 180;
+      m = [1, 0, Math.tan(rad), 1, 0, 0];
+    } else if (fn === 'skewy' && args.length >= 1) {
+      const rad = (args[0] * Math.PI) / 180;
+      m = [1, Math.tan(rad), 0, 1, 0, 0];
+    }
+
+    result = multiplyMatrix2D(result, m);
+  }
+
+  return result;
+}
+
+export function getMatrixScale(m: Matrix2D): number {
+  const scaleX = Math.hypot(m[0], m[1]);
+  const scaleY = Math.hypot(m[2], m[3]);
+  const avg = (scaleX + scaleY) / 2;
+  return Number.isFinite(avg) && avg > 0.0001 ? avg : 1;
+}
+
+/**
+ * Normalizes vector SVG stroke weights for PDF export.
+ *
+ * In Fabric canvas, objects render with `strokeUniform: true`, meaning their visual stroke
+ * thickness on screen strictly equals `strokeWidth` canvas pixels regardless of object scaling.
+ * When exported to SVG, Fabric emits `<g transform="matrix(...)">` around elements with
+ * `vector-effect="non-scaling-stroke"`.
+ *
+ * SVGtoPDF (svg-to-pdfkit) does NOT support `vector-effect="non-scaling-stroke"`. It applies
+ * the group transform directly to PDFKit's CTM, multiplying `lineWidth` by object scale.
+ *
+ * This function traverses the SVG DOM and divides stroke-width and stroke-dasharray
+ * on transformed elements by their cumulative transform scale `s`. When SVGtoPDF applies
+ * the group transform, `(strokeWidth / s) * s` yields exactly `strokeWidth` canvas pixels,
+ * which scales with root viewBox `widthPt / canvasWidth` to PDF points, matching the editor
+ * at every zoom level and document size.
+ */
+export function normalizeSvgStrokeWeightsForPdf(
+  svgDoc: Document,
+  _canvasManager?: CanvasManager | null
+): void {
+  const root = svgDoc.documentElement;
+  if (!root) return;
+
+  function traverse(element: Element, parentMatrix: Matrix2D): void {
+    // Skip print marks, crop lines, guide overlays, background layers, shadow layers
+    if (
+      element.getAttribute('data-print-trim-line') === 'true' ||
+      element.getAttribute('id') === 'export-visible-trim-marks' ||
+      element.getAttribute('data-folding-guide-overlay') === 'true' ||
+      element.getAttribute('data-pdf-background') === 'true' ||
+      element.getAttribute('data-fabric-shadow-layer') === 'true'
+    ) {
+      return;
+    }
+
+    const tag = element.tagName.toLowerCase();
+    if (tag === 'defs' || tag === 'clippath' || tag === 'mask') {
+      return;
+    }
+
+    const localTransform = parseSvgTransform(element.getAttribute('transform'));
+    const currentMatrix = multiplyMatrix2D(parentMatrix, localTransform);
+    const currentScale = getMatrixScale(currentMatrix);
+
+    const isAlreadyNormalized = element.getAttribute('data-pdf-stroke-normalized') === 'true';
+
+    if (!isAlreadyNormalized) {
+      const strokeAttr = element.getAttribute('stroke');
+      const styleAttr = element.getAttribute('style') || '';
+      const strokeInStyle = styleAttr.match(/stroke\s*:\s*([^;]+)/i);
+      const effectiveStroke = (strokeAttr || (strokeInStyle ? strokeInStyle[1] : '')).trim();
+
+      const isVisibleStroke =
+        effectiveStroke &&
+        effectiveStroke !== 'none' &&
+        effectiveStroke !== 'transparent' &&
+        effectiveStroke !== 'rgba(0,0,0,0)';
+
+      if (isVisibleStroke && Math.abs(currentScale - 1) > 0.001) {
+        // 1. Compensate stroke-width
+        let rawWidth: number | null = null;
+        const strokeWidthAttr = element.getAttribute('stroke-width');
+        if (strokeWidthAttr && Number.isFinite(parseFloat(strokeWidthAttr))) {
+          rawWidth = parseFloat(strokeWidthAttr);
+        } else {
+          const match = styleAttr.match(/stroke-width\s*:\s*([0-9.]+)/i);
+          if (match) {
+            rawWidth = parseFloat(match[1]);
+          }
+        }
+
+        if (rawWidth !== null && rawWidth > 0) {
+          const compensatedWidth = rawWidth / currentScale;
+
+          if (element.hasAttribute('stroke-width')) {
+            element.setAttribute('stroke-width', compensatedWidth.toFixed(4));
+          }
+
+          if (styleAttr && /stroke-width\s*:/i.test(styleAttr)) {
+            const newStyle = styleAttr.replace(
+              /stroke-width\s*:\s*[^;]+(;|\s*$)/gi,
+              `stroke-width: ${compensatedWidth.toFixed(4)}$1`
+            );
+            element.setAttribute('style', newStyle);
+          }
+
+          element.setAttribute('data-pdf-stroke-normalized', 'true');
+        }
+
+        // 2. Compensate stroke-dasharray
+        const dashAttr = element.getAttribute('stroke-dasharray');
+        const dashInStyle = styleAttr.match(/stroke-dasharray\s*:\s*([^;]+)/i);
+        const rawDash = dashAttr || (dashInStyle ? dashInStyle[1] : null);
+
+        if (rawDash && rawDash !== 'none') {
+          const numbers = rawDash
+            .trim()
+            .split(/[\s,]+/)
+            .map(parseFloat)
+            .filter((n) => Number.isFinite(n) && n > 0);
+
+          if (numbers.length > 0) {
+            const compensatedDashes = numbers.map((n) => (n / currentScale).toFixed(4)).join(' ');
+            if (element.hasAttribute('stroke-dasharray')) {
+              element.setAttribute('stroke-dasharray', compensatedDashes);
+            }
+            if (styleAttr && /stroke-dasharray\s*:/i.test(styleAttr)) {
+              const currentStyle = element.getAttribute('style') || '';
+              const newStyle = currentStyle.replace(
+                /stroke-dasharray\s*:\s*[^;]+(;|\s*$)/gi,
+                `stroke-dasharray: ${compensatedDashes}$1`
+              );
+              element.setAttribute('style', newStyle);
+            }
+          }
+        }
+      }
+    }
+
+    for (let i = 0; i < element.children.length; i++) {
+      traverse(element.children[i], currentMatrix);
+    }
+  }
+
+  traverse(root, identityMatrix());
 }
 
 
