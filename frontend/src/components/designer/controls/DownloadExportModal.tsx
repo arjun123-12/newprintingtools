@@ -35,6 +35,7 @@ import {
   preserveHollowTextInSvg,
   rasterizeHollowTextForExport,
   rasterizeFramesForVectorPdf,
+  processCroppedElementsForSvgExport,
   validateSvgExport,
   normalizeSvgStrokeWeightsForPdf,
 } from '../utils/svgExportHelpers';
@@ -1515,6 +1516,9 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
           // 4. Inject visual silhouette shadows for clipped images and frames
           injectSilhouetteShadowsInSvg(svgDoc, canvasManager);
 
+          // 4.5. Process and replace cropped images and elements with self-contained high-res cropped images
+          await processCroppedElementsForSvgExport(svgDoc, canvasManager);
+
           // 5. Knock out inner laps on hollow text elements in SVG via high-resolution rasterization
           await rasterizeHollowTextForExport(svgDoc, canvasManager);
           preserveHollowTextInSvg(svgDoc, canvasManager);
@@ -1881,6 +1885,9 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             svgDoc,
             canvasManager
           );
+
+          // Process cropped images and elements so their exact boundaries are embedded
+          await processCroppedElementsForSvgExport(svgDoc, canvasManager);
 
           // svg2pdf.js can lose complex alpha/clip masks around raster photos.
           // Rasterize ONLY complete frame objects; text and other artwork

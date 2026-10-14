@@ -569,6 +569,7 @@ function createCornerControls(): Record<string, Control> {
       actionHandler: frameAwareScalingEqually,
       actionName: 'scale',
       render: renderCanvaCornerHandle,
+      positionHandler: canvaVisualControlPositionHandler as any,
     }),
 
     tr: new Control({
@@ -579,6 +580,7 @@ function createCornerControls(): Record<string, Control> {
       actionHandler: frameAwareScalingEqually,
       actionName: 'scale',
       render: renderCanvaCornerHandle,
+      positionHandler: canvaVisualControlPositionHandler as any,
     }),
 
     bl: new Control({
@@ -589,6 +591,7 @@ function createCornerControls(): Record<string, Control> {
       actionHandler: frameAwareScalingEqually,
       actionName: 'scale',
       render: renderCanvaCornerHandle,
+      positionHandler: canvaVisualControlPositionHandler as any,
     }),
 
     br: new Control({
@@ -599,6 +602,7 @@ function createCornerControls(): Record<string, Control> {
       actionHandler: frameAwareScalingEqually,
       actionName: 'scale',
       render: renderCanvaCornerHandle,
+      positionHandler: canvaVisualControlPositionHandler as any,
     }),
   };
 }
@@ -621,6 +625,7 @@ function createSideScaleControls(): Record<string, Control> {
       actionHandler: frameAwareScalingX,
       actionName: 'scaleX',
       render: renderCanvaSideHandle(true),
+      positionHandler: canvaVisualControlPositionHandler as any,
     }),
 
     mr: new Control({
@@ -635,6 +640,7 @@ function createSideScaleControls(): Record<string, Control> {
       actionHandler: frameAwareScalingX,
       actionName: 'scaleX',
       render: renderCanvaSideHandle(true),
+      positionHandler: canvaVisualControlPositionHandler as any,
     }),
 
     // Height-only resize
@@ -650,6 +656,7 @@ function createSideScaleControls(): Record<string, Control> {
       actionHandler: frameAwareScalingY,
       actionName: 'scaleY',
       render: renderCanvaSideHandle(false),
+      positionHandler: canvaVisualControlPositionHandler as any,
     }),
 
     mb: new Control({
@@ -664,6 +671,7 @@ function createSideScaleControls(): Record<string, Control> {
       actionHandler: frameAwareScalingY,
       actionName: 'scaleY',
       render: renderCanvaSideHandle(false),
+      positionHandler: canvaVisualControlPositionHandler as any,
     }),
   };
 }
@@ -714,6 +722,7 @@ function createRotationControl(): Control {
     actionName: 'rotate',
     withConnection: false,
     render: renderCanvaRotationHandle,
+    positionHandler: canvaVisualControlPositionHandler as any,
   });
 }
 
@@ -732,12 +741,127 @@ export function createCanvaControls(): Record<
 }
 
 
-export type CurvedTextSelectionBox = {
+export type VisualSelectionBox = {
   left: number;
   top: number;
   width: number;
   height: number;
 };
+
+export type CurvedTextSelectionBox = VisualSelectionBox;
+
+/**
+ * Returns the exact bounding rectangle of the visible cropped region of a shape or element.
+ * In Fabric local coordinates (origin at center 0,0), untransformed bounds are [-baseW/2, -baseH/2, baseW, baseH].
+ */
+export function getCroppedElementSelectionBox(
+  obj: FabricObject
+): VisualSelectionBox | null {
+  if (!obj) return null;
+
+  // Direct FabricImage objects handle crop natively via Fabric's cropX/cropY and width/height,
+  // so Fabric already sizes their native bounding box to the crop dimensions.
+  if (obj instanceof FabricImage) {
+    return null;
+  }
+
+  const isCropped = Boolean(
+    (obj as any).isElementCropped ||
+    (typeof obj.get === 'function' && obj.get('isElementCropped' as any)) ||
+    (obj.clipPath && !(obj as any).isFrame)
+  );
+  if (!isCropped) return null;
+
+  const cropX = Math.max(
+    0,
+    Number(
+      (obj as any).cropX ??
+      (typeof obj.get === 'function' ? obj.get('cropX' as any) : 0)
+    ) || 0
+  );
+  const cropY = Math.max(
+    0,
+    Number(
+      (obj as any).cropY ??
+      (typeof obj.get === 'function' ? obj.get('cropY' as any) : 0)
+    ) || 0
+  );
+
+  let cropWidth = Number(
+    (obj as any).cropWidth ??
+    (typeof obj.get === 'function' ? obj.get('cropWidth' as any) : 0)
+  );
+  let cropHeight = Number(
+    (obj as any).cropHeight ??
+    (typeof obj.get === 'function' ? obj.get('cropHeight' as any) : 0)
+  );
+
+  const baseW =
+    Number(
+      (obj as any).naturalWidth ??
+      (typeof obj.get === 'function' ? obj.get('naturalWidth' as any) : 0)
+    ) ||
+    Number(obj.width) ||
+    200;
+
+  const baseH =
+    Number(
+      (obj as any).naturalHeight ??
+      (typeof obj.get === 'function' ? obj.get('naturalHeight' as any) : 0)
+    ) ||
+    Number(obj.height) ||
+    200;
+
+  // Fallback if cropWidth/Height wasn't stored directly but clipPath is a Rect
+  if ((!cropWidth || !cropHeight) && obj.clipPath && obj.clipPath instanceof Rect) {
+    cropWidth = Number(obj.clipPath.width) || baseW;
+    cropHeight = Number(obj.clipPath.height) || baseH;
+  }
+
+  if (!cropWidth || !cropHeight || cropWidth <= 0 || cropHeight <= 0) {
+    return null;
+  }
+
+  // If crop is full dimensions (not cropped), no custom selection box needed
+  if (
+    Math.abs(cropWidth - baseW) < 0.5 &&
+    Math.abs(cropHeight - baseH) < 0.5 &&
+    cropX === 0 &&
+    cropY === 0
+  ) {
+    return null;
+  }
+
+  // In Fabric's local object coordinate system, the center of the object is (0,0),
+  // and the top-left of the untransformed base bounds is (-baseW / 2, -baseH / 2).
+  const left = -baseW / 2 + cropX;
+  const top = -baseH / 2 + cropY;
+
+  return {
+    left,
+    top,
+    width: cropWidth,
+    height: cropHeight,
+  };
+}
+
+/**
+ * Returns the active visual bounding box for either curved text or cropped shapes/elements.
+ */
+export function getObjectVisualSelectionBox(
+  obj: FabricObject
+): VisualSelectionBox | null {
+  if (!obj) return null;
+
+  // 1. Curved text has priority for text objects
+  const curvedBox = getCurvedTextSelectionBox(obj);
+  if (curvedBox) {
+    return curvedBox;
+  }
+
+  // 2. Cropped shapes and elements (Rect, Circle, Path, Polygon, Group, etc.)
+  return getCroppedElementSelectionBox(obj);
+}
 
 /**
  * Canonical curve slider mapping (-100..100).
@@ -951,16 +1075,17 @@ export function getCurvedTextSelectionBox(
 }
 
 /**
- * When text is curved, locate controls on the curved-text visual box.
- * Straight text falls back to Fabric's normal control position calculation.
+ * Visual-aware control position handler that locates control handles on the
+ * actual visible visual box (such as curved text bounds or cropped shape bounds).
+ * Falls back to Fabric's standard control positioning when no custom box is active.
  */
-function curvedTextboxControlPositionHandler(
+export function canvaVisualControlPositionHandler(
   dim: Point,
   finalMatrix: any,
   fabricObject: FabricObject,
   currentControl: Control
 ): Point {
-  const box = getCurvedTextSelectionBox(fabricObject);
+  const box = getObjectVisualSelectionBox(fabricObject);
 
   if (!box) {
     // Exact Fabric default control positioning for normal/straight text.
@@ -977,10 +1102,9 @@ function curvedTextboxControlPositionHandler(
    * `finalMatrix`; the normal control path receives `dim` already multiplied
    * by object scale + canvas zoom.
    *
-   * Our curved selection box is in the Textbox's LOCAL coordinates, so it
+   * Our visual selection box is in the object's LOCAL coordinates, so it
    * MUST be converted to the same screen-sized coordinates before applying
-   * finalMatrix. The previous version skipped this conversion, which is why
-   * the purple frame was correct but the handles stayed far outside it.
+   * finalMatrix.
    */
   const objectScaling =
     typeof (fabricObject as any).getObjectScaling === 'function'
@@ -1031,6 +1155,8 @@ function curvedTextboxControlPositionHandler(
     scaledY + offsetY
   ).transform(finalMatrix);
 }
+
+const curvedTextboxControlPositionHandler = canvaVisualControlPositionHandler;
 
 function createCurvedAwareTextboxCornerControls(): Record<string, Control> {
   const makeCorner = (x: number, y: number) =>
@@ -1533,100 +1659,8 @@ export function applyCanvaControlsGlobal(): void {
       }
     };
 
-    // Draw custom selection frame for curved text, or default for straight text.
-    const origDrawBorders = prototype.drawBorders;
-    prototype.drawBorders = function (
-      ctx: CanvasRenderingContext2D,
-      options?: any,
-      styleOverride?: any
-    ) {
-      const box = getCurvedTextSelectionBox(this);
-      if (!box) {
-        return origDrawBorders?.call(this, ctx, options, styleOverride);
-      }
-
-      const objectScaling =
-        typeof (this as any).getObjectScaling === 'function'
-          ? (this as any).getObjectScaling()
-          : new Point(
-              Math.abs(Number(this.scaleX) || 1),
-              Math.abs(Number(this.scaleY) || 1)
-            );
-
-      const vpt =
-        typeof (this as any).getViewportTransform === 'function'
-          ? (this as any).getViewportTransform()
-          : [1, 0, 0, 1, 0, 0];
-
-      const viewportScaleX = Math.max(
-        0.0001,
-        Math.hypot(Number(vpt?.[0]) || 1, Number(vpt?.[1]) || 0)
-      );
-      const viewportScaleY = Math.max(
-        0.0001,
-        Math.hypot(Number(vpt?.[2]) || 0, Number(vpt?.[3]) || 1)
-      );
-
-      const screenScaleX =
-        Math.max(0.0001, Math.abs(Number(objectScaling?.x) || 1)) *
-        viewportScaleX;
-      const screenScaleY =
-        Math.max(0.0001, Math.abs(Number(objectScaling?.y) || 1)) *
-        viewportScaleY;
-
-      ctx.save();
-      ctx.strokeStyle = CANVA_PURPLE;
-      ctx.lineWidth = Number((this as any).borderScaleFactor || 1.5);
-      ctx.strokeRect(
-        box.left * screenScaleX,
-        box.top * screenScaleY,
-        box.width * screenScaleX,
-        box.height * screenScaleY
-      );
-      ctx.restore();
-    };
-
-    // Calculate aCoords from curved selection box so Fabric's native hit-testing,
-    // bounding box calculations, and selection area enclose the curved text accurately.
-    const origCalcACoords = prototype.calcACoords;
-    prototype.calcACoords = function () {
-      const box = getCurvedTextSelectionBox(this);
-      if (!box) {
-        return origCalcACoords?.call(this);
-      }
-      const matrix =
-        typeof this.calcTransformMatrix === 'function'
-          ? this.calcTransformMatrix()
-          : null;
-      if (!matrix) {
-        return origCalcACoords?.call(this);
-      }
-      return {
-        tl: new Point(box.left, box.top).transform(matrix),
-        tr: new Point(box.left + box.width, box.top).transform(matrix),
-        br: new Point(box.left + box.width, box.top + box.height).transform(matrix),
-        bl: new Point(box.left, box.top + box.height).transform(matrix),
-      };
-    };
-
-    // Hit-testing includes curved text bounds so clicks on curved glyphs always work.
-    const origContainsPoint = prototype.containsPoint;
-    prototype.containsPoint = function (point: Point, lines?: any) {
-      const box = getCurvedTextSelectionBox(this);
-      if (box && typeof (this as any).toLocalPoint === 'function') {
-        const localPoint = (this as any).toLocalPoint(point, 'center', 'center');
-        if (
-          localPoint &&
-          localPoint.x >= box.left &&
-          localPoint.x <= box.left + box.width &&
-          localPoint.y >= box.top &&
-          localPoint.y <= box.top + box.height
-        ) {
-          return true;
-        }
-      }
-      return origContainsPoint?.call(this, point, lines);
-    };
+    // Visual-aware selection frame, aCoords, and hit-testing for both curved text
+    // and cropped shapes/elements are handled globally on FabricObject.prototype.
 
     // Double-click enters text editing mode reliably for both straight and curved text.
     const origDoubleClickHandler = prototype.doubleClickHandler;
@@ -1743,6 +1777,104 @@ export function applyCanvaControlsGlobal(): void {
   if ((FabricObject as any).ownDefaults) {
     applyDefaults((FabricObject as any).ownDefaults);
   }
+
+  // Draw custom selection frame for visual-aware objects (curved text, cropped shapes/elements)
+  const origDrawBorders = FabricObject.prototype.drawBorders;
+  FabricObject.prototype.drawBorders = function (
+    ctx: CanvasRenderingContext2D,
+    options?: any,
+    styleOverride?: any
+  ) {
+    const box = getObjectVisualSelectionBox(this);
+    if (!box) {
+      return origDrawBorders?.call(this, ctx, options, styleOverride);
+    }
+
+    const objectScaling =
+      typeof (this as any).getObjectScaling === 'function'
+        ? (this as any).getObjectScaling()
+        : new Point(
+            Math.abs(Number(this.scaleX) || 1),
+            Math.abs(Number(this.scaleY) || 1)
+          );
+
+    const vpt =
+      typeof (this as any).getViewportTransform === 'function'
+        ? (this as any).getViewportTransform()
+        : [1, 0, 0, 1, 0, 0];
+
+    const viewportScaleX = Math.max(
+      0.0001,
+      Math.hypot(Number(vpt?.[0]) || 1, Number(vpt?.[1]) || 0)
+    );
+    const viewportScaleY = Math.max(
+      0.0001,
+      Math.hypot(Number(vpt?.[2]) || 0, Number(vpt?.[3]) || 1)
+    );
+
+    const screenScaleX =
+      Math.max(0.0001, Math.abs(Number(objectScaling?.x) || 1)) *
+      viewportScaleX;
+    const screenScaleY =
+      Math.max(0.0001, Math.abs(Number(objectScaling?.y) || 1)) *
+      viewportScaleY;
+
+    ctx.save();
+    ctx.strokeStyle = CANVA_PURPLE;
+    ctx.lineWidth = Number((this as any).borderScaleFactor || 1.5);
+    ctx.strokeRect(
+      box.left * screenScaleX,
+      box.top * screenScaleY,
+      box.width * screenScaleX,
+      box.height * screenScaleY
+    );
+    ctx.restore();
+  };
+
+  // Calculate aCoords from visual selection box so Fabric's native hit-testing,
+  // bounding box calculations, and selection area enclose the visual bounds accurately.
+  const origCalcACoords = FabricObject.prototype.calcACoords;
+  FabricObject.prototype.calcACoords = function () {
+    const box = getObjectVisualSelectionBox(this);
+    if (!box) {
+      return origCalcACoords?.call(this);
+    }
+    const matrix =
+      typeof this.calcTransformMatrix === 'function'
+        ? this.calcTransformMatrix()
+        : null;
+    if (!matrix) {
+      return origCalcACoords?.call(this);
+    }
+    return {
+      tl: new Point(box.left, box.top).transform(matrix),
+      tr: new Point(box.left + box.width, box.top).transform(matrix),
+      br: new Point(box.left + box.width, box.top + box.height).transform(matrix),
+      bl: new Point(box.left, box.top + box.height).transform(matrix),
+    };
+  };
+
+  // Hit-testing includes visual bounds so clicks on cropped or curved elements work accurately.
+  const origContainsPoint = FabricObject.prototype.containsPoint;
+  FabricObject.prototype.containsPoint = function (point: Point) {
+    const box = getObjectVisualSelectionBox(this);
+    if (box && typeof (this as any).toLocalPoint === 'function') {
+      const localPoint = (this as any).toLocalPoint(point, 'center', 'center');
+      if (
+        localPoint &&
+        localPoint.x >= box.left &&
+        localPoint.x <= box.left + box.width &&
+        localPoint.y >= box.top &&
+        localPoint.y <= box.top + box.height
+      ) {
+        return true;
+      }
+      if (getCroppedElementSelectionBox(this)) {
+        return false;
+      }
+    }
+    return (origContainsPoint as any)?.call(this, point);
+  };
 
   // Canva behavior: object bounding box width & height are fixed and do NOT expand when strokeWidth increases
   const origGetNonTransformedDimensions =

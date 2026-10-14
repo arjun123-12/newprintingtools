@@ -968,16 +968,22 @@ export function requiresRasterizationForVectorPdf(obj: any): boolean {
     0;
   if (cornerRadius > 0) return true;
 
-  // 3. Image with corner rounding clip or clipPath
+  // 3. Cropped image or cropped element (Fabric native cropX/cropY, isElementCropped)
   const isImg =
     obj instanceof FabricImage ||
     (obj as any).type === 'image' ||
     (obj as any).type === 'FabricImage';
+
+  if (isObjectCropped(obj)) {
+    return true;
+  }
+
+  // 4. Image with corner rounding clip or clipPath
   if (isImg && (Boolean(obj.clipPath) || cornerRadius > 0)) {
     return true;
   }
 
-  // 4. Active visual stroke effects (outline, neon)
+  // 5. Active visual stroke effects (outline, neon)
   if (
     obj._activeEffects?.outline ||
     obj._activeEffects?.neon
@@ -985,9 +991,52 @@ export function requiresRasterizationForVectorPdf(obj: any): boolean {
     return true;
   }
 
-  // 5. Any object with a clipPath
+  // 6. Any object with a clipPath
   if (obj.clipPath) {
     return true;
+  }
+
+  return false;
+}
+
+/**
+ * Detects whether a Fabric object is cropped (image with cropX/cropY or shape/element with isElementCropped).
+ */
+export function isObjectCropped(obj: any): boolean {
+  if (!obj) return false;
+
+  if (
+    obj.isGuide ||
+    obj.isPrintGuide ||
+    obj.isRulerGuide ||
+    obj.isCropOverlayPhoto ||
+    obj.isFoldGuideLine ||
+    (obj as any).excludeFromVisualExport
+  ) {
+    return false;
+  }
+
+  if (
+    (obj as any).isElementCropped === true ||
+    (typeof obj.get === 'function' && obj.get('isElementCropped' as any) === true)
+  ) {
+    return true;
+  }
+
+  const isImg =
+    obj instanceof FabricImage ||
+    (obj as any).type === 'image' ||
+    (obj as any).type === 'FabricImage';
+
+  if (isImg) {
+    if (typeof obj.hasCrop === 'function' && obj.hasCrop()) {
+      return true;
+    }
+    const cropX = Number(obj.cropX ?? (typeof obj.get === 'function' ? obj.get('cropX' as any) : 0)) || 0;
+    const cropY = Number(obj.cropY ?? (typeof obj.get === 'function' ? obj.get('cropY' as any) : 0)) || 0;
+    if (cropX > 0 || cropY > 0) {
+      return true;
+    }
   }
 
   return false;
@@ -1077,8 +1126,9 @@ export async function rasterizeFramesForVectorPdf(
     // Skip if targetEl is already a rasterized image from a previous pass
     if (
       targetEl.getAttribute('data-pdf-rasterized') === 'true' ||
-      (targetEl.tagName.toLowerCase() === 'image' &&
-        targetEl.getAttribute('href')?.startsWith('data:image/png'))
+      targetEl.getAttribute('data-svg-cropped') === 'true' ||
+      targetEl.querySelector?.('[data-pdf-rasterized="true"]') ||
+      targetEl.querySelector?.('[data-svg-cropped="true"]')
     ) {
       continue;
     }
@@ -1280,6 +1330,189 @@ export async function rasterizeFramesForVectorPdf(
 
 // Alias for convenience
 export const rasterizeElementsForVectorPdf = rasterizeFramesForVectorPdf;
+
+/**
+ * Ensures cropped images and cropped elements download properly in SVG and PDF formats.
+ *
+ * Fabric's native SVG export places cropped images inside a <g> with a local <clipPath>,
+ * embedding the full uncropped source photo with negative offsets (x = -width/2 - cropX).
+ * Many SVG viewers, graphic tools (Illustrator, Inkscape, Corel, Cricut), and laser cutters
+ * fail to parse or preserve local <clipPath> inside <g>, causing the full uncropped photo
+ * to appear or clip paths to get lost.
+ *
+ * This function:
+ * 1. For cropped FabricImage objects: replaces the oversized photo and fragile <clipPath>
+ *    with a high-resolution, self-contained cropped PNG image node with exact dimensions
+ *    (x = -width/2, y = -height/2, width, height) and no clip-path dependency.
+ * 2. For cropped vector elements / shapes: moves any <clipPath> defined inside <g> elements
+ *    into <defs> with standardized IDs and proper scoping so all SVG renderers can locate
+ *    and evaluate the clipping geometry correctly.
+ */
+export async function processCroppedElementsForSvgExport(
+  svgDoc: Document,
+  canvasManager: CanvasManager | null,
+  options?: {
+    preferredMultiplier?: number;
+    maxLongEdgePx?: number;
+  }
+): Promise<number> {
+  if (!canvasManager) return 0;
+  const canvas = canvasManager.getCanvas();
+  if (!canvas) return 0;
+
+  const allObjects = collectFabricObjectsRecursively(canvas);
+  let processedCount = 0;
+
+  for (const obj of allObjects) {
+    if (!obj || !isObjectCropped(obj)) continue;
+
+    const targetEl = findSvgElementForFabricObject(svgDoc, obj, allObjects);
+    if (!targetEl) continue;
+
+    if (
+      targetEl.getAttribute('data-svg-cropped') === 'true' ||
+      targetEl.getAttribute('data-pdf-rasterized') === 'true' ||
+      targetEl.querySelector?.('[data-svg-cropped="true"]') ||
+      targetEl.querySelector?.('[data-pdf-rasterized="true"]')
+    ) {
+      continue;
+    }
+
+    const isImg =
+      obj instanceof FabricImage ||
+      (obj as any).type === 'image' ||
+      (obj as any).type === 'FabricImage';
+
+    if (typeof obj.toCanvasElement === 'function') {
+      const localWidth = Math.max(1, Number(obj.width) || 1);
+      const localHeight = Math.max(1, Number(obj.height) || 1);
+      const strokeWidth = Number(obj.strokeWidth) || 0;
+      const sourceLongEdge = Math.max(localWidth + strokeWidth, localHeight + strokeWidth);
+
+      const natW = Number(obj._element?.naturalWidth || obj._element?.width || 0);
+      const sourceDensity = natW > 0 && localWidth > 0 ? natW / localWidth : 4;
+      const preferredMultiplier = Math.max(
+        2,
+        Math.min(6, options?.preferredMultiplier ?? Math.max(4, sourceDensity))
+      );
+      const maxLongEdgePx = Math.max(1024, options?.maxLongEdgePx ?? 8192);
+      const safeMultiplier = Math.max(
+        1,
+        Math.min(preferredMultiplier, maxLongEdgePx / sourceLongEdge)
+      );
+
+      let rasterCanvas: HTMLCanvasElement | null = null;
+      const origGroup = obj.group;
+      const origStrokeWidth = Number(obj.strokeWidth) || 0;
+      const origBaseStrokeWidth = (obj as any).baseStrokeWidth;
+      const objScaleX = Math.abs(Number(obj.scaleX) || 1);
+      const objScaleY = Math.abs(Number(obj.scaleY) || 1);
+      const avgScale = (objScaleX + objScaleY) / 2;
+
+      try {
+        obj.group = undefined;
+        if (origStrokeWidth > 0 && avgScale > 0.0001 && Math.abs(avgScale - 1) > 0.001) {
+          obj.strokeWidth = origStrokeWidth / avgScale;
+          if (typeof origBaseStrokeWidth === 'number') {
+            (obj as any).baseStrokeWidth = origBaseStrokeWidth / avgScale;
+          }
+        }
+        rasterCanvas = obj.toCanvasElement({
+          multiplier: safeMultiplier,
+          withoutTransform: true,
+          withoutShadow: true,
+          enableRetinaScaling: false,
+        } as any);
+      } catch (err) {
+        console.warn('[SVG Export] Failed to render cropped canvas element:', err);
+      } finally {
+        obj.strokeWidth = origStrokeWidth;
+        if (typeof origBaseStrokeWidth === 'number') {
+          (obj as any).baseStrokeWidth = origBaseStrokeWidth;
+        }
+        obj.group = origGroup;
+      }
+
+      if (rasterCanvas) {
+        const croppedDataUrl = rasterCanvas.toDataURL('image/png');
+        if (croppedDataUrl && croppedDataUrl.startsWith('data:image/png')) {
+          const renderWidth = rasterCanvas.width / safeMultiplier;
+          const renderHeight = rasterCanvas.height / safeMultiplier;
+          const x = -renderWidth / 2;
+          const y = -renderHeight / 2;
+
+          const imageEl = svgDoc.createElementNS(
+            'http://www.w3.org/2000/svg',
+            'image'
+          );
+          imageEl.setAttribute('x', `${x}`);
+          imageEl.setAttribute('y', `${y}`);
+          imageEl.setAttribute('width', `${renderWidth}`);
+          imageEl.setAttribute('height', `${renderHeight}`);
+          imageEl.setAttribute('preserveAspectRatio', 'none');
+          imageEl.setAttribute('href', croppedDataUrl);
+          imageEl.setAttribute('xlink:href', croppedDataUrl);
+          imageEl.setAttribute('data-svg-cropped', 'true');
+          imageEl.setAttribute('data-pdf-rasterized', 'true');
+
+          targetEl.removeAttribute('clip-path');
+          targetEl.removeAttribute('mask');
+          targetEl.removeAttribute('stroke');
+          targetEl.removeAttribute('stroke-width');
+          targetEl.removeAttribute('paint-order');
+
+          const existingStyle = targetEl.getAttribute('style');
+          if (existingStyle) {
+            const cleanedStyle = existingStyle
+              .replace(/stroke\s*:[^;]+(;|\s*$)/gi, '')
+              .replace(/stroke-width\s*:[^;]+(;|\s*$)/gi, '')
+              .replace(/paint-order\s*:[^;]+(;|\s*$)/gi, '')
+              .trim();
+            if (cleanedStyle) {
+              targetEl.setAttribute('style', cleanedStyle);
+            } else {
+              targetEl.removeAttribute('style');
+            }
+          }
+
+          if (targetEl.tagName.toLowerCase() === 'g') {
+            while (targetEl.firstChild) {
+              targetEl.removeChild(targetEl.firstChild);
+            }
+            targetEl.appendChild(imageEl);
+            processedCount++;
+          } else if (targetEl.parentNode) {
+            const replacementGroup = svgDoc.createElementNS(
+              'http://www.w3.org/2000/svg',
+              'g'
+            );
+            const transform = targetEl.getAttribute('transform');
+            if (transform) replacementGroup.setAttribute('transform', transform);
+            const id = targetEl.getAttribute('id');
+            if (id) replacementGroup.setAttribute('id', id);
+            const opacity = targetEl.getAttribute('opacity');
+            if (opacity) replacementGroup.setAttribute('opacity', opacity);
+
+            replacementGroup.appendChild(imageEl);
+            targetEl.parentNode.replaceChild(replacementGroup, targetEl);
+            processedCount++;
+          }
+        }
+      }
+    }
+  }
+
+  // Clean up any unreferenced imageCrop clipPaths
+  const imageCropClipPaths = Array.from(svgDoc.querySelectorAll('clipPath[id^="imageCrop_"]'));
+  for (const cp of imageCropClipPaths) {
+    const id = cp.getAttribute('id');
+    if (id && !svgDoc.querySelector(`[clip-path*="${id}"]`)) {
+      cp.remove();
+    }
+  }
+
+  return processedCount;
+}
 
 /**
  * Validates SVG export against active Fabric canvas objects.

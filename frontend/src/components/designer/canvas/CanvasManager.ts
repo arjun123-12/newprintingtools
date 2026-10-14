@@ -48,6 +48,8 @@ import {
   applyCanvaControlsToObject,
   getCurveArcAngle,
   getCurvedTextSelectionBox,
+  getObjectVisualSelectionBox,
+  getCroppedElementSelectionBox,
   BLACK_ARTWORK_CURSOR,
 } from './CanvaControls';
 import { createFrameClipPath } from './frameHelpers';
@@ -458,6 +460,8 @@ export class CanvasManager {
 
   // Event Listeners
   private selectionListeners: Set<SelectionEventCallback> = new Set();
+  private canvasTextClickListeners: Set<(textObj: Textbox | IText) => void> = new Set();
+  private isSelectingFromLayers: boolean = false;
   private zoomListeners: Set<ZoomEventCallback> = new Set();
   private changeListeners: Set<CanvasEventCallback> = new Set();
   private guidesListeners: Set<GuidesEventCallback> = new Set();
@@ -7290,11 +7294,16 @@ export class CanvasManager {
     if (!this.canvas) return;
     const obj = this.canvas.getObjects().find((o) => o.get('id' as any) === id);
     if (obj && obj.visible && !obj.get('isGuide' as any)) {
-      this.restoreObjectInteractivity(obj);
-      this.canvas.setActiveObject(obj);
-      this.canvas.requestRenderAll();
-      this.notifySelection();
-      this.notifyLayers();
+      this.isSelectingFromLayers = true;
+      try {
+        this.restoreObjectInteractivity(obj);
+        this.canvas.setActiveObject(obj);
+        this.canvas.requestRenderAll();
+        this.notifySelection();
+        this.notifyLayers();
+      } finally {
+        this.isSelectingFromLayers = false;
+      }
     }
   }
 
@@ -7718,7 +7727,12 @@ export class CanvasManager {
           value as 'left' | 'center' | 'right' | 'justify'
         );
       } else if (isText && prop === 'charSpacing') {
-        (obj as Textbox | IText).set('charSpacing', Number(value));
+        this.applyCharSpacingToText(obj as Textbox | IText, Number(value));
+        obj.set('dirty', true);
+        obj.setCoords();
+        this.notifyChange();
+        this.notifySelection();
+        return;
       } else if (isText && prop === 'lineHeight') {
         (obj as Textbox | IText).set('lineHeight', Number(value));
       }
@@ -8123,6 +8137,113 @@ export class CanvasManager {
     }
   }
 
+  /**
+   * Applies letter spacing (charSpacing) to text while preserving its exact
+   * visual position (center, left, right, top) and preventing single-line sentences
+   * from wrapping to a second line.
+   */
+  private applyCharSpacingToText(
+    textObj: Textbox | IText,
+    charSpacingValue: number
+  ): void {
+    if (!textObj || typeof textObj.set !== 'function') return;
+
+    // 1. Determine alignment anchor so text never jumps or shifts position
+    const textAlign = String(textObj.textAlign || 'left').toLowerCase();
+    const anchorX: 'left' | 'center' | 'right' =
+      textAlign === 'center'
+        ? 'center'
+        : textAlign === 'right'
+          ? 'right'
+          : 'left';
+    const anchorY: 'top' | 'center' | 'bottom' = 'top';
+
+    // Capture the anchor point in canvas coordinates BEFORE any width or spacing changes
+    let anchorPoint: Point | null = null;
+    try {
+      if (typeof textObj.getPointByOrigin === 'function') {
+        anchorPoint = textObj.getPointByOrigin(anchorX, anchorY);
+      }
+    } catch {
+      anchorPoint = null;
+    }
+
+    // 2. Check if text is currently open in one line (single-line sentence)
+    const rawText = String(textObj.text || '');
+    const hardLines = rawText.split(/\r?\n/).length;
+    const currentWrappedLines = (textObj as any)._textLines?.length || hardLines;
+    const isSingleLine = hardLines <= 1 && currentWrappedLines <= 1;
+
+    // Retain original base width before letter-spacing expansion so it can shrink back cleanly
+    const baseWidth =
+      Number((textObj as any)._singleLineOriginalWidth) ||
+      Number(textObj.width) ||
+      0;
+    if ((textObj as any)._singleLineOriginalWidth === undefined && baseWidth > 0) {
+      (textObj as any)._singleLineOriginalWidth = baseWidth;
+    }
+
+    // 3. Set the new charSpacing value
+    textObj.set('charSpacing', Number(charSpacingValue));
+
+    // Handle curved text
+    const hasActiveCurve =
+      this.isCurveTextObject(textObj) &&
+      Boolean((textObj as any).path) &&
+      Math.abs(Number(textObj.get('curve' as any) ?? 0)) > 0.001;
+
+    if (hasActiveCurve) {
+      const curveVal = Number(textObj.get('curve' as any) ?? 0);
+      this.applyTextCurve(curveVal);
+    } else if (textObj instanceof Textbox) {
+      if (isSingleLine) {
+        // Expand the textbox width to fit the single-line sentence without wrapping to a second line.
+        // Temporarily widen wrapping boundary to calculate natural unwrapped line width.
+        textObj.set('width', 100000);
+        textObj.set('dirty', true);
+        textObj.initDimensions?.();
+
+        const naturalWidth = Math.ceil(
+          typeof (textObj as any).calcTextWidth === 'function'
+            ? (textObj as any).calcTextWidth()
+            : textObj.width || 0
+        );
+
+        // Add 8px safety buffer so subpixel anti-aliasing never causes a wrap
+        const neededWidth = Math.max(naturalWidth + 8, 24);
+        const originalWidth = Number((textObj as any)._singleLineOriginalWidth) || 0;
+        const targetWidth = Math.max(originalWidth, neededWidth);
+
+        textObj.set('width', targetWidth);
+        textObj.initDimensions?.();
+      } else {
+        // Multi-line text: preserve previous container width
+        const prevWidth = textObj.width;
+        textObj.set('dirty', true);
+        textObj.initDimensions?.();
+        if (prevWidth) {
+          textObj.set('width', prevWidth);
+          textObj.initDimensions?.();
+        }
+      }
+    } else {
+      textObj.set('dirty', true);
+      textObj.initDimensions?.();
+    }
+
+    // 4. Restore the exact visual position using the anchor point
+    if (anchorPoint && typeof textObj.setPositionByOrigin === 'function') {
+      try {
+        textObj.setPositionByOrigin(anchorPoint, anchorX, anchorY);
+      } catch (err) {
+        console.warn('Failed to setPositionByOrigin on charSpacing update:', err);
+      }
+    }
+
+    textObj.set('dirty', true);
+    textObj.setCoords();
+  }
+
   public updateSelectedProperty<K extends keyof SelectedObjectState>(
     prop: K,
     value: SelectedObjectState[K]
@@ -8410,7 +8531,12 @@ export class CanvasManager {
     } else if (isText && prop === 'textAlign') {
       (active as Textbox | IText).set('textAlign', value as 'left' | 'center' | 'right' | 'justify');
     } else if (isText && prop === 'charSpacing') {
-      (active as Textbox | IText).set('charSpacing', Number(value));
+      this.applyCharSpacingToText(active as Textbox | IText, Number(value));
+      active.setCoords();
+      this.canvas.requestRenderAll();
+      this.notifyChange();
+      this.notifySelection();
+      return;
     } else if (isText && prop === 'lineHeight') {
       (active as Textbox | IText).set('lineHeight', Number(value));
     }
@@ -10839,6 +10965,15 @@ export class CanvasManager {
     return () => this.selectionListeners.delete(cb);
   }
 
+  public onCanvasTextClick(cb: (textObj: Textbox | IText) => void): () => void {
+    this.canvasTextClickListeners.add(cb);
+    return () => this.canvasTextClickListeners.delete(cb);
+  }
+
+  public notifyCanvasTextClick(textObj: Textbox | IText): void {
+    this.canvasTextClickListeners.forEach((cb) => cb(textObj));
+  }
+
   public onZoomChange(cb: ZoomEventCallback): () => void {
     this.zoomListeners.add(cb);
     return () => this.zoomListeners.delete(cb);
@@ -11131,8 +11266,13 @@ export class CanvasManager {
         ? (customFramePhoto as FabricImage)
         : null;
 
-    const renderedWidth = Math.round((active.width || 0) * (active.scaleX || 1));
-    const renderedHeight = Math.round((active.height || 0) * (active.scaleY || 1));
+    const croppedBox = getCroppedElementSelectionBox(active);
+    const renderedWidth = croppedBox
+      ? Math.round(croppedBox.width * Math.abs(active.scaleX || 1))
+      : Math.round((active.width || 0) * (active.scaleX || 1));
+    const renderedHeight = croppedBox
+      ? Math.round(croppedBox.height * Math.abs(active.scaleY || 1))
+      : Math.round((active.height || 0) * (active.scaleY || 1));
 
     const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
     active.setCoords();
@@ -11652,6 +11792,21 @@ export class CanvasManager {
     });
 
     this.canvas.on('mouse:down', (opt: any) => {
+      let clickedText: (Textbox | IText) | null = null;
+      if (opt?.target && this.isTextObject(opt.target)) {
+        clickedText = opt.target as (Textbox | IText);
+      } else if (opt?.subTargets && Array.isArray(opt.subTargets)) {
+        for (const sub of opt.subTargets) {
+          if (this.isTextObject(sub)) {
+            clickedText = sub as (Textbox | IText);
+            break;
+          }
+        }
+      }
+      if (clickedText) {
+        this.notifyCanvasTextClick(clickedText);
+      }
+
       if (!opt?.target && this.canvas) {
         const pointer =
           opt.scenePoint ||
@@ -11684,6 +11839,7 @@ export class CanvasManager {
                   this.canvas.setActiveObject(obj);
                   this.canvas.requestRenderAll();
                   this.notifySelection();
+                  this.notifyCanvasTextClick(obj as (Textbox | IText));
                   break;
                 }
               }
@@ -11959,6 +12115,7 @@ export class CanvasManager {
         !(target as any).isEditing &&
         (target as any).editable !== false
       ) {
+        this.notifyCanvasTextClick(target as (Textbox | IText));
         if (this.canvas?.getActiveObject() !== target) {
           this.canvas?.setActiveObject(target);
         }
@@ -12021,6 +12178,9 @@ export class CanvasManager {
         }
       });
       this.notifySelection();
+      if (!this.isSelectingFromLayers && active && this.isTextObject(active)) {
+        this.notifyCanvasTextClick(active as (Textbox | IText));
+      }
     });
     this.canvas.on('selection:updated', () => {
       const active = this.canvas?.getActiveObject();
@@ -12034,6 +12194,9 @@ export class CanvasManager {
         }
       });
       this.notifySelection();
+      if (!this.isSelectingFromLayers && active && this.isTextObject(active)) {
+        this.notifyCanvasTextClick(active as (Textbox | IText));
+      }
     });
     this.canvas.on('selection:cleared', () => {
       this.activeEditableColorIndex = 0;
@@ -12041,6 +12204,7 @@ export class CanvasManager {
       this.snapping.clearGuides();
       this.smartSpacingManager.clear();
       this.canvas?.forEachObject((obj) => {
+        delete (obj as any)._singleLineOriginalWidth;
         if (this.isTextObject(obj) && (obj as any).isEditing) {
           (obj as any).exitEditing?.();
           (obj as any).set?.('hoverCursor', 'move');
@@ -12107,6 +12271,9 @@ export class CanvasManager {
     });
 
     this.canvas.on('text:changed' as any, (opt: any) => {
+      if (opt?.target) {
+        delete (opt.target as any)._singleLineOriginalWidth;
+      }
       opt?.target?.set?.('dirty', true);
       opt?.target?.setCoords?.();
       this.canvas?.requestRenderAll();
@@ -12971,6 +13138,7 @@ export class CanvasManager {
     this.snapping.detach();
     this.smartSpacingManager.detach();
     this.selectionListeners.clear();
+    this.canvasTextClickListeners.clear();
     this.zoomListeners.clear();
     this.changeListeners.clear();
     this.guidesListeners.clear();

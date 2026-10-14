@@ -189,27 +189,27 @@ export function runPreflightCheck(
       ''
     ).toLowerCase();
 
-    const isTextObject = obj instanceof Textbox || obj instanceof IText;
+    const isTextObject =
+      obj instanceof Textbox ||
+      obj instanceof IText ||
+      obj.type === 'textbox' ||
+      obj.type === 'itext' ||
+      obj.type === 'text' ||
+      (obj.type === 'group' &&
+        Boolean(
+          (obj as any).getObjects?.().some((child: any) =>
+            child instanceof Textbox ||
+            child instanceof IText ||
+            child.type === 'textbox' ||
+            child.type === 'itext' ||
+            child.type === 'text'
+          )
+        ));
 
-    // Backgrounds and photo frames are intentionally allowed to extend past
-    // the safe and trim lines. They should only fail when they overflow the
-    // outer bleed/canvas boundary.
-    const isBackground =
-      Boolean(obj.get('isBackground' as any)) ||
-      sourceType === 'background' ||
-      (!isTextObject &&
-        bound.width >= canvasW * 0.9 &&
-        bound.height >= canvasH * 0.9);
-
-    const isFrameArtwork =
-      Boolean(obj.get('isFrame' as any)) ||
-      Boolean(obj.get('isPhotoShapeGroup' as any)) ||
-      Boolean(obj.get('isCustomFrame' as any)) ||
-      Boolean(obj.get('isCanvaPlaceholder' as any)) ||
-      sourceType === 'frame' ||
-      sourceType === 'frame-overlay';
-
-    const isIntentionalEdgeArtwork = isBackground || isFrameArtwork;
+    // Print zone alerts only apply to text elements. Shapes, images, graphics,
+    // and other non-text elements can freely extend across the print line area (trim/bleed)
+    // without triggering any alerts or warnings.
+    if (!isTextObject) return;
 
     const objLeft = bound.left;
     const objTop = bound.top;
@@ -217,7 +217,7 @@ export function runPreflightCheck(
     const objBottom = bound.top + bound.height;
 
     // -----------------------------------------------------------------------
-    // CHECK 1: Safe Zone
+    // CHECK 1: Safe Zone (Green Line)
     // -----------------------------------------------------------------------
     const outsideSafeLeft = safeMinX - objLeft;
     const outsideSafeTop = safeMinY - objTop;
@@ -231,14 +231,13 @@ export function runPreflightCheck(
         outsideSafeRight > TOUCH_TOLERANCE ||
         outsideSafeBottom > TOUCH_TOLERANCE);
 
-    // Touching the safe line is valid. Warn only after an actual crossing,
-    // and never warn for backgrounds/frames that are supposed to reach edges.
-    if (!isIntentionalEdgeArtwork && isSafeViolation) {
+    // Alert when text crosses outside the green safe margin line
+    if (isSafeViolation) {
       safeMarginViolations.push(id);
       safeMarginDetails.push({
         objectId: id,
         objectName: objName,
-        objectType: objType,
+        objectType: 'text',
         violations: ['crosses-safe-zone'],
       });
     }
@@ -266,20 +265,20 @@ export function runPreflightCheck(
           Math.abs(objBottom - trimMaxY) <= TOUCH_TOLERANCE
         );
 
-      if (!isIntentionalEdgeArtwork && isTrimCross) {
+      if (isTrimCross) {
         trimLineViolations.push(id);
         trimLineDetails.push({
           objectId: id,
           objectName: objName,
-          objectType: objType,
+          objectType: 'text',
           violations: ['crosses-trim-line'],
         });
-      } else if (!isIntentionalEdgeArtwork && isTrimTouch) {
+      } else if (isTrimTouch) {
         trimLineViolations.push(id);
         trimLineDetails.push({
           objectId: id,
           objectName: objName,
-          objectType: objType,
+          objectType: 'text',
           violations: ['touches-trim-line'],
         });
       }
@@ -304,7 +303,7 @@ export function runPreflightCheck(
       bleedDetails.push({
         objectId: id,
         objectName: objName,
-        objectType: objType,
+        objectType: 'text',
         violations: ['crosses-bleed-edge'],
       });
     }
@@ -319,8 +318,8 @@ export function runPreflightCheck(
     const crossCount = safeMarginDetails.filter(d => d.violations.includes('crosses-safe-zone')).length;
     safeCheck.status = 'warning';
     const parts: string[] = [];
-    if (crossCount > 0) parts.push(`${crossCount} element(s) cross outside the safe margin`);
-    safeCheck.message = `${parts.join('; ')}. Text and logos here may be cut off during trimming.`;
+    if (crossCount > 0) parts.push(`${crossCount} text element(s) cross outside the green safe line`);
+    safeCheck.message = `${parts.join('; ')}. Text outside the green line may be cut off during trimming.`;
     safeCheck.offendingObjectIds = safeMarginViolations;
     safeCheck.details = safeMarginDetails;
   }
@@ -331,9 +330,9 @@ export function runPreflightCheck(
     const touchCount = trimLineDetails.filter(d => d.violations.includes('touches-trim-line')).length;
     trimCheck.status = crossCount > 0 ? 'warning' : 'warning';
     const parts: string[] = [];
-    if (crossCount > 0) parts.push(`${crossCount} element(s) cross the trim/cut line`);
-    if (touchCount > 0) parts.push(`${touchCount} element(s) touch the trim/cut line`);
-    trimCheck.message = `${parts.join('; ')}. These parts will be partially cut by the guillotine.`;
+    if (crossCount > 0) parts.push(`${crossCount} text element(s) cross the trim/cut line`);
+    if (touchCount > 0) parts.push(`${touchCount} text element(s) touch the trim/cut line`);
+    trimCheck.message = `${parts.join('; ')}. Text crossing the cut line will be cut by the guillotine.`;
     trimCheck.offendingObjectIds = trimLineViolations;
     trimCheck.details = trimLineDetails;
   }
@@ -343,8 +342,8 @@ export function runPreflightCheck(
     const overflowCount = bleedDetails.filter(d => d.violations.includes('crosses-bleed-edge')).length;
     bleedCheck.status = 'error';
     const parts: string[] = [];
-    if (overflowCount > 0) parts.push(`${overflowCount} element(s) extend beyond the bleed area`);
-    bleedCheck.message = `${parts.join('; ')}. Content outside the bleed will be completely lost.`;
+    if (overflowCount > 0) parts.push(`${overflowCount} text element(s) extend beyond the bleed area`);
+    bleedCheck.message = `${parts.join('; ')}. Text outside the bleed will be lost.`;
     bleedCheck.offendingObjectIds = bleedViolations;
     bleedCheck.details = bleedDetails;
   }
@@ -359,16 +358,16 @@ export function runPreflightCheck(
       alertMessages.push({
         severity: 'warning',
         icon: 'safe',
-        title: `"${detail.objectName}" crosses the Safe Zone`,
-        description: `This ${detail.objectType} extends beyond the safe margin. It may be cut off when the paper is trimmed. Move it inward to protect it.`,
+        title: `"${detail.objectName}" crosses the Green Safe Line`,
+        description: `This text extends beyond the green safe margin line. It may be cut off when the paper is trimmed. Move it inward to protect it.`,
         objectIds: [detail.objectId],
       });
     } else if (detail.violations.includes('touches-safe-zone')) {
       alertMessages.push({
         severity: 'info',
         icon: 'safe',
-        title: `"${detail.objectName}" touches the Safe Zone line`,
-        description: `This ${detail.objectType} is right on the safe zone edge. Move it slightly inward for safety.`,
+        title: `"${detail.objectName}" touches the Green Safe Line`,
+        description: `This text is right on the green safe zone edge. Move it slightly inward for safety.`,
         objectIds: [detail.objectId],
       });
     }

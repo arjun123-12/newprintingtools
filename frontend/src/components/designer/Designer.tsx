@@ -23,6 +23,7 @@ import {
   collectFabricObjectsRecursively,
   rasterizeHollowTextForExport,
   rasterizeFramesForVectorPdf,
+  processCroppedElementsForSvgExport,
   embedFontsInSvgDefs,
   preserveHollowTextInSvg,
 } from './utils/svgExportHelpers';
@@ -2235,6 +2236,7 @@ export default function Designer({
         await rasterizeHollowTextForExport(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
         preserveHollowTextInSvg(svgDoc, manager);
         await embedFontsInSvgDefs(svgDoc, manager);
+        await processCroppedElementsForSvgExport(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
         await rasterizeFramesForVectorPdf(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
         injectVisibleTrimLineInSvg(svgDoc, bounds);
         const foldingConfig = dimensionsRef.current.printLayout?.folding || documentSettings.printLayout?.folding || manager.getPrintLayout()?.folding;
@@ -2368,6 +2370,16 @@ export default function Designer({
         }
       });
 
+      // Automatically open Text panel in sidebar when text in artwork is clicked (like Canva)
+      const unsubscribeTextClick = manager.onCanvasTextClick(() => {
+        setActiveSidebarTab((currentTab) => {
+          if (currentTab === 'draw') {
+            manager.disableDrawingMode();
+          }
+          return currentTab === 'text' ? currentTab : 'text';
+        });
+      });
+
       // Listen for zoom events
       const unsubscribeZoom = manager.onZoomChange((z) => {
         setZoom(z);
@@ -2399,6 +2411,7 @@ export default function Designer({
       manager.setZoom(fitZ);
 
       return () => {
+        unsubscribeTextClick();
         unsubscribeSelection();
         unsubscribeZoom();
         unsubscribeGuides();
@@ -2638,34 +2651,13 @@ export default function Designer({
             />
           )}
 
-          {/* Bleed Overflow Alert (Most Critical - Red) */}
-          {showPreflightAlert && preflightReport?.hasBleedViolation && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-rose-600/95 text-white px-4 py-1.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold backdrop-blur-xs border border-rose-500 animate-in fade-in slide-in-from-top-2 duration-200 max-w-xl">
-              <AlertTriangle className="w-4 h-4 text-rose-200 flex-shrink-0" />
-              <span>Bleed Overflow: Elements extend beyond the printable bleed area. Content outside the red line will be completely lost.</span>
+          {/* Safe Zone Alert (Only for text extending outside the green safe margin line) */}
+          {showPreflightAlert && (preflightReport?.hasSafeZoneViolation || preflightReport?.hasTrimLineViolation || preflightReport?.hasBleedViolation) && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-amber-500/95 text-white px-4 py-1.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold backdrop-blur-xs border border-amber-400 animate-in fade-in slide-in-from-top-2 duration-200 max-w-xl">
+              <AlertTriangle className="w-4 h-4 text-amber-100 flex-shrink-0" />
+              <span>Safe Zone Alert: Text extends outside the green line and may be cut off during trimming.</span>
             </div>
           )}
-
-          {/* Trim Line Alert (Warning - Dark/Black) */}
-          {showPreflightAlert &&
-            !preflightReport?.hasBleedViolation &&
-            preflightReport?.hasTrimLineViolation && (
-              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-gray-900/95 text-white px-4 py-1.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold backdrop-blur-xs border border-gray-700 animate-in fade-in slide-in-from-top-2 duration-200 max-w-xl">
-                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                <span>Trim Line Alert: Elements cross the dark cut line. The printer&apos;s guillotine will slice through these parts.</span>
-              </div>
-            )}
-
-          {/* Safe Zone Alert (Info - Amber) */}
-          {showPreflightAlert &&
-            !preflightReport?.hasBleedViolation &&
-            !preflightReport?.hasTrimLineViolation &&
-            preflightReport?.hasSafeZoneViolation && (
-              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 bg-amber-500/95 text-white px-4 py-1.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold backdrop-blur-xs border border-amber-400 animate-in fade-in slide-in-from-top-2 duration-200 max-w-xl">
-                <AlertTriangle className="w-4 h-4 text-amber-100 flex-shrink-0" />
-                <span>Safe Zone Alert: Elements are outside the safe margin. Text and logos here may be cut off during trimming.</span>
-              </div>
-            )}
 
           {/* Front / Back Side Switcher for print_sides === 'both' and 2 pages */}
           {printSides === 'both' && pages.length === 2 && (

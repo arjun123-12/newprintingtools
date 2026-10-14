@@ -13,6 +13,7 @@ import {
   findSvgElementForFabricObject,
   rasterizeHollowTextForExport,
   rasterizeFramesForVectorPdf,
+  processCroppedElementsForSvgExport,
   embedFontsInSvgDefs,
   preserveHollowTextInSvg,
   normalizeSvgStrokeWeightsForPdf,
@@ -2607,6 +2608,7 @@ export async function exportVectorPdf(
           await rasterizeHollowTextForExport(svgDoc, options.canvasManager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
           preserveHollowTextInSvg(svgDoc, options.canvasManager);
           await embedFontsInSvgDefs(svgDoc, options.canvasManager);
+          await processCroppedElementsForSvgExport(svgDoc, options.canvasManager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
           await rasterizeFramesForVectorPdf(svgDoc, options.canvasManager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
           if (options.geometry) {
             const bounds = getArtworkExportBounds(options.geometry, 300);
