@@ -852,17 +852,121 @@ export function injectSilhouetteShadowsInSvg(
 
 
 /**
- * PDF-only compatibility fallback for complex photo frames.
+ * Detects whether a non-text Fabric object requires rasterization for vector PDF export.
  *
- * svg2pdf.js does not reliably preserve every SVG alpha-mask / image clip-path
- * combination. The Fabric canvas itself already renders the frame correctly,
- * so for PDF only we rasterize EACH FRAME OBJECT (not the whole artwork) to a
- * transparent PNG and replace only that frame's SVG group.
+ * Why this is needed:
+ * Native PDF renderers (such as SVG-to-PDFKit / pdfkit) suffer from severe mathematical
+ * scaling bugs when converting SVG `<rect rx="..." ry="...">` and non-scaling strokes under
+ * matrix transforms. As a result, rounded corners and bordered shapes balloon into enormous
+ * distorted circles, arcs, or elliptical blobs across the document.
+ *
+ * In addition, complex photo frames with alpha masks and clipped images with corner rounding
+ * can lose their masks in SVG-to-PDFKit.
+ *
+ * By rasterizing these specific elements at ultra-high resolution (4x / 300+ DPI) and embedding
+ * them as lossless transparent PNG <image> elements in place of the SVG shape:
+ * 1. The downloaded PDF matches the on-screen canvas 100% identically with exact corner radii and clean borders.
+ * 2. Giant arc ballooning and stroke distortions are completely eliminated.
+ * 3. All plain vector shapes and clean vector fonts elsewhere remain true resolution-independent vectors.
+ */
+export function requiresRasterizationForVectorPdf(obj: any): boolean {
+  if (!obj) return false;
+
+  // Never treat editor guide lines or crop overlays as exportable artwork
+  if (
+    obj.isGuide ||
+    obj.isPrintGuide ||
+    obj.isRulerGuide ||
+    obj.isCropOverlayPhoto ||
+    obj.isFoldGuideLine ||
+    (obj as any).excludeFromVisualExport
+  ) {
+    return false;
+  }
+
+  // Text objects have their own specialized rasterization pipeline (rasterizeHollowTextForExport)
+  if (isFabricText(obj)) {
+    return false;
+  }
+
+  // 1. Frame objects (photoShapeGroup, customFrame, heart/circle/star frame)
+  const isFrame = Boolean(
+    obj.get?.('isFrame' as any) ||
+    obj.isFrame ||
+    obj.isPhotoShapeGroup ||
+    obj.isCustomFrame
+  );
+  if (isFrame) return true;
+
+  // 2. Corner radius on ANY non-text object (Rect, Image, Shape, Polygon, Triangle, Star, Hexagon, Path, etc.)
+  const cornerRadius =
+    Number((obj as any).cornerRadius) ||
+    Number((obj as any)._requestedRadius) ||
+    Number((obj as any).rx) ||
+    Number((obj as any).ry) ||
+    0;
+  if (cornerRadius > 0) return true;
+
+  // 3. Image with corner rounding clip or clipPath
+  const isImg =
+    obj instanceof FabricImage ||
+    (obj as any).type === 'image' ||
+    (obj as any).type === 'FabricImage';
+  if (isImg && (Boolean(obj.clipPath) || cornerRadius > 0)) {
+    return true;
+  }
+
+  // 4. Any object with a visible stroke / border
+  const stroke = obj.stroke;
+  const strokeWidth = Number(obj.strokeWidth) || 0;
+  const hasVisibleStroke =
+    Boolean(stroke) &&
+    stroke !== 'transparent' &&
+    stroke !== 'none' &&
+    stroke !== 'rgba(0,0,0,0)' &&
+    strokeWidth > 0;
+  if (hasVisibleStroke) return true;
+
+  // 5. Active visual stroke effects (outline, neon, baseStrokeWidth)
+  if (
+    obj._activeEffects?.outline ||
+    obj._activeEffects?.neon ||
+    (Number(obj.baseStrokeWidth) || 0) > 0
+  ) {
+    return true;
+  }
+
+  // 6. Any object with a clipPath
+  if (obj.clipPath) {
+    return true;
+  }
+
+  // 7. Groups containing any children that require rasterization
+  if (typeof (obj as any).getObjects === 'function') {
+    const children: any[] = (obj as any).getObjects();
+    if (children.some((child) => requiresRasterizationForVectorPdf(child))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * PDF compatibility rasterizer for frames, rounded elements, and bordered shapes.
+ *
+ * SVG-to-PDFKit cannot reliably preserve SVG alpha-masks, clipped image paths, or
+ * matrix-scaled `<rect rx="..." ry="..." stroke="...">` without deforming arcs or
+ * losing corner radii.
+ *
+ * The Fabric canvas renders frames, rounded rects, and borders with 100% precision.
+ * For PDF export, this function rasterizes ONLY those objects that require it to a
+ * transparent high-resolution PNG (4x / 300+ DPI) and embeds them as SVG `<image>` nodes.
  *
  * Result:
- * - photo stays inside heart/circle/custom frame exactly as seen on canvas
- * - frame overlay/border is preserved
- * - all text and non-frame shapes elsewhere stay true vectors in PDF
+ * - Rounded rects, shapes, and borders match on-screen canvas exactly without distortion
+ * - Photos stay inside frames without bleeding or missing clips
+ * - All plain vector shapes and clean vector fonts stay true vectors in PDF
  */
 export async function rasterizeFramesForVectorPdf(
   svgDoc: Document,
@@ -879,73 +983,66 @@ export async function rasterizeFramesForVectorPdf(
 
   const allObjects = collectFabricObjectsRecursively(canvas);
 
-  const topLevelFrames = canvas.getObjects().filter((obj: any) => {
-    if (!obj) return false;
-
-    const isFrame = Boolean(
-      obj.get?.('isFrame' as any) ||
-      obj.isFrame ||
-      obj.isPhotoShapeGroup ||
-      obj.isCustomFrame
-    );
-
-    const isRoundedImage =
-      (obj instanceof FabricImage || (obj as any).type === 'image' || (obj as any).type === 'FabricImage') &&
-      (Number((obj as any).cornerRadius) > 0 ||
-        Number((obj as any)._requestedRadius) > 0 ||
-        Boolean(obj.clipPath && (obj.clipPath as any).isCornerRoundingClip));
-
-    return isFrame || isRoundedImage;
+  const targetObjects = canvas.getObjects().filter((obj: any) => {
+    return requiresRasterizationForVectorPdf(obj);
   });
 
-  if (topLevelFrames.length === 0) {
+  if (targetObjects.length === 0) {
     return 0;
   }
 
   const preferredMultiplier = Math.max(
-    1,
-    Math.min(4, options?.preferredMultiplier ?? 2)
+    2,
+    Math.min(6, options?.preferredMultiplier ?? 4)
   );
 
   const maxLongEdgePx = Math.max(
     1024,
-    options?.maxLongEdgePx ?? 4096
+    options?.maxLongEdgePx ?? 8192
   );
 
   let replacedCount = 0;
 
-  for (const frame of topLevelFrames as any[]) {
+  for (const obj of targetObjects as any[]) {
     const targetEl = findSvgElementForFabricObject(
       svgDoc,
-      frame,
+      obj,
       allObjects
     );
 
     if (!targetEl) {
       if (process.env.NODE_ENV !== 'production') {
         console.warn(
-          '[PDF Export] Could not locate SVG node for frame:',
-          frame.id || frame._svgExportId || frame.type
+          '[PDF Export] Could not locate SVG node for object:',
+          obj.id || obj._svgExportId || obj.type
         );
       }
       continue;
     }
 
+    // Skip if targetEl is already a rasterized image from a previous pass
+    if (
+      targetEl.getAttribute('data-pdf-rasterized') === 'true' ||
+      (targetEl.tagName.toLowerCase() === 'image' &&
+        targetEl.getAttribute('href')?.startsWith('data:image/png'))
+    ) {
+      continue;
+    }
+
     const localWidth = Math.max(
       1,
-      Number(frame.width) || 1
+      Number(obj.width) || 1
     );
 
     const localHeight = Math.max(
       1,
-      Number(frame.height) || 1
+      Number(obj.height) || 1
     );
 
-    // The SVG group's transform already contains scale/rotation/position.
-    // We therefore rasterize in the frame's LOCAL coordinate system.
+    const strokeWidth = Number(obj.strokeWidth) || 0;
     const sourceLongEdge = Math.max(
-      localWidth,
-      localHeight
+      localWidth + strokeWidth,
+      localHeight + strokeWidth
     );
 
     const safeMultiplier = Math.max(
@@ -959,12 +1056,12 @@ export async function rasterizeFramesForVectorPdf(
     try {
       let rasterCanvas: HTMLCanvasElement | null = null;
 
-      if (typeof frame.toCanvasElement === 'function') {
-        rasterCanvas = frame.toCanvasElement({
+      if (typeof obj.toCanvasElement === 'function') {
+        rasterCanvas = obj.toCanvasElement({
           multiplier: safeMultiplier,
           withoutTransform: true,
-          // Keep visual frame/photo result but avoid double-applying object
-          // shadow after the SVG node is replaced.
+          // Keep visual fill, stroke, and corner radius but avoid double-applying
+          // shadow because shadow is handled by the dedicated high-res shadow layer.
           withoutShadow: true,
           enableRetinaScaling: false,
         } as any);
@@ -985,91 +1082,95 @@ export async function rasterizeFramesForVectorPdf(
         continue;
       }
 
+      // Calculate actual render dimensions from the raster canvas to ensure strokes and
+      // padding are perfectly sized and centered without distortion or clipping.
+      const renderWidth = rasterCanvas.width / safeMultiplier;
+      const renderHeight = rasterCanvas.height / safeMultiplier;
+      const x = -renderWidth / 2;
+      const y = -renderHeight / 2;
+
       const imageEl = svgDoc.createElementNS(
         'http://www.w3.org/2000/svg',
         'image'
       );
 
-      imageEl.setAttribute(
-        'x',
-        `${-localWidth / 2}`
-      );
-      imageEl.setAttribute(
-        'y',
-        `${-localHeight / 2}`
-      );
-      imageEl.setAttribute(
-        'width',
-        `${localWidth}`
-      );
-      imageEl.setAttribute(
-        'height',
-        `${localHeight}`
-      );
-      imageEl.setAttribute(
-        'preserveAspectRatio',
-        'none'
-      );
-      imageEl.setAttribute(
-        'href',
-        frameDataUrl
-      );
+      imageEl.setAttribute('x', `${x}`);
+      imageEl.setAttribute('y', `${y}`);
+      imageEl.setAttribute('width', `${renderWidth}`);
+      imageEl.setAttribute('height', `${renderHeight}`);
+      imageEl.setAttribute('preserveAspectRatio', 'none');
+      imageEl.setAttribute('href', frameDataUrl);
+      imageEl.setAttribute('xlink:href', frameDataUrl);
+      imageEl.setAttribute('data-pdf-rasterized', 'true');
 
-      // Most Fabric frame objects export as a <g>. Keeping the existing group
-      // is ideal because its transform already positions/scales/rotates the
-      // frame correctly. Replace only its visual children.
-      if (
-        targetEl.tagName.toLowerCase() === 'g'
-      ) {
+      // Remove any previously applied SVG stroke, clip-path, or mask from target
+      targetEl.removeAttribute('clip-path');
+      targetEl.removeAttribute('mask');
+      targetEl.removeAttribute('stroke');
+      targetEl.removeAttribute('stroke-width');
+      targetEl.removeAttribute('paint-order');
+
+      const existingStyle = targetEl.getAttribute('style');
+      if (existingStyle) {
+        const cleanedStyle = existingStyle
+          .replace(/stroke\s*:[^;]+(;|\s*$)/gi, '')
+          .replace(/stroke-width\s*:[^;]+(;|\s*$)/gi, '')
+          .replace(/paint-order\s*:[^;]+(;|\s*$)/gi, '')
+          .trim();
+        if (cleanedStyle) {
+          targetEl.setAttribute('style', cleanedStyle);
+        } else {
+          targetEl.removeAttribute('style');
+        }
+      }
+
+      // Most Fabric objects export inside a <g transform="...">.
+      // Replacing its visual children keeps the existing transform, rotation,
+      // and position perfectly aligned.
+      if (targetEl.tagName.toLowerCase() === 'g') {
         while (targetEl.firstChild) {
           targetEl.removeChild(targetEl.firstChild);
         }
-
-        // The raster already contains the clipping silhouette.
-        targetEl.removeAttribute('clip-path');
-        targetEl.removeAttribute('mask');
-
         targetEl.appendChild(imageEl);
-      } else {
-        // Defensive fallback for non-group frame serialization.
-        const replacementGroup =
-          svgDoc.createElementNS(
-            'http://www.w3.org/2000/svg',
-            'g'
-          );
+        replacedCount++;
+      } else if (targetEl.parentNode) {
+        // Defensive fallback for single non-group SVG elements (<rect>, <path>, <polygon>, etc.)
+        const replacementGroup = svgDoc.createElementNS(
+          'http://www.w3.org/2000/svg',
+          'g'
+        );
 
-        const transform =
-          targetEl.getAttribute('transform');
-
+        const transform = targetEl.getAttribute('transform');
         if (transform) {
-          replacementGroup.setAttribute(
-            'transform',
-            transform
-          );
+          replacementGroup.setAttribute('transform', transform);
         }
 
-        const opacity =
-          targetEl.getAttribute('opacity');
-
+        const opacity = targetEl.getAttribute('opacity');
         if (opacity) {
-          replacementGroup.setAttribute(
-            'opacity',
-            opacity
-          );
+          replacementGroup.setAttribute('opacity', opacity);
+        }
+
+        const filter = targetEl.getAttribute('filter');
+        if (filter) {
+          replacementGroup.setAttribute('filter', filter);
+        }
+
+        const id = targetEl.getAttribute('id');
+        if (id) {
+          replacementGroup.setAttribute('id', id);
         }
 
         replacementGroup.appendChild(imageEl);
 
-        targetEl.parentNode?.replaceChild(
+        targetEl.parentNode.replaceChild(
           replacementGroup,
           targetEl
         );
+        replacedCount++;
       }
-
-      replacedCount++;
     } catch (error) {
       console.warn(
-        '[PDF Export] Failed to rasterize framed photo:',
+        '[PDF Export] Failed to rasterize object for vector PDF:',
         error
       );
     }
@@ -1080,13 +1181,16 @@ export async function rasterizeFramesForVectorPdf(
     replacedCount > 0
   ) {
     console.info(
-      `[PDF Export] Rasterized ${replacedCount} frame object(s) ` +
-      `for mask-safe vector PDF output.`
+      `[PDF Export] Rasterized ${replacedCount} object(s) ` +
+      `with corner radius/borders for distortion-free vector PDF output.`
     );
   }
 
   return replacedCount;
 }
+
+// Alias for convenience
+export const rasterizeElementsForVectorPdf = rasterizeFramesForVectorPdf;
 
 /**
  * Validates SVG export against active Fabric canvas objects.

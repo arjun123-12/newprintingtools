@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { DesignAsset, AssetType, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
-import { X } from 'lucide-react';
+import { X, FolderUp } from 'lucide-react';
 import { ArtworkFileUpload } from '@/components/admin/shared';
 
 interface AssetFormModalProps {
@@ -29,6 +29,7 @@ export function AssetFormModal({ isOpen, onClose, asset, activeType, categories,
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (asset) {
@@ -105,6 +106,82 @@ export function AssetFormModal({ isOpen, onClose, asset, activeType, categories,
     }
   };
 
+  const handleFolderSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    const filesArray = Array.from(fileList).filter(
+      (f) => f.size > 0 && !f.name.startsWith('.') && f.name.toLowerCase() !== 'thumbs.db'
+    );
+    if (filesArray.length === 0) return;
+
+    if (filesArray.length === 1) {
+      const selected = filesArray[0];
+      setFile(selected);
+      const baseName = selected.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ').trim();
+      setFormData((prev: any) => ({
+        ...prev,
+        name: prev.name || baseName,
+        slug: prev.slug || baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        fabric_json: {
+          ...prev.fabric_json,
+          fontFamily: prev.fabric_json?.fontFamily === 'Inter' || !prev.fabric_json?.fontFamily ? baseName : prev.fabric_json?.fontFamily,
+          text: prev.fabric_json?.text === 'Add text' || !prev.fabric_json?.text ? baseName : prev.fabric_json?.text,
+        },
+      }));
+      return;
+    }
+
+    // Batch upload all files from the folder
+    setLoading(true);
+    setError(null);
+    try {
+      for (let i = 0; i < filesArray.length; i++) {
+        const itemFile = filesArray[i];
+        const baseName = itemFile.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ').trim();
+        const payload: any = {
+          name: baseName,
+          slug: `${baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString().slice(-4)}${i}`,
+          asset_type: activeType,
+          provider: 'admin',
+          is_active: true,
+          sort_order: i,
+          file: itemFile,
+          fabric_json: {
+            type: 'Textbox',
+            text: baseName,
+            fontFamily: baseName,
+            fontSize: 36,
+            fontWeight: 'normal',
+            fill: '#111111',
+            textAlign: 'center',
+          },
+          metadata: {
+            fontFamily: baseName,
+            fontFileName: itemFile.name,
+            textStyle: {
+              fontFamily: baseName,
+              fontSize: 36,
+              fill: '#111111',
+            },
+          },
+        };
+        if (formData.category_id) {
+          payload.category_id = formData.category_id;
+        }
+        await designAssetService.createAsset(payload);
+      }
+      onSaved();
+      onClose();
+    } catch (err: any) {
+      setError(err.response?.data?.message || err.message || 'Failed to upload folder files');
+    } finally {
+      setLoading(false);
+      if (folderInputRef.current) {
+        folderInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -115,6 +192,20 @@ export function AssetFormModal({ isOpen, onClose, asset, activeType, categories,
       if (!submitData.category_id) delete submitData.category_id;
       if (file) submitData.file = file;
       if (thumbnail) submitData.thumbnail = thumbnail;
+
+      if (activeType === 'text') {
+        const fontName = submitData.fabric_json?.fontFamily || submitData.name || 'Custom Font';
+        submitData.metadata = {
+          fontFamily: fontName,
+          ...(file ? { fontFileName: file.name } : {}),
+          textStyle: {
+            fontFamily: fontName,
+            fontSize: submitData.fabric_json?.fontSize || 36,
+            fill: submitData.fabric_json?.fill || '#111111',
+          },
+          ...(submitData.metadata || {}),
+        };
+      }
 
       if (asset?.id) {
         await designAssetService.updateAsset(asset.id, submitData);
@@ -220,32 +311,103 @@ export function AssetFormModal({ isOpen, onClose, asset, activeType, categories,
 
             {/* TYPE SPECIFIC FIELDS */}
             {activeType === 'text' ? (
-              <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-4">
-                <h3 className="font-bold text-sm text-gray-900 border-b pb-2">Text Preset Configuration</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Default Text</label>
-                    <input type="text" name="text" value={formData.fabric_json?.text || ''} onChange={handleFabricChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required />
+              <div className="space-y-4">
+                {/* Hidden folder input */}
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  multiple
+                  {...({ webkitdirectory: '', directory: '' } as any)}
+                  className="hidden"
+                  onChange={handleFolderSelect}
+                />
+
+                <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-4">
+                  <h3 className="font-bold text-sm text-gray-900 border-b pb-2">Text Preset Configuration</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Default Text</label>
+                      <input type="text" name="text" value={formData.fabric_json?.text || ''} onChange={handleFabricChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Font Family</label>
+                      <input type="text" name="fontFamily" value={formData.fabric_json?.fontFamily || ''} onChange={handleFabricChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Font Size</label>
+                      <input type="number" name="fontSize" value={formData.fabric_json?.fontSize || 36} onChange={handleFabricChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Font Weight</label>
+                      <select name="fontWeight" value={formData.fabric_json?.fontWeight || 'normal'} onChange={handleFabricChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                        <option value="normal">Normal</option>
+                        <option value="bold">Bold</option>
+                        <option value="900">Black</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Color (Fill)</label>
+                      <input type="color" name="fill" value={formData.fabric_json?.fill || '#000000'} onChange={handleFabricChange} className="w-full h-9 p-1 border border-gray-300 rounded-lg" />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Font Family</label>
-                    <input type="text" name="fontFamily" value={formData.fabric_json?.fontFamily || ''} onChange={handleFabricChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required />
+                </div>
+
+                {/* File & Folder Upload for Text */}
+                <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+                    <div>
+                      <h4 className="font-bold text-xs text-gray-800 uppercase tracking-wider">Font / Asset File or Folder</h4>
+                      <p className="text-[11px] text-gray-500">Upload any font (.ttf, .otf, .woff, .woff2, .zip, etc.) or select an entire folder of files.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => folderInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition shadow-2xs"
+                    >
+                      <FolderUp className="w-3.5 h-3.5" />
+                      <span>Upload Folder</span>
+                    </button>
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Font Size</label>
-                    <input type="number" name="fontSize" value={formData.fabric_json?.fontSize || 36} onChange={handleFabricChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" required />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Font Weight</label>
-                    <select name="fontWeight" value={formData.fabric_json?.fontWeight || 'normal'} onChange={handleFabricChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                      <option value="normal">Normal</option>
-                      <option value="bold">Bold</option>
-                      <option value="900">Black</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Color (Fill)</label>
-                    <input type="color" name="fill" value={formData.fabric_json?.fill || '#000000'} onChange={handleFabricChange} className="w-full h-9 p-1 border border-gray-300 rounded-lg" />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                    <ArtworkFileUpload
+                      label="Font / Asset File (Optional)"
+                      description="Supported: all fonts, archives, and asset files."
+                      returnType="file"
+                      value={file || asset?.file_url || null}
+                      onFileChange={(selectedFile) => {
+                        setFile(selectedFile);
+                        if (selectedFile) {
+                          const baseName = selectedFile.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ').trim();
+                          setFormData((prev: any) => ({
+                            ...prev,
+                            name: prev.name || baseName,
+                            slug: prev.slug || baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+                            fabric_json: {
+                              ...prev.fabric_json,
+                              fontFamily: prev.fabric_json?.fontFamily === 'Inter' || !prev.fabric_json?.fontFamily ? baseName : prev.fabric_json?.fontFamily,
+                              text: prev.fabric_json?.text === 'Add text' || !prev.fabric_json?.text ? baseName : prev.fabric_json?.text,
+                            },
+                          }));
+                        }
+                      }}
+                      onChange={(newFile) =>
+                        setFile(newFile instanceof File ? newFile : null)
+                      }
+                      onRemove={() => setFile(null)}
+                      required={false}
+                    />
+                    <ArtworkFileUpload
+                      label="Thumbnail (Optional)"
+                      description="Preview thumbnail image."
+                      returnType="file"
+                      value={thumbnail || asset?.thumbnail_url || null}
+                      onFileChange={setThumbnail}
+                      onChange={(newThumb) =>
+                        setThumbnail(newThumb instanceof File ? newThumb : null)
+                      }
+                      onRemove={() => setThumbnail(null)}
+                    />
                   </div>
                 </div>
               </div>

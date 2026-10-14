@@ -54,7 +54,21 @@ const SUPPORTED_EXTENSIONS: Record<AssetType, string[]> = {
     'tiff',
   ],
   background: ['jpg', 'jpeg', 'jfif', 'png', 'webp', 'avif', 'gif', 'svg'],
-  text: [],
+  text: [
+    'ttf',
+    'otf',
+    'woff',
+    'woff2',
+    'eot',
+    'zip',
+    'json',
+    'txt',
+    'svg',
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+  ],
   shape: ['svg', 'png', 'jpg', 'jpeg', 'webp'],
 };
 
@@ -145,6 +159,11 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
         f.name.toLowerCase() === 'thumbs.db'
       ) {
         return false;
+      }
+
+      // For text form, support every file and folder!
+      if (assetType === 'text') {
+        return true;
       }
 
       const ext = f.name.split('.').pop()?.toLowerCase() || '';
@@ -246,7 +265,7 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
   const handleStartBulkUpload = async () => {
     if (queue.length === 0 || isUploading) return;
 
-    if (!selectedCategoryId) {
+    if (!selectedCategoryId && filteredCategories.length > 0 && assetType !== 'text') {
       alert(
         `Please select a ${ASSET_TYPE_LABELS[assetType]} category before uploading.`
       );
@@ -270,7 +289,6 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
 
       try {
         const payload: any = {
-          category_id: selectedCategoryId,
           name: item.name,
           slug: item.slug,
           asset_type: assetType,
@@ -279,6 +297,10 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
           sort_order: i,
           file: item.mainFile,
         };
+
+        if (selectedCategoryId) {
+          payload.category_id = selectedCategoryId;
+        }
 
         if (item.thumbnailFile) {
           payload.thumbnail = item.thumbnailFile;
@@ -357,6 +379,26 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
           payload.metadata = {
             bgType: 'image',
           };
+        } else if (assetType === 'text') {
+          const fontName = cleanTitle(item.mainFile.name);
+          payload.metadata = {
+            fontFamily: fontName,
+            fontFileName: item.mainFile.name,
+            textStyle: {
+              fontFamily: fontName,
+              fontSize: 36,
+              fill: '#111111',
+            },
+          };
+          payload.fabric_json = {
+            type: 'Textbox',
+            text: fontName,
+            fontFamily: fontName,
+            fontSize: 36,
+            fontWeight: 'normal',
+            fill: '#111111',
+            textAlign: 'center',
+          };
         }
 
         await designAssetService.createAsset(payload);
@@ -433,16 +475,19 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
             {/* Target Category */}
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-1">
-                Target Category <span className="text-red-500">*</span>
+                Target Category {assetType !== 'text' && filteredCategories.length > 0 && <span className="text-red-500">*</span>}
               </label>
               <select
-                required
                 disabled={isUploading}
                 value={selectedCategoryId}
                 onChange={(e) => setSelectedCategoryId(e.target.value)}
                 className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
               >
-                <option value="">-- Select Category --</option>
+                <option value="">
+                  {filteredCategories.length === 0
+                    ? '-- No Categories (Upload Uncategorized) --'
+                    : '-- Select Category (Optional) --'}
+                </option>
                 {filteredCategories.map((cat) => (
                   <option key={cat.id} value={cat.id}>
                     {cat.name}
@@ -487,7 +532,7 @@ export const BulkAssetUploadModal: React.FC<BulkAssetUploadModalProps> = ({
             ref={filesInputRef}
             type="file"
             multiple
-            accept={allowedExts.map((e) => `.${e}`).join(',')}
+            accept={assetType === 'text' ? undefined : allowedExts.map((e) => `.${e}`).join(',')}
             className="hidden"
             onChange={(e) => {
               handleFilesSelected(e.target.files);

@@ -2375,7 +2375,7 @@ export async function exportVectorPdf(
         const svgDoc = parser.parseFromString(svg, 'image/svg+xml');
         if (!svgDoc.querySelector('parsererror')) {
           await rasterizeHollowTextForExport(svgDoc, options.canvasManager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
-          await rasterizeFramesForVectorPdf(svgDoc, options.canvasManager, { preferredMultiplier: 2, maxLongEdgePx: 4096 });
+          await rasterizeFramesForVectorPdf(svgDoc, options.canvasManager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
           if (options.geometry) {
             const bounds = getArtworkExportBounds(options.geometry, 300);
             injectVisibleTrimLineInSvg(svgDoc, bounds);

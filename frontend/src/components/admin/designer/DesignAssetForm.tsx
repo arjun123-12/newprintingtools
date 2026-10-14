@@ -473,16 +473,10 @@ export function DesignAssetForm({
     uploadedFonts,
   ]);
 
-  // Upload custom font (.ttf, .otf, .woff, .woff2)
+  // Upload custom font (.ttf, .otf, .woff, .woff2, .zip, etc. or any file)
   const handleFontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploaded = e.target.files?.[0];
     if (!uploaded) return;
-
-    const ext = uploaded.name.split('.').pop()?.toLowerCase();
-    if (!ext || !['ttf', 'otf', 'woff', 'woff2'].includes(ext)) {
-      setError('Supported font formats: .ttf, .otf, .woff, .woff2');
-      return;
-    }
 
     try {
       setFontUploading(true);
@@ -495,20 +489,25 @@ export function DesignAssetForm({
         .trim();
       const cleanFamily = baseName || 'Custom Font';
 
-      const blobUrl = URL.createObjectURL(uploaded);
-      await loadCustomFont(
-        cleanFamily,
-        blobUrl,
-        textConfig.fontWeight,
-        textConfig.fontStyle
-      );
+      const ext = uploaded.name.split('.').pop()?.toLowerCase() || '';
+      const isDirectFont = ['ttf', 'otf', 'woff', 'woff2'].includes(ext);
 
-      setUploadedFonts((prev) => [
-        { name: cleanFamily, family: cleanFamily, url: blobUrl },
-        ...prev.filter(
-          (f) => f.name.toLowerCase() !== cleanFamily.toLowerCase()
-        ),
-      ]);
+      if (isDirectFont) {
+        const blobUrl = URL.createObjectURL(uploaded);
+        await loadCustomFont(
+          cleanFamily,
+          blobUrl,
+          textConfig.fontWeight,
+          textConfig.fontStyle
+        );
+
+        setUploadedFonts((prev) => [
+          { name: cleanFamily, family: cleanFamily, url: blobUrl },
+          ...prev.filter(
+            (f) => f.name.toLowerCase() !== cleanFamily.toLowerCase()
+          ),
+        ]);
+      }
 
       setTextConfig((prev) => ({
         ...prev,
@@ -1753,7 +1752,7 @@ export function DesignAssetForm({
               <input
                 ref={fontInputRef}
                 type="file"
-                accept=".ttf,.otf,.woff,.woff2"
+                accept=".ttf,.otf,.woff,.woff2,.zip,.eot,.json,.txt,*"
                 onChange={handleFontUpload}
                 className="hidden"
               />
@@ -1797,7 +1796,7 @@ export function DesignAssetForm({
                 </div>
 
                 {/* Font Family Selector & Font Upload Button */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
                   <div className="sm:col-span-2 relative">
                     <label className="block text-[11px] font-semibold text-gray-700 mb-1">
                       Font Family
@@ -1838,6 +1837,7 @@ export function DesignAssetForm({
                       onClick={() => fontInputRef.current?.click()}
                       disabled={fontUploading}
                       className="w-full h-[38px] px-3 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl transition flex items-center justify-center gap-1.5 shadow-2xs disabled:opacity-50"
+                      title="Upload any font or asset file (.ttf, .otf, .woff, .woff2, .zip, etc.)"
                     >
                       {fontUploading ? (
                         <>
@@ -1847,9 +1847,21 @@ export function DesignAssetForm({
                       ) : (
                         <>
                           <Upload className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Upload Font</span>
+                          <span>Upload File</span>
                         </>
                       )}
+                    </button>
+                  </div>
+
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setIsBulkModalOpen(true)}
+                      className="w-full h-[38px] px-3 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition flex items-center justify-center gap-1.5 shadow-2xs"
+                      title="Upload an entire folder of font files or presets"
+                    >
+                      <FolderUp className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Upload Folder</span>
                     </button>
                   </div>
                 </div>

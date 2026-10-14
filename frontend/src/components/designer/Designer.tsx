@@ -2226,7 +2226,7 @@ export default function Designer({
       let svgDoc = parser.parseFromString(svg, 'image/svg+xml');
       if (!svgDoc.querySelector('parsererror')) {
         await rasterizeHollowTextForExport(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
-        await rasterizeFramesForVectorPdf(svgDoc, manager, { preferredMultiplier: 2, maxLongEdgePx: 4096 });
+        await rasterizeFramesForVectorPdf(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
         injectVisibleTrimLineInSvg(svgDoc, bounds);
         const foldingConfig = dimensionsRef.current.printLayout?.folding || documentSettings.printLayout?.folding || manager.getPrintLayout()?.folding;
         if (foldingConfig?.enabled) {

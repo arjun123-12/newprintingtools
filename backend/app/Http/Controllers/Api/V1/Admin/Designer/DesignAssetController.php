@@ -89,7 +89,7 @@ class DesignAssetController extends Controller
 
         $validated = $request->validate([
             'category_id' => [
-                'required',
+                'nullable',
                 'string',
                 Rule::exists('design_asset_categories', 'id'),
             ],
@@ -117,8 +117,8 @@ class DesignAssetController extends Controller
                 'required_without:fabric_json',
                 'nullable',
                 'file',
-                'extensions:jpg,jpeg,png,webp,gif,svg,pdf,tif,tiff,ttf,otf,woff,woff2',
-                'max:51200',
+                'extensions:jpg,jpeg,png,webp,gif,svg,pdf,tif,tiff,ttf,otf,woff,woff2,eot,zip,json,txt,csv,psd,ai,eps',
+                'max:102400',
             ],
 
             'thumbnail' => [
@@ -173,10 +173,12 @@ class DesignAssetController extends Controller
             ],
         ]);
 
-        $category = $this->getAndValidateCategory(
-            $validated['category_id'],
-            $validated['asset_type']
-        );
+        $category = !empty($validated['category_id'])
+            ? $this->getAndValidateCategory(
+                $validated['category_id'],
+                $validated['asset_type']
+            )
+            : null;
 
         $filePath = null;
         $thumbnailPath = null;
@@ -266,7 +268,7 @@ class DesignAssetController extends Controller
 
         $validated = $request->validate([
             'category_id' => [
-                'required',
+                'nullable',
                 'string',
                 Rule::exists('design_asset_categories', 'id'),
             ],
@@ -297,8 +299,8 @@ class DesignAssetController extends Controller
             'file' => [
                 'nullable',
                 'file',
-                'extensions:jpg,jpeg,png,webp,gif,svg,pdf,tif,tiff,ttf,otf,woff,woff2',
-                'max:51200',
+                'extensions:jpg,jpeg,png,webp,gif,svg,pdf,tif,tiff,ttf,otf,woff,woff2,eot,zip,json,txt,csv,psd,ai,eps',
+                'max:102400',
             ],
 
             'thumbnail' => [
@@ -365,10 +367,12 @@ class DesignAssetController extends Controller
         $categoryId = $validated['category_id']
             ?? $asset->category_id;
 
-        $this->getAndValidateCategory(
-            $categoryId,
-            $assetType
-        );
+        if (!empty($categoryId)) {
+            $this->getAndValidateCategory(
+                $categoryId,
+                $assetType
+            );
+        }
 
         $oldFilePath = $asset->file_path;
         $oldThumbnailPath = $asset->thumbnail_path;
@@ -552,9 +556,8 @@ class DesignAssetController extends Controller
         }
 
         if ($request->has('category_id')) {
-            $normalized['category_id'] = trim(
-                (string) $request->input('category_id')
-            );
+            $catId = trim((string) $request->input('category_id'));
+            $normalized['category_id'] = ($catId !== '' && $catId !== 'null' && $catId !== 'undefined') ? $catId : null;
         }
 
         foreach (['fabric_json', 'metadata'] as $jsonField) {

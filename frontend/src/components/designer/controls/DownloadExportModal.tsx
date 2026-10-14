@@ -1888,8 +1888,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
             svgDoc,
             canvasManager,
             {
-              preferredMultiplier: 2,
-              maxLongEdgePx: 4096,
+              preferredMultiplier: 4,
+              maxLongEdgePx: 8192,
             }
           );
 
