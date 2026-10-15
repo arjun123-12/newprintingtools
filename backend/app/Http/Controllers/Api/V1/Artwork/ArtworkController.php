@@ -639,11 +639,34 @@ class ArtworkController extends Controller
 
     /**
      * Return one artwork publicly (for loading in the designer with fallback).
+     * Only Admin-approved artwork or artwork owned by the requester is exposed; drafts are protected.
      */
     public function showPublic(Request $request, string $artworkId): JsonResponse
     {
         $artwork = Artwork::with(['product', 'template', 'designTemplate'])
             ->findOrFail($artworkId);
+
+        $user = $this->resolveUser($request);
+        $sessionId = $request->header('X-Session-ID')
+            ?? $request->input('session_id')
+            ?? ($request->hasSession() ? $request->session()->getId() : null);
+
+        $isOwner = false;
+        if ($user && $artwork->user_id && (int) $user->id === (int) $artwork->user_id) {
+            $isOwner = true;
+        } elseif (!$artwork->user_id && !empty($artwork->session_id) && !empty($sessionId) && hash_equals((string) $artwork->session_id, (string) $sessionId)) {
+            $isOwner = true;
+        }
+
+        $isStaff = $user && ($user->isSuperAdmin() || $user->isStaff() || $user->canAccessAdminPanel());
+
+        // Protect unapproved artworks: only exposed if admin-approved, or requested by owner/staff
+        if (!$isOwner && !$isStaff && $artwork->review_status !== 'approved') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This artwork is not approved for public viewing or proofing.',
+            ], 403);
+        }
 
         return response()->json([
             'success' => true,

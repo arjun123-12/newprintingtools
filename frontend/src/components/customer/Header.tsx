@@ -124,8 +124,8 @@ export default function Header() {
                       {user.name.charAt(0).toUpperCase()}
                     </div>
                     <div className="hidden xl:flex flex-col text-left">
-                      <span className="text-[11px] text-slate-400 leading-none">Hi, {user.name.split(' ')[0]}</span>
-                      <span className="text-xs font-semibold text-slate-800 leading-tight">My Account</span>
+                      <span className="text-xs text-slate-500 leading-none font-medium">Hi, {user.name.split(' ')[0]}</span>
+                      <span className="text-xs font-semibold text-slate-900 leading-tight">My Account</span>
                     </div>
                   </Link>
 
@@ -133,7 +133,7 @@ export default function Header() {
                     type="button"
                     onClick={() => void logout()}
                     title="Log Out"
-                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                    className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
                   >
                     <LogOut className="w-4 h-4" />
                   </button>
@@ -147,8 +147,8 @@ export default function Header() {
                     <User className="w-4 h-4" />
                   </div>
                   <div className="hidden xl:flex flex-col text-left">
-                    <span className="text-[11px] text-slate-400 leading-none">Welcome</span>
-                    <span className="text-xs font-semibold text-slate-800 leading-tight">Sign In / Register</span>
+                    <span className="text-xs text-slate-500 leading-none font-medium">Welcome</span>
+                    <span className="text-xs font-semibold text-slate-900 leading-tight">Sign In / Register</span>
                   </div>
                 </Link>
               )}
@@ -161,14 +161,14 @@ export default function Header() {
                 <div className="relative w-8 h-8 rounded-full bg-sky-50 flex items-center justify-center text-sky-600">
                   <ShoppingCart className="w-4 h-4" />
                   {mounted && totalCartCount > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 bg-rose-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center ring-2 ring-white animate-pulse">
+                    <span className="absolute -top-1.5 -right-1.5 bg-rose-600 text-white text-2xs font-bold w-5 h-5 rounded-full flex items-center justify-center ring-2 ring-white animate-pulse">
                       {totalCartCount > 99 ? '99+' : totalCartCount}
                     </span>
                   )}
                 </div>
                 <div className="hidden xl:flex flex-col text-left">
-                  <span className="text-[11px] text-slate-400 leading-none">Your Cart</span>
-                  <span className="text-xs font-semibold text-slate-800 leading-tight">
+                  <span className="text-xs text-slate-500 leading-none font-medium">Your Cart</span>
+                  <span className="text-xs font-semibold text-slate-900 leading-tight">
                     {mounted ? `${totalCartCount} ${totalCartCount === 1 ? 'item' : 'items'}` : 'Cart'}
                   </span>
                 </div>

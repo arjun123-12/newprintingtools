@@ -518,14 +518,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 }
               }}
               title={`Colour ${idx + 1}: ${displayColor} (Open in Sidebar)`}
-              className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${
                 isCurrentActive
                   ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs ring-2 ring-[#7c3aed] ring-offset-1 scale-105'
                   : 'bg-white border-gray-200 hover:bg-gray-50 hover:scale-105'
               }`}
             >
               <div
-                className="w-5 h-5 rounded-lg border border-black/15 shadow-2xs"
+                className="w-5.5 h-5.5 rounded-lg border border-black/15 shadow-2xs"
                 style={{ backgroundColor: displayColor }}
               />
             </button>
@@ -545,15 +545,15 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           ? { left: `${position.x}px`, top: `${position.y}px` }
           : undefined
       }
-      className={`absolute ${position ? '' : 'top-3 left-4'} z-40 flex items-center gap-1.5 bg-white px-2.5 py-2 rounded-2xl shadow-xl border border-gray-200/90 text-gray-700 animate-in fade-in slide-in-from-top-2 duration-150 select-none max-w-[95vw] overflow-visible`}
+      className={`absolute ${position ? '' : 'top-3 left-4'} z-40 flex items-center gap-2 bg-white px-3 py-2.5 rounded-2xl shadow-xl border border-gray-200/90 text-gray-700 animate-in fade-in slide-in-from-top-2 duration-150 select-none max-w-[95vw] overflow-visible`}
     >
       {/* Drag Grip Handle - user can adjust toolbar to any side */}
       <div
         onPointerDown={handlePointerDown}
         title="Drag toolbar to adjust position"
-        className="cursor-grab active:cursor-grabbing p-1 -ml-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition flex items-center justify-center shrink-0"
+        className="cursor-grab active:cursor-grabbing p-1.5 -ml-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition flex items-center justify-center shrink-0"
       >
-        <GripVertical className="w-3.5 h-3.5" />
+        <GripVertical className="w-4 h-4" />
       </div>
       {/* ================================================================ */}
       {/* 0A. CANVAS BACKGROUND CONTROLS (When No Element Is Selected)     */}
@@ -569,20 +569,20 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Canvas Background Colour (Open in Sidebar)"
-            className={`h-8 px-2.5 rounded-lg border flex items-center gap-2 text-xs font-semibold transition ${activeSidebarTab === 'color'
+            className={`h-9 px-3 rounded-xl border flex items-center gap-2 text-sm font-semibold transition ${activeSidebarTab === 'color'
               ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-2xs font-bold'
               : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
               }`}
           >
             <div
-              className="w-4 h-4 rounded-full border border-gray-300 shadow-2xs flex-shrink-0"
+              className="w-4.5 h-4.5 rounded-full border border-gray-300 shadow-2xs flex-shrink-0"
               style={{ backgroundColor: currentCanvasBg }}
             />
-            <span className="text-xs font-bold text-gray-800">Background Colour</span>
-            <ChevronDown className="w-3 h-3 text-gray-400" />
+            <span className="text-sm font-semibold text-gray-800">Background Colour</span>
+            <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
           </button>
 
-          <div className="h-4 w-px bg-gray-200 mx-0.5" />
+          <div className="h-5 w-px bg-gray-200 mx-0.5" />
 
           {/* Button to open Background / Photos Side Panel */}
           {onSelectSidebarTab && (
@@ -590,14 +590,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => onSelectSidebarTab('background')}
               title="Browse Photo & Gradient Backgrounds"
-              className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 flex items-center gap-1.5 transition"
+              className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold text-gray-700 flex items-center gap-2 transition"
             >
-              <Wallpaper className="w-3.5 h-3.5 text-blue-600" />
+              <Wallpaper className="w-4 h-4 text-blue-600" />
               <span>Backgrounds</span>
             </button>
           )}
 
-          <div className="h-4 w-px bg-gray-200 mx-0.5" />
+          <div className="h-5 w-px bg-gray-200 mx-0.5" />
 
           {/* Delete BG Button (Clears background image, gradient, or color back to default white) */}
           <button
@@ -606,23 +606,23 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               canvasManager?.resetBackground();
             }}
             title="Delete Background (Reset to white)"
-            className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+            className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-gray-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
           >
-            <Trash2 className="w-3.5 h-3.5 text-red-500" />
+            <Trash2 className="w-4 h-4 text-red-500" />
             <span>Delete BG</span>
           </button>
 
           {/* Apply this design to back page button */}
           {onApplyDesignToBack && (
             <>
-              <div className="h-4 w-px bg-gray-200 mx-0.5" />
+              <div className="h-5 w-px bg-gray-200 mx-0.5" />
               <button
                 type="button"
                 onClick={onApplyDesignToBack}
                 title="Copy and apply current design to the back page"
-                className="h-8 px-2.5 rounded-xl border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+                className="h-9 px-3 rounded-xl border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
               >
-                <Copy className="w-3.5 h-3.5 text-sky-600" />
+                <Copy className="w-4 h-4 text-sky-600" />
                 <span>Apply design to back</span>
               </button>
             </>
@@ -641,14 +641,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('brushTool')}
               title="Select Brush Type"
-              className={`h-8 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${activePopover === 'brushTool'
+              className={`h-9 px-3 rounded-xl border text-sm font-semibold flex items-center gap-2 transition ${activePopover === 'brushTool'
                 ? 'bg-blue-50 border-blue-400 text-blue-700 shadow-2xs'
                 : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
                 }`}
             >
-              <CurrentBrushIcon className="w-3.5 h-3.5 text-blue-600" />
-              <span className="truncate max-w-[110px]">{currentBrushPreset.name}</span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
+              <CurrentBrushIcon className="w-4 h-4 text-blue-600" />
+              <span className="truncate max-w-[120px]">{currentBrushPreset.name}</span>
+              <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
             </button>
 
             {activePopover === 'brushTool' && (
@@ -662,25 +662,25 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
 
           {/* Brush Size Stepper & Popover */}
           <div className="relative flex items-center">
-            <div className="flex items-center h-8 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
+            <div className="flex items-center h-9 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
               <button
                 type="button"
                 onClick={() =>
                   handleUpdateBrushSetting('size', Math.max(brushSettings.size - 2, 1))
                 }
                 title="Decrease Brush Size"
-                className="px-2 h-full hover:bg-gray-100 text-gray-600 transition"
+                className="px-2.5 h-full hover:bg-gray-100 text-gray-600 transition"
               >
-                <Minus className="w-3 h-3" />
+                <Minus className="w-3.5 h-3.5" />
               </button>
               <button
                 type="button"
                 onClick={() => togglePopover('brushSize')}
                 title="Brush Size & Width"
-                className="px-1.5 py-1 text-xs font-mono font-bold text-gray-800 hover:text-blue-600 transition flex items-center gap-0.5"
+                className="px-2 py-1 text-sm font-mono font-bold text-gray-800 hover:text-blue-600 transition flex items-center gap-0.5"
               >
                 <span>{brushSettings.size}</span>
-                <span className="text-[10px] text-gray-400 font-sans">px</span>
+                <span className="text-[11px] text-gray-400 font-sans">px</span>
               </button>
               <button
                 type="button"
@@ -688,9 +688,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                   handleUpdateBrushSetting('size', Math.min(brushSettings.size + 2, 80))
                 }
                 title="Increase Brush Size"
-                className="px-2 h-full hover:bg-gray-100 text-gray-600 transition"
+                className="px-2.5 h-full hover:bg-gray-100 text-gray-600 transition"
               >
-                <Plus className="w-3 h-3" />
+                <Plus className="w-3.5 h-3.5" />
               </button>
             </div>
 
@@ -714,13 +714,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Brush Ink Colour (Open in Sidebar)"
-            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
               ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
               : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <div
-              className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs flex-shrink-0"
+              className="w-5.5 h-5.5 rounded-lg border border-gray-300 shadow-2xs flex-shrink-0"
               style={{ backgroundColor: brushSettings.color || '#2563eb' }}
             />
           </button>
@@ -731,12 +731,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('opacity')}
               title="Brush Opacity / Alpha"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'opacity'
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activePopover === 'opacity'
                 ? 'bg-blue-50 border-blue-400 text-blue-700'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                 }`}
             >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
                 <rect x="0" y="0" width="4" height="4" fill="#64748b" />
                 <rect x="8" y="0" width="4" height="4" fill="#64748b" />
                 <rect x="4" y="4" width="4" height="4" fill="#64748b" />
@@ -763,7 +763,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('brushCaps')}
               title="Stroke End Caps & Joins"
-              className={`h-8 px-2 rounded-xl border text-[11px] font-semibold capitalize transition ${activePopover === 'brushCaps'
+              className={`h-9 px-2.5 rounded-xl border text-xs font-semibold capitalize transition ${activePopover === 'brushCaps'
                 ? 'bg-blue-50 border-blue-400 text-blue-700'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                 }`}
@@ -782,7 +782,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             )}
           </div>
 
-          <div className="h-4 w-px bg-gray-200 mx-0.5" />
+          <div className="h-5 w-px bg-gray-200 mx-0.5" />
 
           {/* Done Drawing Button */}
           <button
@@ -794,9 +794,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Finish Drawing Mode"
-            className="h-8 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95"
+            className="h-9 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold flex items-center gap-2 shadow-xs transition active:scale-95"
           >
-            <Check className="w-3.5 h-3.5" />
+            <Check className="w-4 h-4" />
             <span>Done</span>
           </button>
         </>
@@ -813,15 +813,15 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('font')}
               title="Font Family"
-              className={`h-8 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${activePopover === 'font'
+              className={`h-9 px-3 rounded-xl border text-sm font-semibold flex items-center gap-2 transition ${activePopover === 'font'
                 ? 'bg-blue-50 border-blue-400 text-blue-700'
                 : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
                 }`}
             >
-              <span className="truncate max-w-[100px]">
+              <span className="truncate max-w-[120px]">
                 {cleanFontName(selected.fontFamily)}
               </span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
+              <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
             </button>
 
             {activePopover === 'font' && (
@@ -837,14 +837,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           </div>
 
           {/* Font Size Stepper */}
-          <div className="flex items-center h-8 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
+          <div className="flex items-center h-9 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
             <button
               type="button"
               onClick={() => handleFontSizePtChange(Math.max(1, Math.round(currentFontSizePt - 1)))}
               title="Decrease Font Size"
-              className="px-2 h-full hover:bg-gray-100 text-gray-600 transition"
+              className="px-2.5 h-full hover:bg-gray-100 text-gray-600 transition"
             >
-              <Minus className="w-3 h-3" />
+              <Minus className="w-3.5 h-3.5" />
             </button>
             <input
               type="number"
@@ -853,15 +853,15 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               max={500}
               step={1}
               onChange={(e) => handleFontSizePtChange(Number(e.target.value))}
-              className="w-10 text-center text-xs font-bold text-gray-800 focus:outline-none py-1"
+              className="w-11 text-center text-sm font-bold text-gray-800 focus:outline-none py-1"
             />
             <button
               type="button"
               onClick={() => handleFontSizePtChange(Math.min(500, Math.round(currentFontSizePt + 1)))}
               title="Increase Font Size"
-              className="px-2 h-full hover:bg-gray-100 text-gray-600 transition"
+              className="px-2.5 h-full hover:bg-gray-100 text-gray-600 transition"
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
 
@@ -874,14 +874,14 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Text Colour (Open in Sidebar)"
-            className={`h-8 px-2 rounded-lg border flex flex-col items-center justify-center transition ${activeSidebarTab === 'color'
+            className={`h-9 px-2.5 rounded-xl border flex flex-col items-center justify-center transition ${activeSidebarTab === 'color'
               ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
               : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <span className="text-xs font-black text-gray-900 leading-none">A</span>
             <span
-              className="w-4 h-1 rounded-lg mt-0.5"
+              className="w-4.5 h-1 rounded-lg mt-0.5"
               style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#0f172a') }}
             />
           </button>
@@ -891,12 +891,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => handleUpdate('fontWeight', isBold ? 'normal' : 'bold')}
             title="Bold (Ctrl+B)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${isBold
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${isBold
               ? 'bg-blue-50 border-blue-300 text-blue-600 font-bold'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
-            <Bold className="w-3.5 h-3.5" />
+            <Bold className="w-4 h-4" />
           </button>
 
           {/* Italic */}
@@ -904,12 +904,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => handleUpdate('fontStyle', isItalic ? 'normal' : 'italic')}
             title="Italic (Ctrl+I)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${isItalic
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${isItalic
               ? 'bg-blue-50 border-blue-300 text-blue-600'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
-            <Italic className="w-3.5 h-3.5" />
+            <Italic className="w-4 h-4" />
           </button>
 
           {/* Underline */}
@@ -917,12 +917,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => handleUpdate('underline', !isUnderline)}
             title="Underline (Ctrl+U)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${isUnderline
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${isUnderline
               ? 'bg-blue-50 border-blue-300 text-blue-600'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
-            <Underline className="w-3.5 h-3.5" />
+            <Underline className="w-4 h-4" />
           </button>
 
           {/* Case Upper/Lower */}
@@ -937,9 +937,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               );
             }}
             title="Toggle Uppercase / Lowercase"
-            className="w-8 h-8 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center justify-center transition"
+            className="w-9 h-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center justify-center transition"
           >
-            <span className="text-[11px] font-bold">aA</span>
+            <span className="text-xs font-bold">aA</span>
           </button>
 
           {/* Alignment Toggle Button */}
@@ -956,12 +956,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               handleUpdate('textAlign', next);
             }}
             title={`Text Alignment (${textAlign})`}
-            className="w-8 h-8 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center justify-center transition"
+            className="w-9 h-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center justify-center transition"
           >
-            {textAlign === 'left' && <AlignLeft className="w-3.5 h-3.5" />}
-            {textAlign === 'center' && <AlignCenter className="w-3.5 h-3.5" />}
-            {textAlign === 'right' && <AlignRight className="w-3.5 h-3.5" />}
-            {textAlign === 'justify' && <AlignJustify className="w-3.5 h-3.5" />}
+            {textAlign === 'left' && <AlignLeft className="w-4 h-4" />}
+            {textAlign === 'center' && <AlignCenter className="w-4 h-4" />}
+            {textAlign === 'right' && <AlignRight className="w-4 h-4" />}
+            {textAlign === 'justify' && <AlignJustify className="w-4 h-4" />}
           </button>
 
           {/* List Button */}
@@ -969,9 +969,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => canvasManager?.toggleBulletList()}
             title="Bullet List"
-            className="w-8 h-8 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center justify-center transition"
+            className="w-9 h-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center justify-center transition"
           >
-            <List className="w-3.5 h-3.5" />
+            <List className="w-4 h-4" />
           </button>
 
           {/* Spacing Popover Button */}
@@ -980,12 +980,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('spacing')}
               title="Letter & Line Spacing"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'spacing'
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activePopover === 'spacing'
                 ? 'bg-blue-50 border-blue-400 text-blue-700'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                 }`}
             >
-              <ArrowUpDown className="w-3.5 h-3.5" />
+              <ArrowUpDown className="w-4 h-4" />
             </button>
 
             {activePopover === 'spacing' && (
@@ -1008,7 +1008,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Text Border & Stroke (Open in Sidebar)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
               ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
@@ -1076,9 +1076,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 type="button"
                 onClick={() => frameFileInputRef.current?.click()}
                 title="Replace photo in this frame"
-                className="h-8 px-2.5 rounded-xl border border-purple-200 bg-purple-50/80 hover:bg-purple-100/80 text-purple-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+                className="h-9 px-3 rounded-xl border border-purple-200 bg-purple-50/80 hover:bg-purple-100/80 text-purple-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
               >
-                <RefreshCw className="w-3.5 h-3.5 text-purple-600" />
+                <RefreshCw className="w-4 h-4 text-purple-600" />
                 <span>Replace Photo</span>
               </button>
 
@@ -1088,9 +1088,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                   type="button"
                   onClick={() => canvasManager?.toggleActiveFrameFit()}
                   title={`Photo Fit: currently ${selected.photoFit || 'cover'}. Click to toggle.`}
-                  className="h-8 px-2.5 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100/80 text-indigo-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+                  className="h-9 px-3 rounded-xl border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100/80 text-indigo-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
                 >
-                  <Maximize2 className="w-3.5 h-3.5 text-indigo-600" />
+                  <Maximize2 className="w-4 h-4 text-indigo-600" />
                   <span className="capitalize">{selected.photoFit === 'contain' ? 'Fit: Contain' : 'Fit: Cover'}</span>
                 </button>
               )}
@@ -1101,10 +1101,10 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                   type="button"
                   onClick={() => canvasManager?.detachImageFromFrame()}
                   title="Detach photo from frame"
-                  className="h-8 px-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1 text-xs font-medium transition"
+                  className="h-9 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1.5 text-xs font-medium transition"
                 >
-                  <Unlink className="w-3.5 h-3.5 text-gray-500" />
-                  <span className="hidden md:inline text-[11px]">Detach</span>
+                  <Unlink className="w-4 h-4 text-gray-500" />
+                  <span className="hidden md:inline text-xs">Detach</span>
                 </button>
               )}
 
@@ -1114,13 +1114,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                   type="button"
                   onClick={() => canvasManager?.clearFrameImage()}
                   title="Clear photo back to placeholder"
-                  className="w-8 h-8 rounded-xl border border-gray-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-gray-600 flex items-center justify-center transition"
+                  className="w-9 h-9 rounded-xl border border-gray-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-gray-600 flex items-center justify-center transition"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-4 h-4" />
                 </button>
               )}
 
-              <div className="h-4 w-px bg-gray-200 mx-0.5" />
+              <div className="h-5 w-px bg-gray-200 mx-0.5" />
             </>
           )}
 
@@ -1135,9 +1135,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title={selected.isFrame ? 'Crop / Adjust Photo in Frame' : 'Crop Image'}
-            className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+            className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
           >
-            <Crop className="w-3.5 h-3.5 text-blue-600" />
+            <Crop className="w-4 h-4 text-blue-600" />
             <span>Crop</span>
           </button>
 
@@ -1147,12 +1147,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             disabled={isRemovingBg}
             onClick={handleRemoveBackground}
             title="Remove Background with Magnific AI"
-            className="h-8 px-2.5 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100/90 text-purple-700 flex items-center gap-1.5 text-xs font-bold transition shadow-2xs disabled:opacity-50"
+            className="h-9 px-3 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100/90 text-purple-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs disabled:opacity-50"
           >
             {isRemovingBg ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-600" />
+              <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
             ) : (
-              <Wand2 className="w-3.5 h-3.5 text-purple-600" />
+              <Wand2 className="w-4 h-4 text-purple-600" />
             )}
             <span>{isRemovingBg ? 'Removing...' : 'Remove BG'}</span>
           </button>
@@ -1171,13 +1171,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => handleUpdate('flipX', !selected.flipX)}
             title="Flip Horizontal"
-            className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${selected.flipX
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${selected.flipX
               ? 'bg-purple-50 border-purple-300 text-purple-600'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
-            <FlipHorizontal className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline"></span>
+            <FlipHorizontal className="w-4 h-4" />
           </button>
 
           {/* Flip Vertical */}
@@ -1185,13 +1184,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => handleUpdate('flipY', !selected.flipY)}
             title="Flip Vertical"
-            className={`h-8 px-2.5 rounded-xl border flex items-center gap-1.5 text-xs font-semibold transition ${selected.flipY
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${selected.flipY
               ? 'bg-purple-50 border-purple-300 text-purple-600'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
-            <FlipVertical className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline"></span>
+            <FlipVertical className="w-4 h-4" />
           </button>
 
           {/* Canva Border Style Icon Button (only if not already rendered by Shape controls) */}
@@ -1205,7 +1203,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                   }
                 }}
                 title="Border & Outline (Open in Sidebar)"
-                className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
+                className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
                   ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
                   : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                   }`}
@@ -1228,7 +1226,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                       togglePopover('cornerRounding');
                     }}
                     title="Corner Rounding"
-                    className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
+                    className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
                       ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
                       : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                       }`}
@@ -1270,13 +1268,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 }
               }}
               title="Shape Colour (Open in Sidebar)"
-              className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
                 ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
                 : 'bg-white border-gray-200 hover:bg-gray-50'
                 }`}
             >
               <div
-                className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs"
+                className="w-5.5 h-5.5 rounded-lg border border-gray-300 shadow-2xs"
                 style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#2563eb') }}
               />
             </button>
@@ -1291,7 +1289,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Border & Corner (Open in Sidebar)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
               ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
@@ -1313,9 +1311,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Fit an image into this shape (Click to browse images, or drag any image over this shape)"
-            className="h-8 px-2.5 rounded-xl border border-purple-200 bg-purple-50/80 hover:bg-purple-100/80 text-purple-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+            className="h-9 px-3 rounded-xl border border-purple-200 bg-purple-50/80 hover:bg-purple-100/80 text-purple-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
           >
-            <ImageIcon className="w-3.5 h-3.5 text-purple-600" />
+            <ImageIcon className="w-4 h-4 text-purple-600" />
             <span>Fit Image</span>
           </button>
           */}
@@ -1325,9 +1323,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => setIsCropModalOpen(true)}
             title="Crop Shape / Element"
-            className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+            className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
           >
-            <Crop className="w-3.5 h-3.5 text-blue-600" />
+            <Crop className="w-4 h-4 text-blue-600" />
             <span>Crop</span>
           </button>
 
@@ -1347,7 +1345,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                     togglePopover('cornerRounding');
                   }}
                   title="Corner Rounding"
-                  className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
+                  className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
                     ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
                     : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                     }`}
@@ -1387,13 +1385,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 }
               }}
               title="Group colour (applies to compatible elements)"
-              className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
                 ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
                 : 'bg-white border-gray-200 hover:bg-gray-50'
                 }`}
             >
               <div
-                className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs"
+                className="w-5.5 h-5.5 rounded-lg border border-gray-300 shadow-2xs"
                 style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#2563eb') }}
               />
             </button>
@@ -1408,7 +1406,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Group border and stroke (Open in Sidebar)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border' || (selected.strokeWidth || 0) > 0
               ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
@@ -1430,7 +1428,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 togglePopover('cornerRounding');
               }}
               title="Round compatible elements in group"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activePopover === 'cornerRounding' || (selected.rx || 0) > 0
                 ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                 }`}
@@ -1455,24 +1453,24 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => handleUpdate('flipX', !selected.flipX)}
             title="Flip group horizontally"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${selected.flipX
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${selected.flipX
               ? 'bg-purple-50 border-purple-300 text-purple-600'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
-            <FlipHorizontal className="w-3.5 h-3.5" />
+            <FlipHorizontal className="w-4 h-4" />
           </button>
 
           <button
             type="button"
             onClick={() => handleUpdate('flipY', !selected.flipY)}
             title="Flip group vertically"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${selected.flipY
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${selected.flipY
               ? 'bg-purple-50 border-purple-300 text-purple-600'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
           >
-            <FlipVertical className="w-3.5 h-3.5" />
+            <FlipVertical className="w-4 h-4" />
           </button>
 
           {/* Canva Crop Button for Group */}
@@ -1480,9 +1478,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             type="button"
             onClick={() => setIsCropModalOpen(true)}
             title="Crop Group"
-            className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+            className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
           >
-            <Crop className="w-3.5 h-3.5 text-blue-600" />
+            <Crop className="w-4 h-4 text-blue-600" />
             <span>Crop</span>
           </button>
         </>
@@ -1504,25 +1502,25 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
         <>
           {/* Stroke Size Stepper & Popover */}
           <div className="relative flex items-center">
-            <div className="flex items-center h-8 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
+            <div className="flex items-center h-9 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
               <button
                 type="button"
                 onClick={() =>
                   handleUpdate('strokeWidth', Math.max((selected.strokeWidth || 4) - 2, 1))
                 }
                 title="Decrease Stroke Width"
-                className="px-2 h-full hover:bg-gray-100 text-gray-600 transition"
+                className="px-2.5 h-full hover:bg-gray-100 text-gray-600 transition"
               >
-                <Minus className="w-3 h-3" />
+                <Minus className="w-3.5 h-3.5" />
               </button>
               <button
                 type="button"
                 onClick={() => togglePopover('brushSize')}
                 title="Stroke Width"
-                className="px-1.5 py-1 text-xs font-mono font-bold text-gray-800 hover:text-blue-600 transition flex items-center gap-0.5"
+                className="px-2 py-1 text-sm font-mono font-bold text-gray-800 hover:text-blue-600 transition flex items-center gap-0.5"
               >
                 <span>{selected.strokeWidth || 4}</span>
-                <span className="text-[10px] text-gray-400 font-sans">px</span>
+                <span className="text-[11px] text-gray-400 font-sans">px</span>
               </button>
               <button
                 type="button"
@@ -1530,9 +1528,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                   handleUpdate('strokeWidth', Math.min((selected.strokeWidth || 4) + 2, 80))
                 }
                 title="Increase Stroke Width"
-                className="px-2 h-full hover:bg-gray-100 text-gray-600 transition"
+                className="px-2.5 h-full hover:bg-gray-100 text-gray-600 transition"
               >
-                <Plus className="w-3 h-3" />
+                <Plus className="w-3.5 h-3.5" />
               </button>
             </div>
 
@@ -1556,13 +1554,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Stroke Colour (Open in Sidebar)"
-            className={`w-8 h-8 rounded-lg border flex items-center justify-center transition ${activeSidebarTab === 'color'
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'color'
               ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
               : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
           >
             <div
-              className="w-5 h-5 rounded-lg border border-gray-300 shadow-2xs"
+              className="w-5.5 h-5.5 rounded-lg border border-gray-300 shadow-2xs"
               style={{ background: colorOrGradientToCss(selected.stroke || selected.fillGradient || selected.fill, '#2563eb') }}
             />
           </button>
@@ -1576,7 +1574,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Stroke Border Style & Pattern (Open in Sidebar)"
-            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border'
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activeSidebarTab === 'border'
               ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-xs font-bold'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
@@ -1594,7 +1592,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('brushCaps')}
               title="Stroke End Caps"
-              className={`h-8 px-2 rounded-xl border text-[11px] font-semibold capitalize transition ${activePopover === 'brushCaps'
+              className={`h-9 px-2.5 rounded-xl border text-xs font-semibold capitalize transition ${activePopover === 'brushCaps'
                 ? 'bg-blue-50 border-blue-400 text-blue-700'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                 }`}
@@ -1626,12 +1624,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('opacity')}
               title="Transparency / Opacity"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'opacity'
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activePopover === 'opacity'
                 ? 'bg-blue-50 border-blue-400 text-blue-700'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                 }`}
             >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
                 <rect x="0" y="0" width="4" height="4" fill="#64748b" />
                 <rect x="8" y="0" width="4" height="4" fill="#64748b" />
                 <rect x="4" y="4" width="4" height="4" fill="#64748b" />
@@ -1662,7 +1660,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 }
               }}
               title="Effects (Shadow, Lift, Glow, Outline)"
-              className={`h-8 px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${activeSidebarTab === 'effects'
+              className={`h-9 px-3.5 rounded-xl border text-sm font-semibold flex items-center gap-2 transition ${activeSidebarTab === 'effects'
                 ? 'bg-purple-50 border-purple-400 text-purple-700'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                 }`}
@@ -1677,9 +1675,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => setIsCropModalOpen(true)}
               title="Crop Element"
-              className="h-8 px-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+              className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
             >
-              <Crop className="w-3.5 h-3.5 text-blue-600" />
+              <Crop className="w-4 h-4 text-blue-600" />
               <span>Crop</span>
             </button>
           )}
@@ -1690,12 +1688,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('rotate')}
               title="Rotate & Angle"
-              className={`h-8 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${activePopover === 'rotate'
+              className={`h-9 px-3 rounded-xl border text-sm font-semibold flex items-center gap-2 transition ${activePopover === 'rotate'
                 ? 'bg-blue-50 border-blue-400 text-blue-700'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                 }`}
             >
-              <RotateCw className="w-3.5 h-3.5 text-gray-600" />
+              <RotateCw className="w-4 h-4 text-gray-600" />
               <span>{Math.round(selected.angle || 0)}°</span>
             </button>
 
@@ -1714,9 +1712,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => canvasManager.groupSelected()}
               title="Group (Ctrl+G)"
-              className="h-8 px-3 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
+              className="h-9 px-3.5 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-sm font-semibold flex items-center gap-2 transition shadow-2xs"
             >
-              <GroupIcon className="w-3.5 h-3.5" />
+              <GroupIcon className="w-4 h-4" />
               <span>Group</span>
             </button>
           )}
@@ -1727,9 +1725,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => canvasManager.ungroupSelected()}
               title="Ungroup (Ctrl+Shift+G)"
-              className="h-8 px-3 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
+              className="h-9 px-3.5 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 text-[#7c3aed] text-sm font-semibold flex items-center gap-2 transition shadow-2xs"
             >
-              <Ungroup className="w-3.5 h-3.5" />
+              <Ungroup className="w-4 h-4" />
               <span>Ungroup</span>
             </button>
           )} */}
@@ -1743,7 +1741,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               }
             }}
             title="Position (Arrange & Layers - Open in Sidebar)"
-            className={`h-8 px-3 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${activeSidebarTab === 'position'
+            className={`h-9 px-3.5 rounded-xl border text-sm font-semibold flex items-center gap-2 transition ${activeSidebarTab === 'position'
               ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] font-bold shadow-xs'
               : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}
@@ -1751,7 +1749,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             <span>Position</span>
           </button>
 
-          <div className="h-4 w-px bg-gray-200 mx-0.5" />
+          <div className="h-5 w-px bg-gray-200 mx-0.5" />
 
           {/* Copy Style / Roller Brush Button */}
           <button
@@ -1761,9 +1759,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               canvasManager.duplicateSelected();
             }}
             title="Duplicate / Copy Style"
-            className="w-8 h-8 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center justify-center transition"
+            className="w-9 h-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center justify-center transition"
           >
-            <Paintbrush className="w-3.5 h-3.5" />
+            <Paintbrush className="w-4 h-4" />
           </button>
 
           {/* More Actions (•••) */}
@@ -1772,12 +1770,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               type="button"
               onClick={() => togglePopover('more')}
               title="More actions"
-              className={`w-8 h-8 rounded-xl border flex items-center justify-center transition ${activePopover === 'more'
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activePopover === 'more'
                 ? 'bg-blue-50 border-blue-400 text-blue-700'
                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
                 }`}
             >
-              <MoreHorizontal className="w-3.5 h-3.5" />
+              <MoreHorizontal className="w-4 h-4" />
             </button>
 
             {activePopover === 'more' && (

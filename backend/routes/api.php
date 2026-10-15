@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\V1\ClientBriefController;
 use App\Http\Controllers\Api\V1\Admin\ClientBriefController as AdminClientBriefController;
 use App\Http\Controllers\Api\V1\ClientBriefAuthController;
 use App\Http\Controllers\Api\V1\Payments\PaymentController;
+use App\Http\Controllers\Api\V1\Admin\Staff\StaffController;
 use Illuminate\Support\Facades\Route;
 /*
 |--------------------------------------------------------------------------
@@ -288,6 +289,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::prefix('auth')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
 
+        Route::post('/change-password', [AuthController::class, 'changePassword']);
+
         Route::post('/logout', [AuthController::class, 'logout']);
     });
 
@@ -373,265 +376,290 @@ Route::middleware(['auth:sanctum'])->group(function () {
 // AUTHENTICATED ADMIN ROUTES
 // ==========================================
 
-Route::middleware(['auth:sanctum'])
+Route::middleware(['auth:sanctum', 'admin.access'])
     ->prefix('admin')
     ->group(function () {
 
-        // Categories
-        Route::get('/categories/archived', [
-            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
-            'archived',
-        ]);
+        // Categories (permission: categories)
+        Route::middleware('permission:categories')->group(function () {
+            Route::get('/categories/archived', [
+                App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+                'archived',
+            ]);
 
-        Route::post('/categories/bulk-restore', [
-            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
-            'bulkRestore',
-        ]);
+            Route::post('/categories/bulk-restore', [
+                App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+                'bulkRestore',
+            ]);
 
-        Route::post('/categories/bulk-archive', [
-            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
-            'bulkArchive',
-        ]);
+            Route::post('/categories/bulk-archive', [
+                App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+                'bulkArchive',
+            ]);
 
-        Route::post('/categories/{id}/restore', [
-            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
-            'restore',
-        ]);
+            Route::post('/categories/{id}/restore', [
+                App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+                'restore',
+            ]);
 
-        Route::post('/categories/{id}/archive', [
-            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
-            'archive',
-        ]);
+            Route::post('/categories/{id}/archive', [
+                App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+                'archive',
+            ]);
 
-        Route::get('/categories', [
-            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
-            'adminIndex',
-        ]);
+            Route::get('/categories', [
+                App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+                'adminIndex',
+            ]);
 
-        Route::post('/categories', [
-            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
-            'store',
-        ]);
+            Route::post('/categories', [
+                App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+                'store',
+            ]);
 
-        Route::patch('/categories/{id}', [
-            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
-            'update',
-        ]);
+            Route::patch('/categories/{id}', [
+                App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+                'update',
+            ]);
 
-        Route::delete('/categories/{id}', [
-            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
-            'destroy',
-        ]);
-        Route::post('/categories/bulk-delete', [
-            App\Http\Controllers\Api\V1\Categories\CategoryController::class,
-            'bulkDestroy',
-        ]);
+            Route::delete('/categories/{id}', [
+                App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+                'destroy',
+            ]);
+            Route::post('/categories/bulk-delete', [
+                App\Http\Controllers\Api\V1\Categories\CategoryController::class,
+                'bulkDestroy',
+            ]);
+        });
 
-        // Products
-        Route::get('/products/archived', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'archived',
-        ]);
+        // Products (permission: products)
+        Route::middleware('permission:products')->group(function () {
+            Route::get('/products/archived', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'archived',
+            ]);
 
-        Route::post('/products/bulk-restore', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'bulkRestore',
-        ]);
+            Route::post('/products/bulk-restore', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'bulkRestore',
+            ]);
 
-        Route::post('/products/bulk-archive', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'bulkArchive',
-        ]);
+            Route::post('/products/bulk-archive', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'bulkArchive',
+            ]);
 
-        Route::post('/products/{id}/restore', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'restore',
-        ]);
+            Route::post('/products/{id}/restore', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'restore',
+            ]);
 
-        Route::post('/products/{id}/archive', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'archive',
-        ]);
+            Route::post('/products/{id}/archive', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'archive',
+            ]);
 
-        Route::post('/products/{id}/duplicate', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'duplicate',
-        ]);
+            Route::post('/products/{id}/duplicate', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'duplicate',
+            ]);
 
-        Route::get('/products', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'index',
-        ]);
+            Route::get('/products', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'index',
+            ]);
 
-        Route::post('/products', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'store',
-        ]);
+            Route::post('/products', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'store',
+            ]);
 
-        Route::post('/products/bulk-delete', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'bulkDestroy',
-        ]);
+            Route::post('/products/bulk-delete', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'bulkDestroy',
+            ]);
 
-        Route::get('/products/{id}', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'show',
-        ]);
+            Route::get('/products/{id}', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'show',
+            ]);
 
-        Route::patch('/products/{id}', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'update',
-        ]);
+            Route::patch('/products/{id}', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'update',
+            ]);
 
-        Route::delete('/products/{id}', [
-            App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
-            'destroy',
-        ]);
+            Route::delete('/products/{id}', [
+                App\Http\Controllers\Api\V1\Admin\Products\ProductController::class,
+                'destroy',
+            ]);
 
-        // Design templates (admin creates and manages templates here)
-        Route::post('/design-templates/bulk-delete', [DesignTemplateController::class, 'bulkDestroy']);
-        Route::get('/design-templates', [DesignTemplateController::class, 'index']);
-        Route::post('/design-templates', [DesignTemplateController::class, 'store']);
-        Route::get('/design-templates/{template}', [DesignTemplateController::class, 'show']);
-        Route::match(['put', 'patch'], '/design-templates/{template}', [
-            DesignTemplateController::class,
-            'update',
-        ]);
-        Route::delete('/design-templates/{template}', [DesignTemplateController::class, 'destroy']);
+            Route::post('/products/{id}/images', [
+                App\Http\Controllers\Api\V1\Admin\ProductImages\ProductImageController::class,
+                'store',
+            ]);
 
-        // Admin template APIs
-        Route::post('/templates/bulk-delete', [DesignTemplateController::class, 'bulkDestroy']);
-        Route::get('/templates', [DesignTemplateController::class, 'index']);
-        Route::post('/templates', [DesignTemplateController::class, 'store']);
-        Route::get('/templates/{template}', [DesignTemplateController::class, 'show']);
-        Route::match(['put', 'patch'], '/templates/{template}', [
-            DesignTemplateController::class,
-            'update',
-        ]);
-        Route::delete('/templates/{template}', [DesignTemplateController::class, 'destroy']);
+            Route::apiResource(
+                'products.variants',
+                App\Http\Controllers\Api\V1\Admin\ProductVariants\ProductVariantController::class
+            );
+        });
+
+        // Design templates (permission: templates)
+        Route::middleware('permission:templates')->group(function () {
+            Route::post('/design-templates/bulk-delete', [DesignTemplateController::class, 'bulkDestroy']);
+            Route::get('/design-templates', [DesignTemplateController::class, 'index']);
+            Route::post('/design-templates', [DesignTemplateController::class, 'store']);
+            Route::get('/design-templates/{template}', [DesignTemplateController::class, 'show']);
+            Route::match(['put', 'patch'], '/design-templates/{template}', [
+                DesignTemplateController::class,
+                'update',
+            ]);
+            Route::delete('/design-templates/{template}', [DesignTemplateController::class, 'destroy']);
+
+            // Admin template APIs
+            Route::post('/templates/bulk-delete', [DesignTemplateController::class, 'bulkDestroy']);
+            Route::get('/templates', [DesignTemplateController::class, 'index']);
+            Route::post('/templates', [DesignTemplateController::class, 'store']);
+            Route::get('/templates/{template}', [DesignTemplateController::class, 'show']);
+            Route::match(['put', 'patch'], '/templates/{template}', [
+                DesignTemplateController::class,
+                'update',
+            ]);
+            Route::delete('/templates/{template}', [DesignTemplateController::class, 'destroy']);
+        });
         
-        // Designer Assets (Admin Management)
-        // Keep the literal bulk-delete routes above the apiResource routes so
-        // Laravel never interprets "bulk-delete" as an {asset} identifier.
-        Route::post('/designer/asset-categories/bulk-delete', [
-            DesignAssetCategoryController::class,
-            'bulkDestroy',
-        ])->name('designer.asset-categories.bulk-destroy');
+        // Designer Assets (permission: design_assets)
+        Route::middleware('permission:design_assets')->group(function () {
+            Route::post('/designer/asset-categories/bulk-delete', [
+                DesignAssetCategoryController::class,
+                'bulkDestroy',
+            ])->name('designer.asset-categories.bulk-destroy');
 
-        Route::post('/designer/assets/bulk-delete', [
-            DesignAssetController::class,
-            'bulkDestroy',
-        ])->name('designer.assets.bulk-destroy');
+            Route::post('/designer/assets/bulk-delete', [
+                DesignAssetController::class,
+                'bulkDestroy',
+            ])->name('designer.assets.bulk-destroy');
 
-        Route::apiResource(
-            '/designer/asset-categories',
-            DesignAssetCategoryController::class
-        );
+            Route::apiResource(
+                '/designer/asset-categories',
+                DesignAssetCategoryController::class
+            );
 
-        Route::apiResource(
-            '/designer/assets',
-            DesignAssetController::class
-        );
+            Route::apiResource(
+                '/designer/assets',
+                DesignAssetController::class
+            );
+        });
 
+        // Dashboard Metrics (permission: dashboard)
         Route::get('/metrics', [
             App\Http\Controllers\Api\V1\Admin\AdminDashboardController::class,
             'metrics',
-        ]);
+        ])->middleware('permission:dashboard');
 
-        Route::post('/products/{id}/images', [
-            App\Http\Controllers\Api\V1\Admin\ProductImages\ProductImageController::class,
-            'store',
-        ]);
+        // Orders (permission: orders)
+        Route::middleware('permission:orders')->group(function () {
+            Route::get('/orders', [
+                App\Http\Controllers\Api\V1\Admin\AdminOrderController::class,
+                'index',
+            ]);
 
-        Route::apiResource(
-            'products.variants',
-            App\Http\Controllers\Api\V1\Admin\ProductVariants\ProductVariantController::class
-        );
+            Route::get('/orders/{id}', [
+                App\Http\Controllers\Api\V1\Admin\AdminOrderController::class,
+                'show',
+            ]);
 
-        Route::get('/orders', [
-            App\Http\Controllers\Api\V1\Admin\AdminOrderController::class,
-            'index',
-        ]);
+            Route::patch('/orders/{id}/status', [
+                App\Http\Controllers\Api\V1\Admin\AdminOrderController::class,
+                'updateStatus',
+            ]);
+        });
 
-        Route::get('/orders/{id}', [
-            App\Http\Controllers\Api\V1\Admin\AdminOrderController::class,
-            'show',
-        ]);
+        // Tax Invoices (AUD) & Payments (permission: invoices)
+        Route::middleware('permission:invoices')->group(function () {
+            Route::get('/invoices', [
+                App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+                'index',
+            ]);
+            Route::post('/invoices', [
+                App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+                'store',
+            ]);
+            Route::get('/invoices/{id}', [
+                App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+                'show',
+            ]);
+            Route::put('/invoices/{id}', [
+                App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+                'update',
+            ]);
+            Route::delete('/invoices/{id}', [
+                App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+                'destroy',
+            ]);
+        });
 
-        Route::patch('/orders/{id}/status', [
-            App\Http\Controllers\Api\V1\Admin\AdminOrderController::class,
-            'updateStatus',
-        ]);
+        // Artwork Preflight & Review Queue (permission: artwork)
+        Route::middleware('permission:artwork')->prefix('artwork-queue')->group(function () {
+            Route::get('/', [App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class, 'queue']);
+            Route::get('/designers', [App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class, 'designers']);
+            Route::get('/{id}', [App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class, 'show']);
+            Route::get('/{id}/download', [App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class, 'download']);
+            Route::post('/{id}/generate-proof', [App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class, 'generateProof']);
+            Route::post('/{id}/approve', [App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class, 'approve']);
+            Route::post('/{id}/request-changes', [App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class, 'requestChanges']);
+            Route::post('/{id}/assign-designer', [App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class, 'assignDesigner']);
+            Route::post('/{id}/preflight', [App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class, 'runPreflight']);
+            Route::post('/{id}/upload-version', [App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class, 'uploadVersion']);
+        });
 
-        // Tax Invoices (AUD) & Payments
-        Route::get('/invoices', [
-            App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
-            'index',
-        ]);
-        Route::post('/invoices', [
-            App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
-            'store',
-        ]);
-        Route::get('/invoices/{id}', [
-            App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
-            'show',
-        ]);
-        Route::put('/invoices/{id}', [
-            App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
-            'update',
-        ]);
-        Route::delete('/invoices/{id}', [
-            App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
-            'destroy',
-        ]);
+        // Customer & Artwork Management (permission: customers)
+        Route::middleware('permission:customers')->group(function () {
+            Route::get('/customers', [
+                App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+                'index',
+            ]);
+            Route::post('/customers', [
+                App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+                'store',
+            ]);
+            Route::get('/customers/guest-artworks', [
+                App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+                'guestArtworks',
+            ]);
+            Route::get('/customers/{id}', [
+                App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+                'show',
+            ]);
+            Route::put('/customers/{id}', [
+                App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+                'update',
+            ]);
+        });
 
-        Route::get('/artwork-queue', [
-            App\Http\Controllers\Api\V1\Admin\AdminArtworkController::class,
-            'queue',
-        ]);
+        // Customer Enquiries Management (permission: enquiries)
+        Route::middleware('permission:enquiries')->group(function () {
+            Route::get('/enquiries', [
+                App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+                'index',
+            ]);
+            Route::get('/enquiries/{id}', [
+                App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+                'show',
+            ]);
+            Route::patch('/enquiries/{id}', [
+                App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+                'update',
+            ]);
+            Route::delete('/enquiries/{id}', [
+                App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+                'destroy',
+            ]);
+        });
 
-        // Customer & Artwork Management
-        Route::get('/customers', [
-            App\Http\Controllers\Api\V1\Admin\CustomerController::class,
-            'index',
-        ]);
-        Route::post('/customers', [
-            App\Http\Controllers\Api\V1\Admin\CustomerController::class,
-            'store',
-        ]);
-        Route::get('/customers/guest-artworks', [
-            App\Http\Controllers\Api\V1\Admin\CustomerController::class,
-            'guestArtworks',
-        ]);
-        Route::get('/customers/{id}', [
-            App\Http\Controllers\Api\V1\Admin\CustomerController::class,
-            'show',
-        ]);
-        Route::put('/customers/{id}', [
-            App\Http\Controllers\Api\V1\Admin\CustomerController::class,
-            'update',
-        ]);
-
-        // Customer Enquiries Management
-        Route::get('/enquiries', [
-            App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
-            'index',
-        ]);
-        Route::get('/enquiries/{id}', [
-            App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
-            'show',
-        ]);
-        Route::patch('/enquiries/{id}', [
-            App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
-            'update',
-        ]);
-        Route::delete('/enquiries/{id}', [
-            App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
-            'destroy',
-        ]);
-
-        // Shipping Management & CouriersPlease Carrier Integration
-        Route::prefix('shipping')->group(function () {
+        // Shipping Management & CouriersPlease Carrier Integration (permission: shipping)
+        Route::prefix('shipping')->middleware('permission:shipping')->group(function () {
             Route::get('/status', [
                 App\Http\Controllers\Api\V1\Admin\AdminShippingController::class,
                 'status',
@@ -668,6 +696,29 @@ Route::middleware(['auth:sanctum'])
                 App\Http\Controllers\Api\V1\Admin\AdminShippingController::class,
                 'locations',
             ]);
+        });
+
+        // Analytics & Production Reports (permission: reports)
+        Route::prefix('reports')->middleware('permission:reports')->group(function () {
+            Route::get('/', [App\Http\Controllers\Api\V1\Admin\AdminReportController::class, 'summary']);
+            Route::get('/filter-options', [App\Http\Controllers\Api\V1\Admin\AdminReportController::class, 'filterOptions']);
+        });
+
+        // Staff & Permissions Management (Strictly Super Admin Only)
+        Route::prefix('staff')->middleware('require.super_admin')->group(function () {
+            Route::get('/presets', [StaffController::class, 'presets']);
+            Route::post('/presets', [StaffController::class, 'storePreset']);
+            Route::put('/presets/{id}', [StaffController::class, 'updatePreset'])->whereNumber('id');
+            Route::delete('/presets/{id}', [StaffController::class, 'destroyPreset'])->whereNumber('id');
+
+            Route::get('/audit-logs', [StaffController::class, 'auditLogs']);
+            Route::get('/permissions-list', [StaffController::class, 'permissionsList']);
+            Route::get('/', [StaffController::class, 'index']);
+            Route::post('/', [StaffController::class, 'store']);
+            Route::get('/{id}', [StaffController::class, 'show'])->whereNumber('id');
+            Route::put('/{id}', [StaffController::class, 'update'])->whereNumber('id');
+            Route::patch('/{id}/toggle-active', [StaffController::class, 'toggleActive'])->whereNumber('id');
+            Route::delete('/{id}', [StaffController::class, 'destroy'])->whereNumber('id');
         });
     });
 Route::prefix('client-brief-auth')->group(function () {

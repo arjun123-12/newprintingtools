@@ -45,6 +45,15 @@ class Artwork extends Model
         'preflight_results',
         'customer_notes',
         'admin_notes',
+
+        'order_id',
+        'assigned_designer_id',
+        'review_status',
+        'approved_by',
+        'approved_at',
+        'proof_status',
+        'proof_generated_at',
+        'current_version',
     ];
 
     protected $casts = [
@@ -60,6 +69,9 @@ class Artwork extends Model
         'file_size_bytes' => 'integer',
 
         'status' => ArtworkStatus::class,
+        'approved_at' => 'datetime',
+        'proof_generated_at' => 'datetime',
+        'current_version' => 'integer',
     ];
 
     protected static function booted(): void
@@ -77,6 +89,21 @@ class Artwork extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function assignedDesigner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_designer_id');
+    }
+
+    public function approvedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class);
     }
 
     public function product(): BelongsTo
@@ -102,5 +129,15 @@ class Artwork extends Model
     public function pages(): HasMany
     {
         return $this->hasMany(ArtworkPage::class);
+    }
+
+    public function versions(): HasMany
+    {
+        return $this->hasMany(ArtworkVersion::class)->orderByDesc('version_number');
+    }
+
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(ArtworkReview::class)->latest();
     }
 }

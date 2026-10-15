@@ -48,8 +48,8 @@ export const DesignerBottomBar: React.FC<DesignerBottomBarProps> = ({
       {/* Left Info: Selected Object Coordinates & Type */}
       <div className="flex items-center gap-3">
         {selected ? (
-          <div className="flex items-center gap-2 text-[11px] font-mono text-gray-700">
-            <span className="font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 uppercase font-sans text-[10px]">
+          <div className="flex items-center gap-2 text-xs font-mono text-slate-800">
+            <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 uppercase font-sans text-2xs">
               {selected.type}
             </span>
             <span>X: {selected.left}px</span>
@@ -67,13 +67,13 @@ export const DesignerBottomBar: React.FC<DesignerBottomBarProps> = ({
             )}
           </div>
         ) : (
-          <div className="flex items-center gap-2 text-gray-500 text-[11px]">
+          <div className="flex items-center gap-2 text-slate-600 text-xs">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span className="font-medium text-gray-700">
+            <span className="font-medium text-slate-800">
               {documentSettings.width} × {documentSettings.height} {documentSettings.unit}
             </span>
             <span className="text-gray-300">•</span>
-            <span className="font-mono text-emerald-600 font-semibold">{documentSettings.dpi} DPI</span>
+            <span className="font-mono text-emerald-700 font-semibold">{documentSettings.dpi} DPI</span>
             <span className="text-gray-300">•</span>
             <span>+{documentSettings.bleed || 3}mm Bleed</span>
           </div>

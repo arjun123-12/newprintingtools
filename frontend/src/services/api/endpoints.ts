@@ -55,6 +55,8 @@ export const API_ENDPOINTS = {
   ADMIN_CUSTOMER_GUEST_ARTWORKS: '/admin/customers/guest-artworks',
   ADMIN_INVOICES: '/admin/invoices',
   ADMIN_INVOICE_DETAIL: (id: string | number) => `/admin/invoices/${id}`,
+  ADMIN_REPORTS: '/admin/reports',
+  ADMIN_REPORTS_FILTER_OPTIONS: '/admin/reports/filter-options',
 
   // Shipping & CouriersPlease Carrier Endpoints
   ADMIN_SHIPPING_STATUS: '/admin/shipping/status',

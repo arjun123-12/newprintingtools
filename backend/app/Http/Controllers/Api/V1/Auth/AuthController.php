@@ -24,7 +24,7 @@ class AuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        $user = User::where('email', $credentials['email'])->first();
+        $user = User::where('email', strtolower(trim($credentials['email'])))->first();
 
         if (!$user || !Hash::check($credentials['password'], $user->password)) {
             return response()->json([
@@ -33,22 +33,24 @@ class AuthController extends Controller
             ], 401);
         }
 
-        /*
-         * Admin receives template permissions.
-         * Customer receives only customer access.
-         */
-        if ($user->isAdmin()) {
-            $tokenName = 'admin-panel';
+        if (!(bool) $user->is_active) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your account has been deactivated. Please contact an administrator.',
+            ], 403);
+        }
 
-            $abilities = [
-                'templates:create',
-                'templates:read',
-                'templates:update',
-                'templates:delete',
-            ];
+        /*
+         * Admin/Staff receive admin panel tokens with their effective abilities.
+         * Customer receives customer access.
+         */
+        if ($user->canAccessAdminPanel()) {
+            $tokenName = 'admin-panel';
+            $abilities = $user->isSuperAdmin()
+                ? ['*']
+                : $user->getEffectivePermissions();
         } else {
             $tokenName = 'customer-app';
-
             $abilities = [
                 'customer:access',
             ];
@@ -87,7 +89,12 @@ class AuthController extends Controller
                     'phone' => $user->phone,
                     'company_name' => $user->company_name,
                     'role' => $user->role,
-                    'is_admin' => $user->isAdmin(),
+                    'is_admin' => $user->canAccessAdminPanel(),
+                    'is_super_admin' => $user->isSuperAdmin(),
+                    'is_active' => (bool) $user->is_active,
+                    'must_change_password' => (bool) $user->must_change_password,
+                    'permissions' => $user->getEffectivePermissions(),
+                    'role_preset' => $user->role_preset,
                 ],
             ],
         ]);
@@ -109,11 +116,14 @@ class AuthController extends Controller
 
         $user = User::create([
             'name' => $validated['name'],
-            'email' => $validated['email'],
+            'email' => strtolower(trim($validated['email'])),
             'phone' => $validated['phone'] ?? null,
             'company_name' => $validated['company_name'] ?? null,
             'abn' => $validated['abn'] ?? null,
             'role' => User::ROLE_CUSTOMER,
+            'is_super_admin' => false,
+            'is_active' => true,
+            'must_change_password' => false,
             'password' => Hash::make($validated['password']),
         ]);
 
@@ -147,6 +157,11 @@ class AuthController extends Controller
                     'company_name' => $user->company_name,
                     'role' => $user->role,
                     'is_admin' => false,
+                    'is_super_admin' => false,
+                    'is_active' => true,
+                    'must_change_password' => false,
+                    'permissions' => [],
+                    'role_preset' => null,
                 ],
             ],
         ], 201);
@@ -169,7 +184,45 @@ class AuthController extends Controller
                 'company_name' => $user->company_name,
                 'abn' => $user->abn,
                 'role' => $user->role,
-                'is_admin' => $user->isAdmin(),
+                'is_admin' => $user->canAccessAdminPanel(),
+                'is_super_admin' => $user->isSuperAdmin(),
+                'is_active' => (bool) $user->is_active,
+                'must_change_password' => (bool) $user->must_change_password,
+                'permissions' => $user->getEffectivePermissions(),
+                'role_preset' => $user->role_preset,
+            ],
+        ]);
+    }
+
+    /**
+     * Change password for the authenticated user.
+     * Required on first staff login or for security updates.
+     */
+    public function changePassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'current_password' => ['required', 'string'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        $user = $request->user();
+
+        if (!Hash::check($validated['current_password'], $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The provided current password does not match our records.',
+            ], 422);
+        }
+
+        $user->password = Hash::make($validated['password']);
+        $user->must_change_password = false;
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password updated successfully.',
+            'data' => [
+                'must_change_password' => false,
             ],
         ]);
     }

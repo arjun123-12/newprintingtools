@@ -245,7 +245,7 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   return (
     <>
       <div className="flex h-full min-h-0 flex-shrink-0 z-30 select-none bg-white">
-        <aside className="w-18 bg-white border-r border-gray-200 flex flex-col items-center py-2.5 gap-1.5 z-20 shadow-xs h-full overflow-y-auto overflow-x-hidden custom-scrollbar">
+        <aside className="w-25 bg-white border-r border-gray-200 flex flex-col items-center py-2.5 gap-1.5 z-20 shadow-xs h-full overflow-y-auto overflow-x-hidden custom-scrollbar">
           {SIDEBAR_TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -256,7 +256,7 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
                 type="button"
                 onClick={() => handleTabClick(tab.id)}
                 className={`
-                  group w-16 h-14 rounded-xl py-1.5 flex flex-col items-center justify-center gap-1
+                  group w-20 h-14 rounded-xl py-1.5 flex flex-col items-center justify-center gap-1
                   border transition-all duration-200 ease-in-out shrink-0
                   ${isActive
                     ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-sm'
@@ -271,7 +271,7 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
                     }`}
                 />
                 <span
-                  className={`text-[10px] tracking-tight transition-colors duration-200 ${isActive ? 'font-semibold' : 'font-medium'
+                  className={`text-2xs tracking-tight transition-colors duration-200 ${isActive ? 'font-semibold' : 'font-medium'
                     }`}
                 >
                   {tab.label}

@@ -12,10 +12,153 @@
   border-radius: 1rem !important;
 }
 
+:root {
+  /* ==========================================================================
+   * 1. Centrally Managed UI Typography System
+   * ========================================================================== */
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Typography Scale Tokens */
+  --text-2xs: 0.75rem;
+  /* 12px - micro badges, status chips, tooltips */
+  --text-xs: 0.8125rem;
+  /* 13px - metadata, timestamps, secondary labels (modestly increased from 12px) */
+  --text-sm: 0.9375rem;
+  /* 15px - UI controls, buttons, form inputs, table cells (modestly increased from 14px) */
+  --text-base: 1rem;
+  /* 16px - comfortable primary body copy */
+  --text-lg: 1.125rem;
+  /* 18px - subheadings, lead paragraphs */
+  --text-xl: 1.25rem;
+  /* 20px - section cards, modal titles */
+  --text-2xl: 1.5rem;
+  /* 24px - page headers, major cards */
+  --text-3xl: 1.875rem;
+  /* 30px - primary page titles */
+  --text-4xl: 2.25rem;
+  /* 36px - marketing headlines */
+  --text-5xl: 3rem;
+  /* 48px - hero display banners */
+
+  /* Font Weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Line Heights */
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  /* Text Colors - Light Backgrounds (Near-Black & High Contrast) */
+  --color-text-primary: #050505;
+  --color-text-body: #111111;
+  --color-text-secondary: #1f1f1f;
+  --color-text-muted: #000000;
+
+  /* Text Colors - Dark Backgrounds (Preserved High Contrast) */
+  --color-text-inverse-primary: #f8fafc;
+  /* slate-50: crisp white text */
+  --color-text-inverse-body: #e2e8f0;
+  /* slate-200: high readability on slate-900/950 */
+  --color-text-inverse-secondary: #cbd5e1;
+  /* slate-300 */
+  --color-text-inverse-muted: #94a3b8;
+  /* slate-400 */
+}
+
 @layer base {
-  body {
-    @apply bg-slate-50 text-slate-900 antialiased;
+  html {
+    font-family: var(--font-ui);
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    color: var(--color-text-primary);
   }
+
+  body {
+    font-family: var(--font-ui);
+    font-size: var(--text-base);
+    line-height: var(--leading-relaxed);
+    color: var(--color-text-primary);
+    background-color: #f8fafc;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Headings typography system */
+  h1 {
+    font-size: var(--text-3xl);
+    line-height: var(--leading-tight);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--color-text-primary);
+  }
+
+  h2 {
+    font-size: var(--text-2xl);
+    line-height: var(--leading-snug);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+  }
+
+  h3 {
+    font-size: var(--text-xl);
+    line-height: var(--leading-snug);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--color-text-primary);
+  }
+
+  h4 {
+    font-size: var(--text-lg);
+    line-height: var(--leading-normal);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--color-text-primary);
+  }
+
+  h5,
+  h6 {
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    line-height: var(--leading-relaxed);
+    color: inherit;
+  }
+
+  /* Controls and Form inputs inherit typography system */
+  input,
+  button,
+  select,
+  textarea {
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+  }
+}
+
+/* ==========================================================================
+ * 2. Artwork Canvas & Vector Export Protection
+ * Keep designer user-selected artwork fonts, canvas artwork, and exports unchanged.
+ * ========================================================================== */
+.canvas-container canvas,
+.canvas-container .upper-canvas,
+.canvas-container .lower-canvas,
+.export-svg-container,
+.export-svg-container *,
+[data-artwork-canvas],
+[data-artwork-canvas] * {
+  font-family: initial;
 }
 
 /* Black artwork pointer cursor */
@@ -34,5 +177,3 @@ input[type="number"]::-webkit-inner-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
 }
-
-

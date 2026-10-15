@@ -69,7 +69,7 @@ export default function Footer() {
       </div>
 
       {/* Main Footer Links */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
         {/* Brand Col */}
         <div className="lg:col-span-2 space-y-4">
           <Link href="/" className="inline-block group">
@@ -124,18 +124,6 @@ export default function Footer() {
             <li><Link href="/orders" className="hover:text-sky-400 transition-colors">Track Order Production</Link></li>
             <li><Link href="/account" className="hover:text-sky-400 transition-colors">Trade Accounts & ABN</Link></li>
             <li><Link href="/categories" className="hover:text-sky-400 transition-colors">Print Specifications & Bleed</Link></li>
-          </ul>
-        </div>
-
-        {/* Admin & Operations */}
-        <div>
-          <h5 className="text-white font-semibold text-xs uppercase tracking-wider mb-4">Operations</h5>
-          <ul className="space-y-2 text-xs">
-            <li><Link href="/admin/login" className="hover:text-sky-400 transition-colors">Admin Portal Login</Link></li>
-            <li><Link href="/admin/dashboard" className="hover:text-sky-400 transition-colors">Operations Dashboard</Link></li>
-            <li><Link href="/admin/artwork" className="hover:text-sky-400 transition-colors">Preflight Queue</Link></li>
-            <li><Link href="/admin/orders" className="hover:text-sky-400 transition-colors">Production Pipelines</Link></li>
-            <li><Link href="/admin/settings" className="hover:text-sky-400 transition-colors">Platform Settings</Link></li>
           </ul>
         </div>
       </div>

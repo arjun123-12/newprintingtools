@@ -25,6 +25,11 @@ export interface CustomerUser {
   abn?: string | null;
   role: string;
   is_admin: boolean;
+  is_super_admin?: boolean;
+  is_active?: boolean;
+  permissions?: string[];
+  role_preset?: string | null;
+  must_change_password?: boolean;
 }
 
 interface AuthContextType {

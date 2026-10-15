@@ -13,7 +13,10 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
-            'client.brief.admin' => ClientBriefAdmin::class,
+            'client.brief.admin'  => ClientBriefAdmin::class,
+            'admin.access'        => \App\Http\Middleware\AdminAccessMiddleware::class,
+            'permission'          => \App\Http\Middleware\CheckAdminPermission::class,
+            'require.super_admin' => \App\Http\Middleware\RequireSuperAdmin::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

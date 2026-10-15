@@ -20,6 +20,9 @@ class RoleAndUserSeeder extends Seeder
                 'company_name' => 'Print Ecommerce Pty Ltd',
                 'abn' => '12345678901',
                 'role' => 'admin',
+                'is_super_admin' => true,
+                'is_active' => true,
+                'must_change_password' => false,
                 'password' => Hash::make('SecretAdmin2026!'),
                 'email_verified_at' => now(),
             ]

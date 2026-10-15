@@ -349,7 +349,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
 
               {/* Vertical Alignment */}
               <div className="space-y-1">
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
+                <span className="text-2xs font-bold text-slate-500 uppercase tracking-wider block">
                   Vertical
                 </span>
                 <div className="grid grid-cols-3 gap-1.5">
@@ -360,7 +360,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
                       setActiveMenu(null);
                     }}
                     title="Align Top"
-                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-[11px] font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-xs font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
                   >
                     <AlignStartVertical className="w-4 h-4" />
                     <span>Top</span>
@@ -372,7 +372,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
                       setActiveMenu(null);
                     }}
                     title="Center Vertically"
-                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-[11px] font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-xs font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
                   >
                     <AlignCenterVertical className="w-4 h-4" />
                     <span>Middle</span>
@@ -384,7 +384,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
                       setActiveMenu(null);
                     }}
                     title="Align Bottom"
-                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-[11px] font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-200 hover:bg-blue-50 hover:border-blue-300 transition text-xs font-semibold text-gray-700 hover:text-blue-700 shadow-2xs"
                   >
                     <AlignEndVertical className="w-4 h-4" />
                     <span>Bottom</span>
