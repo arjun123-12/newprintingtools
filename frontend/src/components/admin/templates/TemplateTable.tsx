@@ -121,7 +121,20 @@ export const TemplateTable: React.FC<TemplateTableProps> = ({
 
                   {/* Category */}
                   <td className="py-3 px-4 text-gray-600 text-[11px]">
-                    {template.category || 'General'}
+                    {template.categories && template.categories.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 max-w-[220px]">
+                        {template.categories.map((c) => (
+                          <span
+                            key={c.id}
+                            className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-700 font-medium border border-slate-200/60"
+                          >
+                            {c.name}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      template.category || 'General'
+                    )}
                   </td>
 
                   {/* Status Badge */}

@@ -28,8 +28,22 @@ class ProductResource extends JsonResource
         return [
             'id' => $this->id,
             'category_id' => $this->category_id,
-            'category_name' => $this->category?->name ?? 'Uncategorized',
-            'category' => $this->category,
+            'category_name' => $this->category?->name ?? ($this->relationLoaded('categories') && $this->categories->isNotEmpty() ? $this->categories->first()->name : 'Uncategorized'),
+            'category' => $this->category ?? ($this->relationLoaded('categories') ? $this->categories->first() : null),
+            'category_ids' => $this->relationLoaded('categories')
+                ? $this->categories->pluck('id')->values()->all()
+                : ($this->category_id ? [$this->category_id] : []),
+            'categories' => $this->relationLoaded('categories')
+                ? $this->categories->map(fn ($cat) => [
+                    'id' => $cat->id,
+                    'name' => $cat->name,
+                    'slug' => $cat->slug,
+                ])
+                : ($this->category ? collect([[
+                    'id' => $this->category->id,
+                    'name' => $this->category->name,
+                    'slug' => $this->category->slug,
+                ]]) : collect([])),
             'name' => $this->name,
             'slug' => $this->slug,
             'sku' => $this->sku,

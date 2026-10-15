@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { FormSection, FormGrid, AdminInput, AdminSelect } from '@/components/admin/shared';
+import { FormSection, FormGrid, AdminInput, AdminSelect, MultiCategorySelect } from '@/components/admin/shared';
 import { TemplateFormData, TemplateFormErrors, ProductOption } from './types';
 import { CheckCircle2, Layers, AlertTriangle } from 'lucide-react';
 
@@ -12,19 +12,10 @@ interface BasicTemplateInfoProps {
   products: ProductOption[];
   productsLoading?: boolean;
   onProductSelect?: (productId: string) => void;
+  categories?: { id: string; name: string; slug?: string }[];
+  categoriesLoading?: boolean;
+  onCreateCategory?: (name: string) => Promise<{ id: string; name: string; slug?: string } | null>;
 }
-
-const TEMPLATE_CATEGORIES = [
-  { value: 'Corporate', label: 'Corporate & Business' },
-  { value: 'Modern', label: 'Modern & Minimal' },
-  { value: 'Creative', label: 'Creative & Artistic' },
-  { value: 'Luxury', label: 'Luxury & Elegant' },
-  { value: 'Events', label: 'Events & Promotions' },
-  { value: 'Health', label: 'Healthcare & Wellness' },
-  { value: 'Food', label: 'Food & Hospitality' },
-  { value: 'RealEstate', label: 'Real Estate & Property' },
-  { value: 'General', label: 'General Starter' },
-];
 
 export const BasicTemplateInfo: React.FC<BasicTemplateInfoProps> = ({
   formData,
@@ -33,6 +24,9 @@ export const BasicTemplateInfo: React.FC<BasicTemplateInfoProps> = ({
   products,
   productsLoading,
   onProductSelect,
+  categories = [],
+  categoriesLoading = false,
+  onCreateCategory,
 }) => {
   const selectedProduct = products.find(
     (p) =>
@@ -91,13 +85,43 @@ export const BasicTemplateInfo: React.FC<BasicTemplateInfoProps> = ({
           helperText="Determines canvas trim dimensions, bleed margins, and preflight rules."
         />
 
-        <AdminSelect
-          label="Template Category / Style Theme"
-          value={formData.category}
-          options={TEMPLATE_CATEGORIES}
-          onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
-          helperText="Grouping category shown in template filter tabs."
-        />
+        <div className="sm:col-span-2">
+          <MultiCategorySelect
+            label="Template Categories"
+            categories={categories}
+            selectedIds={formData.category_ids || []}
+            primaryId={formData.category_ids?.[0]}
+            error={errors.category_ids || errors.category}
+            loading={categoriesLoading}
+            placeholder={categoriesLoading ? 'Loading categories…' : 'Select one or more categories for this template…'}
+            helperText="Assign one or multiple existing categories to this template. The primary category is saved as the main template category."
+            onCreateCategory={onCreateCategory}
+            onSetPrimary={(primaryId) => {
+              setFormData((prev) => {
+                const currentIds = prev.category_ids || [];
+                const remaining = currentIds.filter((id) => id !== primaryId);
+                const nextIds = [primaryId, ...remaining];
+                const matchedCat = categories.find((c) => String(c.id) === String(primaryId));
+                return {
+                  ...prev,
+                  category_ids: nextIds,
+                  category: matchedCat ? matchedCat.name : prev.category,
+                };
+              });
+            }}
+            onChange={(newIds) => {
+              setFormData((prev) => {
+                const firstId = newIds[0];
+                const matchedCat = categories.find((c) => String(c.id) === String(firstId));
+                return {
+                  ...prev,
+                  category_ids: newIds,
+                  category: matchedCat ? matchedCat.name : (newIds.length === 0 ? '' : prev.category),
+                };
+              });
+            }}
+          />
+        </div>
 
         {selectedProduct && (
           <div className="sm:col-span-2 mt-2 rounded-xl border border-sky-500/25 bg-slate-900/80 p-4 shadow-sm backdrop-blur-sm">

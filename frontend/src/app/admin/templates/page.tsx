@@ -61,6 +61,14 @@ function normalizeTemplates(payload: UnknownRecord): TemplateListItem[] {
     ),
     name: String(template.name ?? 'Untitled Template'),
     category: template.category ?? null,
+    category_ids: Array.isArray(template.category_ids)
+      ? template.category_ids.map(String)
+      : Array.isArray(template.categories)
+      ? template.categories.map((c: any) => String(c.id))
+      : [],
+    categories: Array.isArray(template.categories)
+      ? template.categories
+      : [],
     thumbnail_url: template.thumbnail_url ?? null,
     is_active:
       template.is_active === true ||
@@ -347,7 +355,8 @@ export default function AdminTemplatesPage() {
       if (filters.search.trim()) {
         const query = filters.search.toLowerCase();
         const matchesName = t.name.toLowerCase().includes(query);
-        const matchesCat = t.category?.toLowerCase().includes(query);
+        const matchesCat = t.category?.toLowerCase().includes(query) ||
+          t.categories?.some((c) => c.name.toLowerCase().includes(query));
         if (!matchesName && !matchesCat) return false;
       }
 
@@ -355,8 +364,14 @@ export default function AdminTemplatesPage() {
         return false;
       }
 
-      if (filters.category && t.category !== filters.category) {
-        return false;
+      if (filters.category) {
+        const matchesSingle = t.category?.toLowerCase() === filters.category.toLowerCase();
+        const matchesMulti = t.categories?.some(
+          (c) => c.id === filters.category || c.name.toLowerCase() === filters.category.toLowerCase()
+        );
+        if (!matchesSingle && !matchesMulti) {
+          return false;
+        }
       }
 
       if (filters.status) {

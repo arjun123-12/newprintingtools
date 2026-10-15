@@ -51,6 +51,8 @@ export interface Product {
   id: string;
   category_id: string;
   category?: Category;
+  category_ids?: string[];
+  categories?: Category[];
   name: string;
   slug: string;
   sku: string;

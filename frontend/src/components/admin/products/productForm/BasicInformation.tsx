@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef } from 'react';
-import { FormSection, FormGrid, AdminInput, AdminSelect } from '@/components/admin/shared';
+import { FormSection, FormGrid, AdminInput, MultiCategorySelect } from '@/components/admin/shared';
 import { ProductFormData, FormErrors, CategoryOption } from './types';
 import { Sparkles } from 'lucide-react';
 
@@ -11,6 +11,7 @@ interface BasicInformationProps {
   errors: FormErrors;
   categories: CategoryOption[];
   categoriesLoading?: boolean;
+  onCreateCategory?: (name: string) => Promise<{ id: string; name: string; slug?: string } | null>;
 }
 
 export const BasicInformation: React.FC<BasicInformationProps> = ({
@@ -19,6 +20,7 @@ export const BasicInformation: React.FC<BasicInformationProps> = ({
   errors,
   categories,
   categoriesLoading,
+  onCreateCategory,
 }) => {
   // Track if the slug was manually customized by the user.
   // If formData.slug already has a value on initial load (e.g. editing an existing product),
@@ -105,31 +107,53 @@ export const BasicInformation: React.FC<BasicInformationProps> = ({
           helperText="Unique identifier for inventory and production order routing."
         />
 
-        <AdminSelect
-          label="Category"
-          value={formData.category_id}
-          required
-          error={errors.category_id}
-          onChange={(e) => {
-            const newCategoryId = e.target.value;
-            setFormData((prev) => {
-              // Auto-generate slug using categoryname-productname if not manually customized
-              const nextSlug =
-                !isSlugCustomizedRef.current || !prev.slug
-                  ? buildAutoSlug(newCategoryId, prev.name)
+        <div className="sm:col-span-2">
+          <MultiCategorySelect
+            label="Product Categories"
+            categories={categories}
+            selectedIds={formData.category_ids?.length ? formData.category_ids : (formData.category_id ? [formData.category_id] : [])}
+            primaryId={formData.category_id}
+            required
+            error={errors.category_id || errors.category_ids}
+            loading={categoriesLoading}
+            placeholder={categoriesLoading ? 'Loading categories…' : 'Select one or more categories to assign…'}
+            helperText="Assign one or multiple categories to this product. The primary category is used for storefront URL slug generation."
+            onCreateCategory={onCreateCategory}
+            onSetPrimary={(newPrimaryId) => {
+              setFormData((prev) => {
+                const nextSlug = !isSlugCustomizedRef.current || !prev.slug
+                  ? buildAutoSlug(newPrimaryId, prev.name)
+                  : prev.slug;
+                return {
+                  ...prev,
+                  category_id: newPrimaryId,
+                  slug: nextSlug,
+                };
+              });
+            }}
+            onChange={(newIds) => {
+              setFormData((prev) => {
+                let nextPrimary = prev.category_id;
+                if (!newIds.includes(nextPrimary)) {
+                  nextPrimary = newIds.length > 0 ? newIds[0] : '';
+                } else if (!nextPrimary && newIds.length > 0) {
+                  nextPrimary = newIds[0];
+                }
+
+                const nextSlug = !isSlugCustomizedRef.current || !prev.slug
+                  ? buildAutoSlug(nextPrimary, prev.name)
                   : prev.slug;
 
-              return {
-                ...prev,
-                category_id: newCategoryId,
-                slug: nextSlug,
-              };
-            });
-          }}
-          placeholder={categoriesLoading ? 'Loading categories…' : 'Select a category'}
-          options={categories.map((c) => ({ value: c.id, label: c.name }))}
-          helperText="Primary storefront and navigation category."
-        />
+                return {
+                  ...prev,
+                  category_ids: newIds,
+                  category_id: nextPrimary,
+                  slug: nextSlug,
+                };
+              });
+            }}
+          />
+        </div>
 
         <AdminInput
           label="URL Slug"

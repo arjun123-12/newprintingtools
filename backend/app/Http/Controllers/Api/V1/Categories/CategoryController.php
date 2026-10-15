@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Categories;
 
 use App\Http\Controllers\Controller;
 use App\Models\Category;
+use App\Models\DesignTemplate;
 use App\Models\Product;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -59,6 +60,16 @@ class CategoryController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        if (empty($request->slug) && !empty($request->name)) {
+            $baseSlug = Str::slug($request->name);
+            $candidate = $baseSlug ?: 'category';
+            $counter = 1;
+            while (Category::where('slug', $candidate)->exists()) {
+                $candidate = $baseSlug . '-' . $counter++;
+            }
+            $request->merge(['slug' => $candidate]);
+        }
+
         $validated = $request->validate([
             'name' => [
                 'required',
@@ -67,7 +78,7 @@ class CategoryController extends Controller
                 'unique:categories,name',
             ],
             'slug' => [
-                'required',
+                'nullable',
                 'string',
                 'max:255',
                 'alpha_dash',
@@ -273,12 +284,25 @@ class CategoryController extends Controller
             return $this->archive($request, $id);
         }
 
-        // Check if products exist in that category (including soft-deleted products)
-        $productsCount = Product::withTrashed()->where('category_id', $category->id)->count();
+        // Check if products exist in that category (including soft-deleted products and multi-category assignments)
+        $productsCount = Product::withTrashed()
+            ->where(function ($q) use ($category) {
+                $q->where('category_id', $category->id)
+                    ->orWhereHas('categories', fn ($cq) => $cq->where('categories.id', $category->id));
+            })->count();
         if ($productsCount > 0) {
             return response()->json([
                 'success' => false,
                 'message' => "Cannot delete category '{$category->name}' because {$productsCount} product(s) are assigned to it. Please move or delete those products first.",
+            ], 422);
+        }
+
+        // Check if templates exist in that category
+        $templatesCount = DesignTemplate::whereHas('categories', fn ($q) => $q->where('categories.id', $category->id))->count();
+        if ($templatesCount > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => "Cannot delete category '{$category->name}' because {$templatesCount} template(s) are assigned to it. Please move or delete those templates first.",
             ], 422);
         }
 
@@ -351,11 +375,23 @@ class CategoryController extends Controller
         $categories = Category::withTrashed()->whereIn('id', $ids)->get();
 
         foreach ($categories as $category) {
-            $pCount = Product::withTrashed()->where('category_id', $category->id)->count();
+            $pCount = Product::withTrashed()
+                ->where(function ($q) use ($category) {
+                    $q->where('category_id', $category->id)
+                        ->orWhereHas('categories', fn ($cq) => $cq->where('categories.id', $category->id));
+                })->count();
             if ($pCount > 0) {
                 return response()->json([
                     'success' => false,
                     'message' => "Cannot delete category '{$category->name}' because {$pCount} product(s) are assigned to it. Please move or delete those products first.",
+                ], 422);
+            }
+
+            $tCount = DesignTemplate::whereHas('categories', fn ($q) => $q->where('categories.id', $category->id))->count();
+            if ($tCount > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Cannot delete category '{$category->name}' because {$tCount} template(s) are assigned to it. Please move or delete those templates first.",
                 ], 422);
             }
 

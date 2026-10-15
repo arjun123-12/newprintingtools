@@ -4,6 +4,7 @@ import { PrintLayoutConfig } from '@/types/folding';
 export interface TemplateFormData {
   name: string;
   category: string;
+  category_ids: string[];
   product_id: string;
   thumbnail_url: string;
   is_active: boolean;
@@ -25,6 +26,8 @@ export interface TemplateListItem {
   product_id: string;
   name: string;
   category: string | null;
+  category_ids?: string[];
+  categories?: { id: string; name: string; slug?: string }[];
   thumbnail_url: string | null;
   print_sides?: PrintSides;
   width_mm?: number | null;

@@ -41,6 +41,7 @@ export interface TemplateFormProps {
 const defaultInitialForm: TemplateFormData = {
   name: '',
   category: 'Corporate',
+  category_ids: [],
   product_id: '',
   thumbnail_url: '',
   // A new admin template remains hidden until it is published from the designer.
@@ -75,6 +76,8 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
     useState<TemplateFormData>(defaultInitialForm);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [productsLoading, setProductsLoading] = useState<boolean>(true);
+  const [categories, setCategories] = useState<{ id: string; name: string; slug?: string }[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState<boolean>(true);
   const [hasCustomizedMeasurements, setHasCustomizedMeasurements] =
     useState<boolean>(false);
 
@@ -232,6 +235,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         const payload = {
           name: formData.name.trim(),
           category: formData.category || 'Corporate',
+          category_ids: formData.category_ids || [],
           product_id: productId && productId !== 'default' ? productId : null,
           thumbnail_url: formData.thumbnail_url || null,
           is_active: formData.is_active,
@@ -310,6 +314,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         product_id: productId,
         name: formData.name.trim(),
         category: formData.category || null,
+        category_ids: formData.category_ids || [],
         print_sides: formData.print_sides || 'front',
         width_mm:
           typeof formData.width_mm === 'number' &&
@@ -441,6 +446,65 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
     };
   }, []);
 
+  // Load categories list for multi-category assignment
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCategories = async () => {
+      try {
+        setCategoriesLoading(true);
+        const token = getAuthToken();
+        const res = await fetch(`${API_URL}/admin/categories`, {
+          headers: {
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          credentials: 'include',
+        });
+        const json = await res.json();
+        if (isMounted) {
+          if (json.success && Array.isArray(json.data)) {
+            setCategories(json.data);
+          } else if (Array.isArray(json)) {
+            setCategories(json);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load admin categories, trying fallback:', err);
+        try {
+          const fallbackRes = await fetch(`${API_URL}/categories`);
+          const fallbackJson = await fallbackRes.json();
+          if (isMounted && fallbackJson.data) {
+            setCategories(fallbackJson.data);
+          }
+        } catch {
+          // ignore
+        }
+      } finally {
+        if (isMounted) setCategoriesLoading(false);
+      }
+    };
+
+    fetchCategories();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Reconcile legacy template category name to category_ids once categories load
+  useEffect(() => {
+    if (categories.length > 0 && formData.category && (!formData.category_ids || formData.category_ids.length === 0)) {
+      const matched = categories.find(
+        (c) => c.name.toLowerCase() === formData.category.toLowerCase() || c.slug?.toLowerCase() === formData.category.toLowerCase()
+      );
+      if (matched) {
+        setFormData((prev) => ({
+          ...prev,
+          category_ids: [matched.id],
+        }));
+      }
+    }
+  }, [categories, formData.category]);
+
   // Load initial template data
   useEffect(() => {
     const normalize = (t: any): TemplateFormData => {
@@ -468,9 +532,17 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         setHasCustomizedMeasurements(true);
       }
 
+      let categoryIds: string[] = [];
+      if (Array.isArray(t.category_ids) && t.category_ids.length > 0) {
+        categoryIds = t.category_ids.map((id: any) => String(id));
+      } else if (Array.isArray(t.categories) && t.categories.length > 0) {
+        categoryIds = t.categories.map((c: any) => String(c.id));
+      }
+
       return {
         name: t.name || '',
-        category: t.category || 'Corporate',
+        category: t.category || (t.categories?.[0]?.name ?? 'Corporate'),
+        category_ids: categoryIds,
         product_id:
           t.product_id || t.product?.id || '',
         thumbnail_url: t.thumbnail_url || '',
@@ -655,6 +727,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
       const payload = {
         name: formData.name.trim(),
         category: formData.category || 'Corporate',
+        category_ids: formData.category_ids || [],
         product_id: formData.product_id && formData.product_id !== 'default' ? formData.product_id : null,
         thumbnail_url:
           formData.thumbnail_url || null,
@@ -785,6 +858,45 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
   };
 
 
+
+  const handleCreateCategory = async (name: string): Promise<{ id: string; name: string; slug?: string } | null> => {
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`${API_URL}/admin/categories`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({ name: name.trim(), is_active: true }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.data) {
+        throw new Error(json.message || 'Failed to create category');
+      }
+      const newCat = {
+        id: json.data.id,
+        name: json.data.name,
+        slug: json.data.slug,
+      };
+      setCategories((prev) => [...prev, newCat]);
+      setFormData((prev) => ({
+        ...prev,
+        category_ids: [...(prev.category_ids || []), newCat.id],
+        category: prev.category || newCat.name,
+      }));
+      setNotice({
+        type: 'success',
+        text: `Category "${newCat.name}" created and assigned to template.`,
+      });
+      return newCat;
+    } catch (err: any) {
+      console.error('Error creating category:', err);
+      throw err;
+    }
+  };
 
   if (loading) {
     return (
@@ -969,6 +1081,9 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
             onProductSelect={
               handleProductSelect
             }
+            categories={categories}
+            categoriesLoading={categoriesLoading}
+            onCreateCategory={handleCreateCategory}
           />
 
           <TemplatePrintDimensions

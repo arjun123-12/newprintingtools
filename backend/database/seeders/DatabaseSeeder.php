@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
             CategorySeeder::class,
             ProductCatalogSeeder::class,
             DesignAssetSeeder::class,
+            SvgShapesSeeder::class,
         ]);
     }
 }

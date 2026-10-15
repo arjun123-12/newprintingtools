@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class DesignTemplate extends Model
@@ -43,6 +44,7 @@ class DesignTemplate extends Model
     protected $appends = [
         'template_json',
         'resolved_print_settings',
+        'category_ids',
     ];
 
     public function getTemplateJsonAttribute(): mixed
@@ -74,6 +76,24 @@ class DesignTemplate extends Model
             'safe_area_mm' => $resolveGuide($this->safe_area_mm, $product?->safe_area_mm),
             'print_layout' => $this->artwork_config['print_layout'] ?? $product?->print_layout ?? null,
         ];
+    }
+
+    public function getCategoryIdsAttribute(): array
+    {
+        if ($this->relationLoaded('categories')) {
+            return $this->categories->pluck('id')->values()->all();
+        }
+        return [];
+    }
+
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Category::class,
+            'category_design_template',
+            'design_template_id',
+            'category_id'
+        )->withTimestamps();
     }
 
     public function product(): BelongsTo

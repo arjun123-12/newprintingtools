@@ -16,3 +16,4 @@ export * from '@/components/admin/forms/artworkConfig';
 export * from '@/components/common/EmptyState';
 export * from '@/components/common/LoadingState';
 export * from '@/components/common/ErrorState';
+export * from './MultiCategorySelect';

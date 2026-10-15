@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Admin\DesignTemplates;
 
 use App\Http\Controllers\Controller;
+use App\Models\Category;
 use App\Models\DesignTemplate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -39,7 +40,10 @@ class DesignTemplateController extends Controller
                 'created_at',
                 'updated_at',
             ])
-            ->with('product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout')
+            ->with([
+                'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
+                'categories:id,name,slug',
+            ])
             ->when(
                 $request->filled('product_id'),
                 function ($query) use ($request) {
@@ -47,6 +51,13 @@ class DesignTemplateController extends Controller
                         'product_id',
                         (string) $request->input('product_id')
                     );
+                }
+            )
+            ->when(
+                $request->filled('category_id'),
+                function ($query) use ($request) {
+                    $catId = (string) $request->input('category_id');
+                    $query->whereHas('categories', fn ($q) => $q->where('categories.id', $catId));
                 }
             )
             ->latest()
@@ -87,6 +98,14 @@ class DesignTemplateController extends Controller
                 'nullable',
                 'string',
                 'max:255',
+            ],
+            'category_ids' => [
+                'nullable',
+                'array',
+            ],
+            'category_ids.*' => [
+                'uuid',
+                'exists:categories,id',
             ],
             'print_sides' => [
                 'nullable',
@@ -170,11 +189,22 @@ class DesignTemplateController extends Controller
             $validated['thumbnail_url'] ?? null
         );
 
+        $categoryIds = !empty($validated['category_ids']) && is_array($validated['category_ids'])
+            ? array_values(array_unique(array_filter($validated['category_ids'])))
+            : [];
+        unset($validated['category_ids']);
+
+        $categoryName = $validated['category'] ?? null;
+        if (empty($categoryName) && !empty($categoryIds)) {
+            $firstCat = Category::find($categoryIds[0]);
+            $categoryName = $firstCat?->name ?? 'Corporate';
+        }
+        $categoryName = $categoryName ?? 'Corporate';
+
         $template = DesignTemplate::create([
             'product_id' => $validated['product_id'] ?? null,
             'name' => $validated['name'],
-            'category' =>
-                $validated['category'] ?? 'Corporate',
+            'category' => $categoryName,
             'print_sides' => $validated['print_sides'] ?? 'front',
             'width_mm' => $validated['width_mm'] ?? null,
             'height_mm' => $validated['height_mm'] ?? null,
@@ -191,7 +221,14 @@ class DesignTemplateController extends Controller
                 $validated['is_active'] ?? false,
         ]);
 
-        $template->load('product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout');
+        if (!empty($categoryIds)) {
+            $template->categories()->sync($categoryIds);
+        }
+
+        $template->load([
+            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
+            'categories:id,name,slug',
+        ]);
         $this->appendDocumentSettings($template);
 
         return response()->json([
@@ -207,9 +244,10 @@ class DesignTemplateController extends Controller
     public function show(
         DesignTemplate $template
     ): JsonResponse {
-        $template->load(
-            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout'
-        );
+        $template->load([
+            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
+            'categories:id,name,slug',
+        ]);
         $this->appendDocumentSettings($template);
 
         return response()->json([
@@ -246,6 +284,15 @@ class DesignTemplateController extends Controller
                 'nullable',
                 'string',
                 'max:255',
+            ],
+            'category_ids' => [
+                'sometimes',
+                'nullable',
+                'array',
+            ],
+            'category_ids.*' => [
+                'uuid',
+                'exists:categories,id',
             ],
             'print_sides' => [
                 'sometimes',
@@ -338,6 +385,21 @@ class DesignTemplateController extends Controller
             );
         }
 
+        $categoryIds = null;
+        if ($request->has('category_ids')) {
+            $categoryIds = is_array($request->input('category_ids'))
+                ? array_values(array_unique(array_filter($request->input('category_ids'))))
+                : [];
+            unset($validated['category_ids']);
+        }
+
+        if (array_key_exists('category', $validated) && empty($validated['category']) && !empty($categoryIds)) {
+            $firstCat = Category::find($categoryIds[0]);
+            if ($firstCat) {
+                $validated['category'] = $firstCat->name;
+            }
+        }
+
         if (
             array_key_exists(
                 'thumbnail_url',
@@ -352,10 +414,15 @@ class DesignTemplateController extends Controller
 
         $template->update($validated);
 
+        if ($categoryIds !== null) {
+            $template->categories()->sync($categoryIds);
+        }
+
         $template->refresh();
-        $template->load(
-            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout'
-        );
+        $template->load([
+            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
+            'categories:id,name,slug',
+        ]);
         $this->appendDocumentSettings($template);
 
         return response()->json([

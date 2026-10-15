@@ -43,12 +43,28 @@ class ProductController extends Controller
         $pricingTiersData = $request->input('pricing_tiers', []);
         unset($validated['sides'], $validated['attributes'], $validated['pricing_tiers']);
 
+        $categoryIds = !empty($validated['category_ids']) && is_array($validated['category_ids'])
+            ? array_values(array_unique(array_filter($validated['category_ids'])))
+            : [];
+        if (empty($categoryIds) && !empty($validated['category_id'])) {
+            $categoryIds = [$validated['category_id']];
+        } elseif (!empty($categoryIds) && empty($validated['category_id'])) {
+            $validated['category_id'] = $categoryIds[0];
+        } elseif (!empty($categoryIds) && !empty($validated['category_id']) && !in_array($validated['category_id'], $categoryIds, true)) {
+            array_unshift($categoryIds, $validated['category_id']);
+        }
+        unset($validated['category_ids']);
+
         // Auto-derive base_price if not provided or 0
         if (!isset($validated['base_price']) || (float)$validated['base_price'] <= 0) {
             $validated['base_price'] = $this->deriveStartingPrice($validated, $pricingTiersData);
         }
 
         $product = $this->productService->createProduct($validated);
+        
+        if (!empty($categoryIds)) {
+            $product->categories()->sync($categoryIds);
+        }
         
         if (!empty($sides)) {
             foreach ($sides as $sideData) {
@@ -65,7 +81,7 @@ class ProductController extends Controller
 
         $this->syncProductRelations($product, $attributesData, $pricingTiersData);
         
-        $product->load(['category', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices']);
+        $product->load(['category', 'categories', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices']);
 
         return response()->json([
             'success' => true,
@@ -76,7 +92,16 @@ class ProductController extends Controller
     
     public function index(Request $request): JsonResponse
     {
-        $query = Product::with(['category', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices']);
+        $query = Product::with(['category', 'categories', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices']);
+
+        if ($request->filled('category')) {
+            $cat = (string) $request->input('category');
+            $query->where(function ($q) use ($cat) {
+                $q->where('category_id', $cat)
+                    ->orWhereHas('category', fn ($cq) => $cq->where('slug', $cat)->orWhere('id', $cat))
+                    ->orWhereHas('categories', fn ($cq) => $cq->where('slug', $cat)->orWhere('categories.id', $cat));
+            });
+        }
 
         if ($request->query('status') === 'archived' || $request->boolean('archived')) {
             $query->onlyTrashed()->orderByDesc('deleted_at');
@@ -94,7 +119,7 @@ class ProductController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $product = Product::with(['category', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices'])
+        $product = Product::with(['category', 'categories', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices'])
             ->where('id', $id)
             ->orWhere('slug', $id)
             ->firstOrFail();
@@ -134,7 +159,23 @@ class ProductController extends Controller
             }
         }
 
-        DB::transaction(function () use ($product, $validated, $attributesData, $pricingTiersData) {
+        $categoryIds = null;
+        if ($request->has('category_ids')) {
+            $categoryIds = is_array($request->input('category_ids'))
+                ? array_values(array_unique(array_filter($request->input('category_ids'))))
+                : [];
+        }
+
+        if ($categoryIds !== null) {
+            if (!empty($categoryIds)) {
+                $validated['category_id'] = $categoryIds[0];
+            }
+        } elseif (isset($validated['category_id']) && $validated['category_id']) {
+            $categoryIds = [$validated['category_id']];
+        }
+        unset($validated['category_ids']);
+
+        DB::transaction(function () use ($product, $validated, $attributesData, $pricingTiersData, $categoryIds) {
             if (isset($validated['sides'])) {
                 // Delete existing sides and let cascade drop print areas and template pages
                 $product->sides()->delete();
@@ -153,12 +194,16 @@ class ProductController extends Controller
             }
             $product->update($validated);
 
+            if ($categoryIds !== null) {
+                $product->categories()->sync($categoryIds);
+            }
+
             if ($attributesData !== null || $pricingTiersData !== null) {
                 $this->syncProductRelations($product, $attributesData ?? [], $pricingTiersData ?? []);
             }
         });
         
-        $product->load(['category', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices']);
+        $product->load(['category', 'categories', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices']);
 
         return response()->json([
             'success' => true,
@@ -691,9 +736,15 @@ class ProductController extends Controller
                 DB::table('product_shippings')->insert($shippingData);
             }
 
+            // 6. Copy categories pivot assignments
+            $sourceCategoryIds = $source->categories->pluck('id')->all();
+            if (!empty($sourceCategoryIds)) {
+                $newProduct->categories()->sync($sourceCategoryIds);
+            }
+
             DB::commit();
 
-            $newProduct->load(['category', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices']);
+            $newProduct->load(['category', 'categories', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices']);
 
             return response()->json([
                 'success' => true,

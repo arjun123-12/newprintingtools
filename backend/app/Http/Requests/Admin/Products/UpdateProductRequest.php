@@ -40,7 +40,15 @@ class UpdateProductRequest extends FormRequest
             ],
             'category_id' => [
                 'sometimes',
-                'required',
+                'nullable',
+                'exists:categories,id',
+            ],
+            'category_ids' => [
+                'sometimes',
+                'nullable',
+                'array',
+            ],
+            'category_ids.*' => [
                 'exists:categories,id',
             ],
             'product_type' => [

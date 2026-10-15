@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -111,11 +112,19 @@ class Product extends Model
     */
 
     /**
-     * Product category.
+     * Product primary category.
      */
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class)->withTrashed();
+    }
+
+    /**
+     * Product assigned categories (multi-category).
+     */
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(Category::class, 'category_product')->withTimestamps();
     }
 
     /**

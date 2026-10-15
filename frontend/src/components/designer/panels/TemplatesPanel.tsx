@@ -103,8 +103,6 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
   onApplyTemplate,
 }) => {
   const [templates, setTemplates] = useState<PanelTemplate[]>([]);
-  const [dbCategories, setDbCategories] = useState<string[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTemplateId, setActiveTemplateId] = useState<
     string | null
@@ -119,7 +117,6 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
       try {
         setLoading(true);
         setError('');
-        setSelectedCategory('All');
         setActiveTemplateId(null);
 
         // This public designer endpoint contains the active templates created
@@ -151,20 +148,10 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
           .filter((template) => Boolean(template.id));
 
         setTemplates(adminTemplates);
-        setDbCategories(
-          Array.from(
-            new Set(
-              adminTemplates
-                .map((template) => template.category?.trim())
-                .filter((category): category is string => Boolean(category))
-            )
-          )
-        );
       } catch (err) {
         console.error('Error loading admin designer templates:', err);
         if (isMounted) {
           setTemplates([]);
-          setDbCategories([]);
           setError(
             err instanceof Error
               ? err.message
@@ -185,42 +172,23 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
     };
   }, [productId]);
 
-  const categories = useMemo(() => {
-    const categorySet = new Set<string>();
-
-    dbCategories.forEach((cat) => categorySet.add(cat));
-
-    templates.forEach((template) => {
-      if (template.category) {
-        categorySet.add(template.category);
-      }
-    });
-
-    return ['All', ...Array.from(categorySet)];
-  }, [dbCategories, templates]);
-
   const filteredTemplates = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLowerCase();
 
     return templates.filter((template) => {
-      const matchesCategory =
-        selectedCategory === 'All' ||
-        template.category.toLowerCase() ===
-        selectedCategory.toLowerCase();
+      if (!normalizedSearch) return true;
 
-      const matchesSearch =
-        !normalizedSearch ||
+      return (
         template.title.toLowerCase().includes(normalizedSearch) ||
         template.category.toLowerCase().includes(normalizedSearch) ||
         Boolean(
           template.description
             ?.toLowerCase()
             .includes(normalizedSearch)
-        );
-
-      return matchesCategory && matchesSearch;
+        )
+      );
     });
-  }, [templates, selectedCategory, searchQuery]);
+  }, [templates, searchQuery]);
 
   const handleApplyTemplate = async (
     template: PanelTemplate
@@ -271,24 +239,6 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
           className="w-full rounded-xl border border-gray-200 bg-gray-50/70 py-1.5 pl-9 pr-3 text-xs text-gray-800 placeholder-gray-400 transition focus:border-blue-500 focus:bg-white focus:outline-none"
         />
       </div>
-
-      {categories.length > 1 && (
-        <div className="custom-scrollbar flex gap-1.5 overflow-x-auto pb-1 text-xs">
-          {categories.map((category) => (
-            <button
-              key={category}
-              type="button"
-              onClick={() => setSelectedCategory(category)}
-              className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-medium transition ${selectedCategory === category
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
-      )}
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">

@@ -50,6 +50,7 @@ const defaultInitialForm: ProductFormData = {
   slug: '',
   sku: '',
   category_id: '',
+  category_ids: [],
   product_type: 'standard_print',
   short_description: '',
   description: '',
@@ -117,7 +118,12 @@ const normalizeProduct = (p: any): ProductFormData => ({
   name: p.name || '',
   slug: p.slug || '',
   sku: p.sku || '',
-  category_id: p.category_id || p.category?.id || '',
+  category_id: p.category_id || p.category?.id || (Array.isArray(p.categories) && p.categories[0]?.id ? p.categories[0].id : ''),
+  category_ids: Array.isArray(p.category_ids) && p.category_ids.length > 0
+    ? p.category_ids
+    : (Array.isArray(p.categories) && p.categories.length > 0
+        ? p.categories.map((c: any) => c.id)
+        : (p.category_id ? [p.category_id] : [])),
   product_type: p.product_type || 'standard_print',
   short_description: p.short_description || '',
   description: p.description || '',
@@ -283,6 +289,48 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     };
   }, []);
 
+  const handleCreateCategory = async (name: string): Promise<{ id: string; name: string; slug?: string } | null> => {
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`${API_URL}/admin/categories`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({ name: name.trim(), is_active: true }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.data) {
+        throw new Error(json.message || 'Failed to create category');
+      }
+      const newCat = {
+        id: json.data.id,
+        name: json.data.name,
+        slug: json.data.slug,
+      };
+      setCategories((prev) => [...prev, newCat]);
+      setFormData((prev) => {
+        const nextIds = [...(prev.category_ids || []), newCat.id];
+        return {
+          ...prev,
+          category_ids: nextIds,
+          category_id: prev.category_id || newCat.id,
+        };
+      });
+      setNotice({
+        type: 'success',
+        text: `Category "${newCat.name}" created and assigned.`,
+      });
+      return newCat;
+    } catch (err: any) {
+      console.error('Error creating category:', err);
+      throw err;
+    }
+  };
+
   // Normalize and load initial data
   useEffect(() => {
     if (initialData) {
@@ -333,6 +381,10 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     const errs: FormErrors = {};
     if (!formData.name.trim()) errs.name = 'Product name is required.';
     if (!formData.sku.trim()) errs.sku = 'SKU is required.';
+    const effectiveCategoryIds = formData.category_ids?.length ? formData.category_ids : (formData.category_id ? [formData.category_id] : []);
+    if (effectiveCategoryIds.length === 0) {
+      errs.category_id = 'At least one category must be assigned.';
+    }
     if (formData.base_price < 0 || isNaN(formData.base_price)) errs.base_price = 'Base price must be a positive number.';
     if (formData.min_quantity < 1) errs.min_quantity = 'Minimum quantity must be at least 1.';
     if (formData.turnaround_days < 1) errs.turnaround_days = 'Turnaround time must be at least 1 day.';
@@ -486,7 +538,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       name: formData.name.trim(),
       slug: formData.slug.trim() || formData.name.toLowerCase().replace(/\s+/g, '-'),
       sku: formData.sku.trim().toUpperCase(),
-      category_id: formData.category_id || null,
+      category_id: formData.category_id || (formData.category_ids?.length ? formData.category_ids[0] : null),
+      category_ids: formData.category_ids?.length ? formData.category_ids : (formData.category_id ? [formData.category_id] : []),
       product_type: formData.product_type,
       short_description: formData.short_description || null,
       description: formData.description || null,
@@ -838,6 +891,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
               errors={errors}
               categories={categories}
               categoriesLoading={categoriesLoading}
+              onCreateCategory={handleCreateCategory}
             />
             <ProductContent formData={formData} setFormData={setFormData} errors={errors} />
             <ProductConfiguration formData={formData} setFormData={setFormData} errors={errors} />

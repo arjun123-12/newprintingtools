@@ -168,6 +168,7 @@ export interface ProductFormData {
   slug: string;
   sku: string;
   category_id: string;
+  category_ids: string[];
   product_type: ProductType;
 
   // 2. Content

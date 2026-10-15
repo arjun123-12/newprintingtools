@@ -14,6 +14,7 @@ export interface CreateTemplateDraftPayload {
     product_id?: string | null;
     name: string;
     category?: string | null;
+    category_ids?: string[];
     print_sides?: PrintSides;
     width_mm?: number | null;
     height_mm?: number | null;
@@ -33,6 +34,8 @@ export interface DesignTemplateResponse {
     product_id: string | null;
     name: string;
     category: string | null;
+    category_ids?: string[];
+    categories?: { id: string; name: string; slug?: string }[];
     print_sides?: PrintSides;
     width_mm?: number | null;
     height_mm?: number | null;

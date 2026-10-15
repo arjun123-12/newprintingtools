@@ -117,9 +117,22 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
           >
             {template.name}
           </Link>
-          <span className="text-[11px] text-gray-400 block mt-0.5">
-            Category: {template.category || 'General'}
-          </span>
+          <div className="text-[11px] text-gray-500 mt-1">
+            {template.categories && template.categories.length > 0 ? (
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {template.categories.map((c) => (
+                  <span
+                    key={c.id}
+                    className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-700 font-medium border border-slate-200/60"
+                  >
+                    {c.name}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span>Category: {template.category || 'General'}</span>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-between pt-2 border-t border-gray-100 text-xs">
