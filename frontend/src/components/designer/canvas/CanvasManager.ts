@@ -1353,6 +1353,27 @@ export class CanvasManager {
     }
   }
 
+  public setBackgroundOpacity(opacity: number): void {
+    if (!this.canvas) return;
+    const safeOpacity = Math.max(0, Math.min(1, opacity));
+    if (this.canvas.backgroundImage) {
+      (this.canvas.backgroundImage as FabricObject).set('opacity', safeOpacity);
+      if (this.backgroundSettings.image) {
+        this.backgroundSettings.image.opacity = safeOpacity;
+      }
+      this.syncArtworkBoundaryLines();
+      this.canvas.requestRenderAll();
+      this.notifyBackground();
+      this.notifyChange();
+      return;
+    }
+    (this.backgroundSettings as any).opacity = safeOpacity;
+    this.syncArtworkBoundaryLines();
+    this.canvas.requestRenderAll();
+    this.notifyBackground();
+    this.notifyChange();
+  }
+
   public resetBackground(): void {
     if (!this.canvas) return;
     this.canvas.backgroundImage = undefined;
@@ -8607,13 +8628,18 @@ export class CanvasManager {
       }
     } else if (isText && prop === 'fontFamily') {
       const fontName = String(value);
-      const fontItem = POPULAR_FONTS.find((f) => f.family === fontName || f.name === fontName);
+      const cleanTarget = fontName.replace(/['"]/g, '').split(',')[0].trim().toLowerCase();
+      const fontItem = POPULAR_FONTS.find((f) => {
+        const cleanName = f.name.toLowerCase().trim();
+        const cleanFam = f.family.replace(/['"]/g, '').split(',')[0].trim().toLowerCase();
+        return f.family === fontName || f.name === fontName || cleanName === cleanTarget || cleanFam === cleanTarget || f.id === cleanTarget;
+      });
       if (fontItem) {
         loadFont(fontItem).then(() => {
           if (!this.canvas || !this.canvas.getObjects().includes(active)) return;
           const textObj = active as Textbox | IText;
           const prevWidth = textObj.width;
-          textObj.set({ fontFamily: fontName, dirty: true });
+          textObj.set({ fontFamily: fontItem.family, dirty: true });
           textObj.initDimensions?.();
           if (textObj instanceof Textbox && prevWidth) {
             textObj.set('width', prevWidth);
@@ -8627,6 +8653,21 @@ export class CanvasManager {
         return;
       }
       (active as Textbox | IText).set('fontFamily', fontName);
+      if (typeof document !== 'undefined' && document.fonts?.ready) {
+        document.fonts.ready.then(() => {
+          if (!this.canvas || !this.canvas.getObjects().includes(active)) return;
+          const textObj = active as Textbox | IText;
+          const prevWidth = textObj.width;
+          textObj.set('dirty', true);
+          textObj.initDimensions?.();
+          if (textObj instanceof Textbox && prevWidth) {
+            textObj.set('width', prevWidth);
+            textObj.initDimensions?.();
+          }
+          active.setCoords();
+          this.canvas?.requestRenderAll();
+        });
+      }
     } else if (isText && prop === 'fontWeight') {
       (active as Textbox | IText).set('fontWeight', value as string | number);
     } else if (isText && prop === 'fontStyle') {
@@ -9046,7 +9087,7 @@ export class CanvasManager {
     options?: { remove?: boolean }
   ): void {
     if (!this.canvas) return;
-    const active = this.canvas.getActiveObject();
+    const active = this.canvas.getActiveObject() || (this.canvas.backgroundImage instanceof FabricImage ? this.canvas.backgroundImage : null);
     if (!active) return;
 
     if (effectType === 'none') {
@@ -9103,7 +9144,7 @@ export class CanvasManager {
     effectType: 'shadow' | 'lift' | 'glow' | 'outline' | 'hollow' | 'neon' | 'blur'
   ): void {
     if (!this.canvas) return;
-    const active = this.canvas.getActiveObject();
+    const active = this.canvas.getActiveObject() || (this.canvas.backgroundImage instanceof FabricImage ? this.canvas.backgroundImage : null);
     if (!active) return;
 
     const targets = active instanceof ActiveSelection ? active.getObjects() : [active];
@@ -9131,7 +9172,7 @@ export class CanvasManager {
 
   public clearAllEffects(): void {
     if (!this.canvas) return;
-    const active = this.canvas.getActiveObject();
+    const active = this.canvas.getActiveObject() || (this.canvas.backgroundImage instanceof FabricImage ? this.canvas.backgroundImage : null);
     if (!active) return;
 
     const targets = active instanceof ActiveSelection ? active.getObjects() : [active];
@@ -9261,7 +9302,7 @@ export class CanvasManager {
     };
 
     if (!this.canvas) return { effect: 'none', activeEffects: {}, settings: defaultSettings.shadow, allSettings: defaultSettings };
-    const active = this.canvas.getActiveObject();
+    const active = this.canvas.getActiveObject() || (this.canvas.backgroundImage instanceof FabricImage ? this.canvas.backgroundImage : null);
     if (!active) return { effect: 'none', activeEffects: {}, settings: defaultSettings.shadow, allSettings: defaultSettings };
 
     const activeEffects: Record<string, boolean> = (active as any)._activeEffects
@@ -9634,7 +9675,7 @@ export class CanvasManager {
 
   public applyImageFilter(presetId: string, intensity: number = 1): void {
     if (!this.canvas) return;
-    const active = this.canvas.getActiveObject();
+    const active = this.canvas.getActiveObject() || (this.canvas.backgroundImage instanceof FabricImage ? this.canvas.backgroundImage : null);
     if (!active) return;
 
     const targetImages = this.getImagesFromObject(active);
@@ -9719,7 +9760,7 @@ export class CanvasManager {
     targetObj?: FabricObject | null
   ): void {
     if (!this.canvas) return;
-    const target = targetObj || this.canvas.getActiveObject();
+    const target = targetObj || this.canvas.getActiveObject() || (this.canvas.backgroundImage instanceof FabricImage ? this.canvas.backgroundImage : null);
     if (!target) return;
 
     const targetImages = this.getImagesFromObject(target);
@@ -9791,7 +9832,7 @@ export class CanvasManager {
     intensity: number;
   } {
     if (!this.canvas) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, hue: 0, warmth: 0, blur: 0, activeFilter: 'none', intensity: 100 };
-    const active = this.canvas.getActiveObject();
+    const active = this.canvas.getActiveObject() || (this.canvas.backgroundImage instanceof FabricImage ? this.canvas.backgroundImage : null);
     if (!active) return { brightness: 0, contrast: 0, saturation: 0, vibrance: 0, hue: 0, warmth: 0, blur: 0, activeFilter: 'none', intensity: 100 };
 
     const targetImage = this.getImagesFromObject(active)[0] || null;

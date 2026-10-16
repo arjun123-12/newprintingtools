@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   ChevronLeft,
   Crop,
@@ -242,6 +242,36 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   const showFloatingFrames =
     framesDetached && activeTab === 'frames';
 
+  const backgroundAsSelected = useMemo<SelectedObjectState | null>(() => {
+    if (!canvasManager) return null;
+    const bgSettings = canvasManager.getBackgroundSettings();
+    const dims = canvasManager.getDimensions();
+    const hasImage = bgSettings?.type === 'image' && Boolean(bgSettings?.image?.url);
+    return {
+      type: hasImage ? 'image' : 'background',
+      isMultiple: false,
+      count: 1,
+      left: 0,
+      top: 0,
+      width: dims?.widthPx || 1063,
+      height: dims?.heightPx || 591,
+      scaleX: bgSettings?.image?.scale || 1,
+      scaleY: bgSettings?.image?.scale || 1,
+      angle: 0,
+      opacity: bgSettings?.image?.opacity ?? (bgSettings as any)?.opacity ?? 1,
+      fill: bgSettings?.color || '#ffffff',
+      stroke: '',
+      strokeWidth: 0,
+      flipX: false,
+      flipY: false,
+      isLocked: false,
+      isVisible: true,
+      src: bgSettings?.image?.url,
+      originalSrc: bgSettings?.image?.url,
+      name: bgSettings?.image?.name || 'Background Layer',
+    };
+  }, [canvasManager, activeTab]);
+
   return (
     <>
       <div className="flex h-full min-h-0 flex-shrink-0 z-30 select-none bg-white">
@@ -400,11 +430,11 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
                 />
               )}
 
-              {activeTab === 'effects' && selected && (
+              {activeTab === 'effects' && (selected || backgroundAsSelected) && (
                 <div className="p-4">
                   <TextEffectsPanel
                     canvasManager={canvasManager}
-                    selected={selected}
+                    selected={selected || backgroundAsSelected!}
                   />
                 </div>
               )}

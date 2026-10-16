@@ -39,7 +39,6 @@ import {
 } from 'lucide-react';
 import { SelectedObjectState, BrushSettings, BrushType, ActiveSidebarTab } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
-import { FontPickerPopover } from './FontPickerPopover';
 import { TextSpacingPopover } from './TextSpacingPopover';
 import { TransparencyPopover } from './TransparencyPopover';
 import { PositionPopover } from './PositionPopover';
@@ -100,7 +99,6 @@ interface ContextualToolbarProps {
 }
 
 type ActivePopoverType =
-  | 'font'
   | 'spacing'
   | 'opacity'
   | 'effects'
@@ -491,6 +489,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   const CurrentBrushIcon = currentBrushPreset.icon;
 
   const currentCanvasBg = (canvasManager?.getBackgroundSettings()?.color as string) || '#ffffff';
+  const bgSettings = canvasManager?.getBackgroundSettings();
+  const hasBgImage = Boolean(bgSettings?.type === 'image' && bgSettings.image?.url);
+  const currentBgOpacity = bgSettings?.image?.opacity ?? (bgSettings as any)?.opacity ?? 1;
 
   const renderMultiColorSwatches = () => {
     if (editableColors.length <= 1) return null;
@@ -588,13 +589,90 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           {onSelectSidebarTab && (
             <button
               type="button"
-              onClick={() => onSelectSidebarTab('background')}
+              onClick={() => onSelectSidebarTab(activeSidebarTab === 'background' ? null : 'background')}
               title="Browse Photo & Gradient Backgrounds"
-              className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold text-gray-700 flex items-center gap-2 transition"
+              className={`h-9 px-3 rounded-xl border text-sm font-semibold flex items-center gap-2 transition ${activeSidebarTab === 'background'
+                ? 'bg-purple-50 border-purple-400 text-purple-700 font-bold shadow-2xs'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
             >
               <Wallpaper className="w-4 h-4 text-blue-600" />
               <span>Backgrounds</span>
             </button>
+          )}
+
+          <div className="h-5 w-px bg-gray-200 mx-0.5" />
+
+          {/* Background Effects Button (Filters, Adjustments & Photo Effects) */}
+          {onSelectSidebarTab && (
+            <button
+              type="button"
+              onClick={() => {
+                onSelectSidebarTab(activeSidebarTab === 'effects' ? null : 'effects');
+              }}
+              title="Background Effects (Filters, Adjustments & Photo Effects)"
+              className={`h-9 px-3.5 rounded-xl border text-sm font-semibold flex items-center gap-2 transition ${activeSidebarTab === 'effects'
+                ? 'bg-purple-50 border-purple-400 text-purple-700 font-bold shadow-2xs'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+              <Sparkles className="w-4 h-4 text-purple-600" />
+              <span>Effects</span>
+            </button>
+          )}
+
+          <div className="h-5 w-px bg-gray-200 mx-0.5" />
+
+          {/* Background Transparency / Opacity Popover Button (Checkerboard Icon) */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => togglePopover('opacity')}
+              title="Background Transparency / Opacity"
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activePopover === 'opacity'
+                ? 'bg-blue-50 border-blue-400 text-blue-700'
+                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+                <rect x="0" y="0" width="4" height="4" fill="#64748b" />
+                <rect x="8" y="0" width="4" height="4" fill="#64748b" />
+                <rect x="4" y="4" width="4" height="4" fill="#64748b" />
+                <rect x="12" y="4" width="4" height="4" fill="#64748b" />
+                <rect x="0" y="8" width="4" height="4" fill="#64748b" />
+                <rect x="8" y="8" width="4" height="4" fill="#64748b" />
+                <rect x="4" y="12" width="4" height="4" fill="#64748b" />
+                <rect x="12" y="12" width="4" height="4" fill="#64748b" />
+              </svg>
+            </button>
+
+            {activePopover === 'opacity' && (
+              <TransparencyPopover
+                opacity={currentBgOpacity}
+                onChange={(val) => {
+                  canvasManager?.setBackgroundOpacity(val);
+                }}
+                onClose={() => setActivePopover(null)}
+              />
+            )}
+          </div>
+
+          {/* Detach Image from Background (Make it a regular movable element) */}
+          {hasBgImage && (
+            <>
+              <div className="h-5 w-px bg-gray-200 mx-0.5" />
+              <button
+                type="button"
+                onClick={() => {
+                  canvasManager?.convertBackgroundToLayer();
+                }}
+                title="Detach image from background to make it a movable element layer"
+                className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
+              >
+                <Unlink className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Detach image</span>
+              </button>
+            </>
           )}
 
           <div className="h-5 w-px bg-gray-200 mx-0.5" />
@@ -807,33 +885,18 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       {/* ================================================================ */}
       {!isDrawing && isText && selected && !selected.isMultiple && (
         <>
-          {/* Font Family Pill */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => togglePopover('font')}
-              title="Font Family"
-              className={`h-9 px-3 rounded-xl border text-sm font-semibold flex items-center gap-2 transition ${activePopover === 'font'
-                ? 'bg-blue-50 border-blue-400 text-blue-700'
-                : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
-                }`}
+          {/* Read-only Current Font Name Label */}
+          <div
+            title={`Current Font: ${cleanFontName(selected.fontFamily)} (Select from Text sidebar)`}
+            onClick={() => onSelectSidebarTab?.('text')}
+            className="h-9 px-3 rounded-xl border border-gray-200 bg-gray-50/90 text-gray-800 text-sm font-semibold flex items-center select-none shadow-2xs cursor-pointer hover:bg-gray-100 hover:border-gray-300 transition"
+          >
+            <span
+              className="truncate max-w-[130px]"
+              style={{ fontFamily: selected.fontFamily || 'Inter, sans-serif' }}
             >
-              <span className="truncate max-w-[120px]">
-                {cleanFontName(selected.fontFamily)}
-              </span>
-              <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-            </button>
-
-            {activePopover === 'font' && (
-              <FontPickerPopover
-                currentFamily={selected.fontFamily || 'Inter'}
-                onSelectFamily={(family) => {
-                  handleUpdate('fontFamily', family);
-                  setActivePopover(null);
-                }}
-                onClose={() => setActivePopover(null)}
-              />
-            )}
+              {cleanFontName(selected.fontFamily)}
+            </span>
           </div>
 
           {/* Font Size Stepper */}

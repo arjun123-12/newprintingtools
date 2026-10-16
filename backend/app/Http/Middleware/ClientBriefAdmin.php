@@ -21,7 +21,7 @@ class ClientBriefAdmin
             ], 401);
         }
 
-        if ($user->role !== 'client_brief_admin') {
+        if (!in_array($user->role, ['client_brief_admin', 'admin'])) {
             return response()->json([
                 'success' => false,
                 'message' =>

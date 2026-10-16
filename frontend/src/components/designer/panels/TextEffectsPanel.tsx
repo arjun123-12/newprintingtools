@@ -180,10 +180,12 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
     (selected?.src ||
       selected?.originalSrc ||
       selected?.isFrame ||
-      ['image', 'fabricimage'].includes(normalizedSelectedType))
+      ['image', 'fabricimage', 'background'].includes(normalizedSelectedType))
   );
   const maxOffset = isImageOrPhoto ? 400 : 100;
-  const [activeTab, setActiveTab] = useState<'styles' | 'filters' | 'adjust'>('styles');
+  const [activeTab, setActiveTab] = useState<'styles' | 'filters' | 'adjust'>(
+    normalizedSelectedType === 'background' ? 'filters' : 'styles'
+  );
   const [activeFilter, setActiveFilter] = useState<string>('none');
   const [filterIntensity, setFilterIntensity] = useState<number>(100);
   const [showFilterCustomControls, setShowFilterCustomControls] = useState(false);
@@ -517,7 +519,7 @@ export const TextEffectsPanel: React.FC<TextEffectsPanelProps> = ({
       <div className="flex items-center justify-between border-b border-gray-100 pb-2">
         <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
           <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-          <span>{isEditableText ? 'Vector Text Effects' : 'Effects, Filters & Adjust'}</span>
+          <span>{isEditableText ? 'Vector Text Effects' : normalizedSelectedType === 'background' ? 'Background Effects & Filters' : 'Effects, Filters & Adjust'}</span>
         </span>
       </div>
 

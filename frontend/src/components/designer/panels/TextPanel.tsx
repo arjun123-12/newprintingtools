@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Type, Plus, Minus, Sparkles, Sliders } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Type, Sparkles } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { SelectedObjectState } from '@/types/designer';
-import { ColorPicker } from '../controls/ColorPicker';
 import { DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
 import { LoadingState, EmptyState } from '@/components/admin/shared';
 import { loadCustomFont } from '../utils/fonts';
@@ -155,25 +154,6 @@ interface TextPanelProps {
   selected?: SelectedObjectState | null;
 }
 
-const DEFAULT_TEXT_SIZES_PT = {
-  heading: 32,
-  subheading: 20,
-  body: 11,
-} as const;
-
-const getArtworkDpi = (canvasManager: CanvasManager | null): number =>
-  Math.max(72, Number(canvasManager?.getDimensions().dpi) || 96);
-
-const pointsToCanvasPixels = (
-  points: number,
-  canvasManager: CanvasManager | null
-): number => (points * getArtworkDpi(canvasManager)) / 72;
-
-const canvasPixelsToPoints = (
-  pixels: number,
-  canvasManager: CanvasManager | null
-): number => (pixels * 72) / getArtworkDpi(canvasManager);
-
 function extractResponseArray<T>(response: any): T[] {
   if (Array.isArray(response)) return response;
   if (Array.isArray(response?.data)) return response.data;
@@ -182,14 +162,14 @@ function extractResponseArray<T>(response: any): T[] {
 }
 
 export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected }) => {
-  const lastTextInsertAtRef = useRef(0);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
-  const [showStrokePicker, setShowStrokePicker] = useState(false);
   const normalizedSelectedType = String(selected?.type || '')
     .toLowerCase()
     .replace(/[-_\s]/g, '');
-  const isTextSelected = ['itext', 'textbox', 'text'].includes(
-    normalizedSelectedType
+  const isTextSelected = Boolean(
+    selected &&
+    !selected.isMultiple &&
+    (['itext', 'textbox', 'text'].includes(normalizedSelectedType) || selected.text !== undefined)
   );
 
   const [presets, setPresets] = useState<DesignAsset[]>([]);
@@ -197,13 +177,26 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
   const [loading, setLoading] = useState(true);
   const [, setFontsLoadedTick] = useState(0);
 
-  const artworkWidth = canvasManager?.getDimensions().widthPx || 1063;
-  const currentFontSizePt = Math.max(
-    1,
-    Math.round(
-      canvasPixelsToPoints(Number(selected?.fontSize) || 16, canvasManager) * 10
-    ) / 10
-  );
+  const cleanFontName = (family: string = '') => {
+    return family.split(',')[0].replace(/['"]/g, '').trim() || 'Inter';
+  };
+
+  const isCurrentFont = (fontFamilyName?: string) => {
+    if (!fontFamilyName || !selected?.fontFamily) return false;
+    const currentClean = cleanFontName(selected.fontFamily).toLowerCase();
+    const targetClean = cleanFontName(fontFamilyName).toLowerCase();
+    return currentClean === targetClean;
+  };
+
+  const getActiveTextObject = () => {
+    if (!canvasManager) return null;
+    const canvas = canvasManager.getCanvas?.() || (canvasManager as any).canvas;
+    const active = canvas?.getActiveObject?.();
+    if (active && canvasManager.isTextObject(active)) {
+      return active;
+    }
+    return null;
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -218,85 +211,48 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
           .filter(
             (category) =>
               category.asset_type === 'text' && category.is_active
-          );
+          )
+          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
         setPresets(nextPresets);
         setCategories(nextCategories);
-
-        // Preload any custom fonts attached to text presets
-        const fontPromises = nextPresets.map(async (p) => {
-          const rawFontUrl =
-            p.file_url ||
-            p.file_path ||
-            p.metadata?.fontUrl ||
-            p.metadata?.textStyle?.fontUrl ||
-            p.metadata?.textEffectConfig?.fontUrl ||
-            p.fabric_json?.fontUrl;
-          const family =
-            p.fabric_json?.fontFamily ||
-            p.metadata?.textStyle?.fontFamily ||
-            p.metadata?.textEffectConfig?.fontFamily;
-          const weight =
-            p.fabric_json?.fontWeight ||
-            p.metadata?.textStyle?.fontWeight ||
-            p.metadata?.textEffectConfig?.fontWeight ||
-            'normal';
-          const style =
-            p.fabric_json?.fontStyle ||
-            p.metadata?.textStyle?.fontStyle ||
-            'normal';
-
-          if (rawFontUrl && family) {
-            await loadCustomFont(family, rawFontUrl, weight, style);
-          }
-        });
-        await Promise.allSettled(fontPromises);
-        setFontsLoadedTick((t) => t + 1);
-        const fabric = canvasManager?.getCanvas();
-        if (fabric) {
-          fabric.getObjects().forEach((obj: any) => {
-            if (['textbox', 'text', 'itext'].includes(String(obj.type || '').toLowerCase())) {
-              obj.set({ dirty: true });
-              obj.initDimensions?.();
-            }
-          });
-          fabric.requestRenderAll();
-        }
       } catch (err) {
-        console.error('Failed to load text presets', err);
-        setPresets([]);
-        setCategories([]);
+        console.error('Failed to load text presets:', err);
       } finally {
         setLoading(false);
       }
     };
     fetchData();
-  }, [canvasManager]);
+  }, []);
 
+  // Preload custom fonts
   useEffect(() => {
-    if (presets.length === 0) return;
     let isMounted = true;
     const preload = async () => {
-      const promises = presets.map(async (p) => {
+      const promises = presets.map(async (preset) => {
+        const config = preset.fabric_json || {};
+        const textStyle =
+          preset.metadata?.textStyle || preset.metadata?.textEffectConfig || {};
         const rawFontUrl =
-          p.file_url ||
-          p.file_path ||
-          p.metadata?.fontUrl ||
-          p.metadata?.textStyle?.fontUrl ||
-          p.metadata?.textEffectConfig?.fontUrl ||
-          p.fabric_json?.fontUrl;
+          preset.file_url ||
+          preset.file_path ||
+          preset.metadata?.fontUrl ||
+          textStyle.fontUrl ||
+          config.fontUrl;
         const family =
-          p.fabric_json?.fontFamily ||
-          p.metadata?.textStyle?.fontFamily ||
-          p.metadata?.textEffectConfig?.fontFamily;
+          config.fontFamily ||
+          textStyle.fontFamily ||
+          preset.metadata?.fontFamily ||
+          preset.name;
         const weight =
-          p.fabric_json?.fontWeight ||
-          p.metadata?.textStyle?.fontWeight ||
-          p.metadata?.textEffectConfig?.fontWeight ||
+          config.fontWeight ||
+          textStyle.fontWeight ||
+          preset.metadata?.fontWeight ||
           'normal';
         const style =
-          p.fabric_json?.fontStyle ||
-          p.metadata?.textStyle?.fontStyle ||
+          config.fontStyle ||
+          textStyle.fontStyle ||
+          preset.metadata?.fontStyle ||
           'normal';
 
         if (rawFontUrl && family) {
@@ -324,56 +280,46 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     };
   }, [presets, canvasManager]);
 
-  const addTextOnce = (options: Parameters<CanvasManager['addText']>[0]) => {
-    if (!canvasManager) return;
+  const handleApplyFont = async (
+    targetFamily: string,
+    fontUrl?: string,
+    weight?: string,
+    style?: string
+  ) => {
+    // If no text object is selected, do not modify or create anything.
+    const activeText = getActiveTextObject();
+    if (!activeText || !canvasManager) {
+      return;
+    }
 
-    const now = Date.now();
-    if (now - lastTextInsertAtRef.current < 350) return;
-    lastTextInsertAtRef.current = now;
+    const cleanFamily = cleanFontName(targetFamily || 'Inter');
 
-    void canvasManager.addText(options);
+    if (fontUrl && cleanFamily) {
+      try {
+        await loadCustomFont(
+          cleanFamily,
+          fontUrl,
+          weight || 'normal',
+          style || 'normal'
+        );
+      } catch (err) {
+        console.warn('Could not load custom font:', err);
+      }
+    }
+
+    // Apply font to the currently selected text object in place.
+    // Preserves content, position, size, scale, rotation, color, alignment, etc.
+    canvasManager.updateSelectedProperty('fontFamily', cleanFamily);
   };
 
-  const handleAddHeading = () => {
-    addTextOnce({
-      text: 'Add a heading',
-      fontSizePt: DEFAULT_TEXT_SIZES_PT.heading,
-      fontWeight: 'bold',
-      fontFamily: 'Inter, sans-serif',
-      fill: '#0f172a',
-      width: Math.max(180, artworkWidth * 0.72),
-    });
-  };
+  const handleSelectPreset = (asset: DesignAsset) => {
+    // If no text object is selected, do not modify or create anything.
+    if (!isTextSelected || !getActiveTextObject()) {
+      return;
+    }
 
-  const handleAddSubheading = () => {
-    addTextOnce({
-      text: 'Add a subheading',
-      fontSizePt: DEFAULT_TEXT_SIZES_PT.subheading,
-      fontWeight: '600',
-      fontFamily: 'Inter, sans-serif',
-      fill: '#334155',
-      width: Math.max(160, artworkWidth * 0.62),
-    });
-  };
-
-  const handleAddBody = () => {
-    addTextOnce({
-      text: 'Add body text. Double-click to edit content directly on canvas.',
-      fontSizePt: DEFAULT_TEXT_SIZES_PT.body,
-      fontWeight: 'normal',
-      fontFamily: 'Inter, sans-serif',
-      fill: '#475569',
-      width: Math.max(150, artworkWidth * 0.55),
-    });
-  };
-
-  const handleAddPreset = (asset: DesignAsset) => {
     const config = asset.fabric_json || {};
     const textStyle = asset.metadata?.textStyle || asset.metadata?.textEffectConfig || {};
-    const configuredPoints = Number(
-      config.fontSizePt || asset.metadata?.fontSizePt || textStyle.fontSize || 0
-    );
-    const configuredWidth = Number(config.width) || Math.max(180, artworkWidth * 0.65);
     const rawFontUrl =
       asset.file_url ||
       asset.file_path ||
@@ -384,43 +330,26 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
       ? (getProxiedImageUrl(rawFontUrl) || formatImageUrl(rawFontUrl))
       : undefined;
 
-    const family = config.fontFamily || textStyle.fontFamily || 'Inter';
-    if (fontUrl && family) {
-      void loadCustomFont(
-        family,
-        fontUrl,
-        config.fontWeight || textStyle.fontWeight || 'normal',
-        config.fontStyle || textStyle.fontStyle || 'normal'
-      );
-    }
+    const rawFamily =
+      config.fontFamily ||
+      textStyle.fontFamily ||
+      asset.metadata?.fontFamily ||
+      asset.name ||
+      'Inter';
 
-    addTextOnce({
-      ...config,
-      text: config.text || textStyle.defaultText || asset.name,
-      fontFamily: config.fontFamily || textStyle.fontFamily || 'Inter',
-      fontWeight: config.fontWeight || textStyle.fontWeight || 'normal',
-      fontStyle: config.fontStyle || textStyle.fontStyle || 'normal',
-      width: configuredWidth,
-      fontSizePt: configuredPoints > 0 ? configuredPoints : undefined,
-      textAlign: config.textAlign || textStyle.textAlign || 'center',
-      fill: config.fill || textStyle.fill?.color || '#0f172a',
-      stroke: config.stroke || (textStyle.stroke?.enabled ? textStyle.stroke.color : undefined),
-      strokeWidth: config.strokeWidth ?? (textStyle.stroke?.enabled ? textStyle.stroke.width : undefined),
-      shadow: config.shadow || (textStyle.shadow?.enabled ? {
-        color: textStyle.shadow.color,
-        offsetX: textStyle.shadow.offsetX,
-        offsetY: textStyle.shadow.offsetY,
-        blur: textStyle.shadow.blur,
-      } : undefined),
-      charSpacing: config.charSpacing ?? textStyle.letterSpacing,
-      lineHeight: config.lineHeight ?? textStyle.lineHeight,
+    void handleApplyFont(
+      rawFamily,
       fontUrl,
-      assetId: asset.id,
-      provider: asset.provider || 'admin',
-      sourceType: 'asset',
-      editable: true,
-      locked: false,
-    } as any);
+      config.fontWeight || textStyle.fontWeight || 'normal',
+      config.fontStyle || textStyle.fontStyle || 'normal'
+    );
+  };
+
+  const handleSelectDefaultFont = (family: string = 'Inter') => {
+    if (!isTextSelected || !getActiveTextObject()) {
+      return;
+    }
+    void handleApplyFont(family);
   };
 
   const filteredPresets =
@@ -432,23 +361,6 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
           preset.category?.id === selectedCategoryId
       );
 
-  const currentStrokeWidth = selected?.strokeWidth || 0;
-  const currentStrokeColor = selected?.stroke || '#000000';
-
-  const handleUpdateProperty = (prop: keyof SelectedObjectState, val: any) => {
-    if (!canvasManager) return;
-    canvasManager.updateSelectedProperty(prop, val);
-  };
-
-  const handleFontSizePtChange = (points: number) => {
-    if (!canvasManager) return;
-    const safePoints = Math.max(1, Math.min(500, points || 1));
-    handleUpdateProperty(
-      'fontSize',
-      pointsToCanvasPixels(safePoints, canvasManager)
-    );
-  };
-
   return (
     <div className="p-4 space-y-5 h-full overflow-y-auto custom-scrollbar">
       {/* Header */}
@@ -458,177 +370,97 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
             <Type className="w-3.5 h-3.5" />
           </div>
           <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-            Text Library
+            Text & Font Library
           </h3>
         </div>
       </div>
 
-      {/* ACTIVE SELECTED TEXT QUICK CONTROLS */}
-      {/* {isTextSelected && (
-        <div className="bg-purple-50/80 border border-purple-200 rounded-2xl p-3.5 space-y-3 shadow-2xs animate-in fade-in duration-150">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-extrabold text-purple-900 flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5 text-purple-600" />
-              <span>Text Controls</span>
-            </span>
-            <span className="text-[10px] font-bold text-purple-700 bg-white px-2 py-0.5 rounded-md border border-purple-200">
-              Active Element
+      {/* Selection Status Banner */}
+      {isTextSelected ? (
+        <div className="bg-purple-50/90 border border-purple-200/80 rounded-xl px-3 py-2 text-xs flex items-center justify-between text-purple-900 shadow-2xs">
+          <div className="flex items-center gap-2 truncate">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+            <span className="truncate">
+              Selected Font: <span className="font-bold text-purple-950">{cleanFontName(selected?.fontFamily)}</span>
             </span>
           </div>
-
-          <div className="space-y-1">
-            <label className="text-[11px] font-semibold text-purple-900 block">Edit Text</label>
-            <input
-              type="text"
-              value={selected?.text || ''}
-              onChange={(e) => handleUpdateProperty('text', e.target.value)}
-              placeholder="Type your text..."
-              className="w-full px-2.5 py-1.5 bg-white border border-purple-200 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-400 transition"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-[11px] font-semibold text-purple-900">
-                Font Size
-              </label>
-              <span className="text-[9px] font-bold uppercase tracking-wider text-purple-500">
-                Points (pt)
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => handleFontSizePtChange(currentFontSizePt - 1)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-purple-200 bg-white text-purple-700 transition hover:bg-purple-100"
-                title="Decrease font size"
-              >
-                <Minus className="h-3.5 w-3.5" />
-              </button>
-              <div className="relative flex-1">
-                <input
-                  type="number"
-                  min="1"
-                  max="500"
-                  step="1"
-                  value={currentFontSizePt}
-                  onChange={(event) =>
-                    handleFontSizePtChange(Number(event.target.value))
-                  }
-                  className="h-8 w-full rounded-lg border border-purple-200 bg-white px-2 pr-8 text-center text-xs font-bold text-gray-900 outline-none focus:ring-2 focus:ring-purple-400"
-                />
-                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-gray-400">
-                  pt
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleFontSizePtChange(currentFontSizePt + 1)}
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-purple-200 bg-white text-purple-700 transition hover:bg-purple-100"
-                title="Increase font size"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <div className="flex gap-1">
-              {[8, 10, 12, 14, 18, 24, 32, 48].map((size) => (
-                <button
-                  key={size}
-                  type="button"
-                  onClick={() => handleFontSizePtChange(size)}
-                  className={`flex-1 rounded-md border py-1 text-[9px] font-bold transition ${Math.round(currentFontSizePt) === size
-                    ? 'border-purple-600 bg-purple-600 text-white'
-                    : 'border-purple-200 bg-white text-purple-700 hover:bg-purple-100'
-                    }`}
-                >
-                  {size}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2 pt-1 border-t border-purple-200/60">
-            <div className="flex items-center justify-between">
-              <label className="text-[11px] font-semibold text-purple-900">Border / Outline</label>
-              <button
-                type="button"
-                onClick={() => handleUpdateProperty('strokeWidth', currentStrokeWidth > 0 ? 0 : 3)}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition ${currentStrokeWidth > 0 ? 'bg-purple-600 border-purple-600 text-white' : 'bg-white border-purple-200 text-purple-700 hover:bg-purple-100'
-                  }`}
-              >
-                {currentStrokeWidth > 0 ? 'Border ON' : '+ Add Border'}
-              </button>
-            </div>
-            {currentStrokeWidth > 0 && (
-              <div className="space-y-2.5 bg-white p-2.5 rounded-xl border border-purple-200">
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-[11px] font-semibold text-gray-700">Border Color</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowStrokePicker(!showStrokePicker)}
-                    className="flex items-center gap-2 px-2 py-1 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 transition shadow-2xs"
-                  >
-                    <div
-                      className="w-4 h-4 rounded-lg border border-gray-300 shadow-2xs"
-                      style={{ backgroundColor: currentStrokeColor }}
-                    />
-                    <span className="text-[10px] font-mono font-bold uppercase text-gray-700">
-                      {currentStrokeColor}
-                    </span>
-                  </button>
-                </div>
-                {showStrokePicker && (
-                  <div className="mt-2 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden">
-                    <ColorPicker
-                      label="Border Colour"
-                      value={currentStrokeColor}
-                      onChange={(hex) => {
-                        if (typeof hex === 'string') {
-                          handleUpdateProperty('stroke', hex);
-                        } else if (canvasManager) {
-                          canvasManager.setSelectedGradient(hex, true);
-                        }
-                      }}
-                      onClose={() => setShowStrokePicker(false)}
-                      canvasManager={canvasManager}
-                      embedded={true}
-                      allowGradient={true}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <span className="text-[10px] text-purple-600 font-bold shrink-0 uppercase tracking-wide">
+            Click font to apply
+          </span>
         </div>
-      )} */}
+      ) : (
+        <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-500 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-gray-400 shrink-0" />
+          <span>Select text on the canvas to change its font.</span>
+        </div>
+      )}
 
-      {/* Quick Add Cards */}
+      {/* Default Text Styles */}
       <div className="space-y-2.5">
-        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Default Text Styles</span>
-        <button onClick={handleAddHeading} className="w-full text-left p-3.5 rounded-xl border border-gray-200 bg-white hover:bg-purple-50 transition group">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">
+            Default Text Styles
+          </span>
+          {isTextSelected && (
+            <span className="text-[10px] text-purple-600 font-semibold">
+              Click to apply
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => handleSelectDefaultFont('Inter')}
+          disabled={!isTextSelected}
+          className={`w-full text-left p-3.5 rounded-xl border transition group ${
+            isCurrentFont('Inter') && isTextSelected
+              ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
+              : isTextSelected
+              ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
+              : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
+          }`}
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xl font-extrabold text-gray-900 group-hover:text-purple-700">Add a heading</span>
-            <span className="text-[10px] font-bold text-gray-400">32 pt</span>
-            <Plus className="w-4 h-4 text-gray-400" />
+            <span className="text-xl font-extrabold text-gray-900 group-hover:text-purple-700">Heading Style</span>
+            <span className="text-[10px] font-bold text-gray-400">Inter</span>
           </div>
         </button>
-        <button onClick={handleAddSubheading} className="w-full text-left p-3 rounded-xl border border-gray-200 bg-white hover:bg-purple-50 transition group">
+        <button
+          type="button"
+          onClick={() => handleSelectDefaultFont('Inter')}
+          disabled={!isTextSelected}
+          className={`w-full text-left p-3 rounded-xl border transition group ${
+            isCurrentFont('Inter') && isTextSelected
+              ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
+              : isTextSelected
+              ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
+              : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
+          }`}
+        >
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-800 group-hover:text-purple-700">Add a subheading</span>
-            <span className="text-[10px] font-bold text-gray-400">20 pt</span>
-            <Plus className="w-4 h-4 text-gray-400" />
+            <span className="text-sm font-semibold text-gray-800 group-hover:text-purple-700">Subheading Style</span>
+            <span className="text-[10px] font-bold text-gray-400">Inter</span>
           </div>
         </button>
-        <button onClick={handleAddBody} className="w-full text-left p-2.5 rounded-xl border border-gray-200 bg-white hover:bg-purple-50 transition group">
+        <button
+          type="button"
+          onClick={() => handleSelectDefaultFont('Inter')}
+          disabled={!isTextSelected}
+          className={`w-full text-left p-2.5 rounded-xl border transition group ${
+            isCurrentFont('Inter') && isTextSelected
+              ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
+              : isTextSelected
+              ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
+              : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
+          }`}
+        >
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-600 group-hover:text-purple-700">Add body text</span>
-            <span className="text-[10px] font-bold text-gray-400">11 pt</span>
-            <Plus className="w-4 h-4 text-gray-400" />
+            <span className="text-xs text-gray-600 group-hover:text-purple-700">Body Text Style</span>
+            <span className="text-[10px] font-bold text-gray-400">Inter</span>
           </div>
         </button>
       </div>
 
-      {/* Presets */}
+      {/* Library Presets */}
       <div className="space-y-3 pt-3 border-t border-gray-100">
         <div className="flex items-center gap-1.5 text-xs font-bold text-gray-800">
           <Sparkles className="w-3.5 h-3.5 text-amber-500" />
@@ -637,6 +469,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
 
         <div className="flex items-center gap-1 overflow-x-auto pb-1 custom-scrollbar">
           <button
+            type="button"
             onClick={() => setSelectedCategoryId('all')}
             className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition whitespace-nowrap ${selectedCategoryId === 'all' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
@@ -645,6 +478,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
           {categories.map((cat) => (
             <button
               key={cat.id}
+              type="button"
               onClick={() => setSelectedCategoryId(cat.id)}
               className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition whitespace-nowrap ${selectedCategoryId === cat.id ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
             >
@@ -672,20 +506,36 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
                 preset.metadata?.textStyle?.fontFamily ||
                 preset.metadata?.textEffectConfig?.fontFamily ||
                 preset.name;
+              const isSelectedFont = isCurrentFont(fontName);
 
               return (
                 <button
                   key={preset.id}
-                  onClick={() => handleAddPreset(preset)}
-                  className="w-full text-left p-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-purple-50/70 hover:border-purple-300 transition shadow-2xs flex flex-col gap-1 relative overflow-hidden group"
+                  type="button"
+                  onClick={() => handleSelectPreset(preset)}
+                  disabled={!isTextSelected}
+                  className={`w-full text-left p-3.5 rounded-2xl border transition shadow-2xs flex flex-col gap-1 relative overflow-hidden group ${
+                    isSelectedFont && isTextSelected
+                      ? 'border-purple-500 bg-purple-50/80 shadow-xs ring-2 ring-purple-400/30'
+                      : isTextSelected
+                      ? 'border-gray-200 bg-white hover:bg-purple-50/70 hover:border-purple-300 cursor-pointer'
+                      : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
+                  }`}
                 >
                   <div className="flex items-center justify-between w-full">
                     <span className="text-[9px] font-extrabold uppercase tracking-wider text-purple-600 bg-purple-100/80 px-2 py-0.5 rounded-md w-fit">
                       {preset.category?.name || 'Standard Text Presets'}
                     </span>
-                    <span className="text-[10px] text-gray-400 font-semibold truncate max-w-[130px]">
-                      {fontName}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {isSelectedFont && isTextSelected && (
+                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                          Current
+                        </span>
+                      )}
+                      <span className="text-[10px] text-gray-500 font-semibold truncate max-w-[120px]">
+                        {fontName}
+                      </span>
+                    </div>
                   </div>
                   <span
                     className="text-lg transition-colors truncate mt-0.5 block select-none"
