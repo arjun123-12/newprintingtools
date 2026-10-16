@@ -17,6 +17,7 @@ import {
   Shadow,
   Path,
   Gradient,
+  Canvas2dFilterBackend,
   filters,
   loadSVGFromURL,
   loadSVGFromString,
@@ -104,6 +105,112 @@ if (
       );
   };
 }
+
+/**
+ * Fabric's WebGL Blur filter should preserve the source image's pixel bounds.
+ * Some browser/GPU combinations have returned a filtered surface with a
+ * different aspect ratio, which makes a portrait appear clipped inside its
+ * unchanged Fabric selection box. If that happens, regenerate the same filter
+ * stack from the untouched source with Fabric's 2D backend at the exact source
+ * dimensions. This runs for every FabricImage.applyFilters call, including
+ * images restored from saved artwork.
+ */
+const installBlurOutputBoundsGuard = (() => {
+  let installed = false;
+
+  return () => {
+    if (installed) return;
+    installed = true;
+
+    const imagePrototype = FabricImage.prototype as any;
+    const originalApplyFilters = imagePrototype.applyFilters;
+    const fallbackBackend = new Canvas2dFilterBackend();
+
+    imagePrototype.applyFilters = function (
+      this: any,
+      filterList: any[] = this.filters || []
+    ) {
+      const result = originalApplyFilters.call(this, filterList);
+      const activeFilters = (filterList || this.filters || []).filter(
+        (filter: any) => filter && !filter.isNeutralState?.()
+      );
+      const hasBlur = activeFilters.some(
+        (filter: any) => filter.type === 'Blur' || filter.constructor?.type === 'Blur'
+      );
+      const source = this._originalElement;
+
+      if (!hasBlur || !source) return result;
+
+      const sourceWidth = Math.round(
+        Number(source.naturalWidth || source.width || this.width) || 0
+      );
+      const sourceHeight = Math.round(
+        Number(source.naturalHeight || source.height || this.height) || 0
+      );
+      // `_element` is the bitmap Fabric actually draws. `_filteredEl` may still
+      // be the full-size intermediate while a resize filter has replaced the
+      // render element with a clipped/incorrectly-sized surface.
+      const filtered = this._element || this._filteredEl;
+      const filteredWidth = Number(filtered?.width) || 0;
+      const filteredHeight = Number(filtered?.height) || 0;
+
+      if (!sourceWidth || !sourceHeight || !filteredWidth || !filteredHeight) {
+        return result;
+      }
+
+      const sourceRatio = sourceWidth / sourceHeight;
+      const filteredRatio = filteredWidth / filteredHeight;
+      const ratioError = Math.abs(filteredRatio - sourceRatio) / sourceRatio;
+      if (ratioError < 0.01) return result;
+
+      console.warn('Blur output bounds differ from source; rebuilding full-size image.', {
+        source: { width: sourceWidth, height: sourceHeight },
+        rendered: { width: filteredWidth, height: filteredHeight },
+        crop: { x: Number(this.cropX) || 0, y: Number(this.cropY) || 0 },
+        scale: { x: Number(this.scaleX) || 1, y: Number(this.scaleY) || 1 },
+      });
+
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = sourceWidth;
+        canvas.height = sourceHeight;
+        const fallbackResult = fallbackBackend.applyFilters(
+          activeFilters,
+          source,
+          sourceWidth,
+          sourceHeight,
+          canvas
+        );
+
+        if (fallbackResult) {
+          this._filteredEl = canvas;
+          this._element = canvas;
+          this._filterScalingX = 1;
+          this._filterScalingY = 1;
+          this.dirty = true;
+        } else {
+          this._filteredEl = undefined;
+          this._element = source;
+          this._filterScalingX = 1;
+          this._filterScalingY = 1;
+          this.dirty = true;
+        }
+      } catch (error) {
+        // Keep the full original image visible if the fallback itself fails.
+        console.warn('Blur filter bounds fallback failed; restoring source image:', error);
+        this._filteredEl = undefined;
+        this._element = source;
+        this._filterScalingX = 1;
+        this._filterScalingY = 1;
+        this.dirty = true;
+      }
+
+      return result;
+    };
+  };
+})();
+
+installBlurOutputBoundsGuard();
 
 // Ensure all Fabric text objects render directly from vector glyphs (no blurry bitmap caching)
 (Textbox as any).ownDefaults = {
@@ -5886,10 +5993,10 @@ export class CanvasManager {
           outlineChild,
           origOutlineProps: outlineChild
             ? {
-                stroke: outlineChild.stroke,
-                strokeWidth: outlineChild.strokeWidth,
-                strokeDashArray: outlineChild.strokeDashArray,
-              }
+              stroke: outlineChild.stroke,
+              strokeWidth: outlineChild.strokeWidth,
+              strokeDashArray: outlineChild.strokeDashArray,
+            }
             : null,
         };
 
@@ -5973,10 +6080,10 @@ export class CanvasManager {
           outlineChild,
           origOutlineProps: outlineChild
             ? {
-                stroke: outlineChild.stroke,
-                strokeWidth: outlineChild.strokeWidth,
-                strokeDashArray: outlineChild.strokeDashArray,
-              }
+              stroke: outlineChild.stroke,
+              strokeWidth: outlineChild.strokeWidth,
+              strokeDashArray: outlineChild.strokeDashArray,
+            }
             : null,
         };
 
@@ -8899,6 +9006,15 @@ export class CanvasManager {
     // 3. Blur
     const isBlur = Boolean(activeEffects.blur);
     const targetImages = this.getImagesFromObject(obj);
+    // Image blur is rendered by Fabric's image filter pipeline below. Clear
+    // legacy context-blur metadata on the image/root so old saved artwork does
+    // not also run the vector canvas blur path from CanvaControls.
+    if (targetImages.length > 0 || this.isImageObject(obj)) {
+      (obj as any)._blurAmount = 0;
+      targetImages.forEach((image) => {
+        (image as any)._blurAmount = 0;
+      });
+    }
     if (isBlur) {
       const b = { blur: 25, ...effectSettings.blur };
       if (targetImages.length > 0 || this.isImageObject(obj)) {
@@ -9345,11 +9461,79 @@ export class CanvasManager {
       filterList.push(new filters.Gamma({ gamma: [1 + factor * 0.2, 1, 1 - factor * 0.2] }));
     }
 
-    if (adjustments.blur && adjustments.blur !== 0) {
+    if (adjustments.blur && adjustments.blur !== 0 && !this.supportsCanvasFilter()) {
       filterList.push(new filters.Blur({ blur: Math.min(1, Math.max(0, adjustments.blur / 100)) }));
     }
 
     return filterList;
+  }
+  private supportsCanvasFilter(): boolean {
+    if (typeof document === 'undefined') return false;
+    try {
+      const ctx = document.createElement('canvas').getContext('2d');
+      return !!ctx && 'filter' in ctx;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Blurs the image bitmap WITHOUT changing its pixel dimensions.
+   * The edges are extended by 'pad' pixels before blurring, so the borders
+   * never fade to transparent and the image never looks smaller.
+   */
+  private applyEdgeSafeBlur(img: FabricImage, blurAmount: number): void {
+    const amount = Math.max(0, Math.min(100, Number(blurAmount) || 0));
+    if (amount <= 0 || !this.supportsCanvasFilter()) return;
+
+    const original = (img as any)._originalElement;
+    const current = ((img as any)._element || original) as any;
+    if (!original || !current) return;
+
+    const w = Math.round(Number(original.naturalWidth || original.width) || 0);
+    const h = Math.round(Number(original.naturalHeight || original.height) || 0);
+    if (w < 2 || h < 2) return;
+
+    const sigma = (amount / 100) * Math.max(w, h) * 0.05;
+    if (sigma < 0.2) return;
+    const pad = Math.min(Math.ceil(sigma * 3), 600);
+
+    try {
+      // 1. Padded canvas with edge-extended borders
+      const padded = document.createElement('canvas');
+      padded.width = w + pad * 2;
+      padded.height = h + pad * 2;
+      const pctx = padded.getContext('2d');
+      if (!pctx) return;
+
+      pctx.drawImage(current, 0, 0, w, h, pad, pad, w, h);                    // center
+      pctx.drawImage(current, 0, 0, 1, h, 0, pad, pad, h);                    // left
+      pctx.drawImage(current, w - 1, 0, 1, h, pad + w, pad, pad, h);          // right
+      pctx.drawImage(current, 0, 0, w, 1, pad, 0, w, pad);                    // top
+      pctx.drawImage(current, 0, h - 1, w, 1, pad, pad + h, w, pad);          // bottom
+      pctx.drawImage(current, 0, 0, 1, 1, 0, 0, pad, pad);                    // corners
+      pctx.drawImage(current, w - 1, 0, 1, 1, pad + w, 0, pad, pad);
+      pctx.drawImage(current, 0, h - 1, 1, 1, 0, pad + h, pad, pad);
+      pctx.drawImage(current, w - 1, h - 1, 1, 1, pad + w, pad + h, pad, pad);
+
+      // 2. Blur, then crop back to the exact original size
+      const out = document.createElement('canvas');
+      out.width = w;
+      out.height = h;
+      const octx = out.getContext('2d');
+      if (!octx) return;
+      (octx as any).filter = `blur(${sigma}px)`;
+      octx.drawImage(padded, -pad, -pad);
+      (octx as any).filter = 'none';
+
+      (img as any)._filteredEl = out;
+      (img as any)._element = out;
+      (img as any)._filterScalingX = 1;
+      (img as any)._filterScalingY = 1;
+      img.dirty = true;
+    } catch (err) {
+      console.warn('Edge-safe blur failed:', err);
+    }
   }
 
   public reapplyCombinedImageFilters(targetImage: FabricImage): void {
@@ -9400,6 +9584,9 @@ export class CanvasManager {
     } catch (err) {
       console.warn('Failed to apply filters to image:', err);
     }
+
+    // Size-preserving blur (runs after the other pixel filters)
+    this.applyEdgeSafeBlur(targetImage, Number(adjustments.blur) || 0);
 
     // Pixel filters are not allowed to modify frame/image geometry.
     targetImage.set({
@@ -9538,7 +9725,11 @@ export class CanvasManager {
     const targetImages = this.getImagesFromObject(target);
 
     if (targetImages.length > 0) {
+      // Keep raster images on the pixel-filter path only; legacy vector blur
+      // metadata must not be applied on top of the filtered bitmap.
+      (target as any)._blurAmount = 0;
       for (const targetImage of targetImages) {
+        (targetImage as any)._blurAmount = 0;
         const stored = (targetImage as any)._adjustments || {
           brightness: 0,
           contrast: 0,

@@ -2081,7 +2081,12 @@ export function applyCanvaControlsGlobal(): void {
     }
 
     // 2. Vector blur filter (for text, paths, shapes)
-    const blurVal = Number((this as any)._blurAmount) || 0;
+    // Raster images use Fabric's pixel filter pipeline (FabricImage.filters).
+    // Applying the legacy context blur here as well can double-filter a stale
+    // serialized `_blurAmount` and clip the cached image to its object bounds.
+    // Keep this native canvas blur for vector objects only.
+    const isRasterImage = this instanceof FabricImage || this.type === 'image';
+    const blurVal = isRasterImage ? 0 : Number((this as any)._blurAmount) || 0;
     let didFilter = false;
     if (blurVal > 0 && typeof ctx.filter === 'string') {
       const px = Math.round((blurVal / 100) * 20);
