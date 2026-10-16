@@ -36,7 +36,9 @@ import {
   FolderOpen,
   ArrowUpRight,
   ShieldAlert,
+  FileSpreadsheet,
 } from 'lucide-react';
+import CustomerImportModal from '@/components/admin/customers/CustomerImportModal';
 
 export default function AdminCustomersPage() {
   const [customers, setCustomers] = useState<CustomerItem[]>([]);
@@ -60,6 +62,9 @@ export default function AdminCustomersPage() {
 
   // Customer Detail Drawer / Modal
   const [activeCustomerDetail, setActiveCustomerDetail] = useState<CustomerItem | null>(null);
+
+  // CSV Customer Import Modal
+  const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
 
   // Fetch customer & artwork data
   const loadData = async (isManualRefresh = false) => {
@@ -268,6 +273,16 @@ export default function AdminCustomersPage() {
         </div>
 
         <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setIsImportModalOpen(true)}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition shadow-sm"
+            title="Import customers from CSV"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Import CSV
+          </button>
+
           <button
             type="button"
             onClick={() => loadData(true)}
@@ -1013,6 +1028,13 @@ export default function AdminCustomersPage() {
           </div>
         </div>
       )}
+
+      {/* CSV Customer Import Modal */}
+      <CustomerImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onImportSuccess={() => loadData(true)}
+      />
     </div>
   );
 }

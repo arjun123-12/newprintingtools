@@ -85,6 +85,51 @@ export interface FetchCustomersResponse {
   stats: CustomerStats;
 }
 
+export interface CustomerImportRow {
+  row_number: number;
+  status: 'valid' | 'skipped' | 'invalid' | 'failed';
+  name?: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  street_address?: string;
+  city_suburb?: string;
+  state?: string;
+  postcode?: string;
+  country?: string;
+  errors?: string[];
+  reason?: string;
+}
+
+export interface CustomerImportPreviewData {
+  total_rows: number;
+  valid_count: number;
+  skipped_count: number;
+  invalid_count: number;
+  headers: string[];
+  mapping: Record<string, string>;
+  preview_rows: CustomerImportRow[];
+  skipped_rows: CustomerImportRow[];
+  invalid_rows: CustomerImportRow[];
+}
+
+export interface CustomerImportPreviewResponse {
+  success: boolean;
+  data: CustomerImportPreviewData;
+}
+
+export interface CustomerImportResultResponse {
+  success: boolean;
+  message: string;
+  total_rows: number;
+  imported_count: number;
+  skipped_count: number;
+  invalid_count: number;
+  skipped_rows: CustomerImportRow[];
+  invalid_rows: CustomerImportRow[];
+  report_csv?: string;
+}
+
 export interface FetchGuestArtworksResponse {
   success: boolean;
   data: ArtworkDetail[];
@@ -135,4 +180,86 @@ export const customerService = {
     );
     return response.data;
   },
+
+  async previewImport(
+    file: File | string,
+    mapping?: Record<string, string>,
+    skipDuplicates = true
+  ): Promise<CustomerImportPreviewResponse> {
+    if (typeof window !== 'undefined' && file instanceof File) {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (mapping) {
+        formData.append('mapping', JSON.stringify(mapping));
+      }
+      formData.append('skip_duplicates', String(skipDuplicates));
+
+      const response = await apiClient.post<CustomerImportPreviewResponse>(
+        API_ENDPOINTS.ADMIN_CUSTOMERS_IMPORT_PREVIEW,
+        formData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        }
+      );
+      return response.data;
+    } else {
+      const response = await apiClient.post<CustomerImportPreviewResponse>(
+        API_ENDPOINTS.ADMIN_CUSTOMERS_IMPORT_PREVIEW,
+        {
+          csv_content: file,
+          mapping,
+          skip_duplicates: skipDuplicates,
+        }
+      );
+      return response.data;
+    }
+  },
+
+  async executeImport(
+    file: File | string,
+    mapping?: Record<string, string>,
+    skipDuplicates = true
+  ): Promise<CustomerImportResultResponse> {
+    if (typeof window !== 'undefined' && file instanceof File) {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (mapping) {
+        formData.append('mapping', JSON.stringify(mapping));
+      }
+      formData.append('skip_duplicates', String(skipDuplicates));
+
+      const response = await apiClient.post<CustomerImportResultResponse>(
+        API_ENDPOINTS.ADMIN_CUSTOMERS_IMPORT,
+        formData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        }
+      );
+      return response.data;
+    } else {
+      const response = await apiClient.post<CustomerImportResultResponse>(
+        API_ENDPOINTS.ADMIN_CUSTOMERS_IMPORT,
+        {
+          csv_content: file,
+          mapping,
+          skip_duplicates: skipDuplicates,
+        }
+      );
+      return response.data;
+    }
+  },
+
+  downloadImportReport(reportCsv: string, filename = 'customer-import-report.csv'): void {
+    if (typeof window === 'undefined') return;
+    const blob = new Blob([reportCsv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  },
 };
+

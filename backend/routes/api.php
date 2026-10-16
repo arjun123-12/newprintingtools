@@ -624,6 +624,18 @@ Route::middleware(['auth:sanctum', 'admin.access'])
                 App\Http\Controllers\Api\V1\Admin\CustomerController::class,
                 'store',
             ]);
+            Route::post('/customers/import/preview', [
+                App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+                'importPreview',
+            ]);
+            Route::post('/customers/import', [
+                App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+                'import',
+            ]);
+            Route::post('/customers/import/download-report', [
+                App\Http\Controllers\Api\V1\Admin\CustomerController::class,
+                'downloadImportReport',
+            ]);
             Route::get('/customers/guest-artworks', [
                 App\Http\Controllers\Api\V1\Admin\CustomerController::class,
                 'guestArtworks',

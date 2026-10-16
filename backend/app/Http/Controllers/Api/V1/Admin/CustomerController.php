@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Artwork;
 use App\Models\User;
+use App\Services\CustomerImportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -356,4 +357,97 @@ class CustomerController extends Controller
         }
         return url($url);
     }
+
+    /**
+     * Preview CSV customer import without persisting.
+     */
+    public function importPreview(Request $request, CustomerImportService $importService): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required_without:csv_content|file|max:10240',
+            'csv_content' => 'required_without:file|string',
+            'mapping' => 'nullable',
+            'skip_duplicates' => 'nullable',
+        ]);
+
+        $file = $request->file('file') ?: $request->input('csv_content');
+        $mapping = $request->input('mapping');
+        if (is_string($mapping)) {
+            $mapping = json_decode($mapping, true);
+        }
+
+        $skipDuplicates = filter_var($request->input('skip_duplicates', true), FILTER_VALIDATE_BOOLEAN);
+
+        try {
+            $result = $importService->preview($file, is_array($mapping) ? $mapping : null, $skipDuplicates);
+
+            return response()->json([
+                'success' => true,
+                'data' => $result,
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to parse and preview CSV: ' . $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Execute CSV customer import into database.
+     */
+    public function import(Request $request, CustomerImportService $importService): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required_without:csv_content|file|max:10240',
+            'csv_content' => 'required_without:file|string',
+            'mapping' => 'nullable',
+            'skip_duplicates' => 'nullable',
+        ]);
+
+        $file = $request->file('file') ?: $request->input('csv_content');
+        $mapping = $request->input('mapping');
+        if (is_string($mapping)) {
+            $mapping = json_decode($mapping, true);
+        }
+
+        $skipDuplicates = filter_var($request->input('skip_duplicates', true), FILTER_VALIDATE_BOOLEAN);
+
+        try {
+            $result = $importService->import($file, is_array($mapping) ? $mapping : null, $skipDuplicates);
+
+            return response()->json($result);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Customer import failed: ' . $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Download skipped/invalid rows CSV report.
+     */
+    public function downloadImportReport(Request $request, CustomerImportService $importService)
+    {
+        $reportCsv = $request->input('report_csv');
+        $rows = $request->input('rows');
+
+        if (empty($reportCsv) && is_array($rows)) {
+            $reportCsv = $importService->generateReportCsv($rows);
+        }
+
+        if (empty($reportCsv)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No report data provided for download.',
+            ], 400);
+        }
+
+        return response($reportCsv, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="customer-import-report-' . date('Y-m-d-His') . '.csv"',
+        ]);
+    }
 }
+
