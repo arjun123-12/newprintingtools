@@ -204,7 +204,6 @@ function PaymentContent() {
                 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
               'font-size': '14px',
               color: '#0f172a',
-
             },
             focus: {
               color: '#0f172a',
@@ -368,23 +367,28 @@ function PaymentContent() {
       <style jsx global>{`
         .bpoint-field-wrapper {
           background-color: #ffffff;
-          border: 1px solid #cbd5e1;
-          border-radius: 0.875rem;
-          padding: 0.5rem 0.875rem;
-          min-height: 46px;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 0.75rem;
+          padding: 0 0.75rem;
+          height: 42px;
+          min-height: 42px;
           display: flex;
           align-items: center;
-          transition: all 0.2s ease-in-out;
+          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+        }
+        .bpoint-field-wrapper:hover {
+          border-color: #cbd5e1;
         }
         .bpoint-field-wrapper.is-focused {
           border-color: #0284c7 !important;
           background-color: #ffffff !important;
-          box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15) !important;
+          box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12) !important;
         }
         .bpoint-field-wrapper.is-invalid {
           border-color: #ef4444 !important;
           background-color: #fff5f5 !important;
-          box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15) !important;
+          box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12) !important;
         }
         .bpoint-field-wrapper.is-valid {
           border-color: #10b981 !important;
@@ -394,6 +398,7 @@ function PaymentContent() {
           height: 100% !important;
           border: none !important;
           min-height: 24px;
+          display: block;
         }
       `}</style>
 
@@ -593,24 +598,24 @@ function PaymentContent() {
 
         {/* Right Column: BPOINT Payment Form / Gateway Status */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-sm space-y-5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center">
-                  <CreditCard className="w-5 h-5" />
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
+                  <CreditCard className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-900 text-sm">BPOINT Payment</h3>
-                  <p className="text-xs text-slate-500">v5 UAT Secure Payment Gateway</p>
+                  <p className="text-[11px] text-slate-500">v5 UAT Secure Payment Gateway</p>
                 </div>
               </div>
-              <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 font-mono text-[11px] font-semibold">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono text-[10px] font-semibold">
                 UAT Mode
               </span>
             </div>
 
             {/* Price Breakdown */}
-            <div className="bg-slate-50 rounded-2xl p-4 space-y-2 text-xs">
+            <div className="bg-slate-50/80 rounded-xl p-3.5 space-y-1.5 text-xs border border-slate-100">
               <div className="flex justify-between text-slate-600">
                 <span>Subtotal (ex GST)</span>
                 <span className="font-semibold text-slate-800">
@@ -639,9 +644,9 @@ function PaymentContent() {
                   <span>-${Number(order.discount_amount).toFixed(2)}</span>
                 </div>
               )}
-              <div className="pt-2 border-t border-slate-200 flex justify-between items-baseline text-sm font-black text-slate-900">
+              <div className="pt-2 border-t border-slate-200/80 flex justify-between items-baseline text-sm font-black text-slate-900">
                 <span>Payable Total</span>
-                <span className="text-lg text-sky-600">${payableTotal} AUD</span>
+                <span className="text-base font-extrabold text-sky-600">${payableTotal} AUD</span>
               </div>
             </div>
 
@@ -786,49 +791,64 @@ function PaymentContent() {
 
             {/* STATE 5: BPOINT SECURE IFRAME FORM */}
             {gatewayStatus === 'ready' && (
-              <form onSubmit={handlePaymentSubmit} className="space-y-4 pt-1">
+              <form onSubmit={handlePaymentSubmit} className="space-y-3.5 pt-1">
                 {paymentError && (
-                  <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-2.5 text-xs text-rose-700">
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-2 text-xs text-rose-700">
                     <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
                     <span>{paymentError}</span>
                   </div>
                 )}
 
                 {/* Secure Card Fields rendered in BPOINT Hosted iFrames */}
-                <div className="space-y-3.5">
+                <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                      Name on Card
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-700">
+                        Name on Card
+                      </label>
+                      <span className="text-[11px] font-normal text-slate-400">
+                        e.g. John Doe
+                      </span>
+                    </div>
                     <div id="bpoint-card-name" className="bpoint-field-wrapper" />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                      Card Number
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-700">
+                        Card Number
+                      </label>
+                      <div className="flex items-center gap-1 opacity-75">
+                        <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">VISA</span>
+                        <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">MC</span>
+                        <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">AMEX</span>
+                      </div>
+                    </div>
                     <div id="bpoint-card-number" className="bpoint-field-wrapper" />
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2.5">
+                  <div className="grid grid-cols-3 gap-2">
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
                         Exp. Month
                       </label>
                       <div id="bpoint-expiry-month" className="bpoint-field-wrapper" />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
                         Exp. Year
                       </label>
                       <div id="bpoint-expiry-year" className="bpoint-field-wrapper" />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                        CVN / CVC
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-slate-700">
+                          CVN
+                        </label>
+                        <span className="text-[10px] text-slate-400 font-medium">3-4 digits</span>
+                      </div>
                       <div id="bpoint-cvn" className="bpoint-field-wrapper" />
                     </div>
                   </div>
@@ -842,13 +862,13 @@ function PaymentContent() {
                 )}
 
                 {/* Submit Payment Button */}
-                <div className="pt-2">
+                <div className="pt-1">
                   <button
                     type="submit"
                     disabled={!iframeLoaded || submitting}
-                    className={`w-full py-3.5 px-4 font-bold text-sm rounded-2xl transition flex items-center justify-center gap-2 shadow-sm ${!iframeLoaded || submitting
+                    className={`w-full py-3 px-4 font-bold text-sm rounded-xl transition flex items-center justify-center gap-2 shadow-sm ${!iframeLoaded || submitting
                         ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                        : 'bg-sky-600 hover:bg-sky-700 text-white shadow-sky-600/20 hover:shadow-md'
+                        : 'bg-sky-600 hover:bg-sky-700 text-white shadow-sky-600/20 hover:shadow-md cursor-pointer'
                       }`}
                   >
                     {submitting ? (
@@ -868,19 +888,18 @@ function PaymentContent() {
             )}
 
             {/* Security Badges */}
-            <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500 space-y-2">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
-                <span>PCI-DSS SAQ-A compliant hosted iframe fields</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Lock className="w-4 h-4 text-sky-500 shrink-0" />
-                <span>Raw card data never reaches or touches application servers</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Package className="w-4 h-4 text-indigo-500 shrink-0" />
-                <span>Cart remains intact until payment verification succeeds</span>
-              </div>
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-center gap-2.5 text-[11px] text-slate-400">
+              <span className="flex items-center gap-1 font-medium text-slate-500">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                PCI-DSS SAQ-A
+              </span>
+              <span>•</span>
+              <span className="flex items-center gap-1">
+                <Lock className="w-3 h-3 text-sky-600" />
+                256-bit SSL
+              </span>
+              <span>•</span>
+              <span>BPOINT Gateway</span>
             </div>
           </div>
         </div>

@@ -552,17 +552,22 @@ export default function OrderReviewPage({ params }: PageProps) {
       <style jsx global>{`
         .bpoint-field-wrapper {
           background-color: #ffffff;
-          border: 1px solid #cbd5e1;
-          border-radius: 0.75rem;
-          padding: 0.5rem 0.75rem;
-          min-height: 44px;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 0.875rem;
+          padding: 0 0.875rem;
+          height: 46px;
           display: flex;
           align-items: center;
-          transition: all 0.2s ease-in-out;
+          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        }
+        .bpoint-field-wrapper:hover {
+          border-color: #cbd5e1;
         }
         .bpoint-field-wrapper.is-focused {
           border-color: #e11d48 !important;
-          box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.15) !important;
+          box-shadow: 0 0 0 3.5px rgba(225, 29, 72, 0.12) !important;
+          background-color: #ffffff !important;
         }
         .bpoint-field-wrapper.is-invalid {
           border-color: #ef4444 !important;
@@ -575,7 +580,8 @@ export default function OrderReviewPage({ params }: PageProps) {
           width: 100% !important;
           height: 100% !important;
           border: none !important;
-          min-height: 24px;
+          min-height: 26px;
+          display: block;
         }
       `}</style>
 
@@ -1013,16 +1019,29 @@ export default function OrderReviewPage({ params }: PageProps) {
                     )}
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                        Cardholder Name
-                      </label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-slate-700">
+                          Cardholder Name
+                        </label>
+                        <span className="text-[11px] font-medium text-slate-400">
+                          e.g. John Doe
+                        </span>
+                      </div>
                       <div id="bpoint-card-name" className="bpoint-field-wrapper" />
+                      <p className="text-[11px] text-slate-400 mt-1">Full name as displayed on the card</p>
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                        Card Number
-                      </label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-slate-700">
+                          Card Number
+                        </label>
+                        <div className="flex items-center gap-1 opacity-80">
+                          <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">VISA</span>
+                          <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">MC</span>
+                          <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">AMEX</span>
+                        </div>
+                      </div>
                       <div id="bpoint-card-number" className="bpoint-field-wrapper" />
                     </div>
 
@@ -1040,18 +1059,21 @@ export default function OrderReviewPage({ params }: PageProps) {
                         <div id="bpoint-expiry-year" className="bpoint-field-wrapper" />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                          CVN
-                        </label>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-xs font-bold text-slate-700">
+                            CVN
+                          </label>
+                          <span className="text-[10px] text-slate-400 font-medium">3-4 digits</span>
+                        </div>
                         <div id="bpoint-cvn" className="bpoint-field-wrapper" />
                       </div>
                     </div>
 
-                    <div className="pt-4">
+                    <div className="pt-3 space-y-3">
                       <button
                         type="submit"
                         disabled={submittingPayment || !iframeLoaded}
-                        className="w-full py-3.5 px-4 bg-[#E11D48] hover:bg-[#BE123C] text-white font-bold text-sm rounded-xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+                        className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                       >
                         {submittingPayment ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -1062,6 +1084,15 @@ export default function OrderReviewPage({ params }: PageProps) {
                           Pay ${orderData.totals.total_inc_gst.toFixed(2)} AUD Securely
                         </span>
                       </button>
+
+                      <div className="flex items-center justify-center gap-2.5 text-[11px] text-slate-400 pt-1">
+                        <span className="flex items-center gap-1 font-medium text-slate-500">
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                          256-bit SSL Bank Encryption
+                        </span>
+                        <span>•</span>
+                        <span>Commonwealth Bank BPOINT</span>
+                      </div>
                     </div>
                   </form>
                 )}
@@ -1194,7 +1225,9 @@ export default function OrderReviewPage({ params }: PageProps) {
                       approving ||
                       orderData.status === 'changes_requested'
                     }
-                    className="w-full py-3.5 px-4 bg-[#E11D48] hover:bg-[#BE123C] text-white font-bold text-sm rounded-2xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    className={`w-full py-3.5 px-4 ${
+                      approving ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-[#E11D48] hover:bg-[#BE123C]'
+                    } text-white font-bold text-sm rounded-2xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
                   >
                     {approving ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -1213,8 +1246,8 @@ export default function OrderReviewPage({ params }: PageProps) {
               {/* Call to Action for Payment step */}
               {currentStep === 'payment' && (
                 <div className="space-y-2 pt-2">
-                  <div className="p-3 bg-pink-50 border border-pink-200 rounded-xl text-xs text-[#E11D48] flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>Proof approved! Complete payment to queue for printing.</span>
                   </div>
                 </div>
