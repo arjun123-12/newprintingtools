@@ -345,11 +345,34 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     );
   };
 
-  const handleSelectDefaultFont = (family: string = 'Inter') => {
-    if (!isTextSelected || !getActiveTextObject()) {
+  const handleSelectDefaultFont = (
+    family: string = 'Inter',
+    textKind: 'heading' | 'subheading' | 'body' = 'heading'
+  ) => {
+    if (!canvasManager) {
       return;
     }
-    void handleApplyFont(family);
+
+    const activeText = getActiveTextObject();
+    if (isTextSelected && activeText) {
+      void handleApplyFont(family);
+      return;
+    }
+
+    // Text panel styles should also work as insert actions when nothing is selected.
+    const styles = {
+      heading: { text: 'Add a heading', fontSizePt: 32, fontWeight: 'bold', name: 'Heading' },
+      subheading: { text: 'Add a subheading', fontSizePt: 24, fontWeight: 'semibold', name: 'Subheading' },
+      body: { text: 'Add body text', fontSizePt: 16, fontWeight: 'normal', name: 'Body Text' },
+    };
+    const style = styles[textKind];
+
+    void canvasManager.addText({
+      ...style,
+      fontFamily: family,
+      fill: '#111827',
+      textAlign: 'center',
+    });
   };
 
   const filteredPresets =
@@ -391,7 +414,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
       ) : (
         <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-500 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-gray-400 shrink-0" />
-          <span>Select text on the canvas to change its font.</span>
+          <span>Click a style or font below to add new text to the canvas.</span>
         </div>
       )}
 
@@ -409,15 +432,13 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
         </div>
         <button
           type="button"
-          onClick={() => handleSelectDefaultFont('Inter')}
-          disabled={!isTextSelected}
-          className={`w-full text-left p-3.5 rounded-xl border transition group ${
-            isCurrentFont('Inter') && isTextSelected
-              ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
-              : isTextSelected
+          onClick={() => handleSelectDefaultFont('Inter', 'heading')}
+          className={`w-full text-left p-3.5 rounded-xl border transition group ${isCurrentFont('Inter') && isTextSelected
+            ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
+            : isTextSelected
               ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
               : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
-          }`}
+            }`}
         >
           <div className="flex items-center justify-between">
             <span className="text-xl font-extrabold text-gray-900 group-hover:text-purple-700">Heading Style</span>
@@ -426,15 +447,13 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
         </button>
         <button
           type="button"
-          onClick={() => handleSelectDefaultFont('Inter')}
-          disabled={!isTextSelected}
-          className={`w-full text-left p-3 rounded-xl border transition group ${
-            isCurrentFont('Inter') && isTextSelected
-              ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
-              : isTextSelected
+          onClick={() => handleSelectDefaultFont('Inter', 'subheading')}
+          className={`w-full text-left p-3 rounded-xl border transition group ${isCurrentFont('Inter') && isTextSelected
+            ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
+            : isTextSelected
               ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
               : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
-          }`}
+            }`}
         >
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-800 group-hover:text-purple-700">Subheading Style</span>
@@ -443,15 +462,13 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
         </button>
         <button
           type="button"
-          onClick={() => handleSelectDefaultFont('Inter')}
-          disabled={!isTextSelected}
-          className={`w-full text-left p-2.5 rounded-xl border transition group ${
-            isCurrentFont('Inter') && isTextSelected
-              ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
-              : isTextSelected
+          onClick={() => handleSelectDefaultFont('Inter', 'body')}
+          className={`w-full text-left p-2.5 rounded-xl border transition group ${isCurrentFont('Inter') && isTextSelected
+            ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
+            : isTextSelected
               ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
               : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
-          }`}
+            }`}
         >
           <div className="flex items-center justify-between">
             <span className="text-xs text-gray-600 group-hover:text-purple-700">Body Text Style</span>
@@ -512,15 +529,46 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
                 <button
                   key={preset.id}
                   type="button"
-                  onClick={() => handleSelectPreset(preset)}
-                  disabled={!isTextSelected}
-                  className={`w-full text-left p-3.5 rounded-2xl border transition shadow-2xs flex flex-col gap-1 relative overflow-hidden group ${
-                    isSelectedFont && isTextSelected
-                      ? 'border-purple-500 bg-purple-50/80 shadow-xs ring-2 ring-purple-400/30'
-                      : isTextSelected
+                  onClick={() => {
+                    if (isTextSelected && getActiveTextObject()) {
+                      handleSelectPreset(preset);
+                      return;
+                    }
+
+                    if (!canvasManager) return;
+                    const config = preset.fabric_json || {};
+                    const textStyle = preset.metadata?.textStyle || preset.metadata?.textEffectConfig || {};
+                    const rawFamily =
+                      config.fontFamily ||
+                      textStyle.fontFamily ||
+                      preset.metadata?.fontFamily ||
+                      preset.name ||
+                      'Inter';
+                    const previewText =
+                      config.text ||
+                      textStyle.defaultText ||
+                      preset.name ||
+                      'Add your text';
+
+                    void canvasManager.addText({
+                      text: previewText,
+                      fontFamily: rawFamily,
+                      fontSize: Number(config.fontSize || textStyle.fontSize) || 36,
+                      fontWeight: config.fontWeight || textStyle.fontWeight || 'normal',
+                      fontStyle: config.fontStyle || textStyle.fontStyle || 'normal',
+                      fill: typeof config.fill === 'string'
+                        ? config.fill
+                        : textStyle.fill?.color || '#111827',
+                      textAlign: config.textAlign || 'center',
+                      name: preset.name || 'Text',
+                    });
+                  }}
+                  className={`w-full text-left p-3.5 rounded-2xl border transition shadow-2xs flex flex-col gap-1 relative overflow-hidden group ${isSelectedFont && isTextSelected
+                    ? 'border-purple-500 bg-purple-50/80 shadow-xs ring-2 ring-purple-400/30'
+                    : isTextSelected
                       ? 'border-gray-200 bg-white hover:bg-purple-50/70 hover:border-purple-300 cursor-pointer'
                       : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center justify-between w-full">
                     <span className="text-[9px] font-extrabold uppercase tracking-wider text-purple-600 bg-purple-100/80 px-2 py-0.5 rounded-md w-fit">
