@@ -74,7 +74,7 @@ const defaultInitialForm: ProductFormData = {
   pricing_tiers: [],
   sqm_pricing: null,
   weight_pricing: {
-    enabled: true,
+    enabled: false,
     unit_weight_kg: 0.5,
     price_per_kg: 20.0,
     min_billable_weight_kg: 0.1,
@@ -184,7 +184,7 @@ const normalizeProduct = (p: any): ProductFormData => ({
   printing_pricing: p.printing_pricing ?? null,
   sqm_pricing: p.sqm_pricing ?? p.printing_pricing?.sqm_pricing ?? null,
   weight_pricing: p.weight_pricing ?? p.printing_pricing?.weight_pricing ?? {
-    enabled: true,
+    enabled: false,
     unit_weight_kg: typeof p.weight_kg === 'number' && p.weight_kg > 0 ? p.weight_kg : 0.5,
     price_per_kg: 20.0,
     min_billable_weight_kg: 0.1,
@@ -485,9 +485,9 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     // Sync permanent URLs back to local state
     setFormData((prev) => ({ ...prev, sides: processedSides }));
 
-    // Calculate effective base price from weight pricing or auto-derive
+    // Calculate effective base price from weight pricing (if enabled) or auto-derive
     let calculatedBasePrice = Number(formData.base_price) || 0;
-    if (formData.weight_pricing && formData.weight_pricing.price_per_kg) {
+    if (formData.weight_pricing && formData.weight_pricing.enabled && formData.weight_pricing.price_per_kg) {
       const uW = Number(formData.weight_pricing.unit_weight_kg) || 0.5;
       const minW = Number(formData.weight_pricing.min_billable_weight_kg) || 0;
       const r = Number(formData.weight_pricing.price_per_kg) || 20;

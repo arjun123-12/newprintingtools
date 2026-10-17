@@ -317,7 +317,33 @@ export function calculateNextNonOverlappingTier(tiers: FoldingPricingTier[]): Fo
 export const STANDARD_PRINTING_SIDE_PRESETS = [
   { value: 'front_only', label: 'Single-Sided (Front Only)', sideType: 'front_only' },
   { value: 'front_back', label: 'Double-Sided (Front & Back)', sideType: 'front_back' },
+  { value: 'pull_up_banner_standard', label: 'Standard Pull-Up Banner (850 × 2000 mm)', sideType: 'pull_up_banner' },
+  { value: 'pull_up_banner_wide', label: 'Wide Pull-Up Banner (1000 × 2000 mm)', sideType: 'pull_up_banner' },
+  { value: 'pull_up_banner_double', label: 'Double-Sided Pull-Up Banner', sideType: 'pull_up_banner' },
+  { value: 'big_banner_vinyl', label: 'Big Banner (Heavy-Duty Vinyl)', sideType: 'big_banner' },
+  { value: 'big_banner_mesh', label: 'Big Banner (Outdoor Mesh)', sideType: 'big_banner' },
   { value: 'custom', label: 'Custom Side / Page Option', sideType: 'custom' },
+];
+
+/**
+ * Returns fresh instances of default Pull-Up Banner quantity tiers (1, 2, 3, 5, 10 units).
+ */
+export const createDefaultPullUpBannerTiers = (): PrintingPricingTier[] => [
+  { id: `ptier_${Date.now()}_b1`, quantity: 1, total_price: 166.00, per_card_price: 166.00, label: 'Single Unit' },
+  { id: `ptier_${Date.now()}_b2`, quantity: 2, total_price: 260.00, per_card_price: 130.00, label: '2 Units ($130/ea)' },
+  { id: `ptier_${Date.now()}_b3`, quantity: 3, total_price: 360.00, per_card_price: 120.00, label: '3 Units ($120/ea)' },
+  { id: `ptier_${Date.now()}_b4`, quantity: 5, total_price: 550.00, per_card_price: 110.00, label: '5 Units ($110/ea)' },
+  { id: `ptier_${Date.now()}_b5`, quantity: 10, total_price: 1000.00, per_card_price: 100.00, label: '10 Units ($100/ea)' },
+];
+
+/**
+ * Returns fresh instances of default Big Banner quantity tiers (1, 2, 5, 10 units).
+ */
+export const createDefaultBigBannerTiers = (): PrintingPricingTier[] => [
+  { id: `ptier_${Date.now()}_bb1`, quantity: 1, total_price: 220.00, per_card_price: 220.00, label: '1 Big Banner' },
+  { id: `ptier_${Date.now()}_bb2`, quantity: 2, total_price: 380.00, per_card_price: 190.00, label: '2 Big Banners ($190/ea)' },
+  { id: `ptier_${Date.now()}_bb3`, quantity: 5, total_price: 850.00, per_card_price: 170.00, label: '5 Big Banners ($170/ea)' },
+  { id: `ptier_${Date.now()}_bb4`, quantity: 10, total_price: 1500.00, per_card_price: 150.00, label: '10 Big Banners ($150/ea)' },
 ];
 
 /**
@@ -876,7 +902,11 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
 
     const newId = `${newPrintingOptionSideType}_${Date.now()}`;
     const defaultTiers =
-      newPrintingOptionSideType === 'front_back'
+      newPrintingOptionSideType.includes('pull_up')
+        ? createDefaultPullUpBannerTiers()
+        : newPrintingOptionSideType.includes('big_banner')
+        ? createDefaultBigBannerTiers()
+        : newPrintingOptionSideType === 'front_back'
         ? createDefaultPrintingDoubleTiers()
         : createDefaultPrintingSingleTiers();
 
@@ -1024,12 +1054,73 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
       if (!confirm) return;
     }
 
-    const freshTiers =
-      activePrintingOption.side_type === 'front_back'
-        ? createDefaultPrintingDoubleTiers()
-        : createDefaultPrintingSingleTiers();
+    const isBannerType =
+      (activePrintingOption.name || '').toLowerCase().includes('banner') ||
+      activePrintingOption.side_type?.includes('banner');
+
+    const freshTiers = isBannerType
+      ? createDefaultPullUpBannerTiers()
+      : activePrintingOption.side_type === 'front_back'
+      ? createDefaultPrintingDoubleTiers()
+      : createDefaultPrintingSingleTiers();
 
     updateActivePrintingOption({ tiers: freshTiers });
+  };
+
+  const handleQuickFillBannerPrintingTiers = (bannerType: 'pull_up' | 'big_banner' = 'pull_up') => {
+    if (!activePrintingOption) return;
+    const existing = activePrintingOption.tiers || [];
+    if (existing.length > 0) {
+      const label = bannerType === 'big_banner' ? 'Big Banner' : 'Pull-Up Banner';
+      const confirm = window.confirm(
+        `Replace current tiers with standard ${label} quantity tiers (1, 2, 3, 5, 10 units)? This will overwrite current tiers.`
+      );
+      if (!confirm) return;
+    }
+
+    const freshTiers =
+      bannerType === 'big_banner'
+        ? createDefaultBigBannerTiers()
+        : createDefaultPullUpBannerTiers();
+
+    updateActivePrintingOption({ tiers: freshTiers });
+  };
+
+  const handleQuickAddSidePreset = (presetType: 'pull_up' | 'big_banner' | 'cards') => {
+    let name = '';
+    let sideType = '';
+    let tiers: PrintingPricingTier[] = [];
+
+    if (presetType === 'pull_up') {
+      name = 'Standard Pull-Up Banner (850 × 2000 mm)';
+      sideType = 'pull_up_banner_standard';
+      tiers = createDefaultPullUpBannerTiers();
+    } else if (presetType === 'big_banner') {
+      name = 'Big Banner (Heavy-Duty Vinyl)';
+      sideType = 'big_banner_vinyl';
+      tiers = createDefaultBigBannerTiers();
+    } else {
+      name = 'Single-Sided (Front Only)';
+      sideType = 'front_only';
+      tiers = createDefaultPrintingSingleTiers();
+    }
+
+    const newId = `${sideType}_${Date.now()}`;
+    const newOpt: PrintingSideConfig = {
+      id: newId,
+      name,
+      side_type: sideType,
+      is_active: true,
+      active: true,
+      is_default: configuredPrintingOptions.length === 0,
+      tiers,
+    };
+
+    updatePrintingConfig((prev) => {
+      return { options: [...prev, newOpt] };
+    });
+
+    setActivePrintingOptionId(newId);
   };
 
   const printingTierValidationErrors = useMemo(() => {
@@ -1677,6 +1768,28 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
     });
   };
 
+  const handleApplyBannerVolumeTiers = () => {
+    const isBigBanner = (formData.name || '').toLowerCase().includes('big') || (formData.name || '').toLowerCase().includes('vinyl');
+    const bannerTiers: PricingTierItem[] = isBigBanner
+      ? [
+          { id: `tier_${Date.now()}_1`, minQuantity: 1, maxQuantity: 1, price: 220 },
+          { id: `tier_${Date.now()}_2`, minQuantity: 2, maxQuantity: 4, price: 190 },
+          { id: `tier_${Date.now()}_3`, minQuantity: 5, maxQuantity: 9, price: 170 },
+          { id: `tier_${Date.now()}_4`, minQuantity: 10, maxQuantity: '', price: 150 },
+        ]
+      : [
+          { id: `tier_${Date.now()}_1`, minQuantity: 1, maxQuantity: 1, price: 166 },
+          { id: `tier_${Date.now()}_2`, minQuantity: 2, maxQuantity: 4, price: 130 },
+          { id: `tier_${Date.now()}_3`, minQuantity: 5, maxQuantity: 9, price: 110 },
+          { id: `tier_${Date.now()}_4`, minQuantity: 10, maxQuantity: '', price: 100 },
+        ];
+
+    setFormData((prev) => ({
+      ...prev,
+      pricing_tiers: bannerTiers,
+    }));
+  };
+
   // ── WEIGHT-BASED PRICING STATE & HANDLERS ─────────────────────────────────
   const rawWeightPricing = (formData as any).weight_pricing ?? (formData.printing_pricing as any)?.weight_pricing;
 
@@ -1687,13 +1800,31 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
     const fallbackPrice = 20.0;
 
     return {
-      enabled: true,
+      enabled: Boolean(rawWeightPricing?.enabled),
       unit_weight_kg: rawUnit !== undefined && rawUnit !== '' ? rawUnit : fallbackUnit,
       price_per_kg: rawPrice !== undefined && rawPrice !== '' ? rawPrice : fallbackPrice,
       min_billable_weight_kg: rawWeightPricing?.min_billable_weight_kg ?? '',
       tiers: Array.isArray(rawWeightPricing?.tiers) ? rawWeightPricing.tiers : [],
     };
   }, [rawWeightPricing, formData.weight_kg]);
+
+  const toggleWeightEnabled = (enabled: boolean) => {
+    const updated: WeightPricingConfig = {
+      ...weightConfig,
+      enabled,
+    };
+
+    setFormData((prev) => ({
+      ...prev,
+      weight_pricing: updated,
+      printing_pricing: prev.printing_pricing
+        ? ({
+            ...prev.printing_pricing,
+            weight_pricing: updated,
+          } as any)
+        : prev.printing_pricing,
+    }));
+  };
 
   const updateWeightField = (field: keyof WeightPricingConfig, val: any) => {
     const numVal = val === '' ? '' : (typeof val === 'number' ? val : parseFloat(val) || 0);
@@ -1712,7 +1843,7 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
       ...prev,
       weight_pricing: updated,
       weight_kg: field === 'unit_weight_kg' && typeof numVal === 'number' ? numVal : prev.weight_kg,
-      base_price: calculatedBase > 0 ? calculatedBase : (prev.base_price || 20),
+      base_price: updated.enabled && calculatedBase > 0 ? calculatedBase : (prev.base_price || 20),
       printing_pricing: prev.printing_pricing
         ? ({
             ...prev.printing_pricing,
@@ -1871,7 +2002,7 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
       description="Set standard retail unit pricing, promotional sales, cost tracking, printing configuration fixed-total tiers, folding add-on rates, and volume discounts."
     >
       <div className="space-y-6">
-        {/* Physical Weight-Based Pricing (Mandatory Primary Pricing) */}
+        {/* Physical Weight-Based Pricing (Optional Pricing) */}
         <div className="bg-white p-5 rounded-2xl border border-gray-200/90 shadow-2xs space-y-4">
           <div className="flex flex-wrap items-center justify-between border-b border-gray-100 pb-3 gap-2">
             <div className="flex items-center gap-2.5">
@@ -1883,164 +2014,191 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                   <h4 className="text-xs font-bold text-gray-900 tracking-tight">
                     Weight-Based Pricing
                   </h4>
-                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border bg-blue-50 text-blue-700 border-blue-200">
-                    Mandatory
-                  </span>
+                  {weightConfig.enabled ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                      <Check className="w-3 h-3" /> Active
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                      Optional
+                    </span>
+                  )}
                 </div>
                 <p className="text-[11px] text-gray-500 mt-0.5">
-                  Set unit physical weight and rate per kilogram ($/kg) to determine primary product pricing and live courier calculation.
+                  Optional: Set unit physical weight and rate per kilogram ($/kg) to determine product pricing and live courier calculation.
                 </p>
               </div>
             </div>
-          </div>
 
-          <FormGrid cols={3} gap="md">
-            <AdminNumberInput
-              label="Physical Unit Weight (kg)"
-              suffix="kg"
-              placeholder="0.5"
-              step={0.01}
-              min={0.01}
-              required
-              value={weightConfig.unit_weight_kg}
-              onChange={(val) => updateWeightField('unit_weight_kg', val)}
-              helperText="Physical weight of a single product unit in kilograms."
-            />
-
-            <AdminNumberInput
-              label="Price per Kilogram ($ AUD / kg)"
-              prefix="$"
-              suffix="/ kg"
-              placeholder="20.00"
-              step={0.01}
-              min={0}
-              required
-              value={weightConfig.price_per_kg}
-              onChange={(val) => updateWeightField('price_per_kg', val)}
-              helperText="Authoritative billing rate charged per kilogram."
-            />
-
-            <AdminNumberInput
-              label="Min Billable Weight (kg)"
-              suffix="kg"
-              placeholder="Optional (e.g. 0.2)"
-              step={0.01}
-              min={0}
-              value={weightConfig.min_billable_weight_kg ?? ''}
-              onChange={(val) => updateWeightField('min_billable_weight_kg', val)}
-              helperText="Minimum billable threshold applied before calculating unit rate."
-            />
-          </FormGrid>
-
-          {/* Live Weight Calculation Banner */}
-          <div className="p-3 bg-gradient-to-r from-blue-50/70 via-indigo-50/30 to-blue-50/70 border border-blue-200/80 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5 text-blue-950 font-medium">
-              <Calculator className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>
-                Calculated Base Price:{' '}
-                <strong>
-                  ${weightCalculation.totalPrice.toFixed(2)} AUD
-                </strong>
-                <span className="text-gray-400 font-normal ml-1">
-                  ({weightCalculation.billableW} kg × ${weightCalculation.rate.toFixed(2)}/kg)
+            <div className="flex items-center gap-3">
+              <label className="relative inline-flex items-center cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={weightConfig.enabled}
+                  onChange={(e) => toggleWeightEnabled(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                <span className="ml-2 text-xs font-semibold text-gray-700">
+                  {weightConfig.enabled ? 'On' : 'Off'}
                 </span>
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-blue-700 font-semibold bg-white px-2.5 py-1 rounded-lg border border-blue-200">
-                Rate: ${weightCalculation.rate.toFixed(2)} / kg
-              </span>
+              </label>
             </div>
           </div>
 
-          {/* Optional Weight Tier Overrides */}
-          <div className="pt-2 border-t border-gray-100 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-gray-800">
-                  Tiered Weight Rate Discounts ({weightConfig.tiers?.length || 0})
-                </span>
-                <p className="text-[11px] text-gray-500">
-                  Optional: Offer discounted $/kg rates for higher package or shipment weights.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={addWeightTier}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Weight Tier</span>
-              </button>
-            </div>
+          {!weightConfig.enabled ? (
+            <p className="text-[11px] text-gray-400">
+              Weight-based pricing is optional and currently turned off. Flip the toggle above if you want this product's base price calculated by physical weight ($/kg).
+            </p>
+          ) : (
+            <>
+              <FormGrid cols={3} gap="md">
+                <AdminNumberInput
+                  label="Physical Unit Weight (kg)"
+                  suffix="kg"
+                  placeholder="0.5"
+                  step={0.01}
+                  min={0.01}
+                  value={weightConfig.unit_weight_kg}
+                  onChange={(val) => updateWeightField('unit_weight_kg', val)}
+                  helperText="Physical weight of a single product unit in kilograms."
+                />
 
-            {weightConfig.tiers && weightConfig.tiers.length > 0 && (
-              <div className="overflow-x-auto rounded-xl border border-gray-200">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold">
-                    <tr>
-                      <th className="py-2 px-3">Min Weight (kg)</th>
-                      <th className="py-2 px-3">Max Weight (kg)</th>
-                      <th className="py-2 px-3">Discounted Rate ($/kg)</th>
-                      <th className="py-2 px-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 bg-white">
-                    {weightConfig.tiers.map((tier, tIdx) => (
-                      <tr key={tier.id || tIdx}>
-                        <td className="py-2 px-3">
-                          <input
-                            type="number"
-                            step={0.1}
-                            min={0}
-                            value={tier.min_weight_kg}
-                            onChange={(e) => updateWeightTier(tIdx, 'min_weight_kg', e.target.value)}
-                            className="w-24 h-7 px-2 border border-gray-300 rounded text-xs"
-                          />
-                        </td>
-                        <td className="py-2 px-3">
-                          <input
-                            type="number"
-                            step={0.1}
-                            min={0}
-                            placeholder="No limit"
-                            value={tier.max_weight_kg ?? ''}
-                            onChange={(e) => updateWeightTier(tIdx, 'max_weight_kg', e.target.value)}
-                            className="w-24 h-7 px-2 border border-gray-300 rounded text-xs"
-                          />
-                        </td>
-                        <td className="py-2 px-3">
-                          <div className="flex items-center gap-1">
-                            <span>$</span>
-                            <input
-                              type="number"
-                              step={0.01}
-                              min={0}
-                              value={tier.price_per_kg}
-                              onChange={(e) => updateWeightTier(tIdx, 'price_per_kg', e.target.value)}
-                              className="w-24 h-7 px-2 border border-gray-300 rounded text-xs"
-                            />
-                            <span className="text-gray-400">/kg</span>
-                          </div>
-                        </td>
-                        <td className="py-2 px-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => removeWeightTier(tIdx)}
-                            className="p-1 text-gray-400 hover:text-rose-600"
-                            title="Remove tier"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <AdminNumberInput
+                  label="Price per Kilogram ($ AUD / kg)"
+                  prefix="$"
+                  suffix="/ kg"
+                  placeholder="20.00"
+                  step={0.01}
+                  min={0}
+                  value={weightConfig.price_per_kg}
+                  onChange={(val) => updateWeightField('price_per_kg', val)}
+                  helperText="Authoritative billing rate charged per kilogram."
+                />
+
+                <AdminNumberInput
+                  label="Min Billable Weight (kg)"
+                  suffix="kg"
+                  placeholder="Optional (e.g. 0.2)"
+                  step={0.01}
+                  min={0}
+                  value={weightConfig.min_billable_weight_kg ?? ''}
+                  onChange={(val) => updateWeightField('min_billable_weight_kg', val)}
+                  helperText="Minimum billable threshold applied before calculating unit rate."
+                />
+              </FormGrid>
+
+              {/* Live Weight Calculation Banner */}
+              <div className="p-3 bg-gradient-to-r from-blue-50/70 via-indigo-50/30 to-blue-50/70 border border-blue-200/80 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5 text-blue-950 font-medium">
+                  <Calculator className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>
+                    Calculated Base Price:{' '}
+                    <strong>
+                      ${weightCalculation.totalPrice.toFixed(2)} AUD
+                    </strong>
+                    <span className="text-gray-400 font-normal ml-1">
+                      ({weightCalculation.billableW} kg × ${weightCalculation.rate.toFixed(2)}/kg)
+                    </span>
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-blue-700 font-semibold bg-white px-2.5 py-1 rounded-lg border border-blue-200">
+                    Rate: ${weightCalculation.rate.toFixed(2)} / kg
+                  </span>
+                </div>
               </div>
-            )}
-          </div>
+
+              {/* Optional Weight Tier Overrides */}
+              <div className="pt-2 border-t border-gray-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-gray-800">
+                      Tiered Weight Rate Discounts ({weightConfig.tiers?.length || 0})
+                    </span>
+                    <p className="text-[11px] text-gray-500">
+                      Optional: Offer discounted $/kg rates for higher package or shipment weights.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addWeightTier}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Weight Tier</span>
+                  </button>
+                </div>
+
+                {weightConfig.tiers && weightConfig.tiers.length > 0 && (
+                  <div className="overflow-x-auto rounded-xl border border-gray-200">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-semibold">
+                        <tr>
+                          <th className="py-2 px-3">Min Weight (kg)</th>
+                          <th className="py-2 px-3">Max Weight (kg)</th>
+                          <th className="py-2 px-3">Discounted Rate ($/kg)</th>
+                          <th className="py-2 px-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white">
+                        {weightConfig.tiers.map((tier, tIdx) => (
+                          <tr key={tier.id || tIdx}>
+                            <td className="py-2 px-3">
+                              <input
+                                type="number"
+                                step={0.1}
+                                min={0}
+                                value={tier.min_weight_kg}
+                                onChange={(e) => updateWeightTier(tIdx, 'min_weight_kg', e.target.value)}
+                                className="w-24 h-7 px-2 border border-gray-300 rounded text-xs"
+                              />
+                            </td>
+                            <td className="py-2 px-3">
+                              <input
+                                type="number"
+                                step={0.1}
+                                min={0}
+                                placeholder="No limit"
+                                value={tier.max_weight_kg ?? ''}
+                                onChange={(e) => updateWeightTier(tIdx, 'max_weight_kg', e.target.value)}
+                                className="w-24 h-7 px-2 border border-gray-300 rounded text-xs"
+                              />
+                            </td>
+                            <td className="py-2 px-3">
+                              <div className="flex items-center gap-1">
+                                <span>$</span>
+                                <input
+                                  type="number"
+                                  step={0.01}
+                                  min={0}
+                                  value={tier.price_per_kg}
+                                  onChange={(e) => updateWeightTier(tIdx, 'price_per_kg', e.target.value)}
+                                  className="w-24 h-7 px-2 border border-gray-300 rounded text-xs"
+                                />
+                                <span className="text-gray-400">/kg</span>
+                              </div>
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => removeWeightTier(tIdx)}
+                                className="p-1 text-gray-400 hover:text-rose-600"
+                                title="Remove tier"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Square Meter (m²) Pricing Panel */}
@@ -2257,17 +2415,39 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                     </div>
 
                     {activeSectionTab === 'sides' ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsAddingPrintingOption((prev) => !prev);
-                          setNewPrintingOptionError('');
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg transition shadow-2xs"
-                      >
-                        {isAddingPrintingOption ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-                        <span>{isAddingPrintingOption ? 'Cancel' : 'Add Configuration'}</span>
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleQuickAddSidePreset('pull_up')}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-sky-800 bg-sky-100/90 hover:bg-sky-200 border border-sky-300 rounded-lg transition shadow-2xs"
+                          title="Add Pull-Up Banner option with standard 1, 2, 3, 5, 10 unit quantity pricing"
+                        >
+                          <Plus className="w-3.5 h-3.5 text-sky-600" />
+                          <span>+ Pull-Up Banner (1-10)</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleQuickAddSidePreset('big_banner')}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-indigo-800 bg-indigo-100/90 hover:bg-indigo-200 border border-indigo-300 rounded-lg transition shadow-2xs"
+                          title="Add Big Vinyl Banner option with standard 1, 2, 5, 10 unit quantity pricing"
+                        >
+                          <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>+ Big Banner (1-10)</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAddingPrintingOption((prev) => !prev);
+                            setNewPrintingOptionError('');
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg transition shadow-2xs"
+                        >
+                          {isAddingPrintingOption ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+                          <span>{isAddingPrintingOption ? 'Cancel' : 'Add Configuration'}</span>
+                        </button>
+                      </div>
                     ) : (
                       <button
                         type="button"
@@ -2688,48 +2868,64 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                       </div>
 
                       {/* Live Summary Preview Pill */}
-                      {summaryTier && (
-                        <div className="p-3 bg-gradient-to-r from-sky-50 via-white to-sky-50/50 border border-sky-200/80 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-sky-900 flex items-center gap-1.5">
-                              <CheckCircle2 className="w-4 h-4 text-sky-600" />
-                              Live Calculation:
-                            </span>
-                            <span className="font-semibold text-gray-800">
-                              {summaryTier.quantity} cards
-                            </span>
-                            <span className="text-gray-300">•</span>
-                            <span className="font-bold text-sky-700">
-                              Fixed total: ${summaryTier.total_price.toFixed(2)}
-                            </span>
-                            <span className="text-gray-300">•</span>
-                            <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                              Price per card: ${(summaryTier.quantity > 0 ? summaryTier.total_price / summaryTier.quantity : 0).toFixed(2)}
-                            </span>
-                            {summaryTier.label && (
-                              <span className="text-gray-500 text-[11px]">({summaryTier.label})</span>
-                            )}
-                          </div>
+                      {summaryTier && (() => {
+                        const isBanner =
+                          (activePrintingOption.name || '').toLowerCase().includes('banner') ||
+                          (activePrintingOption.side_type || '').includes('banner') ||
+                          (formData.name || '').toLowerCase().includes('banner');
+                        const isCard =
+                          (activePrintingOption.name || '').toLowerCase().includes('card') ||
+                          (formData.name || '').toLowerCase().includes('card');
+                        const unitPlural = isBanner
+                          ? (summaryTier.quantity === 1 ? 'banner' : 'banners')
+                          : isCard
+                          ? (summaryTier.quantity === 1 ? 'card' : 'cards')
+                          : (summaryTier.quantity === 1 ? 'unit' : 'units');
+                        const unitSingular = isBanner ? 'banner' : isCard ? 'card' : 'unit';
 
-                          {/* Quick Quantity Switcher Chips */}
-                          <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-gray-400 mr-1">Preview tier:</span>
-                            {(activePrintingOption.tiers || []).map((t) => (
-                              <button
-                                key={t.id || t.quantity}
-                                type="button"
-                                onClick={() => setSelectedSummaryQty(t.quantity)}
-                                className={`px-2 py-0.5 rounded text-[11px] font-mono transition ${summaryTier.quantity === t.quantity
-                                    ? 'bg-sky-600 text-white font-bold'
-                                    : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
-                                  }`}
-                              >
-                                {t.quantity}
-                              </button>
-                            ))}
+                        return (
+                          <div className="p-3 bg-gradient-to-r from-sky-50 via-white to-sky-50/50 border border-sky-200/80 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-sky-900 flex items-center gap-1.5">
+                                <CheckCircle2 className="w-4 h-4 text-sky-600" />
+                                Live Calculation:
+                              </span>
+                              <span className="font-semibold text-gray-800">
+                                {summaryTier.quantity} {unitPlural}
+                              </span>
+                              <span className="text-gray-300">•</span>
+                              <span className="font-bold text-sky-700">
+                                Fixed total: ${summaryTier.total_price.toFixed(2)}
+                              </span>
+                              <span className="text-gray-300">•</span>
+                              <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                Price per {unitSingular}: ${(summaryTier.quantity > 0 ? summaryTier.total_price / summaryTier.quantity : 0).toFixed(2)}
+                              </span>
+                              {summaryTier.label && (
+                                <span className="text-gray-500 text-[11px]">({summaryTier.label})</span>
+                              )}
+                            </div>
+
+                            {/* Quick Quantity Switcher Chips */}
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-gray-400 mr-1">Preview tier:</span>
+                              {(activePrintingOption.tiers || []).map((t) => (
+                                <button
+                                  key={t.id || t.quantity}
+                                  type="button"
+                                  onClick={() => setSelectedSummaryQty(t.quantity)}
+                                  className={`px-2 py-0.5 rounded text-[11px] font-mono transition ${summaryTier.quantity === t.quantity
+                                      ? 'bg-sky-600 text-white font-bold'
+                                      : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100'
+                                    }`}
+                                >
+                                  {t.quantity}
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
 
                       {/* Tier Validation Errors */}
                       {printingTierValidationErrors.length > 0 && (
@@ -2753,7 +2949,27 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                             Quantity Tiers ({activePrintingOption.tiers?.length || 0})
                           </span>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleQuickFillBannerPrintingTiers('pull_up')}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-sky-800 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition shadow-2xs"
+                              title="Fill Pull-Up Banner tiers (1, 2, 3, 5, 10 units)"
+                            >
+                              <Sparkles className="w-3 h-3 text-sky-600" />
+                              <span>Pull-Up Banner (1-10)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleQuickFillBannerPrintingTiers('big_banner')}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition shadow-2xs"
+                              title="Fill Big Banner tiers (1, 2, 5, 10 units)"
+                            >
+                              <Sparkles className="w-3 h-3 text-indigo-600" />
+                              <span>Big Banner (1-10)</span>
+                            </button>
+
                             <button
                               type="button"
                               onClick={handleQuickFillStandardPrintingTiers}
@@ -2761,7 +2977,7 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                               title="Fill standard reference tiers (100, 250, 500, 1000)"
                             >
                               <Sparkles className="w-3 h-3 text-amber-500" />
-                              <span>Quick Fill Standard Tiers</span>
+                              <span>Card Tiers (100-1000)</span>
                             </button>
 
                             <button
@@ -2782,7 +2998,9 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
                                 <tr>
                                   <th className="py-2.5 px-4 w-36">Quantity (Units)</th>
                                   <th className="py-2.5 px-4 w-44">Fixed Total Price ($)</th>
-                                  <th className="py-2.5 px-4 w-44">Price Per Card (Auto)</th>
+                                  <th className="py-2.5 px-4 w-44">
+                                    Price Per {((activePrintingOption.name || '').toLowerCase().includes('banner') || (formData.name || '').toLowerCase().includes('banner')) ? 'Banner' : ((activePrintingOption.name || '').toLowerCase().includes('card') ? 'Card' : 'Unit')} (Auto)
+                                  </th>
                                   <th className="py-2.5 px-4">Display Label (Optional)</th>
                                   <th className="py-2.5 px-4 text-right">Action</th>
                                 </tr>
@@ -3853,14 +4071,26 @@ export const ProductPricing: React.FC<ProductPricingProps> = ({
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={addPricingTier}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100/70 transition-colors shadow-2xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Tier</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleApplyBannerVolumeTiers}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-sky-700 bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition shadow-2xs"
+                title="Fill banner volume discount tiers (Qty 1 @ $166, Qty 2-4 @ $130, Qty 5-9 @ $110, Qty 10+ @ $100)"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <span>Banner Volume Tiers (1-10+)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={addPricingTier}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100/70 transition-colors shadow-2xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Tier</span>
+              </button>
+            </div>
           </div>
 
           {pricingTiersSafe.length > 0 ? (
