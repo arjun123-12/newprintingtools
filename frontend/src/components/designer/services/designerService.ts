@@ -297,13 +297,21 @@ export class DesignerService {
 
     const key = `${REMOTE_ARTWORK_ID_KEY_PREFIX}${productId}`;
     const sessionVal = safeSessionStorage.getItem<string>(key);
-    if (sessionVal && typeof sessionVal === 'string' && !sessionVal.trim().startsWith('{')) {
+    if (
+      sessionVal &&
+      typeof sessionVal === 'string' &&
+      !sessionVal.trim().startsWith('{')
+    ) {
       return sessionVal.trim();
     }
 
     // Backward compatibility: read legacy localStorage, migrate to sessionStorage, remove from localStorage
     const legacyVal = safeLocalStorage.getItem<string>(key);
-    if (legacyVal && typeof legacyVal === 'string' && !legacyVal.trim().startsWith('{')) {
+    if (
+      legacyVal &&
+      typeof legacyVal === 'string' &&
+      !legacyVal.trim().startsWith('{')
+    ) {
       const cleanId = legacyVal.trim();
       safeSessionStorage.setItem(key, cleanId, 512);
       safeLocalStorage.removeItem(key);
@@ -333,8 +341,11 @@ export class DesignerService {
     const method = isUpdate ? 'PATCH' : 'POST';
 
     const cleanCanvasJson = payload.template_json || payload.canvas_json;
-    const rawProductId = payload.product_id ? String(payload.product_id).trim() : null;
-    const cleanProductId = rawProductId && rawProductId !== 'default' ? rawProductId : null;
+    const rawProductId = payload.product_id
+      ? String(payload.product_id).trim()
+      : null;
+    const cleanProductId =
+      rawProductId && rawProductId !== 'default' ? rawProductId : null;
 
     const response = await fetch(url, {
       method,
@@ -379,7 +390,6 @@ export class DesignerService {
    */
   public async fetchArtwork(artworkId: string): Promise<SavedArtwork> {
     const token = getAuthToken();
-
     const sessionId = safeLocalStorage.getItem<string>('designer_session_id');
 
     let response = await fetch(`${API_URL}/artworks/${artworkId}`, {
@@ -395,8 +405,11 @@ export class DesignerService {
     if (!response.ok) {
       response = await fetch(`${API_URL}/artworks/${artworkId}/public`, {
         method: 'GET',
+        credentials: 'include',
         headers: {
           Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(sessionId ? { 'X-Session-ID': sessionId } : {}),
         },
       });
     }
@@ -419,7 +432,9 @@ export class DesignerService {
    * Returns the created artwork including its UUID.
    */
   public async createDraft(
-    payload: Partial<ArtworkDraftPayload> & { canvas_json: Record<string, any> | Record<string, any>[] }
+    payload: Partial<ArtworkDraftPayload> & {
+      canvas_json: Record<string, any> | Record<string, any>[];
+    }
   ): Promise<SavedArtwork> {
     const response = await fetch(`${API_URL}/artworks/draft`, {
       method: 'POST',
