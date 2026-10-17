@@ -81,18 +81,18 @@ class Order extends Model
         return $this->hasMany(OrderReviewLink::class)->latest();
     }
 
-   public function activeReviewLink(): HasOne
-{
-    return $this->hasOne(OrderReviewLink::class)
-        ->select('order_review_links.*')
-        ->where('status', 'active')
-        ->where(function ($q) {
-            $q->whereNull('expires_at')
-                ->orWhere('expires_at', '>', now());
-        })
-        ->whereNull('revoked_at')
-        ->latestOfMany();
-}
+    public function activeReviewLink(): HasOne
+    {
+        return $this->hasOne(OrderReviewLink::class)
+            ->select('order_review_links.*')
+            ->where('status', 'active')
+            ->where(function ($q) {
+                $q->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now());
+            })
+            ->whereNull('revoked_at')
+            ->latestOfMany();
+    }
 
     public function activities(): HasMany
     {
