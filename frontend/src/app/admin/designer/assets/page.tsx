@@ -12,6 +12,7 @@ import { formatImageUrl } from '@/utils/imageUrl';
 import { useDebounce } from '@/hooks/useDebounce';
 
 type TabType = 'all' | AssetType | 'category';
+const ASSETS_PER_PAGE = 40;
 
 const isUnrenderableFormat = (url?: string | null) => {
   if (!url) return false;
@@ -93,6 +94,12 @@ export default function AdminAssetsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebounce(searchQuery, 300);
+  const [assetPage, setAssetPage] = useState(1);
+  const [assetPagination, setAssetPagination] = useState({
+    lastPage: 1,
+    perPage: ASSETS_PER_PAGE,
+    total: 0,
+  });
 
   // Categories State
   const [categories, setCategories] = useState<DesignAssetCategory[]>([]);
@@ -127,16 +134,9 @@ export default function AdminAssetsPage() {
     onConfirm: async () => { },
   });
 
-  const loadData = useCallback(async () => {
+  const loadCategories = useCallback(async () => {
     try {
-      setLoading(true);
-      setError(null);
-      setSelectedAssetIds(new Set());
-      setSelectedCategoryIds(new Set());
-
-      const cats: any =
-        await designAssetService.getAdminCategories();
-
+      const cats: any = await designAssetService.getAdminCategories();
       const categoryList: DesignAssetCategory[] =
         Array.isArray(cats)
           ? cats
@@ -147,30 +147,58 @@ export default function AdminAssetsPage() {
               : [];
 
       setCategories(categoryList);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to load design asset categories');
+    }
+  }, []);
+
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
       if (activeTab === 'category') {
         setAssets([]);
+        setAssetPagination({ lastPage: 1, perPage: ASSETS_PER_PAGE, total: 0 });
       } else {
-        const queryParams: any = { per_page: 100 };
+        const queryParams: any = {
+          page: assetPage,
+          per_page: ASSETS_PER_PAGE,
+        };
         if (activeTab !== 'all') {
           queryParams.asset_type = activeTab;
         }
         if (debouncedSearch.trim()) {
           queryParams.search = debouncedSearch.trim();
         }
-        const data: any =
+        const result: any =
           await designAssetService.getAdminAssets(queryParams);
 
-        const assetList: DesignAsset[] =
-          Array.isArray(data)
-            ? data
-            : Array.isArray(data?.data)
-              ? data.data
-              : Array.isArray(data?.data?.data)
-                ? data.data.data
-                : [];
+        // Support both the paginated API response and legacy array responses.
+        const assetList: DesignAsset[] = Array.isArray(result)
+          ? result
+          : Array.isArray(result?.data)
+            ? result.data
+            : Array.isArray(result?.data?.data)
+              ? result.data.data
+              : [];
+
+        const pagination = Array.isArray(result) ? null : result;
+        const lastPage = Math.max(1, Number(pagination?.last_page) || 1);
+
+        // If a deletion made the current page invalid, move to the last page.
+        if (assetPage > lastPage) {
+          setAssetPage(lastPage);
+          return;
+        }
 
         setAssets(assetList);
+        setAssetPagination({
+          lastPage,
+          perPage: Number(pagination?.per_page) || ASSETS_PER_PAGE,
+          total: Number(pagination?.total) || assetList.length,
+        });
       }
     } catch (err: any) {
       console.error(err);
@@ -178,7 +206,15 @@ export default function AdminAssetsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, debouncedSearch]);
+  }, [activeTab, assetPage, debouncedSearch]);
+
+  const refreshCategoriesAndAssets = useCallback(async () => {
+    await Promise.all([loadCategories(), loadData()]);
+  }, [loadCategories, loadData]);
+
+  useEffect(() => {
+    void loadCategories();
+  }, [loadCategories]);
 
   useEffect(() => {
     loadData();
@@ -242,7 +278,7 @@ export default function AdminAssetsPage() {
         try {
           await designAssetService.deleteCategory(id);
           setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
-          loadData();
+          void refreshCategoriesAndAssets();
         } catch (err: any) {
           alert('Failed to delete category: ' + (err.message || 'Unknown error'));
         }
@@ -396,7 +432,12 @@ export default function AdminAssetsPage() {
           ).map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as TabType)}
+              onClick={() => {
+                setAssetPage(1);
+                setSelectedAssetIds(new Set());
+                setSelectedCategoryIds(new Set());
+                setActiveTab(tab.id as TabType);
+              }}
               className={`px-3.5 py-2 text-xs font-bold rounded-xl transition whitespace-nowrap ${activeTab === tab.id
                 ? 'bg-blue-600 text-white shadow-2xs'
                 : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
@@ -476,7 +517,11 @@ export default function AdminAssetsPage() {
               type="text"
               placeholder="Search assets..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setAssetPage(1);
+                setSelectedAssetIds(new Set());
+                setSearchQuery(e.target.value);
+              }}
               className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -660,6 +705,38 @@ export default function AdminAssetsPage() {
               })}
             </div>
           )}
+          {assets.length > 0 && (
+            <div className="mt-5 flex flex-col gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-xs text-gray-600 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                Showing {(assetPage - 1) * assetPagination.perPage + 1}
+                {'–'}
+                {Math.min(assetPage * assetPagination.perPage, assetPagination.total)}
+                {' of '}
+                {assetPagination.total} assets
+              </span>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAssetPage((page) => Math.max(1, page - 1))}
+                  disabled={loading || assetPage <= 1}
+                  className="rounded-lg border border-gray-300 px-3 py-2 font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="min-w-24 text-center">
+                  Page {assetPage} of {assetPagination.lastPage}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAssetPage((page) => Math.min(assetPagination.lastPage, page + 1))}
+                  disabled={loading || assetPage >= assetPagination.lastPage}
+                  className="rounded-lg border border-gray-300 px-3 py-2 font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -678,7 +755,7 @@ export default function AdminAssetsPage() {
         onClose={() => setIsCategoryModalOpen(false)}
         category={editingCategory}
         activeType={currentAssetType}
-        onSaved={loadData}
+        onSaved={refreshCategoriesAndAssets}
       />
 
       <BulkAssetUploadModal

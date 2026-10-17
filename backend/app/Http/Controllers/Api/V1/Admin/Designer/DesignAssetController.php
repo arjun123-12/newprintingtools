@@ -69,10 +69,17 @@ class DesignAssetController extends Controller
             }
         }
 
+        $perPage = min(
+            max((int) $request->input('per_page', 40), 1),
+            100
+        );
+
         $assets = $query
             ->orderBy('sort_order')
             ->orderByDesc('created_at')
-            ->get();
+            ->orderBy('id')
+            ->paginate($perPage)
+            ->withQueryString();
 
         return response()->json([
             'success' => true,

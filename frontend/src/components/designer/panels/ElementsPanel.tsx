@@ -16,6 +16,8 @@ import { ActiveSidebarTab } from '@/types/designer';
 // ─────────────────────────── Constants ───────────────────────────
 
 const RECENT_SHAPES_KEY = 'print_designer_recent_shape_ids';
+const ELEMENT_PAGE_SIZE = 10;
+const SHAPE_PAGE_SIZE = 10;
 
 interface ShapeSection {
   id: string;
@@ -165,13 +167,14 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedFormat, setSelectedFormat] = useState('All');
   const [showFilters, setShowFilters] = useState(false);
+  const [shapePage, setShapePage] = useState(1);
 
   const [assets, setAssets] = useState<UnifiedAsset[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [isInserting, setIsInserting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [lastPage, setLastPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
   const [brokenThumbs, setBrokenThumbs] = useState<Record<string, boolean>>({});
 
@@ -294,6 +297,27 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
     return shapeSections.find((s: ShapeSection) => s.id === expandedShapeSectionId) || null;
   }, [expandedShapeSectionId, shapeSections]);
 
+  const allShapeSearchResults = useMemo(
+    () => shapeSections.flatMap((section: ShapeSection) => section.assets),
+    [shapeSections]
+  );
+  const shapeSearchPageCount = Math.max(
+    1,
+    Math.ceil(allShapeSearchResults.length / SHAPE_PAGE_SIZE)
+  );
+  const expandedShapePageCount = Math.max(
+    1,
+    Math.ceil((activeExpandedShapeSection?.assets.length || 0) / SHAPE_PAGE_SIZE)
+  );
+  const visibleShapeSearchResults = allShapeSearchResults.slice(
+    (shapePage - 1) * SHAPE_PAGE_SIZE,
+    shapePage * SHAPE_PAGE_SIZE
+  );
+  const visibleExpandedShapeAssets = (activeExpandedShapeSection?.assets || []).slice(
+    (shapePage - 1) * SHAPE_PAGE_SIZE,
+    shapePage * SHAPE_PAGE_SIZE
+  );
+
   const frameAssets = useMemo(
     () => assets.filter((a) => a.asset_type === 'frame' || a._adminAsset?.asset_type === 'frame'),
     [assets]
@@ -335,17 +359,17 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
   // ─── Fetch on param change ────────────────────────────────────
   useEffect(() => {
     setPage(1);
+    setShapePage(1);
     setAssets([]);
-    fetchAssets(1, true);
+    fetchAssets(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery, selectedCategory, selectedFormat]);
 
   // ─── Core fetch ───────────────────────────────────────────────
-  const fetchAssets = useCallback(async (targetPage: number, isReset: boolean) => {
+  const fetchAssets = useCallback(async (targetPage: number) => {
     const rid = ++requestIdRef.current;
 
-    if (isReset) setLoading(true);
-    else setLoadingMore(true);
+    setLoading(true);
     setError(null);
 
     try {
@@ -356,7 +380,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
       const adminRes = await designAssetService.getPublicAssets({
         asset_type: 'all',
         page: targetPage,
-        per_page: 30,
+        per_page: ELEMENT_PAGE_SIZE,
         search: debouncedQuery.trim() || undefined,
         sort: 'sort_order',
       });
@@ -415,6 +439,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
       });
       adminResults.push(...filtered);
       combinedHasNext = targetPage < Math.max(1, Number(adminRes.last_page) || 1);
+      setLastPage(Math.max(1, Number(adminRes.last_page) || 1));
 
       const results = adminResults;
 
@@ -423,8 +448,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
       // Deduplicate by composite ID
       const seen = new Set<string>();
       const deduped: UnifiedAsset[] = [];
-      const base = isReset ? [] : assets;
-      for (const item of [...base, ...results]) {
+      for (const item of results) {
         if (!seen.has(item.id)) {
           seen.add(item.id);
           deduped.push(item);
@@ -439,16 +463,14 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
     } finally {
       if (rid === requestIdRef.current) {
         setLoading(false);
-        setLoadingMore(false);
       }
     }
-  }, [debouncedQuery, selectedCategory, selectedFormat, assets]);
+  }, [debouncedQuery, selectedCategory, selectedFormat]);
 
-  // ─── Load More ────────────────────────────────────────────────
-  const handleLoadMore = () => {
-    const nextPage = page + 1;
+  const handlePageChange = (nextPage: number) => {
+    if (loading || nextPage < 1 || nextPage > lastPage) return;
     setPage(nextPage);
-    fetchAssets(nextPage, false);
+    void fetchAssets(nextPage);
   };
 
   // ─── Insert asset into canvas ─────────────────────────────────
@@ -994,7 +1016,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
             <div className="flex h-10 shrink-0 items-center gap-2 border-b border-gray-100 px-4 mb-2">
               <button
                 type="button"
-                onClick={() => setExpandedShapeSectionId(null)}
+                onClick={() => { setShapePage(1); setExpandedShapeSectionId(null); }}
                 title="Back to all shapes"
                 className="rounded-lg p-1 text-gray-600 hover:bg-gray-100 transition"
               >
@@ -1007,11 +1029,18 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
                 {activeExpandedShapeSection.assets.length}
               </span>
             </div>
-            <div className="grid grid-cols-4 content-start gap-x-2 gap-y-3 overflow-y-auto px-4 pb-20 custom-scrollbar">
-              {activeExpandedShapeSection.assets.map((shape: DesignAsset) =>
+            <div className="grid grid-cols-4 content-start gap-x-2 gap-y-3 overflow-y-auto px-4 pb-4 custom-scrollbar">
+              {visibleExpandedShapeAssets.map((shape: DesignAsset) =>
                 renderShapeCard(shape, false)
               )}
             </div>
+            {expandedShapePageCount > 1 && (
+              <div className="flex shrink-0 items-center justify-between border-t border-gray-100 px-4 py-2 text-[10px] text-gray-500">
+                <button type="button" onClick={() => setShapePage((current) => Math.max(1, current - 1))} disabled={shapePage <= 1} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Previous</button>
+                <span>Page {shapePage} of {expandedShapePageCount}</span>
+                <button type="button" onClick={() => setShapePage((current) => Math.min(expandedShapePageCount, current + 1))} disabled={shapePage >= expandedShapePageCount} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Next</button>
+              </div>
+            )}
           </div>
         ) : debouncedQuery ? (
           /* Search results within shapes */
@@ -1023,10 +1052,17 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
               </span>
             </div>
             <div className="grid grid-cols-4 content-start gap-x-2 gap-y-3">
-              {shapeSections.flatMap((s: ShapeSection) => s.assets).map((shape: DesignAsset) =>
+              {visibleShapeSearchResults.map((shape: DesignAsset) =>
                 renderShapeCard(shape, false)
               )}
             </div>
+            {shapeSearchPageCount > 1 && (
+              <div className="mt-4 flex items-center justify-between border-t border-gray-100 px-4 pt-3 text-[10px] text-gray-500">
+                <button type="button" onClick={() => setShapePage((current) => Math.max(1, current - 1))} disabled={shapePage <= 1} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Previous</button>
+                <span>Page {shapePage} of {shapeSearchPageCount}</span>
+                <button type="button" onClick={() => setShapePage((current) => Math.min(shapeSearchPageCount, current + 1))} disabled={shapePage >= shapeSearchPageCount} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Next</button>
+              </div>
+            )}
           </div>
         ) : (
           /* Canva categorized Shapes view: Recently used, Basic shapes, Polygons... */
@@ -1053,7 +1089,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
                   {section.assets.length > 5 && (
                     <button
                       type="button"
-                      onClick={() => setExpandedShapeSectionId(section.id)}
+                      onClick={() => { setShapePage(1); setExpandedShapeSectionId(section.id); }}
                       className="shrink-0 text-[10px] font-semibold text-amber-500 hover:text-amber-600 transition"
                     >
                       See all
@@ -1190,7 +1226,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
           {loading ? (
             /* Loading Skeletons */
             <div className="grid grid-cols-2 gap-2.5 pt-1">
-              {Array.from({ length: 8 }).map((_, i) => (
+              {Array.from({ length: ELEMENT_PAGE_SIZE }).map((_, i) => (
                 <div
                   key={i}
                   className="rounded-xl bg-gray-100 animate-pulse"
@@ -1207,7 +1243,7 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
               <p className="text-sm font-medium text-gray-700">Failed to load elements</p>
               <p className="text-xs text-gray-500 max-w-[200px]">{error}</p>
               <button
-                onClick={() => { setPage(1); setAssets([]); fetchAssets(1, true); }}
+                onClick={() => { setPage(1); setAssets([]); void fetchAssets(1); }}
                 className="flex items-center gap-1.5 text-xs font-semibold text-purple-600 hover:text-purple-700 px-3 py-1.5 rounded-lg border border-purple-200 hover:bg-purple-50 transition"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -1216,11 +1252,20 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
             </div>
           ) : assets.length === 0 ? (
             /* Empty State */
-            <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
-              <Shapes className="w-10 h-10 text-gray-300" />
-              <p className="text-sm font-medium text-gray-600">No elements found</p>
-              <p className="text-xs text-gray-400">Try a different search or filter</p>
-            </div>
+            <>
+              <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
+                <Shapes className="w-10 h-10 text-gray-300" />
+                <p className="text-sm font-medium text-gray-600">No elements found</p>
+                <p className="text-xs text-gray-400">Try a different search or filter</p>
+              </div>
+              {(page > 1 || hasNext) && (
+                <div className="flex items-center justify-between border-t border-gray-100 py-3 text-[10px] text-gray-500">
+                  <button type="button" onClick={() => handlePageChange(page - 1)} disabled={loading || page <= 1} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Previous</button>
+                  <span>Page {page} of {lastPage}</span>
+                  <button type="button" onClick={() => handlePageChange(page + 1)} disabled={loading || !hasNext} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Next</button>
+                </div>
+              )}
+            </>
           ) : (
             <>
               {/* Masonry-style 2-column grid */}
@@ -1330,21 +1375,11 @@ export const ElementsPanel: React.FC<ElementsPanelProps> = ({ canvasManager, onS
                 })}
               </div>
 
-              {/* Load More */}
-              {hasNext && (
-                <div className="flex justify-center py-4">
-                  <button
-                    onClick={handleLoadMore}
-                    disabled={loadingMore}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-purple-600 hover:text-purple-700 px-4 py-2 rounded-xl border border-purple-200 hover:bg-purple-50 transition disabled:opacity-50"
-                  >
-                    {loadingMore ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Plus className="w-3.5 h-3.5" />
-                    )}
-                    {loadingMore ? 'Loading...' : 'Load more'}
-                  </button>
+              {(page > 1 || hasNext) && (
+                <div className="flex items-center justify-between py-4 text-[10px] text-gray-500">
+                  <button type="button" onClick={() => handlePageChange(page - 1)} disabled={loading || page <= 1} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Previous</button>
+                  <span>Page {page} of {lastPage}</span>
+                  <button type="button" onClick={() => handlePageChange(page + 1)} disabled={loading || !hasNext} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Next</button>
                 </div>
               )}
             </>

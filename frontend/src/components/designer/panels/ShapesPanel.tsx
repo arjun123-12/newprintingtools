@@ -26,7 +26,8 @@ interface ShapeSection {
 
 const RECENT_SHAPES_KEY = 'print_designer_recent_shape_ids';
 const ROW_PREVIEW_LIMIT = 6;
-const PAGE_SIZE = 100;
+const DISPLAY_PAGE_SIZE = 10;
+const API_PAGE_SIZE = 100;
 const DESIGNER_API_URL = (
   process.env.NEXT_PUBLIC_API_URL ||
   'http://127.0.0.1:8000/api/v1'
@@ -134,7 +135,7 @@ async function fetchAllPublicShapes(): Promise<DesignAsset[]> {
   const first = await designAssetService.getPublicAssets({
     asset_type: 'shape',
     page: 1,
-    per_page: PAGE_SIZE,
+    per_page: API_PAGE_SIZE,
     sort: 'sort_order',
   });
   const pages = [first];
@@ -147,7 +148,7 @@ async function fetchAllPublicShapes(): Promise<DesignAsset[]> {
           designAssetService.getPublicAssets({
             asset_type: 'shape',
             page: index + 2,
-            per_page: PAGE_SIZE,
+            per_page: API_PAGE_SIZE,
             sort: 'sort_order',
           })
         )
@@ -173,6 +174,7 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
   const [categories, setCategories] = useState<DesignAssetCategory[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedSectionId, setExpandedSectionId] = useState<string | null>(null);
+  const [assetPage, setAssetPage] = useState(1);
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -292,6 +294,24 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
     () => sections.find((section) => section.id === expandedSectionId) || null,
     [expandedSectionId, sections]
   );
+
+  const searchPageCount = Math.max(1, Math.ceil(filteredAssets.length / DISPLAY_PAGE_SIZE));
+  const activeSectionPageCount = Math.max(
+    1,
+    Math.ceil((activeSection?.assets.length || 0) / DISPLAY_PAGE_SIZE)
+  );
+  const visibleSearchAssets = filteredAssets.slice(
+    (assetPage - 1) * DISPLAY_PAGE_SIZE,
+    assetPage * DISPLAY_PAGE_SIZE
+  );
+  const visibleActiveSectionAssets = (activeSection?.assets || []).slice(
+    (assetPage - 1) * DISPLAY_PAGE_SIZE,
+    assetPage * DISPLAY_PAGE_SIZE
+  );
+
+  const changeAssetPage = (nextPage: number, lastPage: number) => {
+    setAssetPage(Math.max(1, Math.min(nextPage, lastPage)));
+  };
 
   useEffect(() => {
     if (expandedSectionId && !activeSection) setExpandedSectionId(null);
@@ -444,14 +464,23 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
     return (
       <div className="flex h-full flex-col bg-white text-gray-900">
         <div className="flex h-12 shrink-0 items-center gap-2 border-b border-gray-100 px-3">
-          <button type="button" onClick={() => setExpandedSectionId(null)} title="Back" className="rounded-lg p-1.5 text-gray-600 hover:bg-gray-100">
+          <button type="button" onClick={() => { setAssetPage(1); setExpandedSectionId(null); }} title="Back" className="rounded-lg p-1.5 text-gray-600 hover:bg-gray-100">
             <ChevronLeft className="h-4 w-4" />
           </button>
           <h3 className="truncate text-sm font-bold">{activeSection.name}</h3>
           <span className="ml-auto text-[10px] text-gray-400">{activeSection.assets.length}</span>
         </div>
-        <div className="grid flex-1 grid-cols-4 content-start gap-x-2 gap-y-4 overflow-y-auto p-3 custom-scrollbar">
-          {activeSection.assets.map((asset) => shapeButton(asset, false))}
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto custom-scrollbar">
+          <div className="grid grid-cols-4 content-start gap-x-2 gap-y-4 p-3">
+            {visibleActiveSectionAssets.map((asset) => shapeButton(asset, false))}
+          </div>
+          {activeSectionPageCount > 1 && (
+            <div className="mt-auto flex shrink-0 items-center justify-between border-t border-gray-100 px-3 py-2 text-[10px] text-gray-500">
+              <button type="button" onClick={() => changeAssetPage(assetPage - 1, activeSectionPageCount)} disabled={assetPage <= 1} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Previous</button>
+              <span>Page {assetPage} of {activeSectionPageCount}</span>
+              <button type="button" onClick={() => changeAssetPage(assetPage + 1, activeSectionPageCount)} disabled={assetPage >= activeSectionPageCount} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Next</button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -462,9 +491,9 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
       <div className="shrink-0 border-b border-gray-100 p-3">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search shapes" className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50 pl-9 pr-9 text-xs outline-none focus:border-purple-400 focus:bg-white focus:ring-2 focus:ring-purple-100" />
+          <input type="search" value={searchQuery} onChange={(event) => { setAssetPage(1); setSearchQuery(event.target.value); }} placeholder="Search shapes" className="h-10 w-full rounded-xl border border-gray-200 bg-gray-50 pl-9 pr-9 text-xs outline-none focus:border-purple-400 focus:bg-white focus:ring-2 focus:ring-purple-100" />
           {searchQuery && (
-            <button type="button" onClick={() => setSearchQuery('')} title="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-400 hover:bg-gray-200">
+            <button type="button" onClick={() => { setAssetPage(1); setSearchQuery(''); }} title="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-400 hover:bg-gray-200">
               <X className="h-3.5 w-3.5" />
             </button>
           )}
@@ -486,7 +515,14 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
         {!loading && !error && query && (
           <section className="py-3">
             <div className="mb-2 flex items-center justify-between px-3"><h4 className="text-[11px] font-bold text-gray-700">Search results</h4><span className="text-[10px] text-gray-400">{filteredAssets.length}</span></div>
-            <div className="grid grid-cols-4 gap-x-2 gap-y-4 px-3">{filteredAssets.map((asset) => shapeButton(asset, false))}</div>
+            <div className="grid grid-cols-4 gap-x-2 gap-y-4 px-3">{visibleSearchAssets.map((asset) => shapeButton(asset, false))}</div>
+            {searchPageCount > 1 && (
+              <div className="mt-4 flex items-center justify-between border-t border-gray-100 px-3 pt-3 text-[10px] text-gray-500">
+                <button type="button" onClick={() => changeAssetPage(assetPage - 1, searchPageCount)} disabled={assetPage <= 1} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Previous</button>
+                <span>Page {assetPage} of {searchPageCount}</span>
+                <button type="button" onClick={() => changeAssetPage(assetPage + 1, searchPageCount)} disabled={assetPage >= searchPageCount} className="rounded-lg border border-gray-200 px-2.5 py-1.5 font-semibold disabled:opacity-40">Next</button>
+              </div>
+            )}
           </section>
         )}
 
@@ -501,7 +537,7 @@ export const ShapesPanel: React.FC<ShapesPanelProps> = ({ canvasManager }) => {
           <section key={section.id} className="border-b border-gray-100 py-3 last:border-b-0">
             <div className="mb-2 flex items-center justify-between px-3">
               <h4 className="truncate pr-2 text-[11px] font-bold text-gray-700">{section.name}</h4>
-              {section.assets.length > ROW_PREVIEW_LIMIT && <button type="button" onClick={() => setExpandedSectionId(section.id)} className="shrink-0 text-[10px] font-semibold text-gray-600 hover:text-purple-700">See all</button>}
+                  {section.assets.length > ROW_PREVIEW_LIMIT && <button type="button" onClick={() => { setAssetPage(1); setExpandedSectionId(section.id); }} className="shrink-0 text-[10px] font-semibold text-gray-600 hover:text-purple-700">See all</button>}
             </div>
             <div className="flex gap-2 overflow-x-auto px-3 pb-1 scrollbar-hide">{section.assets.slice(0, ROW_PREVIEW_LIMIT).map((asset) => shapeButton(asset))}</div>
           </section>

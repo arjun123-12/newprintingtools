@@ -21,6 +21,7 @@ interface FreepikPanelProps {
 }
 
 type FreepikMediaType = 'all' | 'photo' | 'vector' | 'icon';
+const FREEPIK_PAGE_SIZE = 10;
 
 type HighResolutionFreepikAsset = FreepikAsset & {
   original_url?: string;
@@ -184,11 +185,10 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
   const [images, setImages] = useState<FreepikAsset[]>([]);
   const [totalItems, setTotalItems] = useState<number>(0);
   const [page, setPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(0);
   const [hasNext, setHasNext] = useState<boolean>(false);
 
   const [loading, setLoading] = useState<boolean>(true);
-  const [loadingMore, setLoadingMore] =
-    useState<boolean>(false);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -223,16 +223,9 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
    * vectors/icons/other assets.
    */
   const fetchFreepikMedia = useCallback(
-    async (
-      pageToLoad: number,
-      append: boolean = false
-    ) => {
-      if (append) {
-        setLoadingMore(true);
-      } else {
-        setLoading(true);
-        setError(null);
-      }
+    async (pageToLoad: number) => {
+      setLoading(true);
+      setError(null);
 
       try {
         /**
@@ -255,7 +248,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
           await freepikService.search(
             searchQuery,
             pageToLoad,
-            24,
+            FREEPIK_PAGE_SIZE,
             searchMediaType
           );
 
@@ -266,14 +259,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
           const fetchedItems =
             response.data.items || [];
 
-          if (append) {
-            setImages((prev) => [
-              ...prev,
-              ...fetchedItems,
-            ]);
-          } else {
-            setImages(fetchedItems);
-          }
+          setImages(fetchedItems.slice(0, FREEPIK_PAGE_SIZE));
 
           setHasNext(
             Boolean(
@@ -282,21 +268,17 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
           );
 
           setTotalItems(
-            (prevTotal) =>
-              response.data.pagination
-                ?.total_items ??
-              (append
-                ? prevTotal +
-                fetchedItems.length
-                : fetchedItems.length)
+            response.data.pagination?.total_items ??
+            fetchedItems.length
+          );
+          setTotalPages(
+            Number(response.data.pagination?.total_pages) || 0
           );
         } else {
-          if (!append) {
-            setImages([]);
-          }
-
+          setImages([]);
           setHasNext(false);
           setTotalItems(0);
+          setTotalPages(0);
         }
       } catch (err: any) {
         console.error(
@@ -309,12 +291,12 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
           'Failed to search Freepik media library.'
         );
 
-        if (!append) {
-          setImages([]);
-        }
+        setImages([]);
+        setHasNext(false);
+        setTotalItems(0);
+        setTotalPages(0);
       } finally {
         setLoading(false);
-        setLoadingMore(false);
       }
     },
     [debouncedQuery, mediaType]
@@ -325,29 +307,16 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
    */
   useEffect(() => {
     setPage(1);
-    fetchFreepikMedia(1, false);
+    fetchFreepikMedia(1);
   }, [fetchFreepikMedia]);
 
-  /**
-   * Load next page.
-   */
-  const handleLoadMore = () => {
-    if (
-      loadingMore ||
-      loading ||
-      !hasNext
-    ) {
+  const handlePageChange = (nextPage: number) => {
+    if (loading || nextPage < 1 || (nextPage > page && !hasNext)) {
       return;
     }
 
-    const nextPage = page + 1;
-
     setPage(nextPage);
-
-    fetchFreepikMedia(
-      nextPage,
-      true
-    );
+    fetchFreepikMedia(nextPage);
   };
 
   /**
@@ -815,8 +784,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
               type="button"
               onClick={() =>
                 fetchFreepikMedia(
-                  1,
-                  false
+                  1
                 )
               }
               className="mt-1 self-start px-3 py-1 bg-red-600 text-white rounded-md text-[11px] font-semibold hover:bg-red-700 transition"
@@ -832,7 +800,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
           <div className="grid grid-cols-2 gap-2">
 
             {Array.from({
-              length: 12,
+              length: FREEPIK_PAGE_SIZE,
             }).map((_, i) => (
               <div
                 key={i}
@@ -1000,39 +968,29 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
 
             </div>
 
-            {/* =====================================
-                LOAD MORE
-            ===================================== */}
-            {hasNext && (
-              <div className="mt-4 pb-2 flex justify-center">
+            <div className="mt-4 pb-2 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => handlePageChange(page - 1)}
+                disabled={loading || page <= 1}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Previous
+              </button>
 
-                <button
-                  type="button"
-                  onClick={
-                    handleLoadMore
-                  }
-                  disabled={
-                    loadingMore
-                  }
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
-                >
-                  {loadingMore ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span className="text-[10px] font-medium text-slate-500">
+                Page {page}{totalPages > 0 ? ` of ${totalPages}` : ''}
+              </span>
 
-                      <span>
-                        Loading more...
-                      </span>
-                    </>
-                  ) : (
-                    <span>
-                      Load more assets
-                    </span>
-                  )}
-                </button>
-
-              </div>
-            )}
+              <button
+                type="button"
+                onClick={() => handlePageChange(page + 1)}
+                disabled={loading || !hasNext}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
 
           </>
         ) : (
