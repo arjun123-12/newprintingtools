@@ -225,6 +225,14 @@ export const manualOrderService = {
     return response.data;
   },
 
+  async attachArtwork(orderId: string, itemId: string, artworkId: string) {
+    const response = await apiClient.post(
+      `/admin/manual-orders/${orderId}/items/${itemId}/artwork`,
+      { artwork_id: artworkId }
+    );
+    return response.data;
+  },
+
   /**
    * Send order to customer for review and approval
    */

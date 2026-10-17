@@ -18,6 +18,7 @@ import { DesignerCanvas } from './DesignerCanvas';
 import { DesignerProperties } from './DesignerProperties';
 import { DesignerBottomBar } from './DesignerBottomBar';
 import { designerService } from './services/designerService';
+import { manualOrderService } from '@/services/admin/manualOrderService';
 import { exportHighResolutionImage, exportVectorPdf } from './services/exportService';
 import {
   collectFabricObjectsRecursively,
@@ -108,6 +109,8 @@ interface DesignerProps {
   productId?: string;
   templateId?: string;
   artworkId?: string | null;
+  orderId?: string;
+  orderItemId?: string;
   mode?: string;
   initialSettings?: Partial<DocumentSettings>;
 }
@@ -233,6 +236,8 @@ export default function Designer({
   productId,
   templateId,
   artworkId: artworkIdProp,
+  orderId,
+  orderItemId,
   mode,
   initialSettings,
 }: DesignerProps) {
@@ -306,6 +311,7 @@ export default function Designer({
   documentSettingsRef.current = documentSettings;
 
   const artworkIdRef = useRef<string | null>(artworkIdProp || null);
+  const linkedOrderArtworkIdRef = useRef<string | null>(null);
   const [currentArtworkId, setCurrentArtworkId] = useState<string | null>(artworkIdProp || null);
   const pagesRef = useRef<PageData[]>(pages);
   pagesRef.current = pages;
@@ -1275,6 +1281,15 @@ export default function Designer({
             savedArtwork.id
           );
 
+          if (orderId && orderItemId && linkedOrderArtworkIdRef.current !== savedArtwork.id) {
+            await manualOrderService.attachArtwork(
+              orderId,
+              orderItemId,
+              savedArtwork.id
+            );
+            linkedOrderArtworkIdRef.current = savedArtwork.id;
+          }
+
           // Update URL so reopening/reloading restores this exact artwork
           if (typeof window !== 'undefined' && savedArtwork.id) {
             const currentUrl = new URL(window.location.href);
@@ -1305,7 +1320,7 @@ export default function Designer({
     } finally {
       saveInProgressRef.current = false;
     }
-  }, [handleSaveAdminTemplate, mode, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex]);
+  }, [handleSaveAdminTemplate, mode, orderId, orderItemId, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex]);
 
   const handleAddToCartClick = useCallback(async () => {
     if (canvasManagerRef.current) {
@@ -1360,10 +1375,10 @@ export default function Designer({
       artworkIdRef.current = artworkIdProp;
       return;
     }
-    artworkIdRef.current = productId
+    artworkIdRef.current = !orderId && productId
       ? designerService.loadRememberedArtworkId(productId)
       : null;
-  }, [productId, artworkIdProp]);
+  }, [productId, artworkIdProp, orderId]);
 
   // Autosave every meaningful CanvasManager mutation, including template loads.
   useEffect(() => {
@@ -1424,9 +1439,11 @@ export default function Designer({
         const authToken = getAuthToken();
         const isAdminMode =
           mode === 'admin-template' ||
+          mode === 'order-artwork' ||
           (typeof window !== 'undefined' &&
-            new URLSearchParams(window.location.search).get('mode') ===
-            'admin-template');
+            ['admin-template', 'order-artwork'].includes(
+              new URLSearchParams(window.location.search).get('mode') || ''
+            ));
 
         let res: Response;
         if (isAdminMode) {

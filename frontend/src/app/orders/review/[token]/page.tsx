@@ -7,7 +7,6 @@ import {
   AlertCircle,
   Loader2,
   Lock,
-  Download,
   ZoomIn,
   ZoomOut,
   Maximize2,
@@ -18,7 +17,6 @@ import {
   Clock,
   ArrowRight,
   MessageSquare,
-  FileCheck,
   Check,
   RefreshCw,
   AlertTriangle,
@@ -26,6 +24,36 @@ import {
   Eye,
 } from 'lucide-react';
 import { orderReviewService, CustomerReviewData } from '@/services/orderReviewService';
+import { Artwork3DViewer } from '@/components/designer/controls/Artwork3DViewer';
+import { formatImageUrl } from '@/utils/imageUrl';
+import type { CanvasDimensions, DocumentSettings, UnitType } from '@/types/designer';
+
+function getCanvasPage(value: unknown, pageIndex = 0): Record<string, any> | null {
+  let parsed: any = value;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return null;
+    }
+  }
+
+  if (Array.isArray(parsed)) return getCanvasPage(parsed[pageIndex], 0);
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (Array.isArray(parsed.objects)) {
+    const background = String(parsed.background || '').trim().toLowerCase();
+    const hasVisibleContent = parsed.objects.length > 0 || Boolean(parsed.backgroundImage) ||
+      (background !== '' && !['#fff', '#ffffff', 'white', 'transparent', 'rgba(0, 0, 0, 0)'].includes(background));
+    return pageIndex === 0 && hasVisibleContent ? parsed : null;
+  }
+  if (Array.isArray(parsed.pages)) {
+    const page = parsed.pages[pageIndex];
+    return getCanvasPage(page?.canvas_json ?? page?.template_json ?? page, 0);
+  }
+  if (parsed.canvas_json !== undefined) return getCanvasPage(parsed.canvas_json, pageIndex);
+  if (parsed.template_json !== undefined) return getCanvasPage(parsed.template_json, pageIndex);
+  return null;
+}
 
 declare global {
   interface Window {
@@ -51,12 +79,15 @@ export default function OrderReviewPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<CustomerReviewData | null>(null);
+  const [templatePreviewUrl, setTemplatePreviewUrl] = useState<string | null>(null);
+  const [templateBackPreviewUrl, setTemplateBackPreviewUrl] = useState<string | null>(null);
 
   // Stepper state: 'review' | 'payment' | 'production'
   const [currentStep, setCurrentStep] = useState<'review' | 'payment' | 'production'>('review');
 
   // Proof viewer states
-  const [activeTab, setActiveTab] = useState<'Front' | 'Back'>('Front');
+  const [proofView, setProofView] = useState<'3d' | 'flat'>('3d');
+  const [activeSide, setActiveSide] = useState<'front' | 'back'>('front');
   const [zoomLevel, setZoomLevel] = useState<number>(100);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const proofContainerRef = useRef<HTMLDivElement>(null);
@@ -130,6 +161,72 @@ export default function OrderReviewPage({ params }: PageProps) {
       loadOrder();
     }
   }, [token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const proofFiles = orderData?.proof.files || [];
+    const hasUploadedProof = proofFiles.some((f) => !f.mime_type?.includes('pdf')) || Boolean(orderData?.proof.thumbnail_url);
+    if (hasUploadedProof) {
+      setTemplatePreviewUrl(null);
+      setTemplateBackPreviewUrl(null);
+      return;
+    }
+
+    const savedCanvas = orderData?.proof.template_canvas_json;
+    const frontCanvas = getCanvasPage(savedCanvas, 0);
+    const backCanvas = getCanvasPage(
+      orderData?.proof.template_back_canvas_json ?? savedCanvas,
+      orderData?.proof.template_back_canvas_json ? 0 : 1
+    );
+    const settings = orderData?.proof.document_settings || {};
+    const savedDimensions = orderData?.proof.dimensions || {};
+    const dpi = Number(savedDimensions.dpi || settings.dpi) || 300;
+    const unit = String(settings.unit || 'mm').toLowerCase();
+    const toPixels = (value?: number) => {
+      if (!value) return undefined;
+      if (unit === 'mm') return (value / 25.4) * dpi;
+      if (unit === 'cm') return (value / 2.54) * dpi;
+      if (unit === 'in' || unit === 'inch' || unit === 'inches') return value * dpi;
+      return value;
+    };
+    const sourceWidth = Number(savedDimensions.width_px) || toPixels(Number(settings.width)) || undefined;
+    const sourceHeight = Number(savedDimensions.height_px) || toPixels(Number(settings.height)) || undefined;
+
+    if (!frontCanvas && !backCanvas) {
+      setTemplatePreviewUrl(null);
+      setTemplateBackPreviewUrl(null);
+      return;
+    }
+
+    const renderTemplatePreview = async () => {
+      try {
+        const { renderCanvasJsonToThumbnail } = await import('@/components/designer/utils/canvasThumbnail');
+        const [front, back] = await Promise.all([
+          frontCanvas
+            ? renderCanvasJsonToThumbnail(frontCanvas, 1920, 1080, '#ffffff', sourceWidth, sourceHeight)
+            : null,
+          backCanvas
+            ? renderCanvasJsonToThumbnail(backCanvas, 1920, 1080, '#ffffff', sourceWidth, sourceHeight)
+            : null,
+        ]);
+        if (!cancelled) {
+          setTemplatePreviewUrl(front);
+          setTemplateBackPreviewUrl(back);
+        }
+      } catch (previewError) {
+        console.warn('Could not render the selected template preview:', previewError);
+      }
+    };
+
+    renderTemplatePreview();
+    return () => { cancelled = true; };
+  }, [
+    orderData?.proof.thumbnail_url,
+    orderData?.proof.template_canvas_json,
+    orderData?.proof.template_back_canvas_json,
+    orderData?.proof.document_settings,
+    orderData?.proof.dimensions,
+  ]);
 
   // 2. Initialize BPOINT payment session if on payment step
   const initPaymentSession = async () => {
@@ -402,7 +499,53 @@ export default function OrderReviewPage({ params }: PageProps) {
   const proofFiles = orderData.proof?.files || [];
   const frontFile = proofFiles.find((f) => f.label.toLowerCase() === 'front') || proofFiles[0];
   const backFile = proofFiles.find((f) => f.label.toLowerCase() === 'back') || (proofFiles.length > 1 ? proofFiles[1] : null);
-  const activeFile = activeTab === 'Front' ? frontFile : (backFile || frontFile);
+  const isImageFile = (file: (typeof proofFiles)[number] | null | undefined) =>
+    Boolean(file?.url && !file.mime_type?.includes('pdf') && !file.url.toLowerCase().endsWith('.pdf'));
+  const isPreviewImageUrl = (url?: string | null) => Boolean(url && !/\.pdf(?:$|[?#])/i.test(url));
+  const proofThumbnailUrl = isPreviewImageUrl(orderData.proof.thumbnail_url)
+    ? orderData.proof.thumbnail_url
+    : null;
+  const rawFrontUrl = isImageFile(frontFile)
+    ? frontFile?.url
+    : (proofThumbnailUrl || templatePreviewUrl);
+  const frontMockupUrl = rawFrontUrl ? formatImageUrl(rawFrontUrl) : null;
+  const rawBackUrl = isImageFile(backFile) ? backFile?.url : null;
+  const backMockupUrl = rawBackUrl ? formatImageUrl(rawBackUrl) : null;
+  const flatTemplatePreviewUrl = templatePreviewUrl || proofThumbnailUrl;
+  const savedDocumentSettings = orderData.proof.document_settings || {};
+  const savedDimensions = orderData.proof.dimensions || {};
+  const previewDpi = Number(savedDimensions.dpi || savedDocumentSettings.dpi) || 300;
+  const previewWidthPx = Number(savedDimensions.width_px) || 1000;
+  const previewHeightPx = Number(savedDimensions.height_px) || 650;
+  const previewUnit = (savedDocumentSettings.unit || 'mm') as UnitType;
+  const previewWidth = Number(savedDocumentSettings.width) || (previewWidthPx / previewDpi) * 25.4;
+  const previewHeight = Number(savedDocumentSettings.height) || (previewHeightPx / previewDpi) * 25.4;
+  const previewBleed = Number(savedDocumentSettings.bleed) || 0;
+  const previewSafeArea = Number(savedDocumentSettings.safeArea) || 0;
+  const mockupDocumentSettings = {
+    ...savedDocumentSettings,
+    width: previewWidth,
+    height: previewHeight,
+    unit: previewUnit,
+    dpi: previewDpi,
+    bleed: previewBleed,
+    safeArea: previewSafeArea,
+    name: savedDocumentSettings.name || primaryItem?.product_name || 'Print artwork',
+  } as DocumentSettings;
+  const mockupDimensions = {
+    unit: previewUnit,
+    widthPx: previewWidthPx,
+    heightPx: previewHeightPx,
+    widthMm: previewWidth,
+    heightMm: previewHeight,
+    bleedMm: previewBleed,
+    safeZoneMm: previewSafeArea,
+    bleedPx: 0,
+    safeZonePx: 0,
+    totalWidthPx: previewWidthPx,
+    totalHeightPx: previewHeightPx,
+    dpi: previewDpi,
+  } satisfies CanvasDimensions;
 
   return (
     <div className="min-h-screen bg-[#FDFBF9] text-slate-800 flex flex-col font-sans">
@@ -572,60 +715,86 @@ export default function OrderReviewPage({ params }: PageProps) {
                 >
                   {/* Proof Toolbar */}
                   <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
-                    {/* Left: Tab selection (Front / Back) */}
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-800 mr-2 uppercase tracking-wide">
+                      <span className="text-xs font-bold text-slate-800 mr-1 uppercase tracking-wide">
                         Artwork proof
                       </span>
                       <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() => setActiveTab('Front')}
+                          onClick={() => setProofView('3d')}
                           className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                            activeTab === 'Front'
+                            proofView === '3d'
                               ? 'bg-[#E11D48] text-white shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
                           }`}
                         >
-                          Front
+                          3D Mockup
                         </button>
-                        {backFile && (
+                        <button
+                          type="button"
+                          onClick={() => setProofView('flat')}
+                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                            proofView === 'flat'
+                              ? 'bg-[#E11D48] text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Flat view
+                        </button>
+                      </div>
+
+                      {proofView === 'flat' && backMockupUrl && (
+                        <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 ml-1">
                           <button
                             type="button"
-                            onClick={() => setActiveTab('Back')}
+                            onClick={() => setActiveSide('front')}
                             className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                              activeTab === 'Back'
+                              activeSide === 'front'
+                                ? 'bg-[#E11D48] text-white shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            Front
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveSide('back')}
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                              activeSide === 'back'
                                 ? 'bg-[#E11D48] text-white shadow-xs'
                                 : 'text-slate-600 hover:text-slate-900'
                             }`}
                           >
                             Back
                           </button>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Right: Zoom controls, Fullscreen, Download */}
+                    {/* Right: Zoom controls (for flat view) and Fullscreen */}
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center border border-slate-200 rounded-xl px-2 py-1 bg-slate-50 text-xs font-semibold text-slate-700">
-                        <button
-                          type="button"
-                          onClick={() => setZoomLevel((z) => Math.max(50, z - 25))}
-                          className="px-1.5 py-0.5 hover:text-slate-900"
-                          title="Zoom out"
-                        >
-                          <ZoomOut className="w-3.5 h-3.5" />
-                        </button>
-                        <span className="px-2 font-mono text-[11px]">{zoomLevel}%</span>
-                        <button
-                          type="button"
-                          onClick={() => setZoomLevel((z) => Math.min(200, z + 25))}
-                          className="px-1.5 py-0.5 hover:text-slate-900"
-                          title="Zoom in"
-                        >
-                          <ZoomIn className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      {proofView === 'flat' && (
+                        <div className="flex items-center border border-slate-200 rounded-xl px-2 py-1 bg-slate-50 text-xs font-semibold text-slate-700">
+                          <button
+                            type="button"
+                            onClick={() => setZoomLevel((z) => Math.max(50, z - 25))}
+                            className="px-1.5 py-0.5 hover:text-slate-900"
+                            title="Zoom out"
+                          >
+                            <ZoomOut className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="px-2 font-mono text-[11px]">{zoomLevel}%</span>
+                          <button
+                            type="button"
+                            onClick={() => setZoomLevel((z) => Math.min(200, z + 25))}
+                            className="px-1.5 py-0.5 hover:text-slate-900"
+                            title="Zoom in"
+                          >
+                            <ZoomIn className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
 
                       <button
                         type="button"
@@ -635,76 +804,60 @@ export default function OrderReviewPage({ params }: PageProps) {
                       >
                         <Maximize2 className="w-4 h-4" />
                       </button>
-
-                      {activeFile?.url && (
-                        <a
-                          href={activeFile.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          download={activeFile.file_name}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-xl transition"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Download proof</span>
-                        </a>
-                      )}
                     </div>
                   </div>
 
-                  {/* Canvas Viewport */}
-                  <div className="bg-[#EBEBEB] min-h-[380px] p-6 sm:p-10 flex items-center justify-center overflow-auto relative">
-                    <div
-                      className="transition-transform duration-200 shadow-2xl rounded-2xl overflow-hidden bg-white max-w-full"
-                      style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'center center' }}
-                    >
-                      {activeFile?.url ? (
-                        activeFile.mime_type?.includes('pdf') || activeFile.url.endsWith('.pdf') ? (
-                          <div className="w-[600px] h-[360px] flex flex-col items-center justify-center bg-white p-8 text-center space-y-4">
-                            <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
-                              <FileCheck className="w-8 h-8" />
-                            </div>
-                            <div>
-                              <p className="font-bold text-slate-900 text-base">{activeFile.file_name}</p>
-                              <p className="text-xs text-slate-500 mt-1">
-                                High Resolution PDF Proof ({activeFile.label} Side)
-                              </p>
-                            </div>
-                            <div className="flex gap-3">
-                              <a
-                                href={activeFile.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="px-4 py-2 bg-[#E11D48] text-white rounded-xl text-xs font-semibold hover:bg-[#BE123C] transition"
-                              >
-                                Open PDF in new tab
-                              </a>
-                            </div>
-                          </div>
-                        ) : (
-                          // High resolution image proof preview
-                          <img
-                            src={activeFile.url}
-                            alt={`${activeFile.label} Proof`}
-                            className="max-h-[460px] object-contain block mx-auto"
-                          />
-                        )
-                      ) : (
-                        <div className="w-[500px] h-[300px] flex flex-col items-center justify-center bg-slate-50 text-slate-400 p-8">
-                          <Package className="w-12 h-12 mb-2 stroke-1" />
-                          <p className="text-sm font-semibold">Artwork file preview not available</p>
+                  {/* Viewport: 3D Scene or Flat Artwork */}
+                  {proofView === '3d' ? (
+                    frontMockupUrl ? (
+                      <div className="h-[460px] sm:h-[540px] w-full overflow-hidden bg-slate-950">
+                        <Artwork3DViewer
+                          previewUrl={frontMockupUrl}
+                          backPreviewUrl={backMockupUrl}
+                          documentSettings={mockupDocumentSettings}
+                          dimensions={mockupDimensions}
+                          autoRotateInitially={true}
+                        />
+                      </div>
+                    ) : (
+                      <div className="bg-[#EBEBEB] min-h-[380px] p-6 flex items-center justify-center text-center">
+                        <div className="max-w-sm rounded-2xl bg-white p-8 shadow-sm">
+                          <Package className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+                          <p className="text-sm font-semibold text-slate-700">3D mockup preview unavailable</p>
+                          <p className="mt-1 text-xs text-slate-500">A front artwork image must be included in the proof to show this preview.</p>
                         </div>
-                      )}
+                      </div>
+                    )
+                  ) : (
+                    <div className="bg-[#EBEBEB] min-h-[420px] sm:min-h-[500px] p-6 sm:p-10 flex items-center justify-center overflow-auto relative">
+                      <div
+                        className="transition-transform duration-200 shadow-2xl rounded-2xl overflow-hidden bg-white max-w-full"
+                        style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'center center' }}
+                      >
+                        {(activeSide === 'front' ? frontMockupUrl : backMockupUrl) ? (
+                          <img
+                            src={activeSide === 'front' ? frontMockupUrl! : backMockupUrl!}
+                            alt={`${activeSide === 'front' ? 'Front' : 'Back'} Flat Proof`}
+                            className="max-h-[460px] max-w-full object-contain block mx-auto select-none"
+                          />
+                        ) : (
+                          <div className="w-[500px] h-[300px] flex flex-col items-center justify-center bg-slate-50 text-slate-400 p-8">
+                            <Package className="w-12 h-12 mb-2 stroke-1" />
+                            <p className="text-sm font-semibold">Flat artwork preview not available</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Active File Details Footer */}
-                  {activeFile && (
+                  {((proofView === 'flat' && activeSide === 'back') ? (backFile || frontFile) : frontFile) && (
                     <div className="px-6 py-3 bg-white border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
                       <span className="font-medium text-slate-700">
-                        {activeFile.label}: {activeFile.file_name}
+                        {((proofView === 'flat' && activeSide === 'back') ? (backFile || frontFile) : frontFile)?.label}: {((proofView === 'flat' && activeSide === 'back') ? (backFile || frontFile) : frontFile)?.file_name}
                       </span>
-                      {activeFile.file_size_bytes && (
-                        <span>{(activeFile.file_size_bytes / (1024 * 1024)).toFixed(2)} MB</span>
+                      {((proofView === 'flat' && activeSide === 'back') ? (backFile || frontFile) : frontFile)?.file_size_bytes && (
+                        <span>{(((proofView === 'flat' && activeSide === 'back') ? (backFile || frontFile) : frontFile)!.file_size_bytes! / (1024 * 1024)).toFixed(2)} MB</span>
                       )}
                     </div>
                   )}

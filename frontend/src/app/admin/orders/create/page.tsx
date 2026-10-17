@@ -41,53 +41,48 @@ interface ProductCatalogOption {
   base_price: string;
 }
 
+interface DesignTemplateOption {
+  id: string;
+  name: string;
+  thumbnail_url?: string | null;
+  width_mm?: number | string | null;
+  height_mm?: number | string | null;
+}
+
 export default function CreateManualOrderPage() {
   const router = useRouter();
 
   // Form State
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
-  const [customerName, setCustomerName] = useState('Studio Coffee Pty Ltd');
-  const [customerEmail, setCustomerEmail] = useState('hello@studiocoffee.com.au');
-  const [customerPhone, setCustomerPhone] = useState('0412 345 678');
-  const [companyName, setCompanyName] = useState('Studio Coffee Pty Ltd');
+  const [customerName, setCustomerName] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [deliveryMethod, setDeliveryMethod] = useState('Standard delivery (Free)');
-  const [deliveryAddress, setDeliveryAddress] = useState('12 Harper Lane, Richmond VIC 3121, Australia');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
 
   // Notes
-  const [internalNotes, setInternalNotes] = useState(
-    'Repeat customer. Please check brand colours are consistent with last order (MO-001542).'
-  );
+  const [internalNotes, setInternalNotes] = useState('');
   const [customerNotes, setCustomerNotes] = useState(
     'Please check all details carefully. Let us know if you\'d like any changes.'
   );
 
   // Products List
-  const [items, setItems] = useState<ManualOrderItemPayload[]>([
-    {
-      product_name: 'Business cards',
-      specifications: '90 × 55 mm, 350gsm Matte',
-      quantity: 1000,
-      price: 100.0,
-      unit_price_ex_gst: 0.1,
-    },
-  ]);
+  const [items, setItems] = useState<ManualOrderItemPayload[]>([]);
 
   // Proof files state
   const [proofFiles, setProofFiles] = useState<File[]>([]);
-  const [proofPreviews, setProofPreviews] = useState<Array<{ name: string; size: string; label: string }>>([
-    { name: 'STUDIO_COFFEE_BC_front.pdf', size: '2.4 MB', label: 'Front' },
-    { name: 'STUDIO_COFFEE_BC_back.pdf', size: '2.3 MB', label: 'Back' },
-  ]);
+  const [proofPreviews, setProofPreviews] = useState<Array<{ name: string; size: string; label: string; previewUrl?: string | null }>>([]);
   const [proofVersion, setProofVersion] = useState('V1');
 
   // Server Calculated Totals
   const [totals, setTotals] = useState<CalculatedTotals>({
     items: [],
-    subtotal_ex_gst: 100.0,
+    subtotal_ex_gst: 0,
     shipping_fee_inc_gst: 0.0,
-    gst_amount: 10.0,
+    gst_amount: 0,
     discount_amount: 0.0,
-    total_inc_gst: 110.0,
+    total_inc_gst: 0,
     currency: 'AUD',
   });
 
@@ -95,6 +90,11 @@ export default function CreateManualOrderPage() {
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [catalogProducts, setCatalogProducts] = useState<ProductCatalogOption[]>([]);
   const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [modalProductId, setModalProductId] = useState('');
+  const [productTemplates, setProductTemplates] = useState<DesignTemplateOption[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templateLoadError, setTemplateLoadError] = useState<string | null>(null);
 
   // Status & notifications
   const [saving, setSaving] = useState(false);
@@ -127,6 +127,31 @@ export default function CreateManualOrderPage() {
     }
     loadDirectory();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setProductTemplates([]);
+    setSelectedTemplateId('');
+    setTemplateLoadError(null);
+
+    if (!modalProductId) return;
+
+    setLoadingTemplates(true);
+    apiClient.get(`/designer/templates/${modalProductId}`)
+      .then((res) => {
+        if (cancelled) return;
+        const templates = res.data?.data?.data || res.data?.data || [];
+        setProductTemplates(Array.isArray(templates) ? templates : []);
+      })
+      .catch(() => {
+        if (!cancelled) setTemplateLoadError('Could not load templates for this product.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTemplates(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [modalProductId]);
 
   // Recalculate totals on server whenever items or delivery method change
   useEffect(() => {
@@ -170,6 +195,32 @@ export default function CreateManualOrderPage() {
     setShowAddProductModal(false);
   };
 
+  const handleAddCatalogProduct = () => {
+    const product = catalogProducts.find((entry) => entry.id === modalProductId);
+    if (!product) return;
+
+    const template = productTemplates.find((entry) => entry.id === selectedTemplateId);
+
+    handleAddItem({
+      product_id: product.id,
+      product_name: product.name,
+      specifications: 'Standard Specifications',
+      quantity: 500,
+      price: parseFloat(product.base_price) || 100,
+      options: {
+        specifications: 'Standard Specifications',
+        ...(template ? {
+          template_id: template.id,
+          template_name: template.name,
+          template_thumbnail_url: template.thumbnail_url || null,
+        } : {}),
+      },
+    });
+    setModalProductId('');
+    setProductTemplates([]);
+    setSelectedTemplateId('');
+  };
+
   // Remove item
   const handleRemoveItem = (index: number) => {
     if (items.length <= 1) {
@@ -194,13 +245,39 @@ export default function CreateManualOrderPage() {
   };
 
   const addFiles = (files: File[]) => {
-    setProofFiles((prev) => [...prev, ...files]);
-    const previews = files.map((f, i) => ({
-      name: f.name,
-      size: (f.size / (1024 * 1024)).toFixed(1) + ' MB',
-      label: (f.name.toLowerCase().includes('back') || i === 1) ? 'Back' : 'Front',
-    }));
-    setProofPreviews(previews);
+    const allowedExtensions = ['jpg', 'jpeg', 'svg', 'png', 'pdf', 'ai', 'eps'];
+    const validFiles: File[] = [];
+
+    for (const f of files) {
+      const ext = f.name.split('.').pop()?.toLowerCase() || '';
+      if (!allowedExtensions.includes(ext) && !f.type.startsWith('image/') && f.type !== 'application/pdf') {
+        setError(`File "${f.name}" has an unsupported format. Please upload JPG, SVG, PNG, or PDF.`);
+        return;
+      }
+      if (f.size > 50 * 1024 * 1024) {
+        setError(`File "${f.name}" exceeds the maximum allowed size of 50MB.`);
+        return;
+      }
+      validFiles.push(f);
+    }
+
+    setProofFiles((prev) => [...prev, ...validFiles]);
+    const previews = validFiles.map((f, i) => {
+      const isBack = f.name.toLowerCase().includes('back') || (proofFiles.length + i === 1);
+      const isImg = f.type.startsWith('image/') || f.name.toLowerCase().endsWith('.svg') || f.name.toLowerCase().endsWith('.jpg') || f.name.toLowerCase().endsWith('.jpeg') || f.name.toLowerCase().endsWith('.png');
+      return {
+        name: f.name,
+        size: (f.size / (1024 * 1024)).toFixed(1) + ' MB',
+        label: isBack ? 'Back' : 'Front',
+        previewUrl: isImg ? URL.createObjectURL(f) : null,
+      };
+    });
+    setProofPreviews((prev) => [...prev, ...previews]);
+  };
+
+  const handleRemoveProofFile = (index: number) => {
+    setProofFiles((prev) => prev.filter((_, i) => i !== index));
+    setProofPreviews((prev) => prev.filter((_, i) => i !== index));
   };
 
   // Save manual order draft
@@ -233,9 +310,7 @@ export default function CreateManualOrderPage() {
           }
         }
         setSuccessMsg(`Draft order ${res.data.order_number} created successfully.`);
-        setTimeout(() => {
-          router.push(`/admin/orders/${orderId}`);
-        }, 1200);
+        setTimeout(() => router.push(`/admin/orders/${orderId}`), 800);
       }
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to save manual order draft.');
@@ -244,7 +319,7 @@ export default function CreateManualOrderPage() {
     }
   };
 
-  // Send for approval
+  // Send for approval (creates order, uploads proof, generates review link, opens order page)
   const handleSendForApproval = async () => {
     setError(null);
     setSending(true);
@@ -265,16 +340,13 @@ export default function CreateManualOrderPage() {
       const createRes = await manualOrderService.createOrder(payload);
       if (createRes.success && createRes.data?.id) {
         const orderId = createRes.data.id;
-        // Upload files
+        // Upload files if selected
         if (proofFiles.length > 0) {
           await manualOrderService.uploadProof(orderId, proofFiles);
         }
-        // Send approval
-        const sendRes = await manualOrderService.sendForApproval(orderId);
+        await manualOrderService.sendForApproval(orderId);
         setSuccessMsg(`Order ${createRes.data.order_number} sent for customer approval!`);
-        setTimeout(() => {
-          router.push(`/admin/orders/${orderId}`);
-        }, 1200);
+        setTimeout(() => router.push(`/admin/orders/${orderId}`), 800);
       }
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to send order for approval.');
@@ -421,7 +493,12 @@ export default function CreateManualOrderPage() {
           {/* Products Table Section */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-200">Products</h2>
+              <div>
+                <h2 className="text-sm font-semibold text-slate-200">Products & design templates</h2>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Add a catalog product, then choose its template before saving the order.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowAddProductModal(true)}
@@ -445,6 +522,13 @@ export default function CreateManualOrderPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
+                  {items.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-xs text-slate-500">
+                        No products added yet. Add a catalog product and choose its design template.
+                      </td>
+                    </tr>
+                  )}
                   {items.map((item, idx) => (
                     <tr key={idx} className="hover:bg-slate-800/20">
                       <td className="py-3 font-medium text-slate-200 flex items-center gap-2.5">
@@ -453,7 +537,14 @@ export default function CreateManualOrderPage() {
                         </div>
                         <span>{item.product_name}</span>
                       </td>
-                      <td className="py-3 text-slate-400 max-w-xs">{item.specifications}</td>
+                      <td className="py-3 text-slate-400 max-w-xs">
+                        <div>{item.specifications}</div>
+                        {item.options?.template_name && (
+                          <div className="mt-1 text-[10px] text-sky-400">
+                            Template: {item.options.template_name}
+                          </div>
+                        )}
+                      </td>
                       <td className="py-3 text-slate-200 font-mono">{item.quantity}</td>
                       <td className="py-3 text-slate-200 font-mono">
                         ${Number(item.price ?? 100).toFixed(2)}
@@ -516,15 +607,15 @@ export default function CreateManualOrderPage() {
                   ref={fileInputRef}
                   onChange={handleFileSelect}
                   className="hidden"
-                  accept=".pdf,.ai,.eps,.png,.jpg,.jpeg"
+                  accept=".jpg,.jpeg,.svg,.png,.pdf,.ai,.eps,image/jpeg,image/svg+xml,image/png,application/pdf"
                 />
                 <Upload className="w-6 h-6 text-slate-400 mb-2" />
                 <p className="text-xs text-slate-300 font-medium">
-                  Drag and drop your artwork files here
+                  Drag and drop JPG, SVG, PNG, or PDF artwork here
                 </p>
                 <p className="text-[11px] text-pink-400 hover:underline mt-0.5">or browse files</p>
                 <span className="text-[10px] text-slate-500 mt-2">
-                  PDF, AI, EPS, PNG or JPG (max 50MB)
+                  JPG, SVG, PNG, or PDF (max 50MB per file)
                 </span>
               </div>
 
@@ -535,21 +626,39 @@ export default function CreateManualOrderPage() {
                   className="bg-slate-800/60 border border-slate-700 rounded-xl p-3 flex flex-col justify-between"
                 >
                   <div className="w-full h-20 bg-slate-950 rounded-lg flex items-center justify-center border border-slate-800 relative overflow-hidden group">
-                    <div className="text-center">
-                      <p className="text-[10px] font-mono tracking-widest text-pink-400 font-bold uppercase">
-                        STUDIO COFFEE
-                      </p>
-                      <p className="text-[9px] text-slate-400">
-                        {file.label === 'Front' ? 'Good Coffee Brighter Days' : 'Coffee People Places'}
-                      </p>
-                    </div>
+                    {file.previewUrl ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={file.previewUrl}
+                        alt={file.name}
+                        className="w-full h-full object-contain p-1"
+                      />
+                    ) : (
+                      <div className="text-center p-2">
+                        <FileText className="w-6 h-6 text-slate-400 mx-auto mb-1" />
+                        <p className="text-[9px] font-mono text-slate-400 truncate max-w-[120px]">
+                          {file.name}
+                        </p>
+                      </div>
+                    )}
                     <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-[9px] font-medium bg-slate-900/80 text-slate-300 rounded border border-slate-700">
                       {file.label}
                     </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveProofFile(i);
+                      }}
+                      className="absolute top-1.5 right-1.5 p-1 rounded bg-slate-900/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition"
+                      title="Remove file"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
                   </div>
 
                   <div className="mt-2.5 flex items-center justify-between text-xs">
-                    <div className="min-w-0">
+                    <div className="min-w-0 pr-2">
                       <p className="text-slate-200 font-medium truncate text-[11px]">{file.name}</p>
                       <p className="text-[10px] text-slate-500">{file.size}</p>
                     </div>
@@ -696,7 +805,7 @@ export default function CreateManualOrderPage() {
             <button
               type="button"
               onClick={handleSendForApproval}
-              disabled={sending || saving}
+              disabled={sending || saving || items.length === 0}
               className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-medium text-sm rounded-xl shadow-md shadow-pink-600/20 transition-all disabled:opacity-50"
             >
               <Send className="w-4 h-4" />
@@ -706,7 +815,7 @@ export default function CreateManualOrderPage() {
             <button
               type="button"
               onClick={handleSaveDraft}
-              disabled={saving || sending}
+              disabled={saving || sending || items.length === 0}
               className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-medium text-xs rounded-xl transition-all disabled:opacity-50"
             >
               <Save className="w-3.5 h-3.5" />
@@ -720,22 +829,14 @@ export default function CreateManualOrderPage() {
       {showAddProductModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-xl">
-            <h3 className="text-base font-bold text-white">Add Product</h3>
+            <h3 className="text-base font-bold text-white">Add product and choose template</h3>
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-slate-400 mb-1">Select from Catalog</label>
                 <select
+                  value={modalProductId}
                   onChange={(e) => {
-                    const prod = catalogProducts.find((p) => p.id === e.target.value);
-                    if (prod) {
-                      handleAddItem({
-                        product_id: prod.id,
-                        product_name: prod.name,
-                        specifications: 'Custom Specifications',
-                        quantity: 1000,
-                        price: parseFloat(prod.base_price) || 100.0,
-                      });
-                    }
+                    setModalProductId(e.target.value);
                   }}
                   className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-200 text-xs"
                 >
@@ -747,6 +848,43 @@ export default function CreateManualOrderPage() {
                   ))}
                 </select>
               </div>
+
+              {modalProductId && (
+                <div>
+                  <label className="block text-slate-400 mb-1">
+                    Design template <span className="text-slate-500 font-normal">(Optional)</span>
+                  </label>
+                  <select
+                    value={selectedTemplateId}
+                    onChange={(e) => setSelectedTemplateId(e.target.value)}
+                    disabled={loadingTemplates}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-200 text-xs disabled:opacity-60"
+                  >
+                    <option value="">
+                      {loadingTemplates ? 'Loading templates…' : 'No template (Custom artwork upload)'}
+                    </option>
+                    {productTemplates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}
+                        {template.width_mm && template.height_mm
+                          ? ` (${template.width_mm} × ${template.height_mm} mm)`
+                          : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {templateLoadError ? (
+                    <p className="mt-1.5 text-[11px] text-slate-400">{templateLoadError}</p>
+                  ) : !loadingTemplates && productTemplates.length === 0 ? (
+                    <p className="mt-1.5 text-[11px] text-slate-400">
+                      No pre-made templates for this product. You can proceed with custom artwork upload.
+                    </p>
+                  ) : (
+                    <p className="mt-1.5 text-[11px] text-slate-500">
+                      Optional: Select a pre-made template, or leave empty to upload custom artwork.
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="border-t border-slate-800 pt-3">
                 <p className="text-slate-400 font-medium mb-2">Or Custom Product</p>
@@ -790,6 +928,14 @@ export default function CreateManualOrderPage() {
                 className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-400 hover:text-white text-xs"
               >
                 Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAddCatalogProduct}
+                disabled={!modalProductId || loadingTemplates}
+                className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {selectedTemplateId ? 'Add Product with Template' : 'Add Catalog Product'}
               </button>
               <button
                 type="button"

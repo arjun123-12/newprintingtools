@@ -42,6 +42,21 @@ export interface CustomerReviewData {
   proof: {
     current_version: number;
     version_label: string;
+    document_settings?: {
+      width?: number;
+      height?: number;
+      unit?: string;
+      dpi?: number;
+      bleed?: number;
+      safeArea?: number;
+      name?: string;
+      [key: string]: unknown;
+    };
+    dimensions?: {
+      width_px?: number | null;
+      height_px?: number | null;
+      dpi?: number | null;
+    };
     files: Array<{
       label: string;
       file_name: string;
@@ -51,6 +66,8 @@ export interface CustomerReviewData {
     }>;
     pdf_url?: string;
     thumbnail_url?: string;
+    template_canvas_json?: Record<string, unknown> | null;
+    template_back_canvas_json?: Record<string, unknown> | null;
     is_approved: boolean;
     approved_at?: string;
     versions: Array<{

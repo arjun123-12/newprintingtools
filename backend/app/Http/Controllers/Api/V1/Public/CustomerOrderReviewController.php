@@ -7,9 +7,12 @@ use App\Enums\PaymentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\ArtworkReview;
 use App\Models\ArtworkVersion;
+use App\Models\DesignTemplate;
+use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\OrderActivity;
 use App\Models\OrderReviewLink;
+use App\Services\Invoice\InvoiceGeneratorService;
 use App\Services\Notification\OrderNotificationService;
 use App\Services\Payments\PaymentGatewayService;
 use Illuminate\Http\JsonResponse;
@@ -23,7 +26,8 @@ class CustomerOrderReviewController extends Controller
 {
     public function __construct(
         protected OrderNotificationService $notificationService,
-        protected PaymentGatewayService $paymentGatewayService
+        protected PaymentGatewayService $paymentGatewayService,
+        protected InvoiceGeneratorService $invoiceGenerator
     ) {}
 
     /**
@@ -104,15 +108,60 @@ class CustomerOrderReviewController extends Controller
         $order = Order::with([
             'user:id,name,email,company_name',
             'items.product:id,name,slug',
+            'items.artwork.versions' => function ($q) {
+                $q->orderByDesc('version_number');
+            },
             'artworks.versions' => function ($q) {
                 $q->orderByDesc('version_number');
             },
         ])->findOrFail($link->order_id);
 
-        $artwork = $order->artworks->first();
+        $primaryItem = $order->items->first(fn ($item) => $item->artwork_id || $item->artwork)
+            ?: $order->items->first(fn ($item) => data_get($item->options_snapshot, 'template_id'))
+            ?: $order->items->first();
+        $artwork = $primaryItem?->artwork ?: $order->artworks->first();
+        $selectedTemplateId = data_get($primaryItem?->options_snapshot, 'template_id')
+            ?: $artwork?->template_id
+            ?: $artwork?->design_template_id;
+        $selectedTemplate = $selectedTemplateId
+            ? DesignTemplate::query()
+                ->select([
+                    'id', 'name', 'thumbnail_url', 'canvas_json', 'back_canvas_json',
+                    'width_mm', 'height_mm', 'bleed_mm', 'safe_area_mm',
+                ])
+                ->find($selectedTemplateId)
+            : null;
+        $templateThumbnail = $selectedTemplate?->thumbnail_url
+            ?: data_get($primaryItem?->options_snapshot, 'template_thumbnail_url');
         $versions = $artwork ? $artwork->versions : collect();
         $currentVersionNum = $order->current_proof_version ?? 1;
         $currentVersion = $versions->firstWhere('version_number', $currentVersionNum) ?: $versions->first();
+
+        // Format proof files with authoritative live HTTPS URLs
+        $proofFiles = collect($currentVersion?->proof_files ?? [])->map(function ($f) {
+            if (is_array($f)) {
+                $url = $f['url'] ?? '';
+                if (!empty($url) && (str_contains($url, 'localhost') || str_contains($url, '127.0.0.1') || str_starts_with($url, '/'))) {
+                    $f['url'] = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($f['storage_path'] ?? $url);
+                }
+            }
+            return $f;
+        })->all();
+
+        $thumbnailUrl = $currentVersion?->thumbnail_url ?: $artwork?->thumbnail_url;
+        if (!empty($thumbnailUrl) && (str_contains($thumbnailUrl, 'localhost') || str_contains($thumbnailUrl, '127.0.0.1') || str_starts_with($thumbnailUrl, '/'))) {
+            $thumbnailUrl = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($currentVersion?->storage_path ?? $thumbnailUrl);
+        }
+        if (empty($thumbnailUrl)) {
+            $thumbnailUrl = $templateThumbnail;
+        }
+
+        $pdfUrl = $currentVersion?->proof_pdf_url;
+        if (!empty($pdfUrl) && (str_contains($pdfUrl, 'localhost') || str_contains($pdfUrl, '127.0.0.1') || str_starts_with($pdfUrl, '/'))) {
+            $pdfUrl = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($currentVersion?->storage_path ?? $pdfUrl);
+        }
+
+        $hasUploadedProof = !empty($proofFiles) || !empty($currentVersion?->storage_path);
 
         // Customer-safe response
         return response()->json([
@@ -157,18 +206,61 @@ class CustomerOrderReviewController extends Controller
                 'proof' => [
                     'current_version' => $currentVersionNum,
                     'version_label' => 'Proof V' . $currentVersionNum,
-                    'files' => $currentVersion?->proof_files ?? [],
-                    'pdf_url' => $currentVersion?->proof_pdf_url,
-                    'thumbnail_url' => $currentVersion?->thumbnail_url,
+                    'files' => $proofFiles,
+                    'pdf_url' => $pdfUrl,
+                    'thumbnail_url' => $thumbnailUrl,
+                    'template_canvas_json' => $hasUploadedProof
+                        ? null
+                        : ($artwork?->canvas_json
+                            ?? $primaryItem?->designer_canvas_state
+                            ?? $selectedTemplate?->canvas_json),
+                    'template_back_canvas_json' => $hasUploadedProof
+                        ? null
+                        : ((is_array($artwork?->canvas_json) && array_is_list($artwork->canvas_json)
+                            ? ($artwork->canvas_json[1] ?? null)
+                            : null)
+                            ?? $selectedTemplate?->back_canvas_json),
+                    'document_settings' => $artwork?->document_settings ?? ($selectedTemplate ? [
+                        'name' => $selectedTemplate->name,
+                        'width' => $selectedTemplate->width_mm ? (float) $selectedTemplate->width_mm : null,
+                        'height' => $selectedTemplate->height_mm ? (float) $selectedTemplate->height_mm : null,
+                        'unit' => 'mm',
+                        'dpi' => 300,
+                        'bleed' => (float) ($selectedTemplate->bleed_mm ?? 0),
+                        'safeArea' => (float) ($selectedTemplate->safe_area_mm ?? 0),
+                    ] : []),
+                    'dimensions' => [
+                        'width_px' => $currentVersion?->width_px ?? $artwork?->width_px,
+                        'height_px' => $currentVersion?->height_px ?? $artwork?->height_px,
+                        'dpi' => $currentVersion?->dpi ?? $artwork?->dpi,
+                    ],
                     'is_approved' => (bool) ($order->approved_proof_version === $currentVersionNum),
                     'approved_at' => $order->proof_approved_at?->toIso8601String(),
                     'versions' => $versions->map(function ($ver) use ($order) {
+                        $thumb = $ver->thumbnail_url;
+                        if (!empty($thumb) && (str_contains($thumb, 'localhost') || str_contains($thumb, '127.0.0.1') || str_starts_with($thumb, '/'))) {
+                            $thumb = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($ver->storage_path ?? $thumb);
+                        }
+                        $pUrl = $ver->proof_pdf_url;
+                        if (!empty($pUrl) && (str_contains($pUrl, 'localhost') || str_contains($pUrl, '127.0.0.1') || str_starts_with($pUrl, '/'))) {
+                            $pUrl = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($ver->storage_path ?? $pUrl);
+                        }
+                        $pFiles = collect($ver->proof_files ?? [])->map(function ($f) {
+                            if (is_array($f)) {
+                                $url = $f['url'] ?? '';
+                                if (!empty($url) && (str_contains($url, 'localhost') || str_contains($url, '127.0.0.1') || str_starts_with($url, '/'))) {
+                                    $f['url'] = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($f['storage_path'] ?? $url);
+                                }
+                            }
+                            return $f;
+                        })->all();
+
                         return [
                             'version_number' => $ver->version_number,
                             'label' => 'Proof V' . $ver->version_number,
-                            'files' => $ver->proof_files ?? [],
-                            'pdf_url' => $ver->proof_pdf_url,
-                            'thumbnail_url' => $ver->thumbnail_url,
+                            'files' => $pFiles,
+                            'pdf_url' => $pUrl,
+                            'thumbnail_url' => $thumb,
                             'is_approved' => $order->approved_proof_version === $ver->version_number,
                             'uploaded_at' => $ver->created_at->format('d M Y, h:i A'),
                         ];
@@ -176,6 +268,7 @@ class CustomerOrderReviewController extends Controller
                 ],
             ],
         ]);
+
     }
 
     /**
@@ -400,6 +493,8 @@ class CustomerOrderReviewController extends Controller
         ]);
 
         if ($order->payment_status === PaymentStatus::PAID) {
+            $invoice = $this->createAndEmailPaidInvoice($order);
+
             return response()->json([
                 'success' => true,
                 'message' => 'This order is already marked as paid.',
@@ -407,6 +502,7 @@ class CustomerOrderReviewController extends Controller
                     'paid' => true,
                     'order_number' => $order->order_number,
                     'status' => $order->status->value ?? (string) $order->status,
+                    'invoice_number' => $invoice?->invoice_number,
                 ],
             ]);
         }
@@ -419,6 +515,8 @@ class CustomerOrderReviewController extends Controller
             );
 
             if ($result['paid']) {
+                $order->refresh();
+
                 // Advance order to in_production if proof was already approved
                 if ($order->approved_proof_version) {
                     $order->update([
@@ -443,6 +541,8 @@ class CustomerOrderReviewController extends Controller
                     ['receipt' => $result['receipt_number'] ?? null, 'txn' => $result['txn_number'] ?? null]
                 );
 
+                $invoice = $this->createAndEmailPaidInvoice($order);
+
                 // Alert staff
                 $this->notificationService->sendPaymentConfirmedAlert(
                     $order,
@@ -457,6 +557,7 @@ class CustomerOrderReviewController extends Controller
                         'paid' => true,
                         'order_number' => $order->order_number,
                         'receipt_number' => $result['receipt_number'] ?? null,
+                        'invoice_number' => $invoice?->invoice_number,
                         'status' => 'in_production',
                     ],
                 ]);
@@ -480,6 +581,61 @@ class CustomerOrderReviewController extends Controller
                 'success' => false,
                 'message' => 'An unexpected error occurred while verifying your payment.',
             ], 502);
+        }
+    }
+
+    /**
+     * Create and email the invoice only after payment is verified.
+     * Failures are logged without turning a successful payment into a failed response.
+     */
+    protected function createAndEmailPaidInvoice(Order $order): ?Invoice
+    {
+        try {
+            $order->refresh();
+            if ($order->payment_status !== PaymentStatus::PAID) {
+                return null;
+            }
+
+            $order->loadMissing(['user', 'items', 'invoice']);
+            $invoice = $this->invoiceGenerator->issuePaidInvoice($order);
+            $order->setRelation('invoice', $invoice);
+
+            $invoiceCreated = OrderActivity::query()
+                ->where('order_id', $order->id)
+                ->where('event_type', 'invoice_generated')
+                ->exists();
+
+            if (!$invoiceCreated) {
+                OrderActivity::record(
+                    $order->id,
+                    'invoice_generated',
+                    'Paid invoice ' . $invoice->invoice_number . ' created and saved.',
+                    'system',
+                    null,
+                    ['invoice_id' => $invoice->id, 'invoice_number' => $invoice->invoice_number]
+                );
+            }
+
+            $emailAlreadySent = OrderActivity::query()
+                ->where('order_id', $order->id)
+                ->where('event_type', 'invoice_emailed')
+                ->exists();
+
+            if (!$emailAlreadySent && $this->notificationService->sendPaidInvoice($invoice, $order)) {
+                OrderActivity::record(
+                    $order->id,
+                    'invoice_emailed',
+                    'Paid invoice ' . $invoice->invoice_number . ' emailed to the customer.',
+                    'system',
+                    null,
+                    ['invoice_id' => $invoice->id, 'invoice_number' => $invoice->invoice_number]
+                );
+            }
+
+            return $invoice;
+        } catch (Throwable $e) {
+            Log::error('Failed to create or email paid invoice for order ' . $order->order_number . ': ' . $e->getMessage());
+            return null;
         }
     }
 }

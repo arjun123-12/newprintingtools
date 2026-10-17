@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Http\Controllers\Controller;
+use App\Models\Artwork;
+use App\Models\OrderActivity;
 use App\Models\Order;
 use App\Services\Order\ManualOrderService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
@@ -150,7 +153,7 @@ class ManualOrderController extends Controller
         ->firstOrFail();
 
         $activeLink = $order->activeReviewLink;
-        $baseUrl = rtrim(config('app.frontend_url', env('FRONTEND_STORE_URL', 'http://localhost:3000')), '/');
+        $baseUrl = ManualOrderService::getLiveFrontendUrl();
         $reviewUrl = $activeLink ? "{$baseUrl}/orders/review/{$activeLink->token}" : null;
 
         // Primary artwork & version history
@@ -263,6 +266,7 @@ class ManualOrderController extends Controller
             'items.*.unit_price_ex_gst' => ['nullable', 'numeric', 'min:0'],
             'items.*.price' => ['nullable', 'numeric', 'min:0'],
             'items.*.line_total_ex_gst' => ['nullable', 'numeric', 'min:0'],
+            'items.*.options' => ['nullable', 'array'],
             'delivery_method' => ['nullable', 'string', 'max:100'],
             'shipping_fee' => ['nullable', 'numeric', 'min:0'],
         ]);
@@ -302,6 +306,7 @@ class ManualOrderController extends Controller
             'items.*.price' => ['nullable', 'numeric', 'min:0'],
             'items.*.line_total_ex_gst' => ['nullable', 'numeric', 'min:0'],
             'items.*.specifications' => ['nullable', 'string'],
+            'items.*.options' => ['nullable', 'array'],
         ]);
 
         try {
@@ -344,6 +349,7 @@ class ManualOrderController extends Controller
             'items.*.quantity' => ['required_with:items', 'integer', 'min:1'],
             'items.*.unit_price_ex_gst' => ['nullable', 'numeric', 'min:0'],
             'items.*.specifications' => ['nullable', 'string'],
+            'items.*.options' => ['nullable', 'array'],
         ]);
 
         try {
@@ -376,8 +382,9 @@ class ManualOrderController extends Controller
 
         $request->validate([
             'files' => ['required', 'array', 'min:1'],
-            'files.*' => ['file', 'max:51200'], // max 50MB per file
+            'files.*' => ['file', 'mimes:jpg,jpeg,png,svg,pdf', 'max:51200'], // max 50MB per file
             'version' => ['nullable', 'integer', 'min:1'],
+            'order_item_id' => ['nullable', 'string'],
         ]);
 
         try {
@@ -385,7 +392,8 @@ class ManualOrderController extends Controller
                 $order,
                 $request->user(),
                 $request->file('files'),
-                $request->input('version')
+                $request->input('version'),
+                $request->input('order_item_id')
             );
 
             return response()->json([
@@ -400,6 +408,49 @@ class ManualOrderController extends Controller
                 'message' => $e->getMessage() ?: 'Failed to upload proof files.',
             ], 422);
         }
+    }
+
+    /** Attach the artwork created in Designer to a manual order line. */
+    public function attachArtwork(Request $request, string $id, string $itemId): JsonResponse
+    {
+        $validated = $request->validate([
+            'artwork_id' => ['required', 'uuid', 'exists:artworks,id'],
+        ]);
+
+        $order = Order::where('id', $id)->orWhere('order_number', $id)->firstOrFail();
+        $item = $order->items()->where('id', $itemId)->firstOrFail();
+        $artwork = Artwork::findOrFail($validated['artwork_id']);
+
+        if ($item->product_id && $artwork->product_id !== $item->product_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Artwork product does not match this order item.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($order, $item, $artwork, $request) {
+            $artwork->order_id = $order->id;
+            $artwork->save();
+
+            $item->artwork_id = $artwork->id;
+            $item->designer_canvas_state = $artwork->canvas_json;
+            $item->save();
+
+            OrderActivity::record(
+                $order->id,
+                'artwork_linked',
+                'Designer artwork linked to order item.',
+                'admin',
+                $request->user(),
+                ['order_item_id' => $item->id, 'artwork_id' => $artwork->id]
+            );
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Artwork linked to order successfully.',
+            'data' => ['order_id' => $order->id, 'order_item_id' => $item->id, 'artwork_id' => $artwork->id],
+        ]);
     }
 
     /**
@@ -435,7 +486,7 @@ class ManualOrderController extends Controller
 
         try {
             $link = $this->manualOrderService->generateReviewLink($order, $request->user());
-            $baseUrl = rtrim(config('app.frontend_url', env('FRONTEND_STORE_URL', 'http://localhost:3000')), '/');
+            $baseUrl = ManualOrderService::getLiveFrontendUrl();
 
             return response()->json([
                 'success' => true,

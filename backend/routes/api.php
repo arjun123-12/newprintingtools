@@ -630,6 +630,10 @@ Route::middleware(['auth:sanctum', 'admin.access'])
                 \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
                 'uploadProof',
             ]);
+            Route::post('/manual-orders/{id}/items/{itemId}/artwork', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'attachArtwork',
+            ]);
             Route::post('/manual-orders/{id}/send-for-approval', [
                 \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
                 'sendForApproval',

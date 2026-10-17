@@ -9,13 +9,17 @@ export async function renderCanvasJsonToThumbnail(
   json: Record<string, any> | string | undefined | null,
   width: number = 400,
   height: number = 250,
-  fallbackBg: string = '#ffffff'
+  fallbackBg: string = '#ffffff',
+  sourceWidth?: number,
+  sourceHeight?: number
 ): Promise<string | null> {
   if (typeof window === 'undefined') return null;
   if (!json) return null;
 
   try {
     const parsedJson = typeof json === 'string' ? JSON.parse(json) : json;
+    const logicalWidth = Math.max(10, Number(sourceWidth || parsedJson?.width) || width);
+    const logicalHeight = Math.max(10, Number(sourceHeight || parsedJson?.height) || height);
     const canvasEl = document.createElement('canvas');
     canvasEl.width = Math.max(10, width);
     canvasEl.height = Math.max(10, height);
@@ -28,6 +32,10 @@ export async function renderCanvasJsonToThumbnail(
 
     if (parsedJson && (parsedJson.objects?.length > 0 || parsedJson.background)) {
       await staticCanvas.loadFromJSON(parsedJson);
+      const scale = Math.min(canvasEl.width / logicalWidth, canvasEl.height / logicalHeight);
+      const offsetX = (canvasEl.width - logicalWidth * scale) / 2;
+      const offsetY = (canvasEl.height - logicalHeight * scale) / 2;
+      staticCanvas.setViewportTransform([scale, 0, 0, scale, offsetX, offsetY]);
       staticCanvas.renderAll();
     }
 

@@ -13,7 +13,6 @@ import {
   Maximize2,
   ZoomIn,
   ZoomOut,
-  Rotate3d,
 } from 'lucide-react';
 import { DocumentSettings, CanvasDimensions } from '@/types/designer';
 
@@ -24,6 +23,7 @@ interface Artwork3DViewerProps {
   dimensions: CanvasDimensions;
   className?: string;
   isCompact?: boolean;
+  autoRotateInitially?: boolean;
 }
 
 export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
@@ -33,36 +33,40 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
   dimensions,
   className = '',
   isCompact = false,
+  autoRotateInitially,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Rotation angles in degrees
-  const [rotX, setRotX] = useState<number>(isCompact ? 14 : 18);
-  const [rotY, setRotY] = useState<number>(isCompact ? -18 : -26);
+  const [rotX, setRotX] = useState<number>(isCompact ? 10 : 14);
+  const [rotY, setRotY] = useState<number>(isCompact ? -12 : -15);
   const [zoom, setZoom] = useState<number>(1.0);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number; startRotX: number; startRotY: number }>({
     x: 0,
     y: 0,
-    startRotX: 18,
-    startRotY: -26,
+    startRotX: 14,
+    startRotY: -15,
   });
 
-  const [isAutoRotating, setIsAutoRotating] = useState<boolean>(!isCompact);
+  const [isAutoRotating, setIsAutoRotating] = useState<boolean>(
+    autoRotateInitially ?? !isCompact
+  );
   const [materialFinish, setMaterialFinish] = useState<'matte' | 'glossy'>('glossy');
   const [environmentTheme, setEnvironmentTheme] = useState<'dark' | 'studio' | 'clean'>('dark');
 
-  // Auto-rotate animation frame
+  // Gentle front-facing auto-rotate oscillation to prevent the front artwork from disappearing
   useEffect(() => {
     if (!isAutoRotating || isDragging) return;
 
     let animId: number;
-    let lastTime = performance.now();
+    const startTime = performance.now();
 
     const animate = (now: number) => {
-      const delta = (now - lastTime) / 1000;
-      lastTime = now;
-      setRotY((prev) => (prev + delta * 22) % 360);
+      const elapsed = (now - startTime) / 1000;
+      // Oscillate smoothly within -20° to +20° so the front artwork remains in clear view while showcasing 3D depth
+      const angle = Math.sin(elapsed * 1.2) * 20;
+      setRotY(angle);
       animId = requestAnimationFrame(animate);
     };
 
@@ -180,7 +184,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
             <img
               src={previewUrl}
               alt="3D Front Artwork"
-              className="w-full h-full object-cover select-none pointer-events-none block"
+              className="w-full h-full object-contain bg-white select-none pointer-events-none block"
             />
 
             {/* Dynamic Specular Light Glare */}
@@ -217,22 +221,10 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
               <img
                 src={backPreviewUrl}
                 alt="3D Back Artwork"
-                className="w-full h-full object-cover select-none pointer-events-none block"
+                className="w-full h-full object-contain bg-white select-none pointer-events-none block"
               />
             ) : (
-              <div className="p-4 w-full h-full flex flex-col items-center justify-center">
-                <div className="border border-slate-200/80 rounded p-3 w-full h-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-50 to-slate-100">
-                  <div className="w-6 h-6 rounded-full bg-slate-200/80 flex items-center justify-center text-slate-400">
-                    <Rotate3d className="w-3.5 h-3.5" />
-                  </div>
-                  <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400">
-                    {documentSettings.name || 'Commercial Print Product'}
-                  </span>
-                  <span className="text-[9px] text-slate-400 font-mono">
-                    {documentSettings.width} × {documentSettings.height} {documentSettings.unit}
-                  </span>
-                </div>
-              </div>
+              <div className="w-full h-full bg-[#fcfcfc]" />
             )}
 
             {/* Dynamic Back Specular Glare */}

@@ -181,12 +181,46 @@ class ManualOrderService
     }
 
     /**
-     * Upload proof files and attach them as a version to the order.
-     * Supports multiple files (e.g. Front and Back files).
+     * Get authoritative live frontend domain (never localhost).
      */
-    public function uploadProofFiles(Order $order, User $staffUser, array $uploadedFiles, ?int $versionNumber = null): ArtworkVersion
+    public static function getLiveFrontendUrl(): string
     {
-        return DB::transaction(function () use ($order, $staffUser, $uploadedFiles, $versionNumber) {
+        $envUrl = env('LIVE_SITE_URL') ?: env('FRONTEND_STORE_URL');
+        if (!empty($envUrl) && !str_contains($envUrl, 'localhost') && !str_contains($envUrl, '127.0.0.1')) {
+            return rtrim($envUrl, '/');
+        }
+
+        $configUrl = config('app.frontend_url');
+        if (!empty($configUrl) && !str_contains($configUrl, 'localhost') && !str_contains($configUrl, '127.0.0.1')) {
+            return rtrim($configUrl, '/');
+        }
+
+        return 'https://www.erryimprints.com.au';
+    }
+
+    /**
+     * Get authoritative live public HTTPS URL for stored public files (never localhost).
+     */
+    public static function formatLivePublicStorageUrl(string $storagePath): string
+    {
+        $cleanPath = ltrim($storagePath, '/');
+        $cleanPath = preg_replace('#^/?(storage/|public/storage/)?#i', '', $cleanPath);
+
+        $configuredPublic = env('LIVE_STORAGE_URL') ?: env('CLOUDFLARE_R2_PUBLIC_URL');
+        if (!empty($configuredPublic) && !str_contains($configuredPublic, 'localhost') && !str_contains($configuredPublic, '127.0.0.1')) {
+            return rtrim($configuredPublic, '/') . '/' . $cleanPath;
+        }
+
+        return rtrim(static::getLiveFrontendUrl(), '/') . '/storage/' . $cleanPath;
+    }
+
+    /**
+     * Upload proof files and attach them as a version to the order and order item.
+     * Supports multiple files (e.g. Front and Back files, JPG/SVG/PNG/PDF).
+     */
+    public function uploadProofFiles(Order $order, User $staffUser, array $uploadedFiles, ?int $versionNumber = null, ?string $orderItemId = null): ArtworkVersion
+    {
+        return DB::transaction(function () use ($order, $staffUser, $uploadedFiles, $versionNumber, $orderItemId) {
             // Find or create primary Artwork for this order
             $artwork = Artwork::firstOrCreate(
                 ['order_id' => $order->id],
@@ -214,7 +248,7 @@ class ManualOrderService
                     $safeFilename = 'proof_' . $order->order_number . '_v' . $targetVersion . '_' . Str::slug(pathinfo($originalName, PATHINFO_FILENAME)) . '_' . Str::random(6) . '.' . $file->getClientOriginalExtension();
                     
                     $storagePath = $file->storeAs('proofs/' . $order->id, $safeFilename, $disk);
-                    $url = Storage::disk($disk)->url($storagePath);
+                    $url = static::formatLivePublicStorageUrl($storagePath);
 
                     $processedFiles[] = [
                         'label' => $label,
@@ -225,14 +259,15 @@ class ManualOrderService
                         'mime_type' => $file->getMimeType(),
                     ];
 
-                    if (!$primaryUrl) {
+                    if (!$primaryUrl || $label === 'Front') {
                         $primaryUrl = $url;
                         $primaryThumb = $url;
                     }
                 } elseif (is_array($file) && !empty($file['url'])) {
                     // Pre-uploaded or existing reference
                     $processedFiles[] = $file;
-                    if (!$primaryUrl) {
+                    $isBack = ($file['label'] ?? '') === 'Back';
+                    if (!$primaryUrl || !$isBack) {
                         $primaryUrl = $file['url'];
                         $primaryThumb = $file['url'];
                     }
@@ -245,7 +280,7 @@ class ManualOrderService
                 'version_number' => $targetVersion,
                 'file_name' => $processedFiles[0]['file_name'] ?? ('Proof V' . $targetVersion),
                 'file_size_bytes' => $processedFiles[0]['file_size_bytes'] ?? 0,
-                'mime_type' => $processedFiles[0]['mime_type'] ?? 'application/pdf',
+                'mime_type' => $processedFiles[0]['mime_type'] ?? 'image/jpeg',
                 'storage_disk' => $disk,
                 'storage_path' => $processedFiles[0]['storage_path'] ?? null,
                 'proof_pdf_url' => $primaryUrl,
@@ -256,7 +291,7 @@ class ManualOrderService
                 'change_summary' => 'Proof V' . $targetVersion . ' uploaded by ' . ($staffUser->name ?: 'Staff'),
             ]);
 
-            // Update Artwork and Order version pointers
+            // Update Artwork pointers
             $artwork->update([
                 'current_version' => $targetVersion,
                 'proof_pdf_url' => $primaryUrl,
@@ -264,6 +299,23 @@ class ManualOrderService
                 'proof_status' => 'ready',
                 'review_status' => 'pending_review',
             ]);
+
+            // Requirement 3: Attach the uploaded artwork to the correct order item and order
+            $orderItem = null;
+            if (!empty($orderItemId)) {
+                $orderItem = $order->items()->where('id', $orderItemId)->first();
+            }
+            if (!$orderItem) {
+                $orderItem = $order->items()->first();
+            }
+            if ($orderItem) {
+                $orderItem->artwork_id = $artwork->id;
+                $orderItem->save();
+
+                if (empty($artwork->product_id) && !empty($orderItem->product_id)) {
+                    $artwork->update(['product_id' => $orderItem->product_id]);
+                }
+            }
 
             $order->update([
                 'current_proof_version' => $targetVersion,
@@ -367,7 +419,7 @@ class ManualOrderService
                 'status' => OrderStatus::ARTWORK_REVIEW,
             ]);
 
-            $baseUrl = rtrim(config('app.frontend_url', env('FRONTEND_STORE_URL', 'http://localhost:3000')), '/');
+            $baseUrl = static::getLiveFrontendUrl();
             $reviewUrl = "{$baseUrl}/orders/review/{$link->token}";
             $customerEmail = $order->shipping_address['email'] ?? $order->user?->email;
 
@@ -412,9 +464,10 @@ class ManualOrderService
             $link = $this->generateReviewLink($order, $staffUser);
         }
 
-        $baseUrl = rtrim(config('app.frontend_url', env('FRONTEND_STORE_URL', 'http://localhost:3000')), '/');
+        $baseUrl = static::getLiveFrontendUrl();
         $reviewUrl = "{$baseUrl}/orders/review/{$link->token}";
         $customerEmail = $order->shipping_address['email'] ?? $order->user?->email;
+
 
         $type = $order->status === OrderStatus::PENDING_PAYMENT || $order->status === OrderStatus::APPROVED ? 'payment' : 'approval';
         $sent = $this->notificationService->sendProofReminder($order, $reviewUrl, $customerEmail, $type);

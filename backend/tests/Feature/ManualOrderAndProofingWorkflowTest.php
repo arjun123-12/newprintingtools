@@ -445,4 +445,143 @@ class ManualOrderAndProofingWorkflowTest extends TestCase
         $order->refresh();
         $this->assertEquals(OrderStatus::IN_PRODUCTION, $order->status);
     }
+
+    public function test_staff_can_upload_jpg_and_svg_artwork_attaches_to_order_item_and_stores_live_urls(): void
+    {
+        Sanctum::actingAs($this->adminUser);
+
+        $order = Order::create([
+            'order_number' => 'MO-TEST-ARTWORK',
+            'user_id' => $this->customerUser->id,
+            'status' => OrderStatus::DRAFT,
+            'payment_status' => PaymentStatus::UNPAID,
+            'subtotal_ex_gst' => 100.00,
+            'gst_amount' => 10.00,
+            'shipping_fee_inc_gst' => 0.00,
+            'total_inc_gst' => 110.00,
+            'shipping_address' => ['email' => $this->customerUser->email],
+            'billing_address' => ['email' => $this->customerUser->email],
+        ]);
+
+        $item = OrderItem::create([
+            'order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->name,
+            'product_sku' => $this->product->sku,
+            'quantity' => 500,
+            'unit_price_ex_gst' => 100.00,
+            'unit_price_inc_gst' => 110.00,
+            'total_price_inc_gst' => 110.00,
+            'options_snapshot' => ['specifications' => '350gsm Silk'],
+        ]);
+
+        // Upload a JPG front file and an SVG back file
+        $jpgFile = UploadedFile::fake()->create('front_card.jpg', 800, 'image/jpeg');
+        $svgFile = UploadedFile::fake()->create('back_card.svg', 150, 'image/svg+xml');
+
+        $response = $this->postJson("/api/v1/admin/manual-orders/{$order->id}/proofs", [
+            'files' => [$jpgFile, $svgFile],
+            'order_item_id' => $item->id,
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true);
+
+        // Verify artwork was created and linked to order and order item
+        $this->assertDatabaseHas('artworks', [
+            'order_id' => $order->id,
+            'product_id' => $this->product->id,
+        ]);
+
+        $artwork = Artwork::where('order_id', $order->id)->first();
+        $this->assertNotNull($artwork);
+
+        $item->refresh();
+        $this->assertEquals($artwork->id, $item->artwork_id, 'Artwork must be attached to the order item');
+
+        // Verify storage file paths and live HTTPS public URLs (never localhost)
+        $latestVersion = ArtworkVersion::where('artwork_id', $artwork->id)->latest('version_number')->first();
+        $this->assertNotNull($latestVersion);
+        $this->assertCount(2, $latestVersion->proof_files);
+
+        foreach ($latestVersion->proof_files as $fileEntry) {
+            Storage::disk('public')->assertExists($fileEntry['storage_path']);
+            $this->assertStringStartsWith('https://', $fileEntry['url'], 'Artwork public URL must be HTTPS');
+            $this->assertStringNotContainsString('localhost', $fileEntry['url'], 'Artwork URL must not contain localhost');
+            $this->assertStringNotContainsString('127.0.0.1', $fileEntry['url'], 'Artwork URL must not contain 127.0.0.1');
+        }
+
+        $this->assertStringStartsWith('https://', $latestVersion->thumbnail_url);
+        $this->assertStringNotContainsString('localhost', $latestVersion->thumbnail_url);
+    }
+
+    public function test_customer_review_portal_prefers_uploaded_artwork_over_template_and_uses_live_https_urls(): void
+    {
+        Sanctum::actingAs($this->adminUser);
+
+        $order = Order::create([
+            'order_number' => 'MO-TEST-REVIEW',
+            'user_id' => $this->customerUser->id,
+            'status' => OrderStatus::DRAFT,
+            'payment_status' => PaymentStatus::UNPAID,
+            'subtotal_ex_gst' => 100.00,
+            'gst_amount' => 10.00,
+            'shipping_fee_inc_gst' => 0.00,
+            'total_inc_gst' => 110.00,
+            'shipping_address' => ['email' => $this->customerUser->email],
+            'billing_address' => ['email' => $this->customerUser->email],
+        ]);
+
+        // Order item configured with optional template metadata
+        $item = OrderItem::create([
+            'order_id' => $order->id,
+            'product_id' => $this->product->id,
+            'product_name' => $this->product->name,
+            'product_sku' => $this->product->sku,
+            'quantity' => 100,
+            'unit_price_ex_gst' => 100.00,
+            'unit_price_inc_gst' => 110.00,
+            'total_price_inc_gst' => 110.00,
+            'options_snapshot' => [
+                'template_id' => 'tpl_dummy_fallback',
+                'template_name' => 'Optional Template Fallback',
+                'template_thumbnail_url' => 'https://www.erryimprints.com.au/storage/templates/dummy_thumb.jpg',
+            ],
+        ]);
+
+        // Upload single JPG artwork (Front only, no back artwork)
+        $jpgFile = UploadedFile::fake()->create('brand_front.jpg', 600, 'image/jpeg');
+        $this->postJson("/api/v1/admin/manual-orders/{$order->id}/proofs", [
+            'files' => [$jpgFile],
+            'order_item_id' => $item->id,
+        ])->assertStatus(200);
+
+        // Send for approval to generate review link
+        $approvalRes = $this->postJson("/api/v1/admin/manual-orders/{$order->id}/send-for-approval");
+        $approvalRes->assertStatus(200);
+        $reviewUrl = $approvalRes->json('data.review_url');
+        $token = $approvalRes->json('data.token');
+
+        $this->assertStringStartsWith('https://', $reviewUrl, 'Review URL must be live HTTPS');
+        $this->assertStringNotContainsString('localhost', $reviewUrl);
+        $this->assertStringNotContainsString('127.0.0.1', $reviewUrl);
+
+        // Customer opens public review portal
+        $reviewResponse = $this->getJson("/api/v1/order-review/{$token}");
+        $reviewResponse->assertStatus(200)
+            ->assertJsonPath('success', true);
+
+        $proofData = $reviewResponse->json('data.proof');
+        $this->assertNotEmpty($proofData['files']);
+        $this->assertStringEndsWith('brand_front.jpg', $proofData['files'][0]['file_name']);
+
+        // Uploaded artwork is preferred over template preview
+        $this->assertEquals($proofData['files'][0]['url'], $proofData['thumbnail_url'], 'Uploaded artwork must be preferred over template fallback thumbnail');
+        $this->assertNull($proofData['template_canvas_json'], 'Template canvas must not overwrite uploaded artwork preview');
+
+        // Front URL uses live domain
+        $this->assertStringStartsWith('https://', $proofData['thumbnail_url']);
+        $this->assertStringNotContainsString('localhost', $proofData['thumbnail_url']);
+    }
 }
+

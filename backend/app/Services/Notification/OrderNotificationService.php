@@ -3,6 +3,7 @@
 namespace App\Services\Notification;
 
 use App\Models\CustomerEnquiry;
+use App\Models\Invoice;
 use App\Models\Order;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -247,6 +248,100 @@ class OrderNotificationService
             });
         } catch (Throwable $e) {
             Log::warning("Failed sending payment confirmed alert to staff: {$e->getMessage()}");
+        }
+    }
+
+    /**
+     * Email the paid invoice to the customer after the gateway verifies payment.
+     */
+    public function sendPaidInvoice(Invoice $invoice, Order $order): bool
+    {
+        $customerEmail = $order->shipping_address['email'] ?? $order->user?->email;
+        if (!$customerEmail) {
+            Log::warning("Paid invoice {$invoice->invoice_number} has no customer email for order {$order->order_number}");
+            return false;
+        }
+
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $escape = static fn ($value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $customerName = $escape($order->shipping_address['name'] ?? $order->user?->name ?? 'Customer');
+
+        $rows = $order->items->map(function ($item) use ($escape): string {
+            $name = $escape($item->product_name ?: 'Print product');
+            $qty = (int) $item->quantity;
+            $unitPrice = number_format((float) ($item->unit_price_ex_gst ?? 0), 2);
+            $lineTotal = number_format((float) ($item->total_price_inc_gst ?? 0), 2);
+            $unitPriceLabel = 'AUD $' . $unitPrice;
+            $lineTotalLabel = 'AUD $' . $lineTotal;
+
+            return "<tr><td style=\"padding:10px;border-bottom:1px solid #e2e8f0\">{$name}</td>"
+                . "<td style=\"padding:10px;text-align:center;border-bottom:1px solid #e2e8f0\">{$qty}</td>"
+                . "<td style=\"padding:10px;text-align:right;border-bottom:1px solid #e2e8f0\">{$unitPriceLabel}</td>"
+                . "<td style=\"padding:10px;text-align:right;border-bottom:1px solid #e2e8f0\">{$lineTotalLabel}</td></tr>";
+        })->implode('');
+
+        $subtotal = number_format((float) $order->subtotal_ex_gst, 2);
+        $gst = number_format((float) $order->gst_amount, 2);
+        $shipping = number_format((float) $order->shipping_fee_inc_gst, 2);
+        $discount = number_format((float) $order->discount_amount, 2);
+        $total = number_format((float) $order->total_inc_gst, 2);
+        $subtotalLabel = 'AUD $' . $subtotal;
+        $gstLabel = 'AUD $' . $gst;
+        $shippingLabel = 'AUD $' . $shipping;
+        $discountLabel = 'AUD $' . $discount;
+        $totalLabel = 'AUD $' . $total;
+        $issuedAt = $invoice->issued_at?->format('d M Y') ?? now()->format('d M Y');
+        $invoiceNumber = $escape($invoice->invoice_number);
+        $orderNumber = $escape($order->order_number);
+        $safeIssuedAt = $escape($issuedAt);
+
+        $html = <<<HTML
+<!doctype html>
+<html><body style="margin:0;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a">
+  <div style="max-width:720px;margin:24px auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden">
+    <div style="padding:24px;background:#0f172a;color:#fff">
+      <h1 style="margin:0;font-size:22px">Erry Imprints</h1>
+      <p style="margin:8px 0 0;color:#cbd5e1">Paid invoice</p>
+    </div>
+    <div style="padding:24px">
+      <p>Hi {$customerName},</p>
+      <p>We have confirmed your payment. Here is your invoice and order record.</p>
+      <table style="width:100%;margin:20px 0;border-collapse:collapse">
+        <tr><td style="padding:6px 0;color:#64748b">Invoice</td><td style="text-align:right;font-weight:bold">{$invoiceNumber}</td></tr>
+        <tr><td style="padding:6px 0;color:#64748b">Order</td><td style="text-align:right">{$orderNumber}</td></tr>
+        <tr><td style="padding:6px 0;color:#64748b">Issue date</td><td style="text-align:right">{$safeIssuedAt}</td></tr>
+        <tr><td style="padding:6px 0;color:#64748b">Status</td><td style="text-align:right;color:#059669;font-weight:bold">PAID</td></tr>
+      </table>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#f1f5f9"><th style="padding:10px;text-align:left">Item</th><th style="padding:10px">Qty</th><th style="padding:10px;text-align:right">Unit (ex GST)</th><th style="padding:10px;text-align:right">Line total</th></tr></thead>
+        <tbody>{$rows}</tbody>
+      </table>
+      <table style="width:100%;max-width:340px;margin:18px 0 0 auto;font-size:13px">
+        <tr><td style="padding:5px;color:#64748b">Subtotal (ex GST)</td><td style="text-align:right">{$subtotalLabel}</td></tr>
+        <tr><td style="padding:5px;color:#64748b">GST</td><td style="text-align:right">{$gstLabel}</td></tr>
+        <tr><td style="padding:5px;color:#64748b">Shipping</td><td style="text-align:right">{$shippingLabel}</td></tr>
+        <tr><td style="padding:5px;color:#64748b">Discount</td><td style="text-align:right">− {$discountLabel}</td></tr>
+        <tr><td style="padding:10px 5px;border-top:1px solid #cbd5e1;font-weight:bold">Total paid (AUD)</td><td style="padding:10px 5px;border-top:1px solid #cbd5e1;text-align:right;font-weight:bold">{$totalLabel}</td></tr>
+      </table>
+      <p style="margin-top:24px;color:#64748b;font-size:13px">Thank you for choosing Erry Imprints.</p>
+    </div>
+  </div>
+</body></html>
+HTML;
+
+        try {
+            Mail::html($html, function ($message) use ($customerEmail, $invoice, $order, $fromEmail, $fromName) {
+                $message->to($customerEmail)
+                    ->from($fromEmail, $fromName)
+                    ->replyTo($fromEmail, $fromName)
+                    ->subject("Paid Invoice {$invoice->invoice_number} - Order {$order->order_number} | Erry Imprints");
+            });
+            Log::info("Paid invoice {$invoice->invoice_number} emailed to {$customerEmail}");
+            return true;
+        } catch (Throwable $e) {
+            Log::warning("Could not email paid invoice {$invoice->invoice_number} to {$customerEmail}: {$e->getMessage()}");
+            return false;
         }
     }
 

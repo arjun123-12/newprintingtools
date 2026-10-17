@@ -47,9 +47,6 @@ class AdminInvoiceController extends Controller
         $dateFrom = $request->query('date_from');
         $dateTo = $request->query('date_to');
 
-        // Ensure all existing orders have linked invoices in the database
-        $this->ensureInvoicesForOrders();
-
         $query = Order::query()
             ->with([
                 'user:id,name,email,phone,company_name,abn,role',
@@ -184,12 +181,6 @@ class AdminInvoiceController extends Controller
                 'success' => false,
                 'message' => 'Invoice or Order not found',
             ], 404);
-        }
-
-        // Ensure invoice relation exists
-        if (!$order->invoice) {
-            $this->ensureInvoicesForOrders();
-            $order->load('invoice');
         }
 
         return response()->json([
