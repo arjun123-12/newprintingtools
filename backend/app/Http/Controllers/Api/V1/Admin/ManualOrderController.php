@@ -34,7 +34,7 @@ class ManualOrderController extends Controller
             ->with([
                 'user:id,name,email,company_name,phone',
                 'items.product:id,name,slug',
-                'activeReviewLink:id,order_id,token,status,open_count,last_opened_at,expires_at',
+               'activeReviewLink',
                 'payments:id,order_id,amount,status,transaction_id,created_at',
             ])
             ->latest('created_at');
