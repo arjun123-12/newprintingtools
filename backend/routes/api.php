@@ -109,6 +109,36 @@ Route::prefix('client-brief')
             ->middleware('throttle:20,1');
     });
 
+// Customer Proof Review & Approval Portal (unguessable token link)
+Route::prefix('order-review')
+    ->middleware('throttle:60,1')
+    ->group(function () {
+        Route::get('/{token}', [
+            \App\Http\Controllers\Api\V1\Public\CustomerOrderReviewController::class,
+            'show',
+        ])->where('token', '[A-Za-z0-9_-]+');
+
+        Route::post('/{token}/request-changes', [
+            \App\Http\Controllers\Api\V1\Public\CustomerOrderReviewController::class,
+            'requestChanges',
+        ])->where('token', '[A-Za-z0-9_-]+')->middleware('throttle:20,1');
+
+        Route::post('/{token}/approve', [
+            \App\Http\Controllers\Api\V1\Public\CustomerOrderReviewController::class,
+            'approve',
+        ])->where('token', '[A-Za-z0-9_-]+')->middleware('throttle:20,1');
+
+        Route::post('/{token}/payment-session', [
+            \App\Http\Controllers\Api\V1\Public\CustomerOrderReviewController::class,
+            'createPaymentSession',
+        ])->where('token', '[A-Za-z0-9_-]+')->middleware('throttle:20,1');
+
+        Route::post('/{token}/process-payment', [
+            \App\Http\Controllers\Api\V1\Public\CustomerOrderReviewController::class,
+            'processPayment',
+        ])->where('token', '[A-Za-z0-9_-]+')->middleware('throttle:20,1');
+    });
+
 // Catalog
 Route::prefix('products')->group(function () {
     Route::get('/', [
@@ -573,6 +603,52 @@ Route::middleware(['auth:sanctum', 'admin.access'])
             Route::patch('/orders/{id}/status', [
                 App\Http\Controllers\Api\V1\Admin\AdminOrderController::class,
                 'updateStatus',
+            ]);
+
+            // Manual Orders & Proofing Portal (permission: orders)
+            Route::get('/manual-orders', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'index',
+            ]);
+            Route::post('/manual-orders/calculate', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'calculate',
+            ]);
+            Route::post('/manual-orders', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'store',
+            ]);
+            Route::get('/manual-orders/{id}', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'show',
+            ]);
+            Route::put('/manual-orders/{id}', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'update',
+            ]);
+            Route::post('/manual-orders/{id}/proofs', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'uploadProof',
+            ]);
+            Route::post('/manual-orders/{id}/send-for-approval', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'sendForApproval',
+            ]);
+            Route::post('/manual-orders/{id}/regenerate-link', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'regenerateLink',
+            ]);
+            Route::post('/manual-orders/{id}/revoke-link', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'revokeLink',
+            ]);
+            Route::post('/manual-orders/{id}/send-reminder', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'sendReminder',
+            ]);
+            Route::post('/manual-orders/{id}/move-to-production', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'moveToProduction',
             ]);
         });
 

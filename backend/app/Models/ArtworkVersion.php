@@ -21,6 +21,7 @@ class ArtworkVersion extends Model
         'storage_path',
         'thumbnail_url',
         'proof_pdf_url',
+        'proof_files',
         'width_px',
         'height_px',
         'dpi',
@@ -37,6 +38,7 @@ class ArtworkVersion extends Model
         'width_px' => 'integer',
         'height_px' => 'integer',
         'dpi' => 'integer',
+        'proof_files' => 'array',
         'preflight_results' => 'array',
         'is_approved' => 'boolean',
     ];

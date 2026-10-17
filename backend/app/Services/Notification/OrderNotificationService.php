@@ -116,4 +116,175 @@ class OrderNotificationService
             Log::warning("Could not send artwork update email via SMTP: {$e->getMessage()}");
         }
     }
+
+    /**
+     * Send proof review invitation with secure private link to customer.
+     * Note: Internal notes are strictly excluded.
+     */
+    public function sendProofReviewInvitation(Order $order, string $reviewUrl, string $customerEmail): bool
+    {
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $customerName = $order->user?->name ?? 'Valued Customer';
+        $orderNumber = $order->order_number;
+        $proofVersion = 'V' . ($order->current_proof_version ?? 1);
+
+        $customerNotesText = !empty($order->customer_notes)
+            ? "\nSpecial Note from our team:\n\"{$order->customer_notes}\"\n"
+            : "";
+
+        $body = "Dear {$customerName},\n\n"
+            . "Your artwork proof ({$proofVersion}) for order {$orderNumber} is ready for review.\n\n"
+            . "Please review your proof carefully, verify all dimensions and contact details, and approve for printing or request changes using your secure review link:\n\n"
+            . "{$reviewUrl}\n"
+            . $customerNotesText . "\n"
+            . "Once approved, you can complete payment directly on the portal to begin production immediately.\n\n"
+            . "Warm regards,\n"
+            . "Erry Imprints Prepress Team\n"
+            . "orders@erryimprints.com.au";
+
+        try {
+            Mail::raw($body, function ($message) use ($customerEmail, $orderNumber, $fromEmail, $fromName) {
+                $message->to($customerEmail)
+                    ->from($fromEmail, $fromName)
+                    ->replyTo($fromEmail, $fromName)
+                    ->subject("Artwork Proof Ready for Review: {$orderNumber} | Erry Imprints");
+            });
+            Log::info("Proof review invitation sent successfully to {$customerEmail} for {$orderNumber}");
+            return true;
+        } catch (Throwable $e) {
+            Log::warning("Failed sending proof review email to {$customerEmail}: {$e->getMessage()}");
+            return false;
+        }
+    }
+
+    /**
+     * Alert staff when a customer submits a change request.
+     */
+    public function sendChangeRequestAlert(Order $order, string $comment): void
+    {
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $linkedAdminEmail = env('ADMIN_ORDER_NOTIFICATION_EMAIL', env('ADMIN_NOTIFICATION_EMAIL', self::LINKED_ADMIN_EMAIL));
+        $orderNumber = $order->order_number;
+        $customerName = $order->user?->name ?? 'Customer';
+
+        $body = "⚠️ Customer Requested Changes on Order {$orderNumber}\n\n"
+            . "Customer: {$customerName} ({$order->user?->email})\n"
+            . "Order Total: AUD $" . number_format((float) $order->total_inc_gst, 2) . "\n"
+            . "Date: " . now()->toRfc850String() . "\n\n"
+            . "Customer Change Notes:\n"
+            . "----------------------------------------\n"
+            . "{$comment}\n"
+            . "----------------------------------------\n\n"
+            . "Please prepare a revised proof (V" . (($order->current_proof_version ?? 1) + 1) . ") in the Admin Portal.";
+
+        try {
+            Mail::raw($body, function ($message) use ($linkedAdminEmail, $orderNumber, $fromEmail, $fromName) {
+                $message->to($linkedAdminEmail)
+                    ->from($fromEmail, $fromName)
+                    ->subject("⚠️ Artwork Change Requested: {$orderNumber} | Erry Imprints");
+            });
+        } catch (Throwable $e) {
+            Log::warning("Failed sending change request alert to staff: {$e->getMessage()}");
+        }
+    }
+
+    /**
+     * Alert staff when a customer approves their artwork proof.
+     */
+    public function sendProofApprovalAlert(Order $order, int $version): void
+    {
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $linkedAdminEmail = env('ADMIN_ORDER_NOTIFICATION_EMAIL', env('ADMIN_NOTIFICATION_EMAIL', self::LINKED_ADMIN_EMAIL));
+        $orderNumber = $order->order_number;
+        $customerName = $order->user?->name ?? 'Customer';
+
+        $body = "✅ Artwork Proof Approved: Order {$orderNumber}\n\n"
+            . "Customer: {$customerName} ({$order->user?->email})\n"
+            . "Approved Version: Proof V{$version}\n"
+            . "Approved At: " . now()->toRfc850String() . "\n"
+            . "Payment Status: " . strtoupper($order->payment_status->value ?? (string) $order->payment_status) . "\n\n"
+            . "Order is waiting for payment confirmation before advancing to production.";
+
+        try {
+            Mail::raw($body, function ($message) use ($linkedAdminEmail, $orderNumber, $version, $fromEmail, $fromName) {
+                $message->to($linkedAdminEmail)
+                    ->from($fromEmail, $fromName)
+                    ->subject("✅ Artwork Proof Approved (V{$version}): {$orderNumber} | Erry Imprints");
+            });
+        } catch (Throwable $e) {
+            Log::warning("Failed sending proof approval alert to staff: {$e->getMessage()}");
+        }
+    }
+
+    /**
+     * Alert staff when payment is confirmed for an order.
+     */
+    public function sendPaymentConfirmedAlert(Order $order, float $amount, ?string $transactionId = null): void
+    {
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $linkedAdminEmail = env('ADMIN_ORDER_NOTIFICATION_EMAIL', env('ADMIN_NOTIFICATION_EMAIL', self::LINKED_ADMIN_EMAIL));
+        $orderNumber = $order->order_number;
+        $customerName = $order->user?->name ?? 'Customer';
+
+        $body = "💳 Payment Confirmed for Order {$orderNumber}\n\n"
+            . "Customer: {$customerName} ({$order->user?->email})\n"
+            . "Amount: AUD $" . number_format($amount, 2) . "\n"
+            . "Gateway: BPOINT\n"
+            . "Transaction ID: " . ($transactionId ?? 'N/A') . "\n"
+            . "Order Status: IN PRODUCTION\n"
+            . "Timestamp: " . now()->toRfc850String() . "\n\n"
+            . "Order has automatically entered the production print queue.";
+
+        try {
+            Mail::raw($body, function ($message) use ($linkedAdminEmail, $orderNumber, $fromEmail, $fromName) {
+                $message->to($linkedAdminEmail)
+                    ->from($fromEmail, $fromName)
+                    ->subject("💳 Payment Received: {$orderNumber} - AUD In Production | Erry Imprints");
+            });
+        } catch (Throwable $e) {
+            Log::warning("Failed sending payment confirmed alert to staff: {$e->getMessage()}");
+        }
+    }
+
+    /**
+     * Send proof or payment reminder to customer with frequency check.
+     */
+    public function sendProofReminder(Order $order, string $reviewUrl, string $customerEmail, string $type = 'approval'): bool
+    {
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $customerName = $order->user?->name ?? 'Valued Customer';
+        $orderNumber = $order->order_number;
+        $proofVersion = 'V' . ($order->current_proof_version ?? 1);
+
+        $subject = $type === 'payment'
+            ? "Payment Reminder: Order {$orderNumber} | Erry Imprints"
+            : "Artwork Review Reminder: Order {$orderNumber} ({$proofVersion}) | Erry Imprints";
+
+        $body = "Dear {$customerName},\n\n"
+            . "This is a friendly reminder regarding your order {$orderNumber}.\n\n"
+            . ($type === 'payment'
+                ? "Your artwork proof has been approved! Please complete your payment to begin production:\n\n{$reviewUrl}\n\n"
+                : "Your artwork proof ({$proofVersion}) is awaiting your review and approval:\n\n{$reviewUrl}\n\n")
+            . "Warm regards,\n"
+            . "Erry Imprints Prepress Team\n"
+            . "orders@erryimprints.com.au";
+
+        try {
+            Mail::raw($body, function ($message) use ($customerEmail, $subject, $fromEmail, $fromName) {
+                $message->to($customerEmail)
+                    ->from($fromEmail, $fromName)
+                    ->replyTo($fromEmail, $fromName)
+                    ->subject($subject);
+            });
+            return true;
+        } catch (Throwable $e) {
+            Log::warning("Failed sending reminder email to {$customerEmail}: {$e->getMessage()}");
+            return false;
+        }
+    }
 }

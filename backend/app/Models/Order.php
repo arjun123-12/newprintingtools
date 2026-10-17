@@ -26,12 +26,18 @@ class Order extends Model
         'discount_amount',
         'total_inc_gst',
         'currency',
+        'delivery_method',
         'shipping_address',
         'billing_address',
         'shipping_carrier',
         'tracking_number',
         'customer_notes',
         'admin_notes',
+        'current_proof_version',
+        'approved_proof_version',
+        'proof_approved_at',
+        'proof_approved_by',
+        'reminder_sent_at',
     ];
 
     protected $casts = [
@@ -44,6 +50,10 @@ class Order extends Model
         'total_inc_gst' => 'decimal:2',
         'shipping_address' => 'array',
         'billing_address' => 'array',
+        'current_proof_version' => 'integer',
+        'approved_proof_version' => 'integer',
+        'proof_approved_at' => 'datetime',
+        'reminder_sent_at' => 'datetime',
     ];
 
     public function user(): BelongsTo
@@ -54,6 +64,37 @@ class Order extends Model
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);
+    }
+
+    public function artworks(): HasMany
+    {
+        return $this->hasMany(Artwork::class);
+    }
+
+    public function primaryArtwork(): HasOne
+    {
+        return $this->hasOne(Artwork::class)->latestOfMany();
+    }
+
+    public function reviewLinks(): HasMany
+    {
+        return $this->hasMany(OrderReviewLink::class)->latest();
+    }
+
+    public function activeReviewLink(): HasOne
+    {
+        return $this->hasOne(OrderReviewLink::class)
+            ->where('status', 'active')
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->whereNull('revoked_at')
+            ->latestOfMany();
+    }
+
+    public function activities(): HasMany
+    {
+        return $this->hasMany(OrderActivity::class)->latest();
     }
 
     public function payments(): HasMany
