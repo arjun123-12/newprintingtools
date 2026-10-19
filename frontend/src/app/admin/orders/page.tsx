@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { manualOrderService, ManualOrderListItem } from '@/services/admin/manualOrderService';
-import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle } from 'lucide-react';
+import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle, Trash2 } from 'lucide-react';
 
 type FilterTab = 'all' | 'draft' | 'artwork_review' | 'changes_requested' | 'in_production' | 'dispatched' | 'delivered';
 
@@ -72,6 +72,20 @@ export default function AdminOrdersPage() {
     }, 250);
     return () => clearTimeout(timer);
   }, [loadOrders]);
+
+  const handleDeleteOrder = async (orderId: string, orderNumber: string) => {
+    if (!confirm(`Are you sure you want to permanently delete order ${orderNumber} directly from the database? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      const res = await manualOrderService.deleteOrder(orderId);
+      if (res.success) {
+        setOrders((prev) => prev.filter((o) => o.id !== orderId));
+      }
+    } catch (err: any) {
+      alert(err?.response?.data?.message || 'Failed to delete order from database.');
+    }
+  };
 
   return (
     <div className="flex-1 p-8 space-y-6 overflow-y-auto">
@@ -236,13 +250,23 @@ export default function AdminOrdersPage() {
                       {order.date}
                     </td>
                     <td className="px-6 py-4 text-right whitespace-nowrap">
-                      <Link
-                        href={`/admin/orders/${order.id}`}
-                        className="inline-flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 font-medium transition-colors"
-                      >
-                        <span>Manage</span>
-                        <span>→</span>
-                      </Link>
+                      <div className="flex items-center justify-end gap-3">
+                        <Link
+                          href={`/admin/orders/${order.id}`}
+                          className="inline-flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 font-medium transition-colors"
+                        >
+                          <span>Manage</span>
+                          <span>→</span>
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteOrder(order.id, order.order_number)}
+                          className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          title="Delete permanently from database"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

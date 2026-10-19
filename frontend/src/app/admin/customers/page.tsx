@@ -20,6 +20,10 @@ import {
   SlidersHorizontal,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Mail,
   Phone,
   Calendar,
@@ -37,8 +41,10 @@ import {
   ArrowUpRight,
   ShieldAlert,
   FileSpreadsheet,
+  UserPlus,
 } from 'lucide-react';
 import CustomerImportModal from '@/components/admin/customers/CustomerImportModal';
+import CreateCustomerModal from '@/components/admin/customers/CreateCustomerModal';
 
 export default function AdminCustomersPage() {
   const [customers, setCustomers] = useState<CustomerItem[]>([]);
@@ -54,6 +60,10 @@ export default function AdminCustomersPage() {
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'artworks' | 'name'>('newest');
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(20);
+
   // Expanded customer artworks accordion
   const [expandedCustomerIds, setExpandedCustomerIds] = useState<Set<number>>(new Set());
 
@@ -65,6 +75,9 @@ export default function AdminCustomersPage() {
 
   // CSV Customer Import Modal
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
+
+  // Create Customer Modal
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
 
   // Fetch customer & artwork data
   const loadData = async (isManualRefresh = false) => {
@@ -197,6 +210,55 @@ export default function AdminCustomersPage() {
     return result;
   }, [customers, activeTab, roleFilter, searchQuery, sortBy]);
 
+  // Reset pagination when any filter, search, tab, role, or sort changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, activeTab, roleFilter, sortBy, pageSize]);
+
+  // Paginated Customers calculation
+  const totalCustomers = filteredCustomers.length;
+  const totalPages = Math.max(1, Math.ceil(totalCustomers / pageSize));
+
+  const paginatedCustomers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredCustomers.slice(start, start + pageSize);
+  }, [filteredCustomers, currentPage, pageSize]);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    setCurrentPage(newPage);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 280, behavior: 'smooth' });
+    }
+  };
+
+  const getPaginationRange = () => {
+    const delta = 1;
+    const range: (number | string)[] = [];
+    const rangeWithDots: (number | string)[] = [];
+    let l: number | undefined;
+
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+        range.push(i);
+      }
+    }
+
+    for (const i of range) {
+      if (l !== undefined) {
+        if ((i as number) - l === 2) {
+          rangeWithDots.push(l + 1);
+        } else if ((i as number) - l !== 1) {
+          rangeWithDots.push('...');
+        }
+      }
+      rangeWithDots.push(i);
+      l = i as number;
+    }
+
+    return rangeWithDots;
+  };
+
   // Filtered Guest Artworks
   const filteredGuestArtworks = useMemo(() => {
     if (searchQuery.trim() === '') return guestArtworks;
@@ -275,8 +337,18 @@ export default function AdminCustomersPage() {
         <div className="flex items-center gap-2.5">
           <button
             type="button"
+            onClick={() => setIsCreateModalOpen(true)}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition shadow-sm cursor-pointer"
+            title="Create a new customer account"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            Add Customer
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsImportModalOpen(true)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition shadow-sm"
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 transition shadow-sm"
             title="Import customers from CSV"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -616,13 +688,28 @@ export default function AdminCustomersPage() {
         ) : (
           /* ─── Customers List with Accordion Artworks ─────────────────── */
           <div className="space-y-4">
-            <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400 px-1 pb-1">
               <span>
-                Showing <strong>{filteredCustomers.length}</strong> customer{filteredCustomers.length !== 1 ? 's' : ''}
+                Showing <strong>{totalCustomers === 0 ? 0 : (currentPage - 1) * pageSize + 1}</strong>–<strong>{Math.min(currentPage * pageSize, totalCustomers)}</strong> of <strong>{totalCustomers}</strong> customer{totalCustomers !== 1 ? 's' : ''}
+                {searchQuery && ` (filtered from ${customers.length} total)`}
               </span>
+
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500 text-xs">Per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded-lg px-2.5 py-1 focus:outline-none focus:border-sky-500 cursor-pointer"
+                >
+                  <option value={10}>10 per page</option>
+                  <option value={20}>20 per page</option>
+                  <option value={50}>50 per page</option>
+                  <option value={100}>100 per page</option>
+                </select>
+              </div>
             </div>
 
-            {filteredCustomers.map((customer) => {
+            {paginatedCustomers.map((customer) => {
               const isExpanded = expandedCustomerIds.has(customer.id);
               const artworkList = customer.artworks || [];
               const hasArtworks = artworkList.length > 0;
@@ -785,6 +872,104 @@ export default function AdminCustomersPage() {
                 </div>
               );
             })}
+
+            {/* ─── Bottom Pagination Controls ───────────────────────── */}
+            {totalPages > 1 && (
+              <div className="mt-6 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-sm">
+                <div className="text-xs text-slate-400">
+                  Showing <strong>{totalCustomers === 0 ? 0 : (currentPage - 1) * pageSize + 1}</strong> to <strong>{Math.min(currentPage * pageSize, totalCustomers)}</strong> of <strong>{totalCustomers}</strong> accounts
+                  <span className="text-slate-600 mx-2">|</span>
+                  Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(1)}
+                    disabled={currentPage === 1}
+                    className="p-1.5 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition"
+                    title="First page"
+                  >
+                    <ChevronsLeft className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition inline-flex items-center gap-1"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span className="hidden sm:inline">Prev</span>
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    {getPaginationRange().map((page, idx) => {
+                      if (page === '...') {
+                        return (
+                          <span key={`dots-${idx}`} className="px-2 text-slate-600 text-xs select-none">
+                            ...
+                          </span>
+                        );
+                      }
+                      const isCurrent = page === currentPage;
+                      return (
+                        <button
+                          key={`page-${page}`}
+                          type="button"
+                          onClick={() => handlePageChange(Number(page))}
+                          className={`min-w-8 h-8 px-2 rounded-lg text-xs font-semibold transition ${
+                            isCurrent
+                              ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
+                              : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition inline-flex items-center gap-1"
+                  >
+                    <span className="hidden sm:inline">Next</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handlePageChange(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="p-1.5 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition"
+                    title="Last page"
+                  >
+                    <ChevronsRight className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span>Go to:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalPages}
+                    value={currentPage}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val) && val >= 1 && val <= totalPages) {
+                        handlePageChange(val);
+                      }
+                    }}
+                    className="w-14 bg-slate-950 border border-slate-800 text-white text-xs rounded-lg px-2 py-1 text-center focus:outline-none focus:border-sky-500"
+                  />
+                  <span>/ {totalPages}</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -817,7 +1002,19 @@ export default function AdminCustomersPage() {
 
             {/* Modal Image Body */}
             <div className="p-6 overflow-y-auto flex-1 flex flex-col items-center justify-center bg-slate-950/80 min-h-[300px]">
-              {selectedArtwork.thumbnail_url ? (
+              {Boolean(
+                selectedArtwork.thumbnail_url?.toLowerCase().includes('.pdf') ||
+                selectedArtwork.proof_pdf_url?.toLowerCase().includes('.pdf') ||
+                selectedArtwork.public_url?.toLowerCase().includes('.pdf')
+              ) ? (
+                <div className="w-full h-[460px] rounded-lg overflow-hidden border border-slate-800 bg-white">
+                  <iframe
+                    src={selectedArtwork.proof_pdf_url || selectedArtwork.thumbnail_url || selectedArtwork.public_url || ''}
+                    className="w-full h-full border-0"
+                    title={selectedArtwork.name}
+                  />
+                </div>
+              ) : selectedArtwork.thumbnail_url ? (
                 <div className="relative group max-h-[460px] flex items-center justify-center">
                   <img
                     src={selectedArtwork.thumbnail_url}
@@ -1035,6 +1232,15 @@ export default function AdminCustomersPage() {
         onClose={() => setIsImportModalOpen(false)}
         onImportSuccess={() => loadData(true)}
       />
+
+      {/* Create Customer Drawer / Modal */}
+      <CreateCustomerModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onCustomerCreated={() => {
+          loadData(true);
+        }}
+      />
     </div>
   );
 }
@@ -1058,11 +1264,25 @@ function ArtworkCardItem({ artwork, onOpenLightbox }: ArtworkCardProps) {
       ? `${docSettings.width_mm} × ${docSettings.height_mm} mm`
       : null;
 
+  const isPdf = Boolean(
+    (artwork.thumbnail_url && artwork.thumbnail_url.toLowerCase().includes('.pdf')) ||
+    (artwork.proof_pdf_url && artwork.proof_pdf_url.toLowerCase().includes('.pdf')) ||
+    (artwork.public_url && artwork.public_url.toLowerCase().includes('.pdf'))
+  );
+
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm flex flex-col transition hover:border-slate-700/90 group">
       {/* Thumbnail Area */}
       <div className="relative aspect-[4/3] bg-slate-950 flex items-center justify-center overflow-hidden border-b border-slate-800/80">
-        {artwork.thumbnail_url ? (
+        {isPdf ? (
+          <div className="flex flex-col items-center justify-center text-rose-400 gap-1.5 p-4 text-center">
+            <div className="w-11 h-11 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shadow-sm">
+              <FileText className="w-6 h-6" />
+            </div>
+            <span className="text-[11px] font-semibold text-slate-300">Vector / PDF Proof</span>
+            <span className="text-[9px] text-slate-500 uppercase tracking-wider">Click Inspect to view</span>
+          </div>
+        ) : artwork.thumbnail_url ? (
           <img
             src={artwork.thumbnail_url}
             alt={artwork.name}

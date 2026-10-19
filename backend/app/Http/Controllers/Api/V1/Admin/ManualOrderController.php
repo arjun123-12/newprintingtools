@@ -194,6 +194,7 @@ class ManualOrderController extends Controller
                 'items' => $order->items->map(function ($item) {
                     return [
                         'id' => $item->id,
+                        'artwork_id' => $item->artwork_id,
                         'product_id' => $item->product_id,
                         'product_name' => $item->product_name,
                         'product_sku' => $item->product_sku,
@@ -344,6 +345,7 @@ class ManualOrderController extends Controller
             'customer_notes' => ['nullable', 'string', 'max:2000'],
             'internal_notes' => ['nullable', 'string', 'max:2000'],
             'items' => ['nullable', 'array'],
+            'items.*.id' => ['nullable', 'uuid', 'exists:order_items,id'],
             'items.*.product_id' => ['nullable', 'string'],
             'items.*.product_name' => ['nullable', 'string'],
             'items.*.quantity' => ['required_with:items', 'integer', 'min:1'],
@@ -383,6 +385,8 @@ class ManualOrderController extends Controller
         $request->validate([
             'files' => ['required', 'array', 'min:1'],
             'files.*' => ['file', 'mimes:jpg,jpeg,png,svg,pdf', 'max:51200'], // max 50MB per file
+            'labels' => ['nullable', 'array'],
+            'labels.*' => ['nullable', 'string'],
             'version' => ['nullable', 'integer', 'min:1'],
             'order_item_id' => ['nullable', 'string'],
         ]);
@@ -393,7 +397,8 @@ class ManualOrderController extends Controller
                 $request->user(),
                 $request->file('files'),
                 $request->input('version'),
-                $request->input('order_item_id')
+                $request->input('order_item_id'),
+                $request->input('labels', [])
             );
 
             return response()->json([
@@ -576,4 +581,124 @@ class ManualOrderController extends Controller
             ], 422);
         }
     }
+
+    /**
+     * Delete an order and its associated records directly from the database.
+     */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $order = Order::where('id', $id)->orWhere('order_number', $id)->first();
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found.',
+            ], 404);
+        }
+
+        $orderNumber = $order->order_number;
+
+        try {
+            DB::transaction(function () use ($order) {
+                // Delete review links
+                $order->reviewLinks()->delete();
+
+                // Delete activities
+                $order->activities()->delete();
+
+                // Delete shipments
+                $order->shipments()->delete();
+
+                // Delete invoice if any
+                if ($order->invoice) {
+                    $order->invoice()->delete();
+                }
+
+                // Delete payments
+                $order->payments()->delete();
+
+                // Delete artwork versions and artworks
+                foreach ($order->artworks as $artwork) {
+                    $artwork->versions()->delete();
+                    $artwork->delete();
+                }
+
+                // Delete items
+                $order->items()->delete();
+
+                // Delete order
+                $order->delete();
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => "Order {$orderNumber} deleted directly from database.",
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage() ?: 'Failed to delete order from database.',
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete a line item directly from the order in the database.
+     */
+    public function destroyItem(Request $request, string $id, string $itemId): JsonResponse
+    {
+        $order = Order::where('id', $id)->orWhere('order_number', $id)->firstOrFail();
+        
+        $item = $order->items()->where('id', $itemId)->first();
+        if (!$item) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order item not found.',
+            ], 404);
+        }
+
+        try {
+            DB::transaction(function () use ($order, $item) {
+                $item->delete();
+
+                $remainingItems = $order->items()->get()->map(function ($i) {
+                    return [
+                        'product_id' => $i->product_id,
+                        'product_name' => $i->product_name,
+                        'quantity' => $i->quantity,
+                        'unit_price_ex_gst' => $i->unit_price_ex_gst,
+                        'price' => $i->total_price_inc_gst / 1.10,
+                        'specifications' => $i->options_snapshot['specifications'] ?? 'Standard Specifications',
+                        'options' => $i->options_snapshot ?? [],
+                    ];
+                })->toArray();
+
+                $calculated = $this->manualOrderService->calculateTotals(
+                    $remainingItems,
+                    $order->delivery_method ?? 'standard'
+                );
+
+                $order->update([
+                    'subtotal_ex_gst' => $calculated['subtotal_ex_gst'],
+                    'gst_amount' => $calculated['gst_amount'],
+                    'shipping_fee_inc_gst' => $calculated['shipping_fee_inc_gst'],
+                    'discount_amount' => $calculated['discount_amount'],
+                    'total_inc_gst' => $calculated['total_inc_gst'],
+                ]);
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Item deleted from database successfully.',
+                'data' => $order->fresh(['items.product', 'user', 'activities', 'artworks.versions']),
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage() ?: 'Failed to delete item.',
+            ], 500);
+        }
+    }
 }
+

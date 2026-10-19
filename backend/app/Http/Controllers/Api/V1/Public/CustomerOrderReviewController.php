@@ -163,6 +163,14 @@ class CustomerOrderReviewController extends Controller
 
         $hasUploadedProof = !empty($proofFiles) || !empty($currentVersion?->storage_path);
 
+        $publicStorageUrl = function (?string $url, ?string $storagePath = null): ?string {
+            if (empty($url)) return null;
+            if (str_contains($url, 'localhost') || str_contains($url, '127.0.0.1') || str_starts_with($url, '/')) {
+                return \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($storagePath ?: $url);
+            }
+            return $url;
+        };
+
         // Customer-safe response
         return response()->json([
             'success' => true,
@@ -184,7 +192,53 @@ class CustomerOrderReviewController extends Controller
                     'full_address' => ($order->shipping_address['address_line_1'] ?? '') . ', ' . ($order->shipping_address['city'] ?? '') . ' ' . ($order->shipping_address['state'] ?? '') . ' ' . ($order->shipping_address['postcode'] ?? ''),
                 ],
                 'customer_notes' => $order->customer_notes,
-                'items' => $order->items->map(function ($item) {
+                'items' => $order->items->map(function ($item) use ($publicStorageUrl, $order) {
+                    $itemArtwork = $item->artwork;
+                    // Backward compatibility: If single product order and item artwork is null, use order's first artwork
+                    if (!$itemArtwork && $order->items->count() === 1) {
+                        $itemArtwork = $order->artworks->first();
+                    }
+
+                    $itemVersions = $itemArtwork?->versions ?? collect();
+                    $itemCurrentVerNum = $itemArtwork?->current_version ?: ($order->current_proof_version ?: 1);
+                    $itemVersion = $itemVersions->firstWhere('version_number', $itemCurrentVerNum)
+                        ?: $itemVersions->first();
+
+                    $itemFiles = collect($itemVersion?->proof_files ?? [])->map(function ($file) use ($publicStorageUrl) {
+                        if (!is_array($file)) return $file;
+                        $file['url'] = $publicStorageUrl($file['url'] ?? null, $file['storage_path'] ?? null);
+                        return $file;
+                    })->values();
+
+                    // Backward compatibility for single file version where proof_files array was not stored
+                    if ($itemFiles->isEmpty() && ($itemVersion?->proof_pdf_url || $itemVersion?->storage_path || $itemVersion?->thumbnail_url)) {
+                        $singleUrl = $publicStorageUrl($itemVersion->proof_pdf_url ?: $itemVersion->thumbnail_url, $itemVersion->storage_path);
+                        if ($singleUrl) {
+                            $itemFiles = collect([[
+                                'label' => 'Front',
+                                'file_name' => $itemVersion->file_name ?: 'Front Artwork',
+                                'url' => $singleUrl,
+                                'storage_path' => $itemVersion->storage_path,
+                                'mime_type' => $itemVersion->mime_type ?: 'image/jpeg',
+                                'file_size_bytes' => $itemVersion->file_size_bytes,
+                            ]]);
+                        }
+                    }
+
+                    // Identify front and back files specifically for this item
+                    $frontEntry = $itemFiles->first(fn ($f) => is_array($f) && strtolower($f['label'] ?? '') === 'front')
+                        ?: $itemFiles->first();
+                    $backEntry = $itemFiles->first(fn ($f) => is_array($f) && strtolower($f['label'] ?? '') === 'back')
+                        ?: ($itemFiles->count() > 1 && $itemFiles[0] === $frontEntry ? $itemFiles[1] : null);
+
+                    $frontUrl = $frontEntry['url'] ?? null;
+                    $backUrl = $backEntry['url'] ?? null;
+
+                    $itemThumbnail = $frontUrl ?: $publicStorageUrl(
+                        $itemVersion?->thumbnail_url ?: $itemArtwork?->thumbnail_url,
+                        $itemVersion?->storage_path ?: $itemArtwork?->storage_path
+                    ) ?: data_get($item->options_snapshot, 'template_thumbnail_url');
+
                     return [
                         'id' => $item->id,
                         'product_name' => $item->product_name,
@@ -193,6 +247,20 @@ class CustomerOrderReviewController extends Controller
                         'specifications' => $item->options_snapshot['specifications'] ?? 'Standard Specifications',
                         'unit_price_ex_gst' => (float) $item->unit_price_ex_gst,
                         'total_price_inc_gst' => (float) $item->total_price_inc_gst,
+                        'artwork_preview' => [
+                            'has_artwork' => $itemFiles->isNotEmpty() || !empty($itemThumbnail),
+                            'files' => $itemFiles->all(),
+                            'front_url' => $frontUrl,
+                            'back_url' => $backUrl,
+                            'thumbnail_url' => $itemThumbnail,
+                            'canvas_json' => $itemArtwork?->canvas_json ?? $item->designer_canvas_state,
+                            'document_settings' => $itemArtwork?->document_settings ?? [],
+                            'dimensions' => [
+                                'width_px' => $itemArtwork?->width_px,
+                                'height_px' => $itemArtwork?->height_px,
+                                'dpi' => $itemArtwork?->dpi,
+                            ],
+                        ],
                     ];
                 }),
                 'totals' => [
@@ -302,9 +370,9 @@ class CustomerOrderReviewController extends Controller
                 'status' => OrderStatus::CHANGES_REQUESTED,
             ]);
 
-            // Record artwork review
-            $artwork = $order->artworks()->first();
-            if ($artwork) {
+            // Record artwork review for all order artworks
+            $artworks = $order->artworks()->get();
+            foreach ($artworks as $artwork) {
                 ArtworkReview::create([
                     'artwork_id' => $artwork->id,
                     'version_number' => $order->current_proof_version ?? 1,
@@ -369,8 +437,8 @@ class CustomerOrderReviewController extends Controller
         }
 
         return DB::transaction(function () use ($order, $currentVersionNum) {
-            $artwork = $order->artworks()->first();
-            if ($artwork) {
+            $artworks = $order->artworks()->get();
+            foreach ($artworks as $artwork) {
                 ArtworkVersion::where('artwork_id', $artwork->id)
                     ->where('version_number', $currentVersionNum)
                     ->update(['is_approved' => true]);

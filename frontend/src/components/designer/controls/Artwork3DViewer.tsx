@@ -24,6 +24,7 @@ interface Artwork3DViewerProps {
   className?: string;
   isCompact?: boolean;
   autoRotateInitially?: boolean;
+  activeSide?: 'front' | 'back';
 }
 
 export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
@@ -34,6 +35,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
   className = '',
   isCompact = false,
   autoRotateInitially,
+  activeSide,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -54,6 +56,20 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
   );
   const [materialFinish, setMaterialFinish] = useState<'matte' | 'glossy'>('glossy');
   const [environmentTheme, setEnvironmentTheme] = useState<'dark' | 'studio' | 'clean'>('dark');
+
+  // Sync orientation when activeSide is provided externally (e.g. customer clicking Front/Back toggle)
+  useEffect(() => {
+    if (!activeSide) return;
+    if (activeSide === 'back') {
+      setIsAutoRotating(false);
+      setRotX(0);
+      setRotY(180);
+    } else if (activeSide === 'front') {
+      setIsAutoRotating(false);
+      setRotX(isCompact ? 10 : 14);
+      setRotY(isCompact ? -12 : -15);
+    }
+  }, [activeSide, isCompact]);
 
   // Gentle front-facing auto-rotate oscillation to prevent the front artwork from disappearing
   useEffect(() => {
@@ -113,13 +129,32 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
     setRotY(y);
   };
 
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+
+  useEffect(() => {
+    const check = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
   // Dimensions & Aspect Ratio Calculation
   const widthMm = documentSettings.width || 85;
   const heightMm = documentSettings.height || 55;
   const aspectRatio = widthMm / heightMm;
 
   // Base display sizes for responsive 3D card
-  const baseCardWidth = isCompact ? 160 : Math.min(420, 340 * (aspectRatio >= 1.0 ? 1.0 : aspectRatio));
+  const maxAvailableWidth = isCompact ? 240 : isMobile ? 310 : 640;
+  const maxAvailableHeight = isCompact ? 180 : isMobile ? 210 : 410;
+
+  const baseCardWidth = isCompact
+    ? 240
+    : aspectRatio >= 1.0
+    ? Math.min(maxAvailableWidth, maxAvailableHeight * aspectRatio)
+    : Math.min(maxAvailableWidth, maxAvailableHeight) * aspectRatio;
+
   const baseCardHeight = baseCardWidth / aspectRatio;
 
   // Dynamic Specular Glare Gradient based on rotation angle
@@ -251,7 +286,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
       {/* Floating Interactive Controls Bar (Full Mode Only) */}
       {!isCompact && (
         <div
-          className="absolute bottom-4 inset-x-0 mx-auto w-max max-w-[95%] z-20 flex flex-wrap items-center justify-center gap-2 bg-slate-900/90 border border-slate-700/80 backdrop-blur-md px-3.5 py-2 rounded-2xl shadow-2xl text-xs text-white"
+          className="absolute bottom-2 sm:bottom-4 inset-x-0 mx-auto w-max max-w-[95%] z-20 flex items-center justify-center gap-1.5 sm:gap-2 bg-slate-900/90 border border-slate-700/80 backdrop-blur-md px-2.5 sm:px-3.5 py-1 sm:py-2 rounded-xl sm:rounded-2xl shadow-2xl text-xs text-white"
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
         >
@@ -259,25 +294,25 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
           <button
             type="button"
             onClick={() => setIsAutoRotating((prev) => !prev)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold transition ${
+            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl font-semibold text-[11px] sm:text-xs transition ${
               isAutoRotating
                 ? 'bg-purple-600 text-white shadow-xs'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
             }`}
             title="Auto-Rotate 360°"
           >
-            {isAutoRotating ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            {isAutoRotating ? <Pause className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> : <Play className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
             <span>{isAutoRotating ? 'Spinning' : 'Auto Spin'}</span>
           </button>
 
-          <div className="h-4 w-px bg-slate-700 mx-0.5 hidden sm:block" />
+          <div className="h-4 w-px bg-slate-700 mx-0.5" />
 
           {/* Camera View Angle Presets */}
-          <div className="flex items-center gap-1 bg-slate-800/80 p-0.5 rounded-xl border border-slate-700">
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-800/80 p-0.5 rounded-lg sm:rounded-xl border border-slate-700">
             <button
               type="button"
               onClick={() => applyPreset(18, -26)}
-              className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition"
+              className="hidden sm:inline-block px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition"
               title="Isometric 3D View"
             >
               Isometric
@@ -285,7 +320,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
             <button
               type="button"
               onClick={() => applyPreset(0, 0)}
-              className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition"
+              className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition"
               title="Direct Front 2D/3D View"
             >
               Front
@@ -294,7 +329,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
               <button
                 type="button"
                 onClick={() => applyPreset(0, 180)}
-                className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition text-purple-300 hover:text-purple-200"
+                className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-medium text-purple-300 hover:text-purple-200 hover:bg-slate-700 transition"
                 title="Direct Back 2D/3D View"
               >
                 Back
@@ -303,7 +338,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
             <button
               type="button"
               onClick={() => applyPreset(6, 85)}
-              className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition"
+              className="hidden sm:inline-block px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition"
               title="Side Profile / Thickness"
             >
               Edge
@@ -311,7 +346,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
             <button
               type="button"
               onClick={() => applyPreset(60, 0)}
-              className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition"
+              className="hidden sm:inline-block px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-300 hover:text-white hover:bg-slate-700 transition"
               title="Top Perspective"
             >
               Top
@@ -321,7 +356,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
           <div className="h-4 w-px bg-slate-700 mx-0.5 hidden sm:block" />
 
           {/* Finish Coating: Glossy vs Matte */}
-          <div className="flex items-center bg-slate-800/80 p-0.5 rounded-xl border border-slate-700 text-[11px]">
+          <div className="hidden sm:flex items-center bg-slate-800/80 p-0.5 rounded-xl border border-slate-700 text-[11px]">
             <button
               type="button"
               onClick={() => setMaterialFinish('glossy')}
@@ -357,7 +392,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
             <button
               type="button"
               onClick={() => setZoom((z) => Math.max(0.5, z - 0.15))}
-              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+              className="hidden sm:inline-flex p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
               title="Zoom Out"
             >
               <ZoomOut className="w-3.5 h-3.5" />
@@ -365,7 +400,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
             <button
               type="button"
               onClick={() => setZoom((z) => Math.min(2.5, z + 0.15))}
-              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+              className="hidden sm:inline-flex p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
               title="Zoom In"
             >
               <ZoomIn className="w-3.5 h-3.5" />
@@ -377,10 +412,10 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
                 setRotY(-26);
                 setZoom(1.0);
               }}
-              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+              className="p-1 sm:p-1.5 rounded-lg sm:rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
               title="Reset 3D Orientation"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
             </button>
           </div>
         </div>
@@ -388,7 +423,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
 
       {/* Floating Drag Hint */}
       {!isCompact && (
-        <div className="absolute top-4 left-6 pointer-events-none bg-slate-900/60 backdrop-blur-xs border border-slate-800 px-3 py-1 rounded-full text-[11px] text-slate-400 flex items-center gap-1.5">
+        <div className="hidden sm:flex absolute top-4 left-6 pointer-events-none bg-slate-900/60 backdrop-blur-xs border border-slate-800 px-3 py-1 rounded-full text-[11px] text-slate-400 items-center gap-1.5">
           <Compass className="w-3.5 h-3.5 text-purple-400 animate-spin" style={{ animationDuration: '6s' }} />
           <span>Click and drag to rotate in 360° space</span>
         </div>

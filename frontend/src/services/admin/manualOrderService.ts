@@ -1,7 +1,10 @@
 import apiClient from '@/services/api/client';
 
 export interface ManualOrderItemPayload {
-  product_id?: string;
+  id?: string;
+  client_key?: string;
+  artwork_id?: string | null;
+  product_id?: string | null;
   product_name?: string;
   quantity: number;
   unit_price_ex_gst?: number;
@@ -215,11 +218,17 @@ export const manualOrderService = {
   /**
    * Upload proof files for an order
    */
-  async uploadProof(id: string, files: File[], version?: number) {
+  async uploadProof(id: string, files: File[], version?: number, orderItemId?: string, labels?: string[]) {
     const formData = new FormData();
     files.forEach((file) => formData.append('files[]', file));
+    if (labels && labels.length > 0) {
+      labels.forEach((label) => formData.append('labels[]', label));
+    }
     if (version) {
       formData.append('version', String(version));
+    }
+    if (orderItemId) {
+      formData.append('order_item_id', orderItemId);
     }
     const response = await apiClient.post(`/admin/manual-orders/${id}/proofs`, formData);
     return response.data;
@@ -270,6 +279,22 @@ export const manualOrderService = {
    */
   async moveToProduction(id: string) {
     const response = await apiClient.post(`/admin/manual-orders/${id}/move-to-production`);
+    return response.data;
+  },
+
+  /**
+   * Delete order directly from database
+   */
+  async deleteOrder(id: string) {
+    const response = await apiClient.delete(`/admin/manual-orders/${id}`);
+    return response.data;
+  },
+
+  /**
+   * Delete order item directly from database
+   */
+  async deleteOrderItem(orderId: string, itemId: string) {
+    const response = await apiClient.delete(`/admin/manual-orders/${orderId}/items/${itemId}`);
     return response.data;
   },
 };

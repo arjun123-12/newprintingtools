@@ -188,6 +188,24 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
     }
   };
 
+  const handleDeleteOrder = async () => {
+    if (!order) return;
+    if (!confirm(`Are you sure you want to permanently delete order ${order.order_number} directly from the database? This cannot be undone.`)) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await manualOrderService.deleteOrder(order.id);
+      if (res.success) {
+        alert(res.message || 'Order deleted successfully from database.');
+        router.push('/admin/orders');
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Failed to delete order from database.');
+      setActionLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex-1 p-8 flex items-center justify-center">
@@ -267,6 +285,16 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
           >
             <Upload className="w-3.5 h-3.5 text-pink-400" />
             <span>Upload Revision</span>
+          </button>
+
+          <button
+            onClick={handleDeleteOrder}
+            disabled={actionLoading}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+            title="Permanently delete this order from database"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Delete from DB</span>
           </button>
         </div>
       </div>

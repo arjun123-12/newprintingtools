@@ -151,8 +151,13 @@ class ManualOrderService
 
             // Replace line items if provided
             if (!empty($data['items'])) {
+                $previousItems = $order->items()->get()->keyBy('id');
                 $order->items()->delete();
-                foreach ($calculated['items'] as $itemData) {
+                foreach ($calculated['items'] as $index => $itemData) {
+                    $sourceItem = $data['items'][$index] ?? [];
+                    $previousItem = !empty($sourceItem['id'])
+                        ? $previousItems->get($sourceItem['id'])
+                        : null;
                     OrderItem::create([
                         'order_id' => $order->id,
                         'product_id' => $itemData['product_id'],
@@ -163,6 +168,8 @@ class ManualOrderService
                         'unit_price_inc_gst' => round($itemData['unit_price_ex_gst'] * 1.10, 4),
                         'total_price_inc_gst' => $itemData['line_total_inc_gst'],
                         'options_snapshot' => $itemData['options'] ?? [],
+                        'artwork_id' => $previousItem?->artwork_id,
+                        'designer_canvas_state' => $previousItem?->designer_canvas_state,
                         'production_status' => 'queued',
                     ]);
                 }
@@ -218,11 +225,34 @@ class ManualOrderService
      * Upload proof files and attach them as a version to the order and order item.
      * Supports multiple files (e.g. Front and Back files, JPG/SVG/PNG/PDF).
      */
-    public function uploadProofFiles(Order $order, User $staffUser, array $uploadedFiles, ?int $versionNumber = null, ?string $orderItemId = null): ArtworkVersion
+    public function uploadProofFiles(Order $order, User $staffUser, array $uploadedFiles, ?int $versionNumber = null, ?string $orderItemId = null, array $labels = []): ArtworkVersion
     {
-        return DB::transaction(function () use ($order, $staffUser, $uploadedFiles, $versionNumber, $orderItemId) {
-            // Find or create primary Artwork for this order
-            $artwork = Artwork::firstOrCreate(
+        return DB::transaction(function () use ($order, $staffUser, $uploadedFiles, $versionNumber, $orderItemId, $labels) {
+            $orderItem = $orderItemId
+                ? $order->items()->where('id', $orderItemId)->first()
+                : null;
+
+            // Give each order item its own Artwork and version history.
+            $artwork = $orderItem?->artwork_id
+                ? Artwork::find($orderItem->artwork_id)
+                : null;
+
+            if (!$artwork && $orderItem) {
+                $artwork = Artwork::create([
+                    'order_id' => $order->id,
+                    'user_id' => $order->user_id,
+                    'product_id' => $orderItem->product_id,
+                    'name' => 'Proof for ' . $orderItem->product_name . ' — ' . $order->order_number,
+                    'source_type' => 'upload',
+                    'current_version' => 1,
+                    'proof_status' => 'ready',
+                ]);
+                $orderItem->artwork_id = $artwork->id;
+                $orderItem->save();
+            }
+
+            // Preserve legacy order-level uploads when no line item was specified.
+            $artwork ??= Artwork::firstOrCreate(
                 ['order_id' => $order->id],
                 [
                     'user_id' => $order->user_id,
@@ -244,7 +274,15 @@ class ManualOrderService
             foreach ($uploadedFiles as $index => $file) {
                 if ($file instanceof UploadedFile) {
                     $originalName = $file->getClientOriginalName();
-                    $label = (str_contains(strtolower($originalName), 'back') || $index === 1) ? 'Back' : 'Front';
+                    if (!empty($labels[$index])) {
+                        $label = ucfirst(strtolower(trim($labels[$index])));
+                    } elseif (str_contains(strtolower($originalName), 'back')) {
+                        $label = 'Back';
+                    } elseif (str_contains(strtolower($originalName), 'front')) {
+                        $label = 'Front';
+                    } else {
+                        $label = ($index === 1 && count($uploadedFiles) === 2) ? 'Back' : 'Front';
+                    }
                     $safeFilename = 'proof_' . $order->order_number . '_v' . $targetVersion . '_' . Str::slug(pathinfo($originalName, PATHINFO_FILENAME)) . '_' . Str::random(6) . '.' . $file->getClientOriginalExtension();
                     
                     $storagePath = $file->storeAs('proofs/' . $order->id, $safeFilename, $disk);
@@ -300,14 +338,8 @@ class ManualOrderService
                 'review_status' => 'pending_review',
             ]);
 
-            // Requirement 3: Attach the uploaded artwork to the correct order item and order
-            $orderItem = null;
-            if (!empty($orderItemId)) {
-                $orderItem = $order->items()->where('id', $orderItemId)->first();
-            }
-            if (!$orderItem) {
-                $orderItem = $order->items()->first();
-            }
+            // Attach legacy order-level uploads to the first line when no line was given.
+            $orderItem ??= $order->items()->first();
             if ($orderItem) {
                 $orderItem->artwork_id = $artwork->id;
                 $orderItem->save();
@@ -600,17 +632,30 @@ class ManualOrderService
             $lineTotalIncGst = round($lineTotalExGst * 1.10, 2);
             $subtotalExGst += $lineTotalExGst;
 
+            $productId = null;
+            if ($product) {
+                $productId = $product->id;
+            } elseif (!empty($item['product_id']) && Product::where('id', $item['product_id'])->exists()) {
+                $productId = $item['product_id'];
+            }
+
+            $options = $item['options'] ?? [];
+            if (empty($options['specifications']) && !empty($item['specifications'])) {
+                $options['specifications'] = $item['specifications'];
+            }
+            if (empty($options['specifications'])) {
+                $options['specifications'] = 'Standard Specifications';
+            }
+
             $calculatedItems[] = [
-                'product_id' => $product ? $product->id : ($item['product_id'] ?? (string) Str::uuid()),
+                'product_id' => $productId,
                 'product_name' => $productName,
                 'product_sku' => $productSku,
                 'quantity' => $quantity,
                 'unit_price_ex_gst' => $unitPriceExGst,
                 'line_total_ex_gst' => $lineTotalExGst,
                 'line_total_inc_gst' => $lineTotalIncGst,
-                'options' => $item['options'] ?? [
-                    'specifications' => $item['specifications'] ?? 'Standard Specifications',
-                ],
+                'options' => $options,
             ];
         }
 

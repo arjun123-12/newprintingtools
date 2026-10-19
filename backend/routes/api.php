@@ -654,6 +654,18 @@ Route::middleware(['auth:sanctum', 'admin.access'])
                 \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
                 'moveToProduction',
             ]);
+            Route::delete('/manual-orders/{id}', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'destroy',
+            ]);
+            Route::delete('/manual-orders/{id}/items/{itemId}', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'destroyItem',
+            ]);
+            Route::delete('/orders/{id}', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'destroy',
+            ]);
         });
 
         // Tax Invoices (AUD) & Payments (permission: invoices)

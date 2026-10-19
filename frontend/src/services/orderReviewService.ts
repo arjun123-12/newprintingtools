@@ -30,6 +30,22 @@ export interface CustomerReviewData {
     specifications: string;
     unit_price_ex_gst: number;
     total_price_inc_gst: number;
+    artwork_preview?: {
+      has_artwork?: boolean;
+      files: Array<{
+        label: string;
+        file_name?: string;
+        url: string;
+        mime_type?: string;
+        file_size_bytes?: number;
+      }>;
+      front_url?: string | null;
+      back_url?: string | null;
+      thumbnail_url?: string | null;
+      canvas_json?: unknown;
+      document_settings?: CustomerReviewData['proof']['document_settings'];
+      dimensions?: CustomerReviewData['proof']['dimensions'];
+    };
   }>;
   totals: {
     subtotal_ex_gst: number;

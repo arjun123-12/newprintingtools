@@ -79,6 +79,7 @@ export default function OrderReviewPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<CustomerReviewData | null>(null);
+  const [selectedProofItemId, setSelectedProofItemId] = useState<string>('');
   const [templatePreviewUrl, setTemplatePreviewUrl] = useState<string | null>(null);
   const [templateBackPreviewUrl, setTemplateBackPreviewUrl] = useState<string | null>(null);
 
@@ -93,9 +94,10 @@ export default function OrderReviewPage({ params }: PageProps) {
   const proofContainerRef = useRef<HTMLDivElement>(null);
 
   // Confirmation checkboxes
-  const [checkSpelling, setCheckSpelling] = useState(false);
-  const [checkSpecs, setCheckSpecs] = useState(false);
-  const [checkApproval, setCheckApproval] = useState(false);
+  const [checkArtwork, setCheckArtwork] = useState(false);
+  const [checkOrderDetails, setCheckOrderDetails] = useState(false);
+  const [checkCopyright, setCheckCopyright] = useState(false);
+  const [checkFinalApproval, setCheckFinalApproval] = useState(false);
 
   // Change request state
   const [changeComment, setChangeComment] = useState('');
@@ -129,6 +131,7 @@ export default function OrderReviewPage({ params }: PageProps) {
       const res = await orderReviewService.getReviewOrder(token);
       if (res.success && res.data) {
         setOrderData(res.data);
+        setSelectedProofItemId(res.data.items?.[0]?.id || '');
 
         // Derive initial step based on order status
         if (res.data.status === 'in_production' || res.data.payment_status === 'paid') {
@@ -164,22 +167,27 @@ export default function OrderReviewPage({ params }: PageProps) {
 
   useEffect(() => {
     let cancelled = false;
-    const proofFiles = orderData?.proof.files || [];
-    const hasUploadedProof = proofFiles.some((f) => !f.mime_type?.includes('pdf')) || Boolean(orderData?.proof.thumbnail_url);
-    if (hasUploadedProof) {
+    const selectedItem = orderData?.items.find((item) => item.id === selectedProofItemId) || orderData?.items[0];
+    const itemCanvas = selectedItem?.artwork_preview?.canvas_json;
+    const selectedFiles = selectedItem?.artwork_preview?.files || [];
+    const hasSelectedItemImage = selectedFiles.some((file) => !file.mime_type?.includes('pdf')) ||
+      Boolean(selectedItem?.artwork_preview?.thumbnail_url);
+    setTemplatePreviewUrl(null);
+    setTemplateBackPreviewUrl(null);
+    if (hasSelectedItemImage) {
       setTemplatePreviewUrl(null);
       setTemplateBackPreviewUrl(null);
       return;
     }
 
-    const savedCanvas = orderData?.proof.template_canvas_json;
+    const savedCanvas = itemCanvas ?? orderData?.proof.template_canvas_json;
     const frontCanvas = getCanvasPage(savedCanvas, 0);
     const backCanvas = getCanvasPage(
-      orderData?.proof.template_back_canvas_json ?? savedCanvas,
-      orderData?.proof.template_back_canvas_json ? 0 : 1
+      itemCanvas ?? orderData?.proof.template_back_canvas_json ?? savedCanvas,
+      itemCanvas || !orderData?.proof.template_back_canvas_json ? 1 : 0
     );
-    const settings = orderData?.proof.document_settings || {};
-    const savedDimensions = orderData?.proof.dimensions || {};
+    const settings = selectedItem?.artwork_preview?.document_settings || orderData?.proof.document_settings || {};
+    const savedDimensions = selectedItem?.artwork_preview?.dimensions || orderData?.proof.dimensions || {};
     const dpi = Number(savedDimensions.dpi || settings.dpi) || 300;
     const unit = String(settings.unit || 'mm').toLowerCase();
     const toPixels = (value?: number) => {
@@ -226,6 +234,8 @@ export default function OrderReviewPage({ params }: PageProps) {
     orderData?.proof.template_back_canvas_json,
     orderData?.proof.document_settings,
     orderData?.proof.dimensions,
+    orderData?.items,
+    selectedProofItemId,
   ]);
 
   // 2. Initialize BPOINT payment session if on payment step
@@ -379,15 +389,15 @@ export default function OrderReviewPage({ params }: PageProps) {
 
   // 5. Handle Proof Approval
   const handleApproveProof = async () => {
-    if (!checkSpelling || !checkSpecs || !checkApproval || !orderData) return;
+    if (!checkArtwork || !checkOrderDetails || !checkCopyright || !checkFinalApproval || !orderData) return;
 
     try {
       setApproving(true);
       setApprovalError(null);
       const res = await orderReviewService.approveProof(token, {
-        spelling_confirmed: checkSpelling,
-        specs_confirmed: checkSpecs,
-        proof_version_confirmed: checkApproval,
+        spelling_confirmed: checkArtwork,
+        specs_confirmed: checkOrderDetails,
+        proof_version_confirmed: checkFinalApproval,
         version_number: orderData.proof.current_version,
       });
 
@@ -449,9 +459,9 @@ export default function OrderReviewPage({ params }: PageProps) {
   const toggleFullscreen = () => {
     if (!proofContainerRef.current) return;
     if (!document.fullscreenElement) {
-      proofContainerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+      proofContainerRef.current.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => { });
     } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => { });
     }
   };
 
@@ -496,24 +506,39 @@ export default function OrderReviewPage({ params }: PageProps) {
   }
 
   const primaryItem = orderData.items[0];
-  const proofFiles = orderData.proof?.files || [];
-  const frontFile = proofFiles.find((f) => f.label.toLowerCase() === 'front') || proofFiles[0];
-  const backFile = proofFiles.find((f) => f.label.toLowerCase() === 'back') || (proofFiles.length > 1 ? proofFiles[1] : null);
+  const selectedProofItem = orderData.items.find((item) => item.id === selectedProofItemId) || primaryItem;
+  const isMultiItemOrder = orderData.items.length > 1;
+  const selectedArtwork = selectedProofItem?.artwork_preview;
+  const itemProofFiles = selectedArtwork?.files || [];
+
+  // Multi-item isolation: each product only shows its own files.
+  // Legacy single-item orders fall back to orderData.proof.files.
+  const proofFiles = itemProofFiles.length > 0
+    ? itemProofFiles
+    : (!isMultiItemOrder ? (orderData.proof?.files || []) : []);
+
+  const frontFile = proofFiles.find((f) => f.label?.toLowerCase() === 'front') || proofFiles[0];
+  const backFile = proofFiles.find((f) => f.label?.toLowerCase() === 'back') || (proofFiles.length > 1 && proofFiles[0] === frontFile ? proofFiles[1] : null);
   const isImageFile = (file: (typeof proofFiles)[number] | null | undefined) =>
     Boolean(file?.url && !file.mime_type?.includes('pdf') && !file.url.toLowerCase().endsWith('.pdf'));
   const isPreviewImageUrl = (url?: string | null) => Boolean(url && !/\.pdf(?:$|[?#])/i.test(url));
-  const proofThumbnailUrl = isPreviewImageUrl(orderData.proof.thumbnail_url)
-    ? orderData.proof.thumbnail_url
-    : null;
-  const rawFrontUrl = isImageFile(frontFile)
-    ? frontFile?.url
-    : (proofThumbnailUrl || templatePreviewUrl);
+  const proofThumbnailUrl = isPreviewImageUrl(selectedArtwork?.thumbnail_url)
+    ? selectedArtwork?.thumbnail_url
+    : (!isMultiItemOrder && isPreviewImageUrl(orderData.proof.thumbnail_url)
+      ? orderData.proof.thumbnail_url
+      : null);
+  const rawFrontUrl = selectedArtwork?.front_url
+    || (isImageFile(frontFile) ? frontFile?.url : null)
+    || proofThumbnailUrl
+    || (!isMultiItemOrder ? templatePreviewUrl : null);
   const frontMockupUrl = rawFrontUrl ? formatImageUrl(rawFrontUrl) : null;
-  const rawBackUrl = isImageFile(backFile) ? backFile?.url : null;
+  const rawBackUrl = selectedArtwork?.back_url
+    || (isImageFile(backFile) ? backFile?.url : null)
+    || (!isMultiItemOrder ? templateBackPreviewUrl : null);
   const backMockupUrl = rawBackUrl ? formatImageUrl(rawBackUrl) : null;
   const flatTemplatePreviewUrl = templatePreviewUrl || proofThumbnailUrl;
-  const savedDocumentSettings = orderData.proof.document_settings || {};
-  const savedDimensions = orderData.proof.dimensions || {};
+  const savedDocumentSettings = selectedArtwork?.document_settings || orderData.proof.document_settings || {};
+  const savedDimensions = selectedArtwork?.dimensions || orderData.proof.dimensions || {};
   const previewDpi = Number(savedDimensions.dpi || savedDocumentSettings.dpi) || 300;
   const previewWidthPx = Number(savedDimensions.width_px) || 1000;
   const previewHeightPx = Number(savedDimensions.height_px) || 650;
@@ -546,6 +571,338 @@ export default function OrderReviewPage({ params }: PageProps) {
     totalHeightPx: previewHeightPx,
     dpi: previewDpi,
   } satisfies CanvasDimensions;
+
+  // Helper renderers for flexible step layout
+  const renderOrderSummaryCard = (showApproveButton = false) => {
+    if (!orderData) return null;
+    return (
+      <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm space-y-5">
+        <h2 className="text-base font-bold text-slate-900">Order summary</h2>
+
+        {/* Items preview */}
+        <div className="space-y-4">
+          {orderData.items.map((item) => (
+            <div key={item.id} className="flex items-start gap-4 pb-4 border-b border-slate-100 last:border-b-0 last:pb-0">
+              <div className="w-16 h-16 rounded-2xl bg-slate-100 border border-slate-200/80 flex items-center justify-center overflow-hidden shrink-0">
+                {(item.artwork_preview?.thumbnail_url || (item.id === primaryItem?.id ? orderData.proof.thumbnail_url : null)) ? (
+                  <img
+                    src={formatImageUrl(item.artwork_preview?.thumbnail_url || orderData.proof.thumbnail_url || '')}
+                    alt={`${item.product_name} artwork`}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <Package className="w-6 h-6 text-slate-400" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-sm text-slate-900 truncate">
+                  {item.product_name}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">{item.quantity} pieces</p>
+                <p className="text-xs text-slate-500">{item.specifications}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Financial Breakdown */}
+        <div className="space-y-2.5 text-xs pt-2 border-t border-slate-100">
+          <div className="flex justify-between text-slate-600">
+            <span>Subtotal</span>
+            <span className="font-medium text-slate-800">
+              ${orderData.totals.subtotal_ex_gst.toFixed(2)}
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-600">
+            <span>GST (10%)</span>
+            <span className="font-medium text-slate-800">
+              ${orderData.totals.gst_amount.toFixed(2)}
+            </span>
+          </div>
+          <div className="flex justify-between text-slate-600">
+            <span>Shipping</span>
+            <span className="font-medium text-slate-800">
+              {orderData.totals.shipping_fee_inc_gst === 0
+                ? '$0.00'
+                : `$${orderData.totals.shipping_fee_inc_gst.toFixed(2)}`}
+            </span>
+          </div>
+
+          <div className="pt-3 border-t border-slate-100 flex justify-between items-baseline">
+            <span className="font-bold text-sm text-slate-900">Total (AUD)</span>
+            <span className="text-xl font-extrabold text-slate-900">
+              ${orderData.totals.total_inc_gst.toFixed(2)}
+            </span>
+          </div>
+        </div>
+
+        {/* Primary Call to Action Button (Review step) */}
+        {showApproveButton && currentStep === 'review' && (
+          <div className="space-y-2 pt-2">
+            <button
+              type="button"
+              onClick={handleApproveProof}
+              disabled={
+                !checkArtwork ||
+                !checkOrderDetails ||
+                !checkCopyright ||
+                !checkFinalApproval ||
+                approving ||
+                orderData.status === 'changes_requested'
+              }
+              className={`w-full py-3.5 px-4 ${approving ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-[#E11D48] hover:bg-[#BE123C]'
+                } text-white font-bold text-sm rounded-2xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
+            >
+              {approving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Lock className="w-4 h-4" />
+              )}
+              <span>Approve &amp; continue to payment</span>
+            </button>
+
+            <p className="text-[11px] text-center text-slate-400">
+              Complete all 4 checks to continue.
+            </p>
+          </div>
+        )}
+
+        {/* Call to Action for Payment step */}
+        {currentStep === 'payment' && (
+          <div className="space-y-2 pt-2">
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Proof approved! Complete payment to queue for printing.</span>
+            </div>
+          </div>
+        )}
+
+        {/* Production Note */}
+        <div className="p-3.5 bg-sky-50/80 rounded-2xl border border-sky-100 flex items-start gap-2.5 text-xs text-sky-800">
+          <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+          <span>Production begins after approval and verified payment.</span>
+        </div>
+      </div>
+    );
+  };
+
+  // Render: Delivery Summary Card
+  const renderDeliverySummaryCard = () => {
+    if (!orderData) return null;
+    return (
+      <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-sm space-y-3">
+        <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+          <Truck className="w-3.5 h-3.5 text-slate-600" />
+          <span>Delivery Address</span>
+        </div>
+        <p className="text-xs text-slate-700 leading-relaxed font-medium">
+          {orderData.delivery_summary.full_address || 'Standard Delivery'}
+        </p>
+      </div>
+    );
+  };
+
+  // Render: Version History Card
+  const renderVersionHistoryCard = () => {
+    if (!orderData?.proof.versions?.length) return null;
+    return (
+      <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm space-y-4">
+        <h2 className="text-sm font-bold text-slate-900">Version history</h2>
+
+        <div className="space-y-3">
+          {orderData.proof.versions.map((ver) => (
+            <div
+              key={ver.version_number}
+              className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100"
+            >
+              <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
+                {ver.thumbnail_url ? (
+                  <img
+                    src={ver.thumbnail_url}
+                    alt={ver.label}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <Package className="w-5 h-5 text-slate-400" />
+                )}
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-slate-800">{ver.label}</span>
+                  {ver.is_approved ? (
+                    <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      Approved
+                    </span>
+                  ) : ver.version_number === orderData.proof.current_version ? (
+                    <span className="text-[11px] font-semibold text-[#E11D48] flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#E11D48]"></span>
+                      Awaiting your approval
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-slate-400">Superseded</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Uploaded {ver.uploaded_at}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Render: BPOINT Payment Card
+  const renderPaymentCard = () => {
+    if (!orderData) return null;
+    return (
+      <div className="bg-white rounded-3xl border border-slate-200/90 p-8 shadow-sm space-y-6">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-pink-50 text-[#E11D48] flex items-center justify-center">
+              <CreditCard className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">BPOINT Secure Payment</h2>
+              <p className="text-xs text-slate-500">256-bit SSL encrypted card payment</p>
+            </div>
+          </div>
+          <span className="text-xs font-semibold px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
+            Proof V{orderData.proof.current_version} Approved
+          </span>
+        </div>
+
+        {/* Payment form or status state */}
+        {gatewayStatus === 'loading' && (
+          <div className="py-12 flex flex-col items-center justify-center text-center space-y-3">
+            <Loader2 className="w-8 h-8 animate-spin text-[#E11D48]" />
+            <p className="text-sm font-semibold text-slate-800">
+              Initializing secure payment gateway...
+            </p>
+          </div>
+        )}
+
+        {gatewayStatus === 'disabled' && (
+          <div className="p-6 rounded-2xl bg-amber-50 border border-amber-200 space-y-3">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="font-bold text-amber-900 text-sm">
+                  BPOINT Gateway In Test / Sandbox Mode
+                </h4>
+                <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                  {gatewayMessage ||
+                    'Live payment processing requires valid BPOINT merchant credentials configured in the server environment.'}
+                </p>
+              </div>
+            </div>
+            <div className="p-3 bg-white/80 rounded-xl border border-amber-100 text-xs text-slate-600">
+              Your proof approval for <strong>{orderData.proof.version_label}</strong> has been securely recorded in the audit history.
+            </div>
+            <button
+              type="button"
+              onClick={() => initPaymentSession()}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl transition flex items-center gap-2"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry Connection</span>
+            </button>
+          </div>
+        )}
+
+        {gatewayStatus === 'ready' && (
+          <form onSubmit={handlePaymentSubmit} className="space-y-4 max-w-lg">
+            {paymentError && (
+              <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-2.5 text-xs text-rose-700">
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                <span>{paymentError}</span>
+              </div>
+            )}
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-slate-700">
+                  Cardholder Name
+                </label>
+                <span className="text-[11px] font-medium text-slate-400">
+                  e.g. John Doe
+                </span>
+              </div>
+              <div id="bpoint-card-name" className="bpoint-field-wrapper" />
+              <p className="text-[11px] text-slate-400 mt-1">Full name as displayed on the card</p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-slate-700">
+                  Card Number
+                </label>
+                <div className="flex items-center gap-1 opacity-80">
+                  <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">VISA</span>
+                  <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">MC</span>
+                  <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">AMEX</span>
+                </div>
+              </div>
+              <div id="bpoint-card-number" className="bpoint-field-wrapper" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Month (MM)
+                </label>
+                <div id="bpoint-expiry-month" className="bpoint-field-wrapper" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Year (YY)
+                </label>
+                <div id="bpoint-expiry-year" className="bpoint-field-wrapper" />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-700">
+                    CVN
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-medium">3-4 digits</span>
+                </div>
+                <div id="bpoint-cvn" className="bpoint-field-wrapper" />
+              </div>
+            </div>
+
+            <div className="pt-3 space-y-3">
+              <button
+                type="submit"
+                disabled={submittingPayment || !iframeLoaded}
+                className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {submittingPayment ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Lock className="w-4 h-4" />
+                )}
+                <span>
+                  Approve artwork & proceed to production — ${orderData.totals.total_inc_gst.toFixed(2)} AUD
+                </span>
+              </button>
+
+              <div className="flex items-center justify-center gap-2.5 text-[11px] text-slate-400 pt-1">
+                <span className="flex items-center gap-1 font-medium text-slate-500">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  256-bit SSL Bank Encryption
+                </span>
+                <span>•</span>
+                <span>Commonwealth Bank BPOINT</span>
+              </div>
+            </div>
+          </form>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#FDFBF9] text-slate-800 flex flex-col font-sans">
@@ -594,8 +951,8 @@ export default function OrderReviewPage({ params }: PageProps) {
               {currentStep === 'review'
                 ? 'Your artwork is ready to review'
                 : currentStep === 'payment'
-                ? 'Proof approved — Complete payment'
-                : 'Order confirmed & in production'}
+                  ? 'Proof approved — Complete payment'
+                  : 'Order confirmed & in production'}
             </h1>
             <p className="text-sm font-medium text-slate-500 mt-1">
               Order {orderData.order_number} • {primaryItem?.product_name || 'Print Products'} • {orderData.proof.version_label}
@@ -607,18 +964,16 @@ export default function OrderReviewPage({ params }: PageProps) {
             {/* Step 1 */}
             <div className="flex items-center gap-1.5">
               <span
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                  currentStep === 'review'
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition ${currentStep === 'review'
                     ? 'bg-[#E11D48] text-white shadow-xs'
                     : 'bg-emerald-500 text-white'
-                }`}
+                  }`}
               >
                 {currentStep !== 'review' ? <Check className="w-3.5 h-3.5" /> : '1'}
               </span>
               <span
-                className={`font-semibold ${
-                  currentStep === 'review' ? 'text-slate-900' : 'text-slate-500'
-                }`}
+                className={`font-semibold ${currentStep === 'review' ? 'text-slate-900' : 'text-slate-500'
+                  }`}
               >
                 Review artwork
               </span>
@@ -629,20 +984,18 @@ export default function OrderReviewPage({ params }: PageProps) {
             {/* Step 2 */}
             <div className="flex items-center gap-1.5">
               <span
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                  currentStep === 'payment'
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition ${currentStep === 'payment'
                     ? 'bg-[#E11D48] text-white shadow-xs'
                     : currentStep === 'production'
-                    ? 'bg-emerald-500 text-white'
-                    : 'bg-slate-200 text-slate-600'
-                }`}
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-slate-200 text-slate-600'
+                  }`}
               >
                 {currentStep === 'production' ? <Check className="w-3.5 h-3.5" /> : '2'}
               </span>
               <span
-                className={`font-semibold ${
-                  currentStep === 'payment' ? 'text-slate-900' : 'text-slate-400'
-                }`}
+                className={`font-semibold ${currentStep === 'payment' ? 'text-slate-900' : 'text-slate-400'
+                  }`}
               >
                 Payment
               </span>
@@ -653,18 +1006,16 @@ export default function OrderReviewPage({ params }: PageProps) {
             {/* Step 3 */}
             <div className="flex items-center gap-1.5">
               <span
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                  currentStep === 'production'
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition ${currentStep === 'production'
                     ? 'bg-[#E11D48] text-white shadow-xs'
                     : 'bg-slate-200 text-slate-600'
-                }`}
+                  }`}
               >
                 3
               </span>
               <span
-                className={`font-semibold ${
-                  currentStep === 'production' ? 'text-slate-900' : 'text-slate-400'
-                }`}
+                className={`font-semibold ${currentStep === 'production' ? 'text-slate-900' : 'text-slate-400'
+                  }`}
               >
                 Production
               </span>
@@ -707,12 +1058,33 @@ export default function OrderReviewPage({ params }: PageProps) {
           </div>
         )}
 
-        {/* Two-Column Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* LEFT COLUMN: Proof Viewer & Approval/Change Request Forms (approx 7.5 cols) */}
-          <div className="lg:col-span-8 space-y-6">
-            {/* STEP 1: REVIEW ARTWORK CONTENT */}
-            {currentStep === 'review' && (
+        {/* Step-specific Layouts */}
+        {currentStep === 'payment' ? (
+          /* STEP 2: PAYMENT STEP - Opposite Order: FIRST Summary, THEN Payment (both Mobile & Desktop) */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            {/* FIRST: Order Summary Column (Left on desktop, Top on mobile) */}
+            <div className="lg:col-span-7 space-y-6">
+              {renderOrderSummaryCard(false)}
+              {renderDeliverySummaryCard()}
+              {renderVersionHistoryCard()}
+            </div>
+
+            {/* SECOND: Payment Form Column (Right on desktop, Bottom on mobile) */}
+            <div className="lg:col-span-5 space-y-6">
+              {renderPaymentCard()}
+              <div className="p-4 bg-sky-50/80 rounded-2xl border border-sky-100 flex items-start gap-2.5 text-xs text-sky-800">
+                <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                <span>Production begins immediately after verified payment. Your tax invoice will be sent via email.</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* STEPS 1 (REVIEW) & 3 (PRODUCTION): Proof / Status on Left, Summary on Right */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            {/* LEFT COLUMN: Proof Viewer & Approval/Change Request Forms (approx 8 cols) */}
+            <div className="lg:col-span-8 space-y-6">
+              {/* STEP 1: REVIEW ARTWORK CONTENT */}
+              {currentStep === 'review' && (
               <>
                 {/* Proof Viewer Container */}
                 <div
@@ -729,48 +1101,44 @@ export default function OrderReviewPage({ params }: PageProps) {
                         <button
                           type="button"
                           onClick={() => setProofView('3d')}
-                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                            proofView === '3d'
+                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${proofView === '3d'
                               ? 'bg-[#E11D48] text-white shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
-                          }`}
+                            }`}
                         >
                           3D Mockup
                         </button>
                         <button
                           type="button"
                           onClick={() => setProofView('flat')}
-                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                            proofView === 'flat'
+                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${proofView === 'flat'
                               ? 'bg-[#E11D48] text-white shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
-                          }`}
+                            }`}
                         >
                           Flat view
                         </button>
                       </div>
 
-                      {proofView === 'flat' && backMockupUrl && (
+                      {backMockupUrl && (
                         <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 ml-1">
                           <button
                             type="button"
                             onClick={() => setActiveSide('front')}
-                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                              activeSide === 'front'
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${activeSide === 'front'
                                 ? 'bg-[#E11D48] text-white shadow-xs'
                                 : 'text-slate-600 hover:text-slate-900'
-                            }`}
+                              }`}
                           >
                             Front
                           </button>
                           <button
                             type="button"
                             onClick={() => setActiveSide('back')}
-                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                              activeSide === 'back'
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${activeSide === 'back'
                                 ? 'bg-[#E11D48] text-white shadow-xs'
                                 : 'text-slate-600 hover:text-slate-900'
-                            }`}
+                              }`}
                           >
                             Back
                           </button>
@@ -813,6 +1181,44 @@ export default function OrderReviewPage({ params }: PageProps) {
                     </div>
                   </div>
 
+                  {orderData.items.length > 1 && (
+                    <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/70 px-6 py-3">
+                      <span className="mr-1 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                        Products:
+                      </span>
+                      {orderData.items.map((item, index) => {
+                        const isSelected = (selectedProofItem?.id || primaryItem?.id) === item.id;
+                        const itemArt = item.artwork_preview;
+                        const hasBothSides = Boolean(itemArt?.front_url && itemArt?.back_url) || (itemArt?.files && itemArt.files.length >= 2);
+                        const hasFrontOnly = Boolean(itemArt?.front_url || (itemArt?.files && itemArt.files.length === 1));
+
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedProofItemId(item.id);
+                              setActiveSide('front');
+                            }}
+                            className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition ${isSelected
+                                ? 'bg-[#E11D48] text-white shadow-sm ring-2 ring-[#E11D48]/30'
+                                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                              }`}
+                          >
+                            <span className="font-mono text-[11px] opacity-80">#{index + 1}</span>
+                            <span className="truncate max-w-[160px]">{item.product_name}</span>
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                                }`}
+                            >
+                              {hasBothSides ? 'Front & Back' : hasFrontOnly ? 'Front Only' : 'Pending'}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
                   {/* Viewport: 3D Scene or Flat Artwork */}
                   {proofView === '3d' ? (
                     frontMockupUrl ? (
@@ -822,7 +1228,8 @@ export default function OrderReviewPage({ params }: PageProps) {
                           backPreviewUrl={backMockupUrl}
                           documentSettings={mockupDocumentSettings}
                           dimensions={mockupDimensions}
-                          autoRotateInitially={true}
+                          autoRotateInitially={false}
+                          activeSide={activeSide}
                         />
                       </div>
                     ) : (
@@ -849,7 +1256,9 @@ export default function OrderReviewPage({ params }: PageProps) {
                         ) : (
                           <div className="w-[500px] h-[300px] flex flex-col items-center justify-center bg-slate-50 text-slate-400 p-8">
                             <Package className="w-12 h-12 mb-2 stroke-1" />
-                            <p className="text-sm font-semibold">Flat artwork preview not available</p>
+                            <p className="text-sm font-semibold">
+                              {activeSide === 'back' ? 'Back artwork not available for this product' : 'Artwork preview not available'}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -857,13 +1266,13 @@ export default function OrderReviewPage({ params }: PageProps) {
                   )}
 
                   {/* Active File Details Footer */}
-                  {((proofView === 'flat' && activeSide === 'back') ? (backFile || frontFile) : frontFile) && (
+                  {((activeSide === 'back' && backFile) ? backFile : frontFile) && (
                     <div className="px-6 py-3 bg-white border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
                       <span className="font-medium text-slate-700">
-                        {((proofView === 'flat' && activeSide === 'back') ? (backFile || frontFile) : frontFile)?.label}: {((proofView === 'flat' && activeSide === 'back') ? (backFile || frontFile) : frontFile)?.file_name}
+                        {((activeSide === 'back' && backFile) ? backFile : frontFile)?.label || (activeSide === 'back' ? 'Back' : 'Front')}: {((activeSide === 'back' && backFile) ? backFile : frontFile)?.file_name}
                       </span>
-                      {((proofView === 'flat' && activeSide === 'back') ? (backFile || frontFile) : frontFile)?.file_size_bytes && (
-                        <span>{(((proofView === 'flat' && activeSide === 'back') ? (backFile || frontFile) : frontFile)!.file_size_bytes! / (1024 * 1024)).toFixed(2)} MB</span>
+                      {((activeSide === 'back' && backFile) ? backFile : frontFile)?.file_size_bytes && (
+                        <span>{(((activeSide === 'back' && backFile) ? backFile : frontFile)!.file_size_bytes! / (1024 * 1024)).toFixed(2)} MB</span>
                       )}
                     </div>
                   )}
@@ -879,36 +1288,48 @@ export default function OrderReviewPage({ params }: PageProps) {
                       <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
                         <input
                           type="checkbox"
-                          checked={checkSpelling}
-                          onChange={(e) => setCheckSpelling(e.target.checked)}
-                          className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4"
+                          checked={checkArtwork}
+                          onChange={(e) => setCheckArtwork(e.target.checked)}
+                          className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
                         />
-                        <span className="leading-tight group-hover:text-slate-900">
-                          Spelling, contact details and all pages checked
+                        <span className="leading-relaxed group-hover:text-slate-900">
+                          Artwork checked: I have checked all pages and sides, spelling, contact details, prices, images, layout and QR codes. I approve the current proof as correct.
                         </span>
                       </label>
 
                       <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
                         <input
                           type="checkbox"
-                          checked={checkSpecs}
-                          onChange={(e) => setCheckSpecs(e.target.checked)}
-                          className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4"
+                          checked={checkOrderDetails}
+                          onChange={(e) => setCheckOrderDetails(e.target.checked)}
+                          className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
                         />
-                        <span className="leading-tight group-hover:text-slate-900">
-                          Size, quantity, stock and finish confirmed
+                        <span className="leading-relaxed group-hover:text-slate-900">
+                          Order details confirmed: I confirm the size, quantity, material, finish, printing sides, delivery details and total price. I understand screen colours may differ from printed colours.
                         </span>
                       </label>
 
                       <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
                         <input
                           type="checkbox"
-                          checked={checkApproval}
-                          onChange={(e) => setCheckApproval(e.target.checked)}
-                          className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4"
+                          checked={checkCopyright}
+                          onChange={(e) => setCheckCopyright(e.target.checked)}
+                          className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
                         />
-                        <span className="leading-tight group-hover:text-slate-900">
-                          I approve {orderData.proof.version_label} for printing
+                        <span className="leading-relaxed group-hover:text-slate-900">
+                          Copyright and permissions: I own or have the necessary licences and permissions to reproduce all supplied content, images, logos and trademarks, and authorise Erry Imprints to print them.
+                        </span>
+                      </label>
+
+                      <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
+                        <input
+                          type="checkbox"
+                          checked={checkFinalApproval}
+                          onChange={(e) => setCheckFinalApproval(e.target.checked)}
+                          className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
+                        />
+                        <span className="leading-relaxed group-hover:text-slate-900">
+                          Final approval — no amendments: I am authorised to approve this order and understand it will be locked after approval. Changes or cancellation are not guaranteed, and correcting approved customer content errors may incur reprint costs. This does not limit my rights under Australian Consumer Law.
                         </span>
                       </label>
                     </div>
@@ -951,152 +1372,6 @@ export default function OrderReviewPage({ params }: PageProps) {
                   </div>
                 </div>
               </>
-            )}
-
-            {/* STEP 2: PAYMENT CONTENT */}
-            {currentStep === 'payment' && (
-              <div className="bg-white rounded-3xl border border-slate-200/90 p-8 shadow-sm space-y-6">
-                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-pink-50 text-[#E11D48] flex items-center justify-center">
-                      <CreditCard className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-bold text-slate-900">BPOINT Secure Payment</h2>
-                      <p className="text-xs text-slate-500">256-bit SSL encrypted card payment</p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-semibold px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
-                    Proof V{orderData.proof.current_version} Approved
-                  </span>
-                </div>
-
-                {/* Payment form or status state */}
-                {gatewayStatus === 'loading' && (
-                  <div className="py-12 flex flex-col items-center justify-center text-center space-y-3">
-                    <Loader2 className="w-8 h-8 animate-spin text-[#E11D48]" />
-                    <p className="text-sm font-semibold text-slate-800">
-                      Initializing secure payment gateway...
-                    </p>
-                  </div>
-                )}
-
-                {gatewayStatus === 'disabled' && (
-                  <div className="p-6 rounded-2xl bg-amber-50 border border-amber-200 space-y-3">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-bold text-amber-900 text-sm">
-                          BPOINT Gateway In Test / Sandbox Mode
-                        </h4>
-                        <p className="text-xs text-amber-800 mt-1 leading-relaxed">
-                          {gatewayMessage ||
-                            'Live payment processing requires valid BPOINT merchant credentials configured in the server environment.'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="p-3 bg-white/80 rounded-xl border border-amber-100 text-xs text-slate-600">
-                      Your proof approval for <strong>{orderData.proof.version_label}</strong> has been securely recorded in the audit history.
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => initPaymentSession()}
-                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl transition flex items-center gap-2"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Retry Connection</span>
-                    </button>
-                  </div>
-                )}
-
-                {gatewayStatus === 'ready' && (
-                  <form onSubmit={handlePaymentSubmit} className="space-y-4 max-w-lg">
-                    {paymentError && (
-                      <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-2.5 text-xs text-rose-700">
-                        <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                        <span>{paymentError}</span>
-                      </div>
-                    )}
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-xs font-bold text-slate-700">
-                          Cardholder Name
-                        </label>
-                        <span className="text-[11px] font-medium text-slate-400">
-                          e.g. John Doe
-                        </span>
-                      </div>
-                      <div id="bpoint-card-name" className="bpoint-field-wrapper" />
-                      <p className="text-[11px] text-slate-400 mt-1">Full name as displayed on the card</p>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-xs font-bold text-slate-700">
-                          Card Number
-                        </label>
-                        <div className="flex items-center gap-1 opacity-80">
-                          <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">VISA</span>
-                          <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">MC</span>
-                          <span className="text-[9px] font-bold tracking-wider px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 border border-slate-200">AMEX</span>
-                        </div>
-                      </div>
-                      <div id="bpoint-card-number" className="bpoint-field-wrapper" />
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                          Month (MM)
-                        </label>
-                        <div id="bpoint-expiry-month" className="bpoint-field-wrapper" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                          Year (YY)
-                        </label>
-                        <div id="bpoint-expiry-year" className="bpoint-field-wrapper" />
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-xs font-bold text-slate-700">
-                            CVN
-                          </label>
-                          <span className="text-[10px] text-slate-400 font-medium">3-4 digits</span>
-                        </div>
-                        <div id="bpoint-cvn" className="bpoint-field-wrapper" />
-                      </div>
-                    </div>
-
-                    <div className="pt-3 space-y-3">
-                      <button
-                        type="submit"
-                        disabled={submittingPayment || !iframeLoaded}
-                        className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                      >
-                        {submittingPayment ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Lock className="w-4 h-4" />
-                        )}
-                        <span>
-                          Pay ${orderData.totals.total_inc_gst.toFixed(2)} AUD Securely
-                        </span>
-                      </button>
-
-                      <div className="flex items-center justify-center gap-2.5 text-[11px] text-slate-400 pt-1">
-                        <span className="flex items-center gap-1 font-medium text-slate-500">
-                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                          256-bit SSL Bank Encryption
-                        </span>
-                        <span>•</span>
-                        <span>Commonwealth Bank BPOINT</span>
-                      </div>
-                    </div>
-                  </form>
-                )}
-              </div>
             )}
 
             {/* STEP 3: PRODUCTION CONTENT */}
@@ -1149,177 +1424,14 @@ export default function OrderReviewPage({ params }: PageProps) {
             )}
           </div>
 
-          {/* RIGHT COLUMN: Order Summary & Version History (approx 4.5 cols) */}
+          {/* RIGHT COLUMN: Order Summary & Version History (approx 4 cols) */}
           <div className="lg:col-span-4 space-y-6">
-            {/* Order Summary Card */}
-            <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm space-y-5">
-              <h2 className="text-base font-bold text-slate-900">Order summary</h2>
-
-              {/* Items preview */}
-              <div className="space-y-4">
-                {orderData.items.map((item) => (
-                  <div key={item.id} className="flex items-start gap-4 pb-4 border-b border-slate-100">
-                    <div className="w-16 h-16 rounded-2xl bg-slate-100 border border-slate-200/80 flex items-center justify-center overflow-hidden shrink-0">
-                      {orderData.proof.thumbnail_url ? (
-                        <img
-                          src={orderData.proof.thumbnail_url}
-                          alt="Thumbnail"
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <Package className="w-6 h-6 text-slate-400" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-sm text-slate-900 truncate">
-                        {item.product_name}
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">{item.quantity} pieces</p>
-                      <p className="text-xs text-slate-500">{item.specifications}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Financial Breakdown */}
-              <div className="space-y-2.5 text-xs">
-                <div className="flex justify-between text-slate-600">
-                  <span>Subtotal</span>
-                  <span className="font-medium text-slate-800">
-                    ${orderData.totals.subtotal_ex_gst.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>GST (10%)</span>
-                  <span className="font-medium text-slate-800">
-                    ${orderData.totals.gst_amount.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>Shipping</span>
-                  <span className="font-medium text-slate-800">
-                    {orderData.totals.shipping_fee_inc_gst === 0
-                      ? '$0.00'
-                      : `$${orderData.totals.shipping_fee_inc_gst.toFixed(2)}`}
-                  </span>
-                </div>
-
-                <div className="pt-3 border-t border-slate-100 flex justify-between items-baseline">
-                  <span className="font-bold text-sm text-slate-900">Total (AUD)</span>
-                  <span className="text-xl font-extrabold text-slate-900">
-                    ${orderData.totals.total_inc_gst.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Primary Call to Action Button (Review step) */}
-              {currentStep === 'review' && (
-                <div className="space-y-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleApproveProof}
-                    disabled={
-                      !checkSpelling ||
-                      !checkSpecs ||
-                      !checkApproval ||
-                      approving ||
-                      orderData.status === 'changes_requested'
-                    }
-                    className={`w-full py-3.5 px-4 ${
-                      approving ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-[#E11D48] hover:bg-[#BE123C]'
-                    } text-white font-bold text-sm rounded-2xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
-                  >
-                    {approving ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Lock className="w-4 h-4" />
-                    )}
-                    <span>Approve &amp; continue to payment</span>
-                  </button>
-
-                  <p className="text-[11px] text-center text-slate-400">
-                    Complete all 3 checks to continue.
-                  </p>
-                </div>
-              )}
-
-              {/* Call to Action for Payment step */}
-              {currentStep === 'payment' && (
-                <div className="space-y-2 pt-2">
-                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Proof approved! Complete payment to queue for printing.</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Production Note */}
-              <div className="p-3.5 bg-sky-50/80 rounded-2xl border border-sky-100 flex items-start gap-2.5 text-xs text-sky-800">
-                <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
-                <span>Production begins after approval and verified payment.</span>
-              </div>
-            </div>
-
-            {/* Version History Card */}
-            <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm space-y-4">
-              <h2 className="text-sm font-bold text-slate-900">Version history</h2>
-
-              <div className="space-y-3">
-                {orderData.proof.versions?.map((ver) => (
-                  <div
-                    key={ver.version_number}
-                    className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100"
-                  >
-                    <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
-                      {ver.thumbnail_url ? (
-                        <img
-                          src={ver.thumbnail_url}
-                          alt={ver.label}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <Package className="w-5 h-5 text-slate-400" />
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-xs text-slate-800">{ver.label}</span>
-                        {ver.is_approved ? (
-                          <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                            Approved
-                          </span>
-                        ) : ver.version_number === orderData.proof.current_version ? (
-                          <span className="text-[11px] font-semibold text-[#E11D48] flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#E11D48]"></span>
-                            Awaiting your approval
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-slate-400">Superseded</span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        Uploaded {ver.uploaded_at}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Delivery Summary Card */}
-            <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-sm space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                <Truck className="w-3.5 h-3.5 text-slate-600" />
-                <span>Delivery Address</span>
-              </div>
-              <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                {orderData.delivery_summary.full_address || 'Standard Delivery'}
-              </p>
-            </div>
+            {renderOrderSummaryCard(currentStep === 'review')}
+            {renderVersionHistoryCard()}
+            {renderDeliverySummaryCard()}
           </div>
         </div>
+      )}
       </main>
 
       {/* Footer matching reference screenshot bottom strip */}

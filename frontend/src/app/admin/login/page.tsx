@@ -177,23 +177,42 @@ export default function AdminLoginPage() {
           </Button>
 
           <div className="pt-2">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/50 p-3 text-xs text-slate-300 space-y-1.5">
+            <div className="rounded-xl border border-slate-700/60 bg-slate-800/50 p-3 text-xs text-slate-300 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-slate-200">Admin Credentials</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail('admin@printecommerce.com.au');
-                    setPassword('SecretAdmin2026!');
-                  }}
-                  className="text-[11px] font-medium text-sky-400 hover:text-sky-300 underline underline-offset-2 transition"
-                >
-                  Quick Fill
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail('admin@admin.com');
+                      setPassword('admin123');
+                    }}
+                    className="text-[11px] font-medium text-emerald-400 hover:text-emerald-300 underline underline-offset-2 transition"
+                  >
+                    admin@admin.com
+                  </button>
+                  <span className="text-slate-600">•</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail('admin@printecommerce.com.au');
+                      setPassword('SecretAdmin2026!');
+                    }}
+                    className="text-[11px] font-medium text-sky-400 hover:text-sky-300 underline underline-offset-2 transition"
+                  >
+                    Quick Fill
+                  </button>
+                </div>
               </div>
-              <div className="font-mono text-[11px] text-slate-400 space-y-0.5">
-                <div>Email: <span className="text-slate-200">admin@printecommerce.com.au</span></div>
-                <div>Password: <span className="text-slate-200">SecretAdmin2026!</span></div>
+              <div className="font-mono text-[11px] text-slate-400 space-y-1 divide-y divide-slate-700/40">
+                <div className="pb-1">
+                  <div>Email: <span className="text-slate-200">admin@admin.com</span></div>
+                  <div>Password: <span className="text-slate-200">admin123</span></div>
+                </div>
+                <div className="pt-1">
+                  <div>Email: <span className="text-slate-200">admin@printecommerce.com.au</span></div>
+                  <div>Password: <span className="text-slate-200">SecretAdmin2026!</span></div>
+                </div>
               </div>
             </div>
           </div>
