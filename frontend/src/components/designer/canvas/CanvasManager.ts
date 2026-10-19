@@ -745,11 +745,23 @@ export class CanvasManager {
       // Resize from the dragged control and keep the opposite corner fixed.
       // Centered scaling makes left/top appear to drift while resizing.
       centeredScaling: false,
+      controlsAboveOverlay: true,
+      skipOffscreen: false,
     });
     (canvas as any).uniformScaling = true;
     (canvas as any).centeredScaling = false;
     canvas.defaultCursor = BLACK_ARTWORK_CURSOR;
     canvas.setCursor(BLACK_ARTWORK_CURSOR);
+
+    // Render artwork and bleed-line overlays above the background, but beneath
+    // objects and selection frames so elements and their frames never disappear behind lines.
+    const origRenderBackground = (canvas as any)._renderBackground?.bind(canvas);
+    if (origRenderBackground) {
+      (canvas as any)._renderBackground = (ctx: CanvasRenderingContext2D) => {
+        origRenderBackground(ctx);
+        this.guides.renderGuides(ctx, this.zoom);
+      };
+    }
 
     applyCanvaControlsGlobal();
     canvas.setZoom(this.zoom);
@@ -1246,7 +1258,7 @@ export class CanvasManager {
   ): Promise<void> {
     if (!this.canvas) return;
 
-    const fit = options?.fit || 'cover';
+    const fit = options?.fit || 'contain';
     const scaleFactor = options?.scale !== undefined ? options?.scale : 1.0;
     const offsetX = options?.offsetX || 0;
     const offsetY = options?.offsetY || 0;
@@ -1278,21 +1290,10 @@ export class CanvasManager {
       const imgW = img.width || targetW;
       const imgH = img.height || targetH;
 
-      let finalScaleX = scaleFactor;
-      let finalScaleY = scaleFactor;
-
-      if (fit === 'cover') {
-        const baseScale = Math.max(targetW / imgW, targetH / imgH);
-        finalScaleX = baseScale * scaleFactor;
-        finalScaleY = baseScale * scaleFactor;
-      } else if (fit === 'contain') {
-        const baseScale = Math.min(targetW / imgW, targetH / imgH);
-        finalScaleX = baseScale * scaleFactor;
-        finalScaleY = baseScale * scaleFactor;
-      } else if (fit === 'stretch') {
-        finalScaleX = (targetW / imgW) * scaleFactor;
-        finalScaleY = (targetH / imgH) * scaleFactor;
-      }
+      // Preserve aspect ratio and keep the full image visible without unintentional cropping or distortion
+      const baseScale = Math.min(targetW / imgW, targetH / imgH);
+      const finalScaleX = baseScale * scaleFactor;
+      const finalScaleY = baseScale * scaleFactor;
 
       img.set({
         originX: 'center',
@@ -1306,8 +1307,33 @@ export class CanvasManager {
         evented: false,
       });
 
+      // Preserve any existing background filters/adjustments/effects when resizing or updating
+      const existingBg = this.canvas.backgroundImage as FabricImage | undefined;
+      if (existingBg) {
+        if ((existingBg as any)._activeFilterPreset) {
+          (img as any)._activeFilterPreset = (existingBg as any)._activeFilterPreset;
+          (img as any)._filterIntensity = (existingBg as any)._filterIntensity;
+        }
+        if ((existingBg as any)._adjustments) {
+          (img as any)._adjustments = { ...(existingBg as any)._adjustments };
+        }
+        if ((existingBg as any)._activeEffects) {
+          (img as any)._activeEffects = { ...(existingBg as any)._activeEffects };
+          (img as any)._activeEffect = (existingBg as any)._activeEffect;
+          (img as any)._effectSettings = { ...(existingBg as any)._effectSettings };
+        }
+      }
+
       this.canvas.backgroundColor = 'transparent';
       this.canvas.backgroundImage = img;
+
+      if (
+        (img as any)._activeFilterPreset ||
+        (img as any)._adjustments ||
+        (img as any)._activeEffects
+      ) {
+        this.reapplyCombinedImageFilters(img);
+      }
 
       this.backgroundSettings = {
         type: 'image',
@@ -1410,7 +1436,7 @@ export class CanvasManager {
     const name = (obj.get('name' as any) as string) || 'Background Image';
 
     this.canvas.remove(obj);
-    await this.setBackgroundImage(imageUrl, { name, fit: 'cover' });
+    await this.setBackgroundImage(imageUrl, { name, fit: 'contain' });
     this.saveHistoryState();
   }
 
@@ -9629,6 +9655,25 @@ export class CanvasManager {
     // Size-preserving blur (runs after the other pixel filters)
     this.applyEdgeSafeBlur(targetImage, Number(adjustments.blur) || 0);
 
+    // If targetImage is the canvas background, preserve aspect ratio and avoid distortion/cropping
+    if (targetImage === this.canvas?.backgroundImage) {
+      const bleedPx = Math.max(0, this.dimensions.bleedPx || 0);
+      const baseW = this.dimensions.widthPx || 1063;
+      const baseH = this.dimensions.heightPx || 591;
+      const targetW = baseW + bleedPx * 2;
+      const targetH = baseH + bleedPx * 2;
+      const imgW = geometrySnapshot.width || targetW;
+      const imgH = geometrySnapshot.height || targetH;
+      const scaleFactor = this.backgroundSettings.image?.scale ?? 1.0;
+      const baseScale = Math.min(targetW / imgW, targetH / imgH);
+      geometrySnapshot.scaleX = baseScale * scaleFactor;
+      geometrySnapshot.scaleY = baseScale * scaleFactor;
+      geometrySnapshot.left = targetW / 2 + (this.backgroundSettings.image?.offsetX || 0);
+      geometrySnapshot.top = targetH / 2 + (this.backgroundSettings.image?.offsetY || 0);
+      geometrySnapshot.originX = 'center';
+      geometrySnapshot.originY = 'center';
+    }
+
     // Pixel filters are not allowed to modify frame/image geometry.
     targetImage.set({
       left: geometrySnapshot.left,
@@ -11995,7 +12040,6 @@ export class CanvasManager {
 
     this.canvas.on('after:render', (opt) => {
       if (opt.ctx) {
-        this.guides.renderGuides(opt.ctx, this.zoom);
         this.snapping.renderGuides(opt.ctx, this.zoom);
         this.smartSpacingManager.renderMeasurements(opt.ctx, this.zoom);
       }
@@ -12647,6 +12691,7 @@ export class CanvasManager {
         this.snapping.handleObjectMove(target);
         this.smartSpacingManager.handleObjectMove(target);
         this.handleShapeImageHover(target, pointer);
+        target.setCoords();
 
         // Canva-style Alt-drag duplication: place stationary clone at starting position
         if (this.altDragState && !this.altDragState.clonedPlaced) {

@@ -87,7 +87,7 @@ export default function Footer() {
           <div className="space-y-2 text-xs text-slate-300">
             <div className="flex items-center gap-2">
               <Phone className="w-4 h-4 text-sky-400" />
-              <span>1300 000 000 (Mon-Fri 8:30am - 5:30pm AEST)</span>
+              <span>Mon-Fri 8:30am - 5:30pm AEST</span>
             </div>
             <div className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-sky-400" />

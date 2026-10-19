@@ -312,7 +312,7 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
       setApplyingBackgroundId(item.id);
       await canvasManager.setBackgroundImage(targetUrl, {
         name: item.name,
-        fit: 'cover',
+        fit: 'contain',
         scale: 1.0,
         offsetX: 0,
         offsetY: 0,
@@ -351,7 +351,7 @@ export const BackgroundPanel: React.FC<BackgroundPanelProps> = ({ canvasManager 
         if (url) {
           await canvasManager.setBackgroundImage(url, {
             name: file.name,
-            fit: 'cover',
+            fit: 'contain',
             scale: 1.0,
             offsetX: 0,
             offsetY: 0,

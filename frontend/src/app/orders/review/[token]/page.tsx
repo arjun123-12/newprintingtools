@@ -16,6 +16,7 @@ import {
   Package,
   Clock,
   ArrowRight,
+  ArrowLeft,
   MessageSquare,
   Check,
   RefreshCw,
@@ -762,7 +763,15 @@ export default function OrderReviewPage({ params }: PageProps) {
       <div className="bg-white rounded-3xl border border-slate-200/90 p-8 shadow-sm space-y-6">
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-pink-50 text-[#E11D48] flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setCurrentStep('review')}
+              className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition flex items-center justify-center shrink-0 cursor-pointer"
+              title="Back to artwork review"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div className="w-12 h-12 rounded-2xl bg-pink-50 text-[#E11D48] flex items-center justify-center shrink-0">
               <CreditCard className="w-6 h-6" />
             </div>
             <div>
@@ -770,7 +779,7 @@ export default function OrderReviewPage({ params }: PageProps) {
               <p className="text-xs text-slate-500">256-bit SSL encrypted card payment</p>
             </div>
           </div>
-          <span className="text-xs font-semibold px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
+          <span className="text-xs font-semibold px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full shrink-0">
             Proof V{orderData.proof.current_version} Approved
           </span>
         </div>
@@ -889,6 +898,16 @@ export default function OrderReviewPage({ params }: PageProps) {
                 </span>
               </button>
 
+              <button
+                type="button"
+                onClick={() => setCurrentStep('review')}
+                disabled={submittingPayment}
+                className="w-full py-3 px-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <ArrowLeft className="w-4 h-4 text-slate-500" />
+                <span>Back to artwork review</span>
+              </button>
+
               <div className="flex items-center justify-center gap-2.5 text-[11px] text-slate-400 pt-1">
                 <span className="flex items-center gap-1 font-medium text-slate-500">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
@@ -947,6 +966,16 @@ export default function OrderReviewPage({ params }: PageProps) {
         {/* Title Bar & Progress Stepper */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 pb-2">
           <div>
+            {currentStep === 'payment' && (
+              <button
+                type="button"
+                onClick={() => setCurrentStep('review')}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-[#E11D48] mb-2 px-3 py-1.5 bg-white border border-slate-200 rounded-xl shadow-xs transition cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back to artwork review</span>
+              </button>
+            )}
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
               {currentStep === 'review'
                 ? 'Your artwork is ready to review'
@@ -962,7 +991,13 @@ export default function OrderReviewPage({ params }: PageProps) {
           {/* Stepper matching screenshot: 1 Review artwork -> 2 Payment -> 3 Production */}
           <div className="flex items-center gap-2 sm:gap-3 text-xs font-medium text-slate-400 self-start md:self-auto bg-white px-4 py-2 rounded-2xl border border-slate-200 shadow-xs">
             {/* Step 1 */}
-            <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                if (currentStep === 'payment') setCurrentStep('review');
+              }}
+              className={`flex items-center gap-1.5 text-left ${currentStep === 'payment' ? 'cursor-pointer hover:opacity-80' : ''}`}
+            >
               <span
                 className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition ${currentStep === 'review'
                     ? 'bg-[#E11D48] text-white shadow-xs'
@@ -977,7 +1012,7 @@ export default function OrderReviewPage({ params }: PageProps) {
               >
                 Review artwork
               </span>
-            </div>
+            </button>
 
             <span className="w-6 h-px bg-slate-300"></span>
 

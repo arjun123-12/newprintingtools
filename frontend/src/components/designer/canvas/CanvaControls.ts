@@ -1778,6 +1778,19 @@ export function applyCanvaControlsGlobal(): void {
     applyDefaults((FabricObject as any).ownDefaults);
   }
 
+  // Ensure active objects and their selection bounding boxes remain visible and tracked outside canvas bounds
+  const origIsOnScreen = FabricObject.prototype.isOnScreen;
+  FabricObject.prototype.isOnScreen = function () {
+    if (
+      this.canvas &&
+      (this === (this.canvas as any)._activeObject ||
+        (this.canvas as any).getActiveObjects?.()?.includes(this))
+    ) {
+      return true;
+    }
+    return origIsOnScreen ? origIsOnScreen.call(this) : true;
+  };
+
   // Draw custom selection frame for visual-aware objects (curved text, cropped shapes/elements)
   const origDrawBorders = FabricObject.prototype.drawBorders;
   FabricObject.prototype.drawBorders = function (
