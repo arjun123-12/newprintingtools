@@ -166,6 +166,11 @@ class ManualOrderController extends Controller
                 'id' => $order->id,
                 'order_number' => $order->order_number,
                 'status' => $order->status->value ?? (string) $order->status,
+                'status_label' => \App\Enums\OrderStatus::WORKFLOW_SEQUENCE[$order->status->value ?? (string) $order->status]
+                    ?? ($order->status instanceof \App\Enums\OrderStatus ? $order->status->label() : ucwords(str_replace('_', ' ', (string) $order->status))),
+                'shipping_carrier' => $order->shipping_carrier,
+                'tracking_number' => $order->tracking_number,
+                'carrier_tracking_url' => \App\Services\Order\ManualOrderService::resolveCarrierTrackingUrl($order->shipping_carrier, $order->tracking_number),
                 'payment_status' => $order->payment_status->value ?? (string) $order->payment_status,
                 'customer' => [
                     'id' => $order->user?->id,
@@ -578,6 +583,73 @@ class ManualOrderController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage() ?: 'Cannot move order to production.',
+            ], 422);
+        }
+    }
+
+    /**
+     * Update order production and shipping status with validation, audit trail, and customer notification.
+     */
+    public function updateProductionStatus(Request $request, string $id): JsonResponse
+    {
+        $order = Order::where('id', $id)->orWhere('order_number', $id)->firstOrFail();
+
+        $validated = $request->validate([
+            'status' => 'required|string',
+            'carrier' => 'nullable|string|max:150',
+            'tracking_number' => 'nullable|string|max:150',
+            'shipping_carrier' => 'nullable|string|max:150',
+        ]);
+
+        try {
+            $carrier = $validated['shipping_carrier'] ?? $validated['carrier'] ?? null;
+            $trackingNumber = $validated['tracking_number'] ?? null;
+
+            $updatedOrder = $this->manualOrderService->updateProductionStatus(
+                $order,
+                $validated['status'],
+                $request->user(),
+                $carrier,
+                $trackingNumber
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order status updated successfully.',
+                'data' => [
+                    'id' => $updatedOrder->id,
+                    'order_number' => $updatedOrder->order_number,
+                    'status' => $updatedOrder->status->value ?? (string) $updatedOrder->status,
+                    'status_label' => \App\Enums\OrderStatus::WORKFLOW_SEQUENCE[$updatedOrder->status->value ?? (string) $updatedOrder->status]
+                        ?? ($updatedOrder->status instanceof \App\Enums\OrderStatus ? $updatedOrder->status->label() : ucwords(str_replace('_', ' ', (string) $updatedOrder->status))),
+                    'shipping_carrier' => $updatedOrder->shipping_carrier,
+                    'tracking_number' => $updatedOrder->tracking_number,
+                    'carrier_tracking_url' => \App\Services\Order\ManualOrderService::resolveCarrierTrackingUrl($updatedOrder->shipping_carrier, $updatedOrder->tracking_number),
+                    'activities' => $updatedOrder->activities->map(function ($act) {
+                        return [
+                            'id' => $act->id,
+                            'event_type' => $act->event_type,
+                            'description' => $act->description,
+                            'actor_type' => $act->actor_type,
+                            'actor_name' => $act->actor_name,
+                            'metadata' => $act->metadata,
+                            'created_at' => $act->created_at->toIso8601String(),
+                            'time_ago' => $act->created_at->diffForHumans(),
+                        ];
+                    }),
+                ],
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->validator->errors()->first(),
+                'errors' => $e->validator->errors(),
+            ], 422);
+        } catch (Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage() ?: 'Failed to update order status.',
             ], 422);
         }
     }

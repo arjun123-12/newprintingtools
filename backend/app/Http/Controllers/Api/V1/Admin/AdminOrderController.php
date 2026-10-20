@@ -4,11 +4,18 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\Order\ManualOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class AdminOrderController extends Controller
 {
+    public function __construct(
+        protected ManualOrderService $manualOrderService
+    ) {}
+
     public function index(Request $request): JsonResponse
     {
         $status = $request->query('status');
@@ -42,7 +49,7 @@ class AdminOrderController extends Controller
 
     public function show(string $id): JsonResponse
     {
-        $order = Order::with(['user', 'items.product', 'items.artwork', 'payments', 'invoice'])
+        $order = Order::with(['user', 'items.product', 'items.artwork', 'payments', 'invoice', 'activities'])
             ->where('id', $id)
             ->orWhere('order_number', $id)
             ->firstOrFail();
@@ -57,16 +64,43 @@ class AdminOrderController extends Controller
     {
         $validated = $request->validate([
             'status' => 'required|string',
+            'carrier' => 'nullable|string|max:150',
+            'tracking_number' => 'nullable|string|max:150',
+            'shipping_carrier' => 'nullable|string|max:150',
         ]);
 
         $order = Order::where('id', $id)->orWhere('order_number', $id)->firstOrFail();
-        $order->status = $validated['status'];
-        $order->save();
+        $adminUser = $request->user();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Order status updated successfully',
-            'data' => $order,
-        ]);
+        try {
+            $carrier = $validated['shipping_carrier'] ?? $validated['carrier'] ?? null;
+            $trackingNumber = $validated['tracking_number'] ?? null;
+
+            $updatedOrder = $this->manualOrderService->updateProductionStatus(
+                $order,
+                $validated['status'],
+                $adminUser,
+                $carrier,
+                $trackingNumber
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order status updated successfully',
+                'data' => $updatedOrder,
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->validator->errors()->first(),
+                'errors' => $e->validator->errors(),
+            ], 422);
+        } catch (Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage() ?: 'Failed to update order status.',
+            ], 422);
+        }
     }
 }

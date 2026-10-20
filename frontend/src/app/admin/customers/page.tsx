@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import CustomerImportModal from '@/components/admin/customers/CustomerImportModal';
 import CreateCustomerModal from '@/components/admin/customers/CreateCustomerModal';
+import EditCustomerModal from '@/components/admin/customers/EditCustomerModal';
 
 export default function AdminCustomersPage() {
   const [customers, setCustomers] = useState<CustomerItem[]>([]);
@@ -78,6 +79,9 @@ export default function AdminCustomersPage() {
 
   // Create Customer Modal
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
+
+  // Edit Customer Modal
+  const [customerToEdit, setCustomerToEdit] = useState<CustomerItem | null>(null);
 
   // Fetch customer & artwork data
   const loadData = async (isManualRefresh = false) => {
@@ -825,11 +829,22 @@ export default function AdminCustomersPage() {
                       <button
                         type="button"
                         onClick={() => setActiveCustomerDetail(customer)}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition inline-flex items-center gap-1"
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition inline-flex items-center gap-1 cursor-pointer"
                         title="View customer profile details"
                       >
                         <Eye className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Profile</span>
+                      </button>
+
+                      {/* Edit Profile Button */}
+                      <button
+                        type="button"
+                        onClick={() => setCustomerToEdit(customer)}
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-sky-600/20 hover:bg-sky-600 text-sky-300 hover:text-white border border-sky-500/30 transition inline-flex items-center gap-1 cursor-pointer shadow-xs"
+                        title="Edit customer profile"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Edit</span>
                       </button>
                     </div>
                   </div>
@@ -1213,7 +1228,20 @@ export default function AdminCustomersPage() {
               </div>
             </div>
 
-            <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/60 flex justify-end">
+            <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  const targetCustomer = activeCustomerDetail;
+                  setActiveCustomerDetail(null);
+                  setCustomerToEdit(targetCustomer);
+                }}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition inline-flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Edit Profile
+              </button>
+
               <button
                 type="button"
                 onClick={() => setActiveCustomerDetail(null)}
@@ -1239,6 +1267,21 @@ export default function AdminCustomersPage() {
         onClose={() => setIsCreateModalOpen(false)}
         onCustomerCreated={() => {
           loadData(true);
+        }}
+      />
+
+      {/* Edit Customer Profile Modal */}
+      <EditCustomerModal
+        isOpen={Boolean(customerToEdit)}
+        customer={customerToEdit}
+        onClose={() => setCustomerToEdit(null)}
+        onCustomerUpdated={(updated) => {
+          setCustomers((prev) =>
+            prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c))
+          );
+          if (activeCustomerDetail?.id === updated.id) {
+            setActiveCustomerDetail((prev) => (prev ? { ...prev, ...updated } : null));
+          }
         }}
       />
     </div>

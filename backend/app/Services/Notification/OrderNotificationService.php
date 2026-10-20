@@ -382,4 +382,78 @@ HTML;
             return false;
         }
     }
+
+    /**
+     * Send order production/shipping status update notification to customer.
+     */
+    public function sendOrderStatusUpdate(Order $order, string $newStatus, ?string $secureTrackingUrl = null, ?string $carrierTrackingUrl = null): bool
+    {
+        $customerEmail = $order->shipping_address['email'] ?? $order->user?->email;
+        if (!$customerEmail) {
+            Log::warning("No customer email found for order {$order->order_number} status notification ({$newStatus})");
+            return false;
+        }
+
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $customerName = $order->shipping_address['name'] ?? $order->user?->name ?? 'Valued Customer';
+        $orderNumber = $order->order_number;
+
+        $statusLabel = match ($newStatus) {
+            'production_started' => 'Production Started',
+            'cutting_in_progress' => 'Cutting in Progress',
+            'production_completed' => 'Production Completed',
+            'ready_for_shipping' => 'Ready for Shipping',
+            'handed_over_to_courier' => 'Handed Over to Courier',
+            'delivered' => 'Delivered',
+            'in_production' => 'In Production',
+            'dispatched' => 'Dispatched',
+            default => ucwords(str_replace('_', ' ', $newStatus)),
+        };
+
+        $shippingSection = "";
+        if (!empty($order->shipping_carrier) || !empty($order->tracking_number)) {
+            $shippingSection .= "\nShipping Details:\n";
+            if (!empty($order->shipping_carrier)) {
+                $shippingSection .= "• Carrier: {$order->shipping_carrier}\n";
+            }
+            if (!empty($order->tracking_number)) {
+                $shippingSection .= "• Tracking Number: {$order->tracking_number}\n";
+            }
+            if (!empty($carrierTrackingUrl)) {
+                $shippingSection .= "• Carrier Tracking Link: {$carrierTrackingUrl}\n";
+            }
+        }
+
+        $trackingLinkSection = "";
+        if (!empty($secureTrackingUrl)) {
+            $trackingLinkSection = "\nYou can track your live order status and production history anytime at:\n{$secureTrackingUrl}\n";
+        }
+
+        $subject = "Order {$orderNumber} Update: {$statusLabel} | Erry Imprints";
+
+        $body = "Dear {$customerName},\n\n"
+            . "We are pleased to inform you that the status of your order {$orderNumber} has been updated to:\n\n"
+            . ">>> {$statusLabel} <<<\n"
+            . $shippingSection
+            . $trackingLinkSection . "\n"
+            . "Thank you for printing with Erry Imprints.\n\n"
+            . "Warm regards,\n"
+            . "Erry Imprints Production & Dispatch Team\n"
+            . "orders@erryimprints.com.au";
+
+        try {
+            Mail::to($customerEmail)->send(new \App\Mail\OrderStatusUpdateMail(
+                $order,
+                $statusLabel,
+                $secureTrackingUrl,
+                $carrierTrackingUrl
+            ));
+            Log::info("Order status update notification ({$newStatus}) sent to {$customerEmail} for {$orderNumber}");
+            return true;
+        } catch (Throwable $e) {
+            Log::warning("Failed sending order status email for {$orderNumber} to {$customerEmail}: {$e->getMessage()}");
+            return false;
+        }
+    }
 }

@@ -699,4 +699,148 @@ class ManualOrderService
 
         return $number;
     }
+
+    /**
+     * Resolve carrier tracking URL if safe and supported by the project.
+     * Returns null if unsupported or missing tracking number.
+     */
+    public static function resolveCarrierTrackingUrl(?string $carrier, ?string $trackingNumber): ?string
+    {
+        if (empty($carrier) || empty($trackingNumber)) {
+            return null;
+        }
+
+        $tracking = trim((string) $trackingNumber);
+        $c = strtolower(trim((string) $carrier));
+
+        if (str_contains($c, 'couriers please') || str_contains($c, 'couriersplease')) {
+            return 'https://www.couriersplease.com.au/tools-track?trackingCode=' . urlencode($tracking);
+        }
+
+        if (str_contains($c, 'australia post') || str_contains($c, 'auspost') || str_contains($c, 'eparcel')) {
+            return 'https://auspost.com.au/mypost/track/#/details/' . urlencode($tracking);
+        }
+
+        if (str_contains($c, 'startrack')) {
+            return 'https://startrack.com.au/track/details/' . urlencode($tracking);
+        }
+
+        if (str_contains($c, 'tnt')) {
+            return 'https://www.tnt.com/express/en_au/site/tracking.html?cons=' . urlencode($tracking);
+        }
+
+        if (str_contains($c, 'sendle')) {
+            return 'https://track.sendle.com/tracking?ref=' . urlencode($tracking);
+        }
+
+        if (str_contains($c, 'toll') || str_contains($c, 'team global express')) {
+            return 'https://online.tollgroup.com/trackandtrace/index.do?consignmentNo=' . urlencode($tracking);
+        }
+
+        if (filter_var($carrier, FILTER_VALIDATE_URL) && str_starts_with($carrier, 'https://')) {
+            return $carrier;
+        }
+
+        return null;
+    }
+
+    /**
+     * Update order production and shipping status with audit history and customer notification.
+     */
+    public function updateProductionStatus(
+        Order $order,
+        string $newStatus,
+        User $adminUser,
+        ?string $carrier = null,
+        ?string $trackingNumber = null
+    ): Order {
+        $allowedStatuses = array_merge(
+            array_keys(OrderStatus::WORKFLOW_SEQUENCE),
+            array_map(fn (OrderStatus $case) => $case->value, OrderStatus::cases())
+        );
+
+        if (!in_array($newStatus, $allowedStatuses, true)) {
+            throw ValidationException::withMessages([
+                'status' => "Invalid order status '{$newStatus}'.",
+            ]);
+        }
+
+        $isHandedOver = in_array($newStatus, ['handed_over_to_courier', 'dispatched'], true);
+        if ($isHandedOver) {
+            $effectiveCarrier = !empty($carrier) ? trim($carrier) : trim((string) $order->shipping_carrier);
+            $effectiveTracking = !empty($trackingNumber) ? trim($trackingNumber) : trim((string) $order->tracking_number);
+
+            if (empty($effectiveCarrier) || empty($effectiveTracking)) {
+                throw ValidationException::withMessages([
+                    'tracking_number' => 'Carrier name and tracking number are required when status is "Handed over to courier".',
+                ]);
+            }
+        }
+
+        $currentStatusVal = $order->status instanceof OrderStatus ? $order->status->value : (string) $order->status;
+        $statusChanged = ($currentStatusVal !== $newStatus);
+
+        $carrierChanged = ($carrier !== null && trim((string) $carrier) !== (string) $order->shipping_carrier);
+        $trackingChanged = ($trackingNumber !== null && trim((string) $trackingNumber) !== (string) $order->tracking_number);
+
+        // No change made - skip duplicate notifications and activity logs
+        if (!$statusChanged && !$carrierChanged && !$trackingChanged) {
+            return $order;
+        }
+
+        // Apply status and shipping updates
+        $statusEnum = OrderStatus::tryFrom($newStatus);
+        $order->status = $statusEnum ?? $newStatus;
+
+        if ($carrier !== null) {
+            $order->shipping_carrier = trim($carrier) ?: null;
+        }
+        if ($trackingNumber !== null) {
+            $order->tracking_number = trim($trackingNumber) ?: null;
+        }
+        $order->save();
+
+        $statusLabel = OrderStatus::WORKFLOW_SEQUENCE[$newStatus]
+            ?? ($statusEnum ? $statusEnum->label() : ucwords(str_replace('_', ' ', $newStatus)));
+
+        // Record timestamp, admin identity, and status into OrderActivity
+        OrderActivity::record(
+            $order->id,
+            'order_status_updated',
+            "Order status updated to \"{$statusLabel}\" by {$adminUser->name}.",
+            'staff',
+            $adminUser,
+            [
+                'old_status' => $currentStatusVal,
+                'new_status' => $newStatus,
+                'status_label' => $statusLabel,
+                'shipping_carrier' => $order->shipping_carrier,
+                'tracking_number' => $order->tracking_number,
+                'updated_by_id' => $adminUser->id,
+                'updated_by_name' => $adminUser->name,
+                'updated_at' => now()->toIso8601String(),
+            ]
+        );
+
+        // Only send email notification on actual status change (do not resend if only carrier info edited)
+        if ($statusChanged) {
+            $link = $order->activeReviewLink;
+            if (!$link) {
+                $link = $this->generateReviewLink($order, $adminUser);
+            }
+
+            $baseUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:3000')), '/');
+            $secureTrackingUrl = "{$baseUrl}/orders/review/{$link->token}";
+            $carrierTrackingUrl = self::resolveCarrierTrackingUrl($order->shipping_carrier, $order->tracking_number);
+
+            $this->notificationService->sendOrderStatusUpdate(
+                $order,
+                $newStatus,
+                $secureTrackingUrl,
+                $carrierTrackingUrl
+            );
+        }
+
+        return $order->fresh(['activities', 'activeReviewLink', 'items']);
+    }
 }

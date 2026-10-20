@@ -7,6 +7,22 @@ const API_BASE_URL =
 export interface CustomerReviewData {
   order_number: string;
   status: string;
+  status_label?: string;
+  shipping_carrier?: string | null;
+  tracking_number?: string | null;
+  carrier_tracking_url?: string | null;
+  status_history?: Array<{
+    id: string;
+    event_type: string;
+    description: string;
+    status?: string | null;
+    status_label?: string | null;
+    shipping_carrier?: string | null;
+    tracking_number?: string | null;
+    created_at: string;
+    formatted_date: string;
+    time_ago: string;
+  }>;
   payment_status: string;
   customer: {
     name?: string;

@@ -27,7 +27,18 @@ import {
   Trash2,
   Upload,
   Plus,
+  Truck,
+  ExternalLink,
 } from 'lucide-react';
+
+const PRODUCTION_STATUS_SEQUENCE = [
+  { value: 'production_started', label: 'Production started' },
+  { value: 'cutting_in_progress', label: 'Cutting in progress' },
+  { value: 'production_completed', label: 'Production completed' },
+  { value: 'ready_for_shipping', label: 'Ready for shipping' },
+  { value: 'handed_over_to_courier', label: 'Handed over to courier' },
+  { value: 'delivered', label: 'Delivered' },
+];
 
 interface PageProps {
   params: Promise<{
@@ -45,6 +56,14 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
   const [error, setError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Production status workflow state
+  const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [carrier, setCarrier] = useState<string>('');
+  const [trackingNumber, setTrackingNumber] = useState<string>('');
+  const [statusUpdating, setStatusUpdating] = useState<boolean>(false);
+  const [statusActionMessage, setStatusActionMessage] = useState<string | null>(null);
+  const [statusActionError, setStatusActionError] = useState<string | null>(null);
 
   // Upload revision state
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -72,6 +91,53 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
   useEffect(() => {
     fetchOrder();
   }, [orderId]);
+
+  useEffect(() => {
+    if (order) {
+      setSelectedStatus(order.status);
+      setCarrier(order.shipping_carrier || '');
+      setTrackingNumber(order.tracking_number || '');
+    }
+  }, [order]);
+
+  const handleUpdateStatus = async () => {
+    if (!order || !selectedStatus) return;
+    setStatusActionError(null);
+    setStatusActionMessage(null);
+
+    // Require carrier and tracking number when selecting Handed over to courier
+    if (selectedStatus === 'handed_over_to_courier' || selectedStatus === 'dispatched') {
+      if (!carrier.trim()) {
+        setStatusActionError('Carrier name is required before saving "Handed over to courier".');
+        return;
+      }
+      if (!trackingNumber.trim()) {
+        setStatusActionError('Tracking number is required before saving "Handed over to courier".');
+        return;
+      }
+    }
+
+    setStatusUpdating(true);
+    try {
+      const res = await manualOrderService.updateProductionStatus(order.id, {
+        status: selectedStatus,
+        shipping_carrier: carrier.trim(),
+        carrier: carrier.trim(),
+        tracking_number: trackingNumber.trim(),
+      });
+
+      if (res.success) {
+        setStatusActionMessage(res.message || 'Order status updated and recorded to history.');
+        fetchOrder();
+      }
+    } catch (err: any) {
+      setStatusActionError(
+        err?.response?.data?.message || 'Failed to update order status.'
+      );
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
 
   const handleCopyLink = () => {
     if (order?.review_link?.url) {
@@ -561,6 +627,147 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
 
         {/* Right 1 Col: Summary, Customer Info, Audit Timeline */}
         <div className="space-y-6">
+          {/* Order Production & Shipping Status Control */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Truck className="w-4 h-4 text-sky-400" />
+                <h3 className="text-sm font-semibold text-white">Production & Shipping Status</h3>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                {order.status_label || order.status.replace(/_/g, ' ')}
+              </span>
+            </div>
+
+            {statusActionError && (
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{statusActionError}</span>
+              </div>
+            )}
+
+            {statusActionMessage && (
+              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{statusActionMessage}</span>
+              </div>
+            )}
+
+            {/* Mobile-Friendly Status Selection Control */}
+            <div className="space-y-3">
+              <label className="text-xs font-medium text-slate-400 block">
+                Update Status (Customer Visible Sequence)
+              </label>
+
+              <select
+                value={selectedStatus}
+                onChange={(e) => {
+                  setSelectedStatus(e.target.value);
+                  setStatusActionError(null);
+                }}
+                disabled={statusUpdating}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500 disabled:opacity-50"
+              >
+                {!PRODUCTION_STATUS_SEQUENCE.some((s) => s.value === order.status) && (
+                  <option value={order.status}>
+                    Current: {order.status_label || order.status.replace(/_/g, ' ')}
+                  </option>
+                )}
+                {PRODUCTION_STATUS_SEQUENCE.map((s, idx) => (
+                  <option key={s.value} value={s.value}>
+                    {idx + 1}. {s.label}
+                  </option>
+                ))}
+              </select>
+
+              {/* Courier & Tracking required when Handed over to courier is selected */}
+              {(selectedStatus === 'handed_over_to_courier' ||
+                selectedStatus === 'dispatched' ||
+                order.status === 'handed_over_to_courier' ||
+                order.status === 'dispatched' ||
+                order.status === 'delivered') && (
+                <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                      <Truck className="w-3.5 h-3.5 text-amber-400" />
+                      Courier & Consignment Details
+                    </span>
+                    {(selectedStatus === 'handed_over_to_courier' || selectedStatus === 'dispatched') && (
+                      <span className="text-[10px] text-amber-400 font-medium">Required</span>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Shipping Carrier</label>
+                    <input
+                      type="text"
+                      value={carrier}
+                      onChange={(e) => setCarrier(e.target.value)}
+                      placeholder="e.g. CouriersPlease, Australia Post, StarTrack"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                    />
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {['CouriersPlease', 'Australia Post', 'StarTrack', 'TNT'].map((suggested) => (
+                        <button
+                          key={suggested}
+                          type="button"
+                          onClick={() => setCarrier(suggested)}
+                          className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                        >
+                          {suggested}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-slate-400 block mb-1">Tracking Number</label>
+                    <input
+                      type="text"
+                      value={trackingNumber}
+                      onChange={(e) => setTrackingNumber(e.target.value)}
+                      placeholder="e.g. CPAFXLC18669399 or 9970016078"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-white font-mono placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+
+                  {order.carrier_tracking_url && (
+                    <div className="pt-1">
+                      <a
+                        href={order.carrier_tracking_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Open Carrier Tracking Page</span>
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleUpdateStatus}
+                disabled={statusUpdating || !selectedStatus}
+                className="w-full py-2 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-medium text-xs transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+              >
+                {statusUpdating ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Saving Status...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Save Order Status</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
           {/* Order Summary */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <h3 className="text-sm font-semibold text-white border-b border-slate-800 pb-3">

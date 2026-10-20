@@ -171,12 +171,56 @@ class CustomerOrderReviewController extends Controller
             return $url;
         };
 
+        $statusHistory = $order->activities()
+            ->where(function ($q) {
+                $q->whereIn('event_type', [
+                    'order_created',
+                    'proof_sent',
+                    'proof_approved',
+                    'changes_requested',
+                    'payment_confirmed',
+                    'payment_received',
+                    'order_status_updated',
+                    'production_status_updated',
+                    'moved_to_production',
+                    'dispatched',
+                    'delivered',
+                ])
+                ->orWhere('event_type', 'like', '%status%');
+            })
+            ->orderBy('created_at', 'asc')
+            ->get()
+            ->map(function ($act) {
+                $rawStatus = $act->metadata['new_status'] ?? null;
+                $statusLabel = $act->metadata['status_label']
+                    ?? ($rawStatus ? (OrderStatus::WORKFLOW_SEQUENCE[$rawStatus] ?? ucwords(str_replace('_', ' ', $rawStatus))) : null);
+
+                return [
+                    'id' => $act->id,
+                    'event_type' => $act->event_type,
+                    'description' => $act->description,
+                    'status' => $rawStatus,
+                    'status_label' => $statusLabel,
+                    'shipping_carrier' => $act->metadata['shipping_carrier'] ?? null,
+                    'tracking_number' => $act->metadata['tracking_number'] ?? null,
+                    'created_at' => $act->created_at->toIso8601String(),
+                    'formatted_date' => $act->created_at->format('d M Y, h:i A'),
+                    'time_ago' => $act->created_at->diffForHumans(),
+                ];
+            });
+
         // Customer-safe response
         return response()->json([
             'success' => true,
             'data' => [
                 'order_number' => $order->order_number,
                 'status' => $order->status->value ?? (string) $order->status,
+                'status_label' => OrderStatus::WORKFLOW_SEQUENCE[$order->status->value ?? (string) $order->status]
+                    ?? ($order->status instanceof OrderStatus ? $order->status->label() : ucwords(str_replace('_', ' ', (string) $order->status))),
+                'shipping_carrier' => $order->shipping_carrier,
+                'tracking_number' => $order->tracking_number,
+                'carrier_tracking_url' => \App\Services\Order\ManualOrderService::resolveCarrierTrackingUrl($order->shipping_carrier, $order->tracking_number),
+                'status_history' => $statusHistory,
                 'payment_status' => $order->payment_status->value ?? (string) $order->payment_status,
                 'customer' => [
                     'name' => $order->shipping_address['name'] ?? $order->user?->name,

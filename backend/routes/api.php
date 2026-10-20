@@ -654,6 +654,10 @@ Route::middleware(['auth:sanctum', 'admin.access'])
                 \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
                 'moveToProduction',
             ]);
+            Route::post('/manual-orders/{id}/production-status', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'updateProductionStatus',
+            ]);
             Route::delete('/manual-orders/{id}', [
                 \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
                 'destroy',

@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\CustomerImportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class CustomerController extends Controller
 {
@@ -224,21 +225,74 @@ class CustomerController extends Controller
             'name' => 'nullable|string|max:255',
             'customer_display_name' => 'nullable|string|max:255',
             'company_name' => 'nullable|string|max:255',
-            'email' => 'nullable|email|max:255',
+            'email' => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'phone' => 'nullable|string|max:50',
             'abn' => 'nullable|string|max:20',
+            'role' => 'nullable|string|in:customer,admin,prepress_operator,staff',
             'billing_address' => 'nullable|array',
             'shipping_address' => 'nullable|array',
         ]);
 
         $displayName = $validated['customer_display_name'] ?? $validated['name'] ?? $user->name;
-        $user->update([
+        $updateData = [
             'name' => $displayName,
             'email' => !empty($validated['email']) ? $validated['email'] : $user->email,
             'phone' => $validated['phone'] ?? $user->phone,
             'company_name' => $validated['company_name'] ?? $user->company_name,
             'abn' => $validated['abn'] ?? $user->abn,
-        ]);
+        ];
+
+        if (!empty($validated['role'])) {
+            $updateData['role'] = $validated['role'];
+        }
+
+        $user->update($updateData);
+
+        // Update or create Billing Address if provided
+        if (isset($validated['billing_address']) && is_array($validated['billing_address'])) {
+            $ba = $validated['billing_address'];
+            $addressLine1 = $ba['address_line_1'] ?? $ba['street1'] ?? $ba['street_address_1'] ?? '';
+            if (!empty($addressLine1)) {
+                $user->addresses()->updateOrCreate(
+                    ['type' => 'billing'],
+                    [
+                        'name' => $displayName,
+                        'company' => $validated['company_name'] ?? $user->company_name,
+                        'address_line_1' => $addressLine1,
+                        'address_line_2' => $ba['address_line_2'] ?? $ba['street2'] ?? $ba['street_address_2'] ?? null,
+                        'suburb' => !empty($ba['city'] ?? $ba['suburb']) ? substr($ba['city'] ?? $ba['suburb'], 0, 255) : 'Sydney',
+                        'state' => !empty($ba['state']) ? substr($ba['state'], 0, 100) : 'NSW',
+                        'postcode' => !empty($ba['postcode']) ? substr((string)$ba['postcode'], 0, 20) : '2000',
+                        'country' => !empty($ba['country']) ? substr($ba['country'], 0, 100) : 'Australia',
+                        'phone' => $validated['phone'] ?? $user->phone ?? '0000000000',
+                        'is_default' => true,
+                    ]
+                );
+            }
+        }
+
+        // Update or create Shipping Address if provided
+        if (isset($validated['shipping_address']) && is_array($validated['shipping_address'])) {
+            $sa = $validated['shipping_address'];
+            $addressLine1 = $sa['address_line_1'] ?? $sa['street1'] ?? $sa['street_address_1'] ?? '';
+            if (!empty($addressLine1)) {
+                $user->addresses()->updateOrCreate(
+                    ['type' => 'shipping'],
+                    [
+                        'name' => $displayName,
+                        'company' => $validated['company_name'] ?? $user->company_name,
+                        'address_line_1' => $addressLine1,
+                        'address_line_2' => $sa['address_line_2'] ?? $sa['street2'] ?? $sa['street_address_2'] ?? null,
+                        'suburb' => !empty($sa['city'] ?? $sa['suburb']) ? substr($sa['city'] ?? $sa['suburb'], 0, 255) : 'Sydney',
+                        'state' => !empty($sa['state']) ? substr($sa['state'], 0, 100) : 'NSW',
+                        'postcode' => !empty($sa['postcode']) ? substr((string)$sa['postcode'], 0, 20) : '2000',
+                        'country' => !empty($sa['country']) ? substr($sa['country'], 0, 100) : 'Australia',
+                        'phone' => $validated['phone'] ?? $user->phone ?? '0000000000',
+                        'is_default' => true,
+                    ]
+                );
+            }
+        }
 
         $user->load(['addresses', 'orders', 'artworks']);
 

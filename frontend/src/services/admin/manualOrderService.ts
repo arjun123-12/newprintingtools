@@ -76,6 +76,10 @@ export interface ManualOrderDetail {
   id: string;
   order_number: string;
   status: string;
+  status_label?: string;
+  shipping_carrier?: string | null;
+  tracking_number?: string | null;
+  carrier_tracking_url?: string | null;
   payment_status: string;
   customer: {
     id?: number;
@@ -279,6 +283,22 @@ export const manualOrderService = {
    */
   async moveToProduction(id: string) {
     const response = await apiClient.post(`/admin/manual-orders/${id}/move-to-production`);
+    return response.data;
+  },
+
+  /**
+   * Update order production & shipping status with audit history
+   */
+  async updateProductionStatus(
+    id: string,
+    payload: {
+      status: string;
+      carrier?: string;
+      tracking_number?: string;
+      shipping_carrier?: string;
+    }
+  ): Promise<{ success: boolean; message: string; data: any }> {
+    const response = await apiClient.post(`/admin/manual-orders/${id}/production-status`, payload);
     return response.data;
   },
 
