@@ -116,7 +116,7 @@ export default function OrderReviewPage({ params }: PageProps) {
   const [gatewayMessage, setGatewayMessage] = useState('');
   const [authKey, setAuthKey] = useState<string | null>(null);
   const [clientScriptUrl, setClientScriptUrl] = useState(
-    'https://bpoint.uat.linkly.com.au/rest/clientscripts/api.js'
+    'https://www.bpoint.com.au/rest/clientscripts/api.js'
   );
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [submittingPayment, setSubmittingPayment] = useState(false);
@@ -1000,8 +1000,8 @@ export default function OrderReviewPage({ params }: PageProps) {
             >
               <span
                 className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition ${currentStep === 'review'
-                    ? 'bg-[#E11D48] text-white shadow-xs'
-                    : 'bg-emerald-500 text-white'
+                  ? 'bg-[#E11D48] text-white shadow-xs'
+                  : 'bg-emerald-500 text-white'
                   }`}
               >
                 {currentStep !== 'review' ? <Check className="w-3.5 h-3.5" /> : '1'}
@@ -1020,10 +1020,10 @@ export default function OrderReviewPage({ params }: PageProps) {
             <div className="flex items-center gap-1.5">
               <span
                 className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition ${currentStep === 'payment'
-                    ? 'bg-[#E11D48] text-white shadow-xs'
-                    : currentStep === 'production'
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-slate-200 text-slate-600'
+                  ? 'bg-[#E11D48] text-white shadow-xs'
+                  : currentStep === 'production'
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-slate-200 text-slate-600'
                   }`}
               >
                 {currentStep === 'production' ? <Check className="w-3.5 h-3.5" /> : '2'}
@@ -1042,8 +1042,8 @@ export default function OrderReviewPage({ params }: PageProps) {
             <div className="flex items-center gap-1.5">
               <span
                 className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition ${currentStep === 'production'
-                    ? 'bg-[#E11D48] text-white shadow-xs'
-                    : 'bg-slate-200 text-slate-600'
+                  ? 'bg-[#E11D48] text-white shadow-xs'
+                  : 'bg-slate-200 text-slate-600'
                   }`}
               >
                 3
@@ -1120,353 +1120,353 @@ export default function OrderReviewPage({ params }: PageProps) {
             <div className="lg:col-span-8 space-y-6">
               {/* STEP 1: REVIEW ARTWORK CONTENT */}
               {currentStep === 'review' && (
-              <>
-                {/* Proof Viewer Container */}
-                <div
-                  ref={proofContainerRef}
-                  className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden"
-                >
-                  {/* Proof Toolbar */}
-                  <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-800 mr-1 uppercase tracking-wide">
-                        Artwork proof
-                      </span>
-                      <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setProofView('3d')}
-                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${proofView === '3d'
+                <>
+                  {/* Proof Viewer Container */}
+                  <div
+                    ref={proofContainerRef}
+                    className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden"
+                  >
+                    {/* Proof Toolbar */}
+                    <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-800 mr-1 uppercase tracking-wide">
+                          Artwork proof
+                        </span>
+                        <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setProofView('3d')}
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${proofView === '3d'
                               ? 'bg-[#E11D48] text-white shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                        >
-                          3D Mockup
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setProofView('flat')}
-                          className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${proofView === 'flat'
+                              }`}
+                          >
+                            3D Mockup
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setProofView('flat')}
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${proofView === 'flat'
                               ? 'bg-[#E11D48] text-white shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                        >
-                          Flat view
-                        </button>
-                      </div>
-
-                      {backMockupUrl && (
-                        <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 ml-1">
-                          <button
-                            type="button"
-                            onClick={() => setActiveSide('front')}
-                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${activeSide === 'front'
-                                ? 'bg-[#E11D48] text-white shadow-xs'
-                                : 'text-slate-600 hover:text-slate-900'
                               }`}
                           >
-                            Front
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setActiveSide('back')}
-                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${activeSide === 'back'
-                                ? 'bg-[#E11D48] text-white shadow-xs'
-                                : 'text-slate-600 hover:text-slate-900'
-                              }`}
-                          >
-                            Back
+                            Flat view
                           </button>
                         </div>
-                      )}
-                    </div>
 
-                    {/* Right: Zoom controls (for flat view) and Fullscreen */}
-                    <div className="flex items-center gap-2">
-                      {proofView === 'flat' && (
-                        <div className="flex items-center border border-slate-200 rounded-xl px-2 py-1 bg-slate-50 text-xs font-semibold text-slate-700">
-                          <button
-                            type="button"
-                            onClick={() => setZoomLevel((z) => Math.max(50, z - 25))}
-                            className="px-1.5 py-0.5 hover:text-slate-900"
-                            title="Zoom out"
-                          >
-                            <ZoomOut className="w-3.5 h-3.5" />
-                          </button>
-                          <span className="px-2 font-mono text-[11px]">{zoomLevel}%</span>
-                          <button
-                            type="button"
-                            onClick={() => setZoomLevel((z) => Math.min(200, z + 25))}
-                            className="px-1.5 py-0.5 hover:text-slate-900"
-                            title="Zoom in"
-                          >
-                            <ZoomIn className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={toggleFullscreen}
-                        className="p-1.5 border border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 transition"
-                        title="Toggle Fullscreen"
-                      >
-                        <Maximize2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {orderData.items.length > 1 && (
-                    <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/70 px-6 py-3">
-                      <span className="mr-1 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                        Products:
-                      </span>
-                      {orderData.items.map((item, index) => {
-                        const isSelected = (selectedProofItem?.id || primaryItem?.id) === item.id;
-                        const itemArt = item.artwork_preview;
-                        const hasBothSides = Boolean(itemArt?.front_url && itemArt?.back_url) || (itemArt?.files && itemArt.files.length >= 2);
-                        const hasFrontOnly = Boolean(itemArt?.front_url || (itemArt?.files && itemArt.files.length === 1));
-
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedProofItemId(item.id);
-                              setActiveSide('front');
-                            }}
-                            className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition ${isSelected
-                                ? 'bg-[#E11D48] text-white shadow-sm ring-2 ring-[#E11D48]/30'
-                                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 hover:text-slate-900'
-                              }`}
-                          >
-                            <span className="font-mono text-[11px] opacity-80">#{index + 1}</span>
-                            <span className="truncate max-w-[160px]">{item.product_name}</span>
-                            <span
-                              className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                        {backMockupUrl && (
+                          <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1 ml-1">
+                            <button
+                              type="button"
+                              onClick={() => setActiveSide('front')}
+                              className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${activeSide === 'front'
+                                ? 'bg-[#E11D48] text-white shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
                                 }`}
                             >
-                              {hasBothSides ? 'Front & Back' : hasFrontOnly ? 'Front Only' : 'Pending'}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Viewport: 3D Scene or Flat Artwork */}
-                  {proofView === '3d' ? (
-                    frontMockupUrl ? (
-                      <div className="h-[460px] sm:h-[540px] w-full overflow-hidden bg-slate-950">
-                        <Artwork3DViewer
-                          previewUrl={frontMockupUrl}
-                          backPreviewUrl={backMockupUrl}
-                          documentSettings={mockupDocumentSettings}
-                          dimensions={mockupDimensions}
-                          autoRotateInitially={false}
-                          activeSide={activeSide}
-                        />
-                      </div>
-                    ) : (
-                      <div className="bg-[#EBEBEB] min-h-[380px] p-6 flex items-center justify-center text-center">
-                        <div className="max-w-sm rounded-2xl bg-white p-8 shadow-sm">
-                          <Package className="w-10 h-10 mx-auto mb-3 text-slate-300" />
-                          <p className="text-sm font-semibold text-slate-700">3D mockup preview unavailable</p>
-                          <p className="mt-1 text-xs text-slate-500">A front artwork image must be included in the proof to show this preview.</p>
-                        </div>
-                      </div>
-                    )
-                  ) : (
-                    <div className="bg-[#EBEBEB] min-h-[420px] sm:min-h-[500px] p-6 sm:p-10 flex items-center justify-center overflow-auto relative">
-                      <div
-                        className="transition-transform duration-200 shadow-2xl rounded-2xl overflow-hidden bg-white max-w-full"
-                        style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'center center' }}
-                      >
-                        {(activeSide === 'front' ? frontMockupUrl : backMockupUrl) ? (
-                          <img
-                            src={activeSide === 'front' ? frontMockupUrl! : backMockupUrl!}
-                            alt={`${activeSide === 'front' ? 'Front' : 'Back'} Flat Proof`}
-                            className="max-h-[460px] max-w-full object-contain block mx-auto select-none"
-                          />
-                        ) : (
-                          <div className="w-[500px] h-[300px] flex flex-col items-center justify-center bg-slate-50 text-slate-400 p-8">
-                            <Package className="w-12 h-12 mb-2 stroke-1" />
-                            <p className="text-sm font-semibold">
-                              {activeSide === 'back' ? 'Back artwork not available for this product' : 'Artwork preview not available'}
-                            </p>
+                              Front
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveSide('back')}
+                              className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${activeSide === 'back'
+                                ? 'bg-[#E11D48] text-white shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                              Back
+                            </button>
                           </div>
                         )}
                       </div>
-                    </div>
-                  )}
 
-                  {/* Active File Details Footer */}
-                  {((activeSide === 'back' && backFile) ? backFile : frontFile) && (
-                    <div className="px-6 py-3 bg-white border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
-                      <span className="font-medium text-slate-700">
-                        {((activeSide === 'back' && backFile) ? backFile : frontFile)?.label || (activeSide === 'back' ? 'Back' : 'Front')}: {((activeSide === 'back' && backFile) ? backFile : frontFile)?.file_name}
-                      </span>
-                      {((activeSide === 'back' && backFile) ? backFile : frontFile)?.file_size_bytes && (
-                        <span>{(((activeSide === 'back' && backFile) ? backFile : frontFile)!.file_size_bytes! / (1024 * 1024)).toFixed(2)} MB</span>
-                      )}
-                    </div>
-                  )}
-                </div>
+                      {/* Right: Zoom controls (for flat view) and Fullscreen */}
+                      <div className="flex items-center gap-2">
+                        {proofView === 'flat' && (
+                          <div className="flex items-center border border-slate-200 rounded-xl px-2 py-1 bg-slate-50 text-xs font-semibold text-slate-700">
+                            <button
+                              type="button"
+                              onClick={() => setZoomLevel((z) => Math.max(50, z - 25))}
+                              className="px-1.5 py-0.5 hover:text-slate-900"
+                              title="Zoom out"
+                            >
+                              <ZoomOut className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="px-2 font-mono text-[11px]">{zoomLevel}%</span>
+                            <button
+                              type="button"
+                              onClick={() => setZoomLevel((z) => Math.min(200, z + 25))}
+                              className="px-1.5 py-0.5 hover:text-slate-900"
+                              title="Zoom in"
+                            >
+                              <ZoomIn className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
 
-                {/* Bottom Two-Card Grid: Confirmation & Change Request */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Card 1: Confirm your artwork */}
-                  <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm space-y-4">
-                    <h3 className="text-sm font-bold text-slate-900">Confirm your artwork</h3>
-
-                    <div className="space-y-3.5">
-                      <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
-                        <input
-                          type="checkbox"
-                          checked={checkArtwork}
-                          onChange={(e) => setCheckArtwork(e.target.checked)}
-                          className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
-                        />
-                        <span className="leading-relaxed group-hover:text-slate-900">
-                          Artwork checked: I have checked all pages and sides, spelling, contact details, prices, images, layout and QR codes. I approve the current proof as correct.
-                        </span>
-                      </label>
-
-                      <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
-                        <input
-                          type="checkbox"
-                          checked={checkOrderDetails}
-                          onChange={(e) => setCheckOrderDetails(e.target.checked)}
-                          className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
-                        />
-                        <span className="leading-relaxed group-hover:text-slate-900">
-                          Order details confirmed: I confirm the size, quantity, material, finish, printing sides, delivery details and total price. I understand screen colours may differ from printed colours.
-                        </span>
-                      </label>
-
-                      <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
-                        <input
-                          type="checkbox"
-                          checked={checkCopyright}
-                          onChange={(e) => setCheckCopyright(e.target.checked)}
-                          className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
-                        />
-                        <span className="leading-relaxed group-hover:text-slate-900">
-                          Copyright and permissions: I own or have the necessary licences and permissions to reproduce all supplied content, images, logos and trademarks, and authorise Erry Imprints to print them.
-                        </span>
-                      </label>
-
-                      <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
-                        <input
-                          type="checkbox"
-                          checked={checkFinalApproval}
-                          onChange={(e) => setCheckFinalApproval(e.target.checked)}
-                          className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
-                        />
-                        <span className="leading-relaxed group-hover:text-slate-900">
-                          Final approval — no amendments: I am authorised to approve this order and understand it will be locked after approval. Changes or cancellation are not guaranteed, and correcting approved customer content errors may incur reprint costs. This does not limit my rights under Australian Consumer Law.
-                        </span>
-                      </label>
+                        <button
+                          type="button"
+                          onClick={toggleFullscreen}
+                          className="p-1.5 border border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 transition"
+                          title="Toggle Fullscreen"
+                        >
+                          <Maximize2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
-                    {approvalError && (
-                      <p className="text-xs text-rose-600 font-semibold">{approvalError}</p>
+                    {orderData.items.length > 1 && (
+                      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/70 px-6 py-3">
+                        <span className="mr-1 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                          Products:
+                        </span>
+                        {orderData.items.map((item, index) => {
+                          const isSelected = (selectedProofItem?.id || primaryItem?.id) === item.id;
+                          const itemArt = item.artwork_preview;
+                          const hasBothSides = Boolean(itemArt?.front_url && itemArt?.back_url) || (itemArt?.files && itemArt.files.length >= 2);
+                          const hasFrontOnly = Boolean(itemArt?.front_url || (itemArt?.files && itemArt.files.length === 1));
+
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedProofItemId(item.id);
+                                setActiveSide('front');
+                              }}
+                              className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-semibold transition ${isSelected
+                                ? 'bg-[#E11D48] text-white shadow-sm ring-2 ring-[#E11D48]/30'
+                                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                                }`}
+                            >
+                              <span className="font-mono text-[11px] opacity-80">#{index + 1}</span>
+                              <span className="truncate max-w-[160px]">{item.product_name}</span>
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                                  }`}
+                              >
+                                {hasBothSides ? 'Front & Back' : hasFrontOnly ? 'Front Only' : 'Pending'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Viewport: 3D Scene or Flat Artwork */}
+                    {proofView === '3d' ? (
+                      frontMockupUrl ? (
+                        <div className="h-[460px] sm:h-[540px] w-full overflow-hidden bg-slate-950">
+                          <Artwork3DViewer
+                            previewUrl={frontMockupUrl}
+                            backPreviewUrl={backMockupUrl}
+                            documentSettings={mockupDocumentSettings}
+                            dimensions={mockupDimensions}
+                            autoRotateInitially={false}
+                            activeSide={activeSide}
+                          />
+                        </div>
+                      ) : (
+                        <div className="bg-[#EBEBEB] min-h-[380px] p-6 flex items-center justify-center text-center">
+                          <div className="max-w-sm rounded-2xl bg-white p-8 shadow-sm">
+                            <Package className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+                            <p className="text-sm font-semibold text-slate-700">3D mockup preview unavailable</p>
+                            <p className="mt-1 text-xs text-slate-500">A front artwork image must be included in the proof to show this preview.</p>
+                          </div>
+                        </div>
+                      )
+                    ) : (
+                      <div className="bg-[#EBEBEB] min-h-[420px] sm:min-h-[500px] p-6 sm:p-10 flex items-center justify-center overflow-auto relative">
+                        <div
+                          className="transition-transform duration-200 shadow-2xl rounded-2xl overflow-hidden bg-white max-w-full"
+                          style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'center center' }}
+                        >
+                          {(activeSide === 'front' ? frontMockupUrl : backMockupUrl) ? (
+                            <img
+                              src={activeSide === 'front' ? frontMockupUrl! : backMockupUrl!}
+                              alt={`${activeSide === 'front' ? 'Front' : 'Back'} Flat Proof`}
+                              className="max-h-[460px] max-w-full object-contain block mx-auto select-none"
+                            />
+                          ) : (
+                            <div className="w-[500px] h-[300px] flex flex-col items-center justify-center bg-slate-50 text-slate-400 p-8">
+                              <Package className="w-12 h-12 mb-2 stroke-1" />
+                              <p className="text-sm font-semibold">
+                                {activeSide === 'back' ? 'Back artwork not available for this product' : 'Artwork preview not available'}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Active File Details Footer */}
+                    {((activeSide === 'back' && backFile) ? backFile : frontFile) && (
+                      <div className="px-6 py-3 bg-white border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
+                        <span className="font-medium text-slate-700">
+                          {((activeSide === 'back' && backFile) ? backFile : frontFile)?.label || (activeSide === 'back' ? 'Back' : 'Front')}: {((activeSide === 'back' && backFile) ? backFile : frontFile)?.file_name}
+                        </span>
+                        {((activeSide === 'back' && backFile) ? backFile : frontFile)?.file_size_bytes && (
+                          <span>{(((activeSide === 'back' && backFile) ? backFile : frontFile)!.file_size_bytes! / (1024 * 1024)).toFixed(2)} MB</span>
+                        )}
+                      </div>
                     )}
                   </div>
 
-                  {/* Card 2: Request changes (optional) */}
-                  <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm flex flex-col justify-between">
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900 mb-2">
-                        Request changes <span className="text-slate-400 font-normal">(optional)</span>
-                      </h3>
-                      <textarea
-                        value={changeComment}
-                        onChange={(e) => setChangeComment(e.target.value)}
-                        placeholder="Add a comment to let us know what changes you'd like..."
-                        rows={3}
-                        className="w-full text-xs text-slate-800 placeholder-slate-400 border border-slate-200 rounded-xl p-3 focus:outline-none focus:border-[#E11D48] resize-none"
-                      />
+                  {/* Bottom Two-Card Grid: Confirmation & Change Request */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Card 1: Confirm your artwork */}
+                    <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm space-y-4">
+                      <h3 className="text-sm font-bold text-slate-900">Confirm your artwork</h3>
+
+                      <div className="space-y-3.5">
+                        <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
+                          <input
+                            type="checkbox"
+                            checked={checkArtwork}
+                            onChange={(e) => setCheckArtwork(e.target.checked)}
+                            className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
+                          />
+                          <span className="leading-relaxed group-hover:text-slate-900">
+                            Artwork checked: I have checked all pages and sides, spelling, contact details, prices, images, layout and QR codes. I approve the current proof as correct.
+                          </span>
+                        </label>
+
+                        <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
+                          <input
+                            type="checkbox"
+                            checked={checkOrderDetails}
+                            onChange={(e) => setCheckOrderDetails(e.target.checked)}
+                            className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
+                          />
+                          <span className="leading-relaxed group-hover:text-slate-900">
+                            Order details confirmed: I confirm the size, quantity, material, finish, printing sides, delivery details and total price. I understand screen colours may differ from printed colours.
+                          </span>
+                        </label>
+
+                        <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
+                          <input
+                            type="checkbox"
+                            checked={checkCopyright}
+                            onChange={(e) => setCheckCopyright(e.target.checked)}
+                            className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
+                          />
+                          <span className="leading-relaxed group-hover:text-slate-900">
+                            Copyright and permissions: I own or have the necessary licences and permissions to reproduce all supplied content, images, logos and trademarks, and authorise Erry Imprints to print them.
+                          </span>
+                        </label>
+
+                        <label className="flex items-start gap-3 cursor-pointer text-xs text-slate-700 select-none group">
+                          <input
+                            type="checkbox"
+                            checked={checkFinalApproval}
+                            onChange={(e) => setCheckFinalApproval(e.target.checked)}
+                            className="mt-0.5 rounded border-slate-300 text-[#E11D48] focus:ring-[#E11D48] w-4 h-4 shrink-0"
+                          />
+                          <span className="leading-relaxed group-hover:text-slate-900">
+                            Final approval — no amendments: I am authorised to approve this order and understand it will be locked after approval. Changes or cancellation are not guaranteed, and correcting approved customer content errors may incur reprint costs. This does not limit my rights under Australian Consumer Law.
+                          </span>
+                        </label>
+                      </div>
+
+                      {approvalError && (
+                        <p className="text-xs text-rose-600 font-semibold">{approvalError}</p>
+                      )}
                     </div>
 
-                    <div className="mt-4 flex justify-start">
-                      <button
-                        type="button"
-                        onClick={handleSubmitChanges}
-                        disabled={submittingChanges || !changeComment.trim()}
-                        className="px-4 py-2 bg-pink-50 hover:bg-pink-100 text-[#E11D48] border border-pink-200 font-bold text-xs rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                      >
-                        {submittingChanges ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <MessageSquare className="w-3.5 h-3.5" />
-                        )}
-                        <span>Send change request</span>
-                      </button>
+                    {/* Card 2: Request changes (optional) */}
+                    <div className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-sm flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900 mb-2">
+                          Request changes <span className="text-slate-400 font-normal">(optional)</span>
+                        </h3>
+                        <textarea
+                          value={changeComment}
+                          onChange={(e) => setChangeComment(e.target.value)}
+                          placeholder="Add a comment to let us know what changes you'd like..."
+                          rows={3}
+                          className="w-full text-xs text-slate-800 placeholder-slate-400 border border-slate-200 rounded-xl p-3 focus:outline-none focus:border-[#E11D48] resize-none"
+                        />
+                      </div>
+
+                      <div className="mt-4 flex justify-start">
+                        <button
+                          type="button"
+                          onClick={handleSubmitChanges}
+                          disabled={submittingChanges || !changeComment.trim()}
+                          className="px-4 py-2 bg-pink-50 hover:bg-pink-100 text-[#E11D48] border border-pink-200 font-bold text-xs rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                        >
+                          {submittingChanges ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <MessageSquare className="w-3.5 h-3.5" />
+                          )}
+                          <span>Send change request</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* STEP 3: PRODUCTION CONTENT */}
+              {currentStep === 'production' && (
+                <div className="bg-white rounded-3xl border border-slate-200/90 p-8 shadow-sm text-center space-y-6">
+                  <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto flex items-center justify-center">
+                    <CheckCircle2 className="w-9 h-9" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-black text-slate-900">
+                      Order In Production!
+                    </h2>
+                    <p className="text-slate-600 text-sm mt-1 max-w-md mx-auto">
+                      Your proof has been approved and payment has been verified. Your job has been scheduled for printing.
+                    </p>
+                  </div>
+
+                  {paymentReceipt && (
+                    <div className="inline-block bg-slate-50 border border-slate-200 rounded-2xl px-6 py-3 text-xs text-slate-600">
+                      BPOINT Payment Receipt: <strong className="text-slate-900">{paymentReceipt}</strong>
+                    </div>
+                  )}
+
+                  <div className="max-w-md mx-auto bg-slate-50 rounded-2xl p-6 text-left space-y-4">
+                    <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">
+                      Production Timeline
+                    </h4>
+                    <div className="space-y-3 text-xs">
+                      <div className="flex items-center gap-3 text-emerald-700">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span className="font-semibold">Proof V{orderData.proof.current_version} Approved</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-emerald-700">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span className="font-semibold">Payment Confirmed (${orderData.totals.total_inc_gst.toFixed(2)} AUD)</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[#E11D48] font-bold">
+                        <span className="w-4 h-4 rounded-full border-2 border-[#E11D48] flex items-center justify-center">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#E11D48]"></span>
+                        </span>
+                        <span>Printing & Finishing</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-slate-400">
+                        <span className="w-4 h-4 rounded-full border-2 border-slate-300"></span>
+                        <span>Quality Inspection & Dispatch</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </>
-            )}
+              )}
+            </div>
 
-            {/* STEP 3: PRODUCTION CONTENT */}
-            {currentStep === 'production' && (
-              <div className="bg-white rounded-3xl border border-slate-200/90 p-8 shadow-sm text-center space-y-6">
-                <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto flex items-center justify-center">
-                  <CheckCircle2 className="w-9 h-9" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-black text-slate-900">
-                    Order In Production!
-                  </h2>
-                  <p className="text-slate-600 text-sm mt-1 max-w-md mx-auto">
-                    Your proof has been approved and payment has been verified. Your job has been scheduled for printing.
-                  </p>
-                </div>
-
-                {paymentReceipt && (
-                  <div className="inline-block bg-slate-50 border border-slate-200 rounded-2xl px-6 py-3 text-xs text-slate-600">
-                    BPOINT Payment Receipt: <strong className="text-slate-900">{paymentReceipt}</strong>
-                  </div>
-                )}
-
-                <div className="max-w-md mx-auto bg-slate-50 rounded-2xl p-6 text-left space-y-4">
-                  <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">
-                    Production Timeline
-                  </h4>
-                  <div className="space-y-3 text-xs">
-                    <div className="flex items-center gap-3 text-emerald-700">
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span className="font-semibold">Proof V{orderData.proof.current_version} Approved</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-emerald-700">
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span className="font-semibold">Payment Confirmed (${orderData.totals.total_inc_gst.toFixed(2)} AUD)</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-[#E11D48] font-bold">
-                      <span className="w-4 h-4 rounded-full border-2 border-[#E11D48] flex items-center justify-center">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#E11D48]"></span>
-                      </span>
-                      <span>Printing & Finishing</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-slate-400">
-                      <span className="w-4 h-4 rounded-full border-2 border-slate-300"></span>
-                      <span>Quality Inspection & Dispatch</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* RIGHT COLUMN: Order Summary & Version History (approx 4 cols) */}
+            <div className="lg:col-span-4 space-y-6">
+              {renderOrderSummaryCard(currentStep === 'review')}
+              {renderVersionHistoryCard()}
+              {renderDeliverySummaryCard()}
+            </div>
           </div>
-
-          {/* RIGHT COLUMN: Order Summary & Version History (approx 4 cols) */}
-          <div className="lg:col-span-4 space-y-6">
-            {renderOrderSummaryCard(currentStep === 'review')}
-            {renderVersionHistoryCard()}
-            {renderDeliverySummaryCard()}
-          </div>
-        </div>
-      )}
+        )}
       </main>
 
       {/* Footer matching reference screenshot bottom strip */}

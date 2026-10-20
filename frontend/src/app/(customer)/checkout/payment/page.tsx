@@ -55,7 +55,7 @@ function PaymentContent() {
   const [gatewayMessage, setGatewayMessage] = useState<string>('');
   const [authKey, setAuthKey] = useState<string | null>(null);
   const [clientScriptUrl, setClientScriptUrl] = useState<string>(
-    'https://bpoint.uat.linkly.com.au/rest/clientscripts/api.js'
+    'https://www.bpoint.com.au/rest/clientscripts/api.js'
   );
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -867,8 +867,8 @@ function PaymentContent() {
                     type="submit"
                     disabled={!iframeLoaded || submitting}
                     className={`w-full py-3 px-4 font-bold text-sm rounded-xl transition flex items-center justify-center gap-2 shadow-sm ${!iframeLoaded || submitting
-                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                        : 'bg-sky-600 hover:bg-sky-700 text-white shadow-sky-600/20 hover:shadow-md cursor-pointer'
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      : 'bg-sky-600 hover:bg-sky-700 text-white shadow-sky-600/20 hover:shadow-md cursor-pointer'
                       }`}
                   >
                     {submitting ? (

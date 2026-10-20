@@ -15,21 +15,21 @@ return [
     
     'bpoint' => [
         'enabled' => env('BPOINT_ENABLED', env('PAYMENT_GATEWAY_ENABLED', false)),
-        'base_url' => env('BPOINT_BASE_URL', env('PAYMENT_GATEWAY_BASE_URL', 'https://bpoint.uat.linkly.com.au/rest/v5')),
+        'base_url' => env('BPOINT_BASE_URL', env('PAYMENT_GATEWAY_BASE_URL', 'https://www.bpoint.com.au/rest/v5')),
         'merchant_number' => env('BPOINT_MERCHANT_NUMBER', env('PAYMENT_GATEWAY_MERCHANT_ID', '')),
         'api_username' => env('BPOINT_API_USERNAME', env('PAYMENT_GATEWAY_API_USERNAME', '')),
         'api_password' => env('BPOINT_API_PASSWORD', env('PAYMENT_GATEWAY_API_PASSWORD', '')),
-        'client_script_url' => env('BPOINT_CLIENT_SCRIPT_URL', env('PAYMENT_GATEWAY_CLIENT_SCRIPT_URL', 'https://bpoint.uat.linkly.com.au/rest/clientscripts/api.js')),
+        'client_script_url' => env('BPOINT_CLIENT_SCRIPT_URL', env('PAYMENT_GATEWAY_CLIENT_SCRIPT_URL', 'https://www.bpoint.com.au/rest/clientscripts/api.js')),
         'disable_ssl_verify' => env('BPOINT_DISABLE_SSL_VERIFY', false),
     ],
 
     'payment_gateway' => [
         'enabled' => env('BPOINT_ENABLED', env('PAYMENT_GATEWAY_ENABLED', false)),
-        'base_url' => env('BPOINT_BASE_URL', env('PAYMENT_GATEWAY_BASE_URL', 'https://bpoint.uat.linkly.com.au/rest/v5')),
+        'base_url' => env('BPOINT_BASE_URL', env('PAYMENT_GATEWAY_BASE_URL', 'https://www.bpoint.com.au/rest/v5')),
         'merchant_id' => env('BPOINT_MERCHANT_NUMBER', env('PAYMENT_GATEWAY_MERCHANT_ID', '')),
         'api_username' => env('BPOINT_API_USERNAME', env('PAYMENT_GATEWAY_API_USERNAME', '')),
         'api_password' => env('BPOINT_API_PASSWORD', env('PAYMENT_GATEWAY_API_PASSWORD', '')),
-        'client_script_url' => env('BPOINT_CLIENT_SCRIPT_URL', env('PAYMENT_GATEWAY_CLIENT_SCRIPT_URL', 'https://bpoint.uat.linkly.com.au/rest/clientscripts/api.js')),
+        'client_script_url' => env('BPOINT_CLIENT_SCRIPT_URL', env('PAYMENT_GATEWAY_CLIENT_SCRIPT_URL', 'https://www.bpoint.com.au/rest/clientscripts/api.js')),
     ],
 
 ];

@@ -69,7 +69,7 @@ class PaymentGatewayService
             ];
         }
 
-        $baseUrl = rtrim(config('services.bpoint.base_url') ?: 'https://bpoint.uat.linkly.com.au/rest/v5', '/');
+        $baseUrl = rtrim(config('services.bpoint.base_url') ?: 'https://www.bpoint.com.au/rest/v5', '/');
         $merchantNumber = config('services.bpoint.merchant_number') ?: config('services.payment_gateway.merchant_id');
         $apiUsername = config('services.bpoint.api_username') ?: config('services.payment_gateway.api_username');
         $apiPassword = config('services.bpoint.api_password') ?: config('services.payment_gateway.api_password');
@@ -144,7 +144,7 @@ class PaymentGatewayService
             'amount' => (float) ($order->total_inc_gst ?? $order->total),
             'amount_cents' => $amountInCents,
             'currency' => 'AUD',
-            'client_script_url' => config('services.bpoint.client_script_url', 'https://bpoint.uat.linkly.com.au/rest/clientscripts/api.js'),
+            'client_script_url' => config('services.bpoint.client_script_url', 'https://www.bpoint.com.au/rest/clientscripts/api.js'),
             'environment' => 'uat',
         ];
     }
@@ -178,7 +178,7 @@ class PaymentGatewayService
             ];
         }
 
-        $baseUrl = rtrim(config('services.bpoint.base_url') ?: 'https://bpoint.uat.linkly.com.au/rest/v5', '/');
+        $baseUrl = rtrim(config('services.bpoint.base_url') ?: 'https://www.bpoint.com.au/rest/v5', '/');
         $merchantNumber = config('services.bpoint.merchant_number') ?: config('services.payment_gateway.merchant_id');
         $apiUsername = config('services.bpoint.api_username') ?: config('services.payment_gateway.api_username');
         $apiPassword = config('services.bpoint.api_password') ?: config('services.payment_gateway.api_password');
