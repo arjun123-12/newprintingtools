@@ -117,7 +117,7 @@ class PaymentGatewayService
             'merchantReference' => (string) $order->order_number,
             'crn1' => (string) $order->order_number,
             'emailAddress' => $email,
-            'testMode' => true,
+           'testMode' => false,
         ];
 
         try {
