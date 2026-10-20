@@ -651,8 +651,7 @@ export default function OrderReviewPage({ params }: PageProps) {
                 approving ||
                 orderData.status === 'changes_requested'
               }
-              className={`w-full py-3.5 px-4 ${approving ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-[#E11D48] hover:bg-[#BE123C]'
-                } text-white font-bold text-sm rounded-2xl transition shadow-md flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
+              className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-2xl transition shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               {approving ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
