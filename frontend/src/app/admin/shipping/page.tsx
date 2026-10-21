@@ -62,7 +62,7 @@ export default function AdminShippingPage() {
     name: 'Erry Imprints Dispatch',
     company_name: 'Erry Imprints',
     phone: '0400000000',
-    email: 'orders@erryimprints.com.au',
+    email: 'Info@erryimprints.com.au',
     address1: '123 Printing Way',
   });
   const [originSaving, setOriginSaving] = useState(false);
@@ -86,7 +86,7 @@ export default function AdminShippingPage() {
           name: res.carrier_config.dispatch_name || 'Erry Imprints Dispatch',
           company_name: res.carrier_config.dispatch_company || 'Erry Imprints',
           phone: '0400000000',
-          email: 'orders@erryimprints.com.au',
+          email: 'Info@erryimprints.com.au',
           address1: '123 Printing Way',
         });
       }
@@ -208,11 +208,10 @@ export default function AdminShippingPage() {
       {/* Toast Notification */}
       {toastMessage && (
         <div
-          className={`fixed top-5 right-5 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border text-sm animate-in fade-in slide-in-from-top-4 duration-200 ${
-            toastMessage.type === 'success'
+          className={`fixed top-5 right-5 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border text-sm animate-in fade-in slide-in-from-top-4 duration-200 ${toastMessage.type === 'success'
               ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-200'
               : 'bg-rose-950/90 border-rose-500/40 text-rose-200'
-          }`}
+            }`}
         >
           {toastMessage.type === 'success' ? (
             <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
@@ -401,48 +400,43 @@ export default function AdminShippingPage() {
         <div className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 shrink-0">
           <button
             onClick={() => setFilterTab('all')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              filterTab === 'all'
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${filterTab === 'all'
                 ? 'bg-amber-500 text-slate-950 shadow-xs'
                 : 'text-slate-400 hover:text-slate-200'
-            }`}
+              }`}
           >
             All Orders ({stats.total})
           </button>
           <button
             onClick={() => setFilterTab('ready_to_ship')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-              filterTab === 'ready_to_ship'
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${filterTab === 'ready_to_ship'
                 ? 'bg-amber-500 text-slate-950 shadow-xs'
                 : 'text-slate-400 hover:text-slate-200'
-            }`}
+              }`}
           >
             <span>Ready to Ship</span>
             <span
-              className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                filterTab === 'ready_to_ship'
+              className={`px-1.5 py-0.2 rounded-full text-[10px] ${filterTab === 'ready_to_ship'
                   ? 'bg-slate-950/20 text-slate-950'
                   : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-              }`}
+                }`}
             >
               {stats.ready}
             </span>
           </button>
           <button
             onClick={() => setFilterTab('shipped')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-              filterTab === 'shipped'
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${filterTab === 'shipped'
                 ? 'bg-amber-500 text-slate-950 shadow-xs'
                 : 'text-slate-400 hover:text-slate-200'
-            }`}
+              }`}
           >
             <span>Dispatched</span>
             <span
-              className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                filterTab === 'shipped'
+              className={`px-1.5 py-0.2 rounded-full text-[10px] ${filterTab === 'shipped'
                   ? 'bg-slate-950/20 text-slate-950'
                   : 'bg-slate-800 text-slate-300'
-              }`}
+                }`}
             >
               {stats.shipped}
             </span>
@@ -549,11 +543,10 @@ export default function AdminShippingPage() {
                       {/* Payment Status */}
                       <td className="py-3.5 px-4 align-top">
                         <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-                            isPaid
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${isPaid
                               ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                               : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                          }`}
+                            }`}
                         >
                           {isPaid ? (
                             <CheckCircle2 className="w-3 h-3" />
@@ -858,7 +851,7 @@ export default function AdminShippingPage() {
                   <label className="text-[11px] font-semibold text-slate-300">Dispatch Email</label>
                   <input
                     type="email"
-                    placeholder="orders@erryimprints.com.au"
+                    placeholder="Info@erryimprints.com.au"
                     value={originForm.email}
                     onChange={(e) => setOriginForm({ ...originForm, email: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-hidden focus:border-amber-500"

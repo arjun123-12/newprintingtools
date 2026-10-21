@@ -345,6 +345,8 @@ class ManualOrderController extends Controller
         $validated = $request->validate([
             'customer_name' => ['nullable', 'string', 'max:150'],
             'customer_email' => ['nullable', 'email', 'max:255'],
+            'customer_phone' => ['nullable', 'string', 'max:30'],
+            'company_name' => ['nullable', 'string', 'max:150'],
             'delivery_method' => ['nullable', 'string', 'max:100'],
             'delivery_address' => ['nullable', 'string', 'max:255'],
             'customer_notes' => ['nullable', 'string', 'max:2000'],
@@ -355,6 +357,8 @@ class ManualOrderController extends Controller
             'items.*.product_name' => ['nullable', 'string'],
             'items.*.quantity' => ['required_with:items', 'integer', 'min:1'],
             'items.*.unit_price_ex_gst' => ['nullable', 'numeric', 'min:0'],
+            'items.*.price' => ['nullable', 'numeric', 'min:0'],
+            'items.*.line_total_ex_gst' => ['nullable', 'numeric', 'min:0'],
             'items.*.specifications' => ['nullable', 'string'],
             'items.*.options' => ['nullable', 'array'],
         ]);

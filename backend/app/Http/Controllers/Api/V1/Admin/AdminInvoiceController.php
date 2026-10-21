@@ -25,7 +25,7 @@ class AdminInvoiceController extends Controller
         'name' => 'Erry Imprints Pty Ltd',
         'trading_name' => 'Erry Imprints',
         'abn' => '12 345 678 901',
-        'email' => 'orders@erryimprints.com.au',
+        'email' => 'Info@erryimprints.com.au',
         'phone' => '1300 000 000',
         'address_line_1' => 'Level 1, 100 George Street',
         'city' => 'Sydney',

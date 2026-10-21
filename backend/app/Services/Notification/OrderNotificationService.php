@@ -14,7 +14,7 @@ class OrderNotificationService
     /**
      * Official sender for Erry Imprints orders and customer communications.
      */
-    public const DEFAULT_FROM_EMAIL = 'orders@erryimprints.com.au';
+    public const DEFAULT_FROM_EMAIL = 'Info@erryimprints.com.au';
     public const DEFAULT_FROM_NAME = 'Erry Imprints';
 
     /**
@@ -39,7 +39,7 @@ class OrderNotificationService
         try {
             // 1. Send / Log order confirmation to customer
             Mail::raw(
-                "Dear {$customerName},\n\nThank you for your order with Erry Imprints!\n\nOrder Number: {$orderNumber}\nTotal: {$orderTotal}\n\nOur prepress team is preparing your files for production. You can track your order status in your account dashboard.\n\nWarm regards,\nErry Imprints Team\norders@erryimprints.com.au",
+                "Dear {$customerName},\n\nThank you for your order with Erry Imprints!\n\nOrder Number: {$orderNumber}\nTotal: {$orderTotal}\n\nOur prepress team is preparing your files for production. You can track your order status in your account dashboard.\n\nWarm regards,\nErry Imprints Team\nInfo@erryimprints.com.au",
                 function ($message) use ($customerEmail, $orderNumber, $fromEmail, $fromName) {
                     $message->to($customerEmail)
                         ->from($fromEmail, $fromName)
@@ -105,7 +105,7 @@ class OrderNotificationService
 
         try {
             Mail::raw(
-                "Hello,\n\nYour artwork status for order {$orderNumber} has been updated to: " . strtoupper($status) . ".\n\nWarm regards,\nErry Imprints Prepress Team\norders@erryimprints.com.au",
+                "Hello,\n\nYour artwork status for order {$orderNumber} has been updated to: " . strtoupper($status) . ".\n\nWarm regards,\nErry Imprints Prepress Team\nInfo@erryimprints.com.au",
                 function ($message) use ($customerEmail, $orderNumber, $status, $fromEmail, $fromName) {
                     $message->to($customerEmail)
                         ->from($fromEmail, $fromName)
@@ -142,7 +142,7 @@ class OrderNotificationService
             . "Once approved, you can complete payment directly on the portal to begin production immediately.\n\n"
             . "Warm regards,\n"
             . "Erry Imprints Prepress Team\n"
-            . "orders@erryimprints.com.au";
+            . "Info@erryimprints.com.au";
 
         try {
             Mail::raw($body, function ($message) use ($customerEmail, $orderNumber, $fromEmail, $fromName) {
@@ -367,7 +367,7 @@ HTML;
                 : "Your artwork proof ({$proofVersion}) is awaiting your review and approval:\n\n{$reviewUrl}\n\n")
             . "Warm regards,\n"
             . "Erry Imprints Prepress Team\n"
-            . "orders@erryimprints.com.au";
+            . "Info@erryimprints.com.au";
 
         try {
             Mail::raw($body, function ($message) use ($customerEmail, $subject, $fromEmail, $fromName) {
@@ -440,7 +440,7 @@ HTML;
             . "Thank you for printing with Erry Imprints.\n\n"
             . "Warm regards,\n"
             . "Erry Imprints Production & Dispatch Team\n"
-            . "orders@erryimprints.com.au";
+            . "Info@erryimprints.com.au";
 
         try {
             Mail::to($customerEmail)->send(new \App\Mail\OrderStatusUpdateMail(

@@ -37,7 +37,7 @@ return [
         'name' => env('COURIERS_PLEASE_DISPATCH_NAME', 'Erry Imprints Dispatch'),
         'company_name' => env('COURIERS_PLEASE_DISPATCH_COMPANY', 'Erry Imprints'),
         'phone' => env('COURIERS_PLEASE_DISPATCH_PHONE', '0400 000 000'),
-        'email' => env('COURIERS_PLEASE_DISPATCH_EMAIL', 'orders@erryimprints.com.au'),
+        'email' => env('COURIERS_PLEASE_DISPATCH_EMAIL', 'Info@erryimprints.com.au'),
         'address1' => env('COURIERS_PLEASE_DISPATCH_ADDRESS1', '123 Printing Way'),
         'address2' => env('COURIERS_PLEASE_DISPATCH_ADDRESS2', null),
         'is_business' => env('COURIERS_PLEASE_DISPATCH_IS_BUSINESS', true),

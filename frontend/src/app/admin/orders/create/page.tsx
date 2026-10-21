@@ -25,6 +25,8 @@ import {
   Sparkles,
   RotateCcw,
   Package,
+  Pencil,
+  Copy,
 } from 'lucide-react';
 
 interface CustomerOption {
@@ -171,6 +173,7 @@ export default function CreateManualOrderPage() {
   // Modal State
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [modalTab, setModalTab] = useState<'catalog' | 'custom'>('custom');
+  const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
 
   // Catalog Tab State
   const [modalProductId, setModalProductId] = useState('');
@@ -233,15 +236,61 @@ export default function CreateManualOrderPage() {
     }
     loadDirectory();
 
-    // Check if editing an existing order via query params
+    // Check if editing or copying an existing order via query params
     if (typeof window !== 'undefined') {
       const searchParams = new URLSearchParams(window.location.search);
+      const copyIdParam = searchParams.get('copyId') || searchParams.get('duplicateId');
       const orderIdParam = searchParams.get('orderId') || searchParams.get('id');
-      if (orderIdParam) {
+      if (copyIdParam) {
+        loadCopyOrder(copyIdParam);
+      } else if (orderIdParam) {
         loadExistingOrder(orderIdParam);
       }
     }
   }, []);
+
+  const loadCopyOrder = async (copyId: string) => {
+    try {
+      const res = await manualOrderService.getOrder(copyId);
+      if (res.success && res.data) {
+        const ord = res.data;
+        // Keep currentOrderId and orderNumber null so this creates a brand new order draft
+        setCurrentOrderId(null);
+        setOrderNumber(null);
+        setSelectedCustomerId(ord.customer?.id || null);
+        setCustomerName(ord.customer?.name || '');
+        setCustomerEmail(ord.customer?.email || '');
+        setCustomerPhone(ord.customer?.phone || '');
+        setCompanyName(ord.customer?.company_name || '');
+        setDeliveryMethod(ord.delivery_method || 'Standard delivery (Free)');
+        setDeliveryAddress(ord.shipping_address?.address_line_1 || (ord as any).delivery_address || '');
+        setInternalNotes(ord.internal_notes || (ord as any).admin_notes || '');
+        if (ord.customer_notes) setCustomerNotes(ord.customer_notes);
+
+        if (Array.isArray(ord.items)) {
+          setItems(
+            ord.items.map((it: any) => ({
+              client_key: createOrderLineKey(),
+              product_id: it.product_id,
+              product_name: it.product_name,
+              specifications: it.options?.specifications || it.product_name,
+              quantity: it.quantity,
+              price: it.line_total_ex_gst ?? (it.unit_price_ex_gst * it.quantity),
+              unit_price_ex_gst: it.unit_price_ex_gst,
+              options: it.options ? { ...it.options } : {},
+            }))
+          );
+        }
+
+        setSuccessMsg(
+          `Copied configuration from order ${ord.order_number} into a new draft. You can now edit any details, configuration or products, and save as a new order.`
+        );
+      }
+    } catch (e) {
+      console.error('Failed to copy order:', e);
+      setError('Could not load order for copying.');
+    }
+  };
 
   const loadExistingOrder = async (orderId: string) => {
     try {
@@ -256,7 +305,7 @@ export default function CreateManualOrderPage() {
         setCustomerPhone(ord.customer?.phone || '');
         setCompanyName(ord.customer?.company_name || '');
         setDeliveryMethod(ord.delivery_method || 'Standard delivery (Free)');
-        setDeliveryAddress(ord.shipping_address?.address_line_1 || '');
+        setDeliveryAddress(ord.shipping_address?.address_line_1 || (ord as any).delivery_address || '');
         setInternalNotes(ord.internal_notes || (ord as any).admin_notes || '');
         if (ord.customer_notes) setCustomerNotes(ord.customer_notes);
 
@@ -361,10 +410,195 @@ export default function CreateManualOrderPage() {
     }
   };
 
+  // Open modal for adding a new product
+  const handleOpenAddProduct = () => {
+    setEditingItemIndex(null);
+    setModalTab('custom');
+    setCustomName('');
+    setCustomPresetSize('a4');
+    setCustomWidth('210');
+    setCustomHeight('297');
+    setCustomStock('350gsm Premium Silk Artboard');
+    setCustomCustomStock('');
+    setCustomSides('Double Sided (Full Colour 4/4)');
+    setCustomFinish('None / Uncoated');
+    setCustomQty(500);
+    setCustomPrice(120);
+    setCustomNotes('');
+    setModalProductId('');
+    setProductTemplates([]);
+    setSelectedTemplateId('');
+    setCatalogQuantity(500);
+    setCatalogPrice(100);
+    setCatalogSpecs('Standard Specifications');
+    setShowAddProductModal(true);
+  };
+
+  // Open modal for editing an existing product configuration
+  const handleOpenEditProduct = (index: number) => {
+    const item = items[index];
+    if (!item) return;
+
+    setEditingItemIndex(index);
+
+    if (item.product_id) {
+      setModalTab('catalog');
+      setModalProductId(item.product_id);
+      setSelectedTemplateId(item.options?.template_id || '');
+      setCatalogQuantity(item.quantity || 500);
+      setCatalogPrice(item.price ?? (item.unit_price_ex_gst ? item.unit_price_ex_gst * item.quantity : 100));
+      setCatalogSpecs(item.specifications || item.options?.specifications || 'Standard Specifications');
+    } else {
+      setModalTab('custom');
+      setCustomName(item.product_name || '');
+      setCustomQty(item.quantity || 500);
+      setCustomPrice(item.price ?? 120);
+
+      let w = item.options?.width_mm ? String(item.options.width_mm) : '';
+      let h = item.options?.height_mm ? String(item.options.height_mm) : '';
+      if ((!w || !h) && item.options?.dimensions) {
+        const m = String(item.options.dimensions).match(/(\d+)\s*[×x*]\s*(\d+)/i);
+        if (m) {
+          w = m[1];
+          h = m[2];
+        }
+      }
+      if (!w || !h) {
+        w = '210';
+        h = '297';
+      }
+      setCustomWidth(w);
+      setCustomHeight(h);
+
+      const matchedPreset = Object.entries(SIZE_PRESETS).find(
+        ([k, v]) => k !== 'custom' && v.width === w && v.height === h
+      );
+      setCustomPresetSize(matchedPreset ? matchedPreset[0] : 'custom');
+
+      const stock = item.options?.stock || '350gsm Premium Silk Artboard';
+      if (STOCK_OPTIONS.includes(stock)) {
+        setCustomStock(stock);
+        setCustomCustomStock('');
+      } else {
+        setCustomStock('Custom Material...');
+        setCustomCustomStock(stock);
+      }
+
+      const sides = item.options?.sides || 'Double Sided (Full Colour 4/4)';
+      setCustomSides(SIDES_OPTIONS.includes(sides) ? sides : 'Double Sided (Full Colour 4/4)');
+
+      const finish = item.options?.finish || 'None / Uncoated';
+      setCustomFinish(FINISH_OPTIONS.includes(finish) ? finish : 'None / Uncoated');
+
+      setCustomNotes(item.options?.notes || '');
+    }
+
+    setShowAddProductModal(true);
+  };
+
+  // Save changes to the existing product being edited
+  const handleSaveEditedProduct = () => {
+    if (editingItemIndex === null || !items[editingItemIndex]) return;
+
+    const prevItem = items[editingItemIndex];
+
+    if (modalTab === 'custom') {
+      if (!customName.trim()) {
+        alert('Please enter a product name for the custom item.');
+        return;
+      }
+
+      const qty = Math.max(1, parseInt(String(customQty)) || 500);
+      const price = Math.max(0, parseFloat(String(customPrice)) || 0);
+
+      const activeStock = customStock === 'Custom Material...'
+        ? (customCustomStock.trim() || 'Custom Stock')
+        : customStock;
+
+      const dimStr = customWidth && customHeight ? `${customWidth} × ${customHeight} mm` : '';
+      const specParts = [
+        dimStr,
+        activeStock,
+        customSides,
+        customFinish !== 'None / Uncoated' ? customFinish : '',
+      ].filter(Boolean);
+
+      const formattedSpecs = specParts.join(' • ');
+
+      const updatedItem: ManualOrderItemPayload = {
+        ...prevItem,
+        product_id: undefined,
+        product_name: customName.trim(),
+        specifications: formattedSpecs || 'Custom Specifications',
+        quantity: qty,
+        price: price,
+        unit_price_ex_gst: qty > 0 ? price / qty : price,
+        options: {
+          ...(prevItem.options || {}),
+          product_name: customName.trim(),
+          dimensions: dimStr,
+          width_mm: customWidth,
+          height_mm: customHeight,
+          stock: activeStock,
+          sides: customSides,
+          finish: customFinish,
+          notes: customNotes.trim(),
+          specifications: formattedSpecs || 'Custom Specifications',
+        },
+      };
+
+      setItems((prev) => {
+        const next = [...prev];
+        next[editingItemIndex] = updatedItem;
+        return next;
+      });
+      setSuccessMsg(`Product "${updatedItem.product_name}" configuration updated.`);
+    } else {
+      const product = catalogProducts.find((entry) => entry.id === modalProductId);
+      const template = productTemplates.find((entry) => entry.id === selectedTemplateId);
+      const qty = Math.max(1, parseInt(String(catalogQuantity)) || 500);
+      const price = Math.max(0, parseFloat(String(catalogPrice)) || (parseFloat(product?.base_price || '100') || 100));
+      const specs = catalogSpecs.trim() || 'Standard Specifications';
+      const prodName = product ? product.name : prevItem.product_name;
+
+      const updatedItem: ManualOrderItemPayload = {
+        ...prevItem,
+        product_id: product ? product.id : prevItem.product_id,
+        product_name: prodName,
+        specifications: specs,
+        quantity: qty,
+        price: price,
+        unit_price_ex_gst: qty > 0 ? price / qty : price,
+        options: {
+          ...(prevItem.options || {}),
+          product_name: prodName,
+          specifications: specs,
+          ...(template ? {
+            template_id: template.id,
+            template_name: template.name,
+            template_thumbnail_url: template.thumbnail_url || null,
+            dimensions: template.width_mm && template.height_mm ? `${template.width_mm} × ${template.height_mm} mm` : undefined,
+          } : {}),
+        },
+      };
+
+      setItems((prev) => {
+        const next = [...prev];
+        next[editingItemIndex] = updatedItem;
+        return next;
+      });
+      setSuccessMsg(`Product "${updatedItem.product_name}" configuration updated.`);
+    }
+
+    setShowAddProductModal(false);
+    setEditingItemIndex(null);
+  };
+
   // Add Item to table
   const handleAddItem = (newProd: ManualOrderItemPayload) => {
     setItems((prev) => [...prev, { ...newProd, client_key: newProd.client_key || createOrderLineKey() }]);
     setShowAddProductModal(false);
+    setEditingItemIndex(null);
   };
 
   // Add Catalog Product
@@ -781,7 +1015,11 @@ export default function CreateManualOrderPage() {
 
       if (orderId) {
         await manualOrderService.sendForApproval(orderId);
-        setSuccessMsg(`Order ${orderNum || ''} sent for customer approval!`);
+        setSuccessMsg(
+          currentOrderId
+            ? `Order ${orderNum || ''} updated and sent to customer!`
+            : `Order ${orderNum || ''} sent for customer approval!`
+        );
         setTimeout(() => router.push(`/admin/orders/${orderId}`), 800);
       }
     } catch (err: any) {
@@ -837,10 +1075,10 @@ export default function CreateManualOrderPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold text-white tracking-tight">
-            {currentOrderId ? `Order ${orderNumber || 'Draft'}` : 'Create manual order'}
+            {currentOrderId ? `Edit Order ${orderNumber || 'Draft'}` : 'Create manual order'}
           </h1>
           <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
-            {currentOrderId ? 'Saved Draft' : 'Draft'}
+            {currentOrderId ? 'Editing DB Order' : 'Draft'}
           </span>
           {currentOrderId && (
             <span className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
@@ -938,6 +1176,17 @@ export default function CreateManualOrderPage() {
               </div>
 
               <div>
+                <label className="block text-slate-400 mb-1.5 font-medium">Customer phone</label>
+                <input
+                  type="text"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  placeholder="e.g. 0412 345 678"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-xs focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
                 <label className="block text-slate-400 mb-1.5 font-medium">Company name</label>
                 <input
                   type="text"
@@ -964,7 +1213,7 @@ export default function CreateManualOrderPage() {
                 </div>
               </div>
 
-              <div>
+              <div className="md:col-span-2">
                 <label className="block text-slate-400 mb-1.5 font-medium">Delivery address</label>
                 <input
                   type="text"
@@ -988,7 +1237,7 @@ export default function CreateManualOrderPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setShowAddProductModal(true)}
+                onClick={handleOpenAddProduct}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-pink-500/10 text-pink-400 border border-pink-500/20 hover:bg-pink-500/20 transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -1008,7 +1257,7 @@ export default function CreateManualOrderPage() {
                     <th className="pb-2.5 text-right font-medium">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody className="divide-y border-slate-800">
                   {items.length === 0 && (
                     <tr>
                       <td colSpan={6} className="py-8 text-center text-xs text-slate-500">
@@ -1063,14 +1312,24 @@ export default function CreateManualOrderPage() {
                         ${Number(item.price ?? 100).toFixed(2)}
                       </td>
                       <td className="py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveItem(idx)}
-                          className="p-1.5 rounded hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-colors"
-                          title={currentOrderId && item.id ? 'Delete product directly from database' : 'Remove product'}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditProduct(idx)}
+                            className="p-1.5 rounded hover:bg-sky-500/10 text-slate-400 hover:text-sky-400 transition-colors"
+                            title="Edit product configuration & specifications"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItem(idx)}
+                            className="p-1.5 rounded hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-colors"
+                            title={currentOrderId && item.id ? 'Delete product directly from database' : 'Remove product'}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     <tr className="border-b-2 border-slate-700/80 bg-slate-950/50">
@@ -1349,18 +1608,24 @@ export default function CreateManualOrderPage() {
               className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-medium text-sm rounded-xl shadow-md shadow-pink-600/20 transition-all disabled:opacity-50"
             >
               <Send className="w-4 h-4" />
-              <span>{sending ? 'Sending...' : 'Send for approval'}</span>
+              <span>
+                {sending
+                  ? (currentOrderId ? 'Saving & sending to customer...' : 'Sending...')
+                  : (currentOrderId ? 'Save & send updated order to customer' : 'Send for approval')}
+              </span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleSaveDraft}
-              disabled={saving || sending || deleting || items.length === 0}
-              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-medium text-xs rounded-xl transition-all disabled:opacity-50"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>{saving ? 'Saving...' : (currentOrderId ? 'Save changes to DB' : 'Save draft to DB')}</span>
-            </button>
+            {!currentOrderId && (
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={saving || sending || deleting || items.length === 0}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-medium text-xs rounded-xl transition-all disabled:opacity-50"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{saving ? 'Saving...' : 'Save draft to DB'}</span>
+              </button>
+            )}
 
             {/* Direct DB Delete Option */}
             {currentOrderId && (
@@ -1400,10 +1665,12 @@ export default function CreateManualOrderPage() {
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <Package className="w-5 h-5 text-pink-500" />
-                  Add product & configure specifications
+                  {editingItemIndex !== null ? 'Edit product & configure specifications' : 'Add product & configure specifications'}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Choose from catalog or configure a fully customized print product.
+                  {editingItemIndex !== null
+                    ? `Modifying line #${editingItemIndex + 1}: ${items[editingItemIndex]?.product_name || ''}`
+                    : 'Choose from catalog or configure a fully customized print product.'}
                 </p>
               </div>
 
@@ -1742,13 +2009,26 @@ export default function CreateManualOrderPage() {
             <div className="p-4 border-t border-slate-800 flex items-center justify-between bg-slate-900/60">
               <button
                 type="button"
-                onClick={() => setShowAddProductModal(false)}
+                onClick={() => {
+                  setShowAddProductModal(false);
+                  setEditingItemIndex(null);
+                }}
                 className="px-4 py-2 rounded-lg border border-slate-700 text-slate-400 hover:text-white text-xs transition"
               >
                 Cancel
               </button>
 
-              {modalTab === 'custom' ? (
+              {editingItemIndex !== null ? (
+                <button
+                  type="button"
+                  onClick={handleSaveEditedProduct}
+                  disabled={modalTab === 'custom' ? !customName.trim() : (!modalProductId || loadingTemplates)}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 disabled:opacity-40 transition-all flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Save Product Changes</span>
+                </button>
+              ) : modalTab === 'custom' ? (
                 <button
                   type="button"
                   onClick={handleAddCustomProduct}

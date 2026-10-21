@@ -142,7 +142,7 @@ class OrderService
 
             Log::info("Order {$order->order_number} created successfully for user {$user->id}. Total: AUD {$order->total_inc_gst}");
 
-            // Notify customer from orders@erryimprints.com.au and alert linked admin erryimprints@gmail.com
+            // Notify customer from Info@erryimprints.com.au and alert linked admin erryimprints@gmail.com
             try {
                 (new OrderNotificationService())->sendOrderConfirmation($order->order_number, $user->email, $order);
             } catch (\Throwable $e) {

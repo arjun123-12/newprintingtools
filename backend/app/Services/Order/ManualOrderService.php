@@ -136,6 +136,32 @@ class ManualOrderService
             if (!empty($data['customer_email'])) {
                 $shippingAddress['email'] = $data['customer_email'];
             }
+            if (!empty($data['customer_name'])) {
+                $shippingAddress['name'] = $data['customer_name'];
+            }
+            if (isset($data['customer_phone'])) {
+                $shippingAddress['phone'] = $data['customer_phone'];
+            }
+            if (isset($data['company_name'])) {
+                $shippingAddress['company'] = $data['company_name'];
+            }
+
+            $billingAddress = $order->billing_address ?? [];
+            if (!empty($data['delivery_address'])) {
+                $billingAddress['address_line_1'] = $data['delivery_address'];
+            }
+            if (!empty($data['customer_email'])) {
+                $billingAddress['email'] = $data['customer_email'];
+            }
+            if (!empty($data['customer_name'])) {
+                $billingAddress['name'] = $data['customer_name'];
+            }
+            if (isset($data['customer_phone'])) {
+                $billingAddress['phone'] = $data['customer_phone'];
+            }
+            if (isset($data['company_name'])) {
+                $billingAddress['company'] = $data['company_name'];
+            }
 
             $order->update([
                 'subtotal_ex_gst' => $calculated['subtotal_ex_gst'],
@@ -145,6 +171,7 @@ class ManualOrderService
                 'total_inc_gst' => $calculated['total_inc_gst'],
                 'delivery_method' => $data['delivery_method'] ?? $order->delivery_method,
                 'shipping_address' => $shippingAddress,
+                'billing_address' => $billingAddress,
                 'customer_notes' => array_key_exists('customer_notes', $data) ? $data['customer_notes'] : $order->customer_notes,
                 'admin_notes' => array_key_exists('internal_notes', $data) ? $data['internal_notes'] : $order->admin_notes,
             ]);

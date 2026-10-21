@@ -72,7 +72,7 @@ class CustomerEnquiryController extends Controller
             'user_agent' => substr((string) $request->userAgent(), 0, 500),
         ]);
 
-        // Send enquiry notification to linked admin email (erryimprints@gmail.com) from orders@erryimprints.com.au
+        // Send enquiry notification to linked admin email (erryimprints@gmail.com) from Info@erryimprints.com.au
         try {
             (new OrderNotificationService())->sendCustomerEnquiryNotification($enquiry);
         } catch (\Throwable $e) {

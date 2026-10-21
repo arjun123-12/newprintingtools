@@ -218,8 +218,8 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({ invoiceId, initial
           service_date: item.created_at
             ? item.created_at.slice(0, 10)
             : order.created_at
-            ? order.created_at.slice(0, 10)
-            : new Date().toISOString().slice(0, 10),
+              ? order.created_at.slice(0, 10)
+              : new Date().toISOString().slice(0, 10),
           product_id: item.product_id,
           product_name: item.product_name,
           product_sku: item.product_sku || '',
@@ -284,8 +284,8 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({ invoiceId, initial
               chosenProd.sale_price && Number(chosenProd.sale_price) > 0
                 ? chosenProd.sale_price
                 : chosenProd.base_price > 0
-                ? chosenProd.base_price
-                : chosenProd.starting_price || 0
+                  ? chosenProd.base_price
+                  : chosenProd.starting_price || 0
             );
             if (chosenRate > 0) {
               updated.rate = chosenRate;
@@ -1048,22 +1048,20 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({ invoiceId, initial
                     <button
                       type="button"
                       onClick={() => setDiscountType('percentage')}
-                      className={`px-1.5 py-0.5 font-bold ${
-                        discountType === 'percentage'
+                      className={`px-1.5 py-0.5 font-bold ${discountType === 'percentage'
                           ? 'bg-gray-800 text-white'
                           : 'bg-white text-gray-600'
-                      }`}
+                        }`}
                     >
                       %
                     </button>
                     <button
                       type="button"
                       onClick={() => setDiscountType('fixed')}
-                      className={`px-1.5 py-0.5 font-bold ${
-                        discountType === 'fixed'
+                      className={`px-1.5 py-0.5 font-bold ${discountType === 'fixed'
                           ? 'bg-gray-800 text-white'
                           : 'bg-white text-gray-600'
-                      }`}
+                        }`}
                     >
                       $
                     </button>
@@ -1237,7 +1235,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({ invoiceId, initial
               <div>
                 <p className="font-bold text-gray-900">Erry Imprints Pty Ltd</p>
                 <p className="text-gray-500">ABN: 12 345 678 901</p>
-                <p className="text-gray-500">orders@erryimprints.com.au</p>
+                <p className="text-gray-500">Info@erryimprints.com.au</p>
                 <p className="text-gray-500">Sydney NSW 2000, Australia</p>
               </div>
               <div className="text-right">

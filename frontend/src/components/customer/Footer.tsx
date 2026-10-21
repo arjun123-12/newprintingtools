@@ -91,8 +91,8 @@ export default function Footer() {
             </div>
             <div className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-sky-400" />
-              <a href="mailto:orders@erryimprints.com.au" className="hover:text-white transition-colors">
-                orders@erryimprints.com.au
+              <a href="mailto:Info@erryimprints.com.au" className="hover:text-white transition-colors">
+                Info@erryimprints.com.au
               </a>
             </div>
             <div className="flex items-center gap-2">

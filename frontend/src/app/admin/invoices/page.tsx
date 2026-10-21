@@ -44,7 +44,7 @@ const DEFAULT_STORE_INFO: StoreTaxInfo = {
   name: 'Erry Imprints Pty Ltd',
   trading_name: 'Erry Imprints',
   abn: '12 345 678 901',
-  email: 'orders@erryimprints.com.au',
+  email: 'Info@erryimprints.com.au',
   phone: '1300 000 789',
   address_line_1: 'Level 1, 100 George Street',
   city: 'Sydney',
@@ -470,43 +470,39 @@ export default function AdminInvoicesPage() {
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
               onClick={() => setTabFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                tabFilter === 'all'
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${tabFilter === 'all'
                   ? 'bg-sky-600 text-white shadow-sm'
                   : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
             >
               All Invoices ({orders.length})
             </button>
             <button
               onClick={() => setTabFilter('paid')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                tabFilter === 'paid'
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${tabFilter === 'paid'
                   ? 'bg-emerald-600 text-white shadow-sm'
                   : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
             >
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
               <span>Paid & Succeeded ({orders.filter((o) => o.payment_status === 'paid').length})</span>
             </button>
             <button
               onClick={() => setTabFilter('unpaid')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                tabFilter === 'unpaid'
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${tabFilter === 'unpaid'
                   ? 'bg-amber-600 text-white shadow-sm'
                   : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
             >
               <Clock className="w-3.5 h-3.5 text-amber-400" />
               <span>Pending / Unpaid ({orders.filter((o) => o.payment_status !== 'paid' && o.payment_status !== 'failed').length})</span>
             </button>
             <button
               onClick={() => setTabFilter('failed')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                tabFilter === 'failed'
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${tabFilter === 'failed'
                   ? 'bg-rose-600 text-white shadow-sm'
                   : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
-              }`}
+                }`}
             >
               <XCircle className="w-3.5 h-3.5 text-rose-400" />
               <span>Failed / Refunded ({orders.filter((o) => o.payment_status === 'failed' || o.payment_status === 'refunded').length})</span>
@@ -631,11 +627,10 @@ export default function AdminInvoicesPage() {
                             <div className="flex items-center gap-2">
                               {/* Gateway Badge */}
                               <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${
-                                  primaryPayment.gateway === 'bpoint'
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${primaryPayment.gateway === 'bpoint'
                                     ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20'
                                     : 'bg-slate-800 text-slate-300 border border-slate-700'
-                                }`}
+                                  }`}
                               >
                                 <CreditCard className="w-3 h-3" />
                                 {primaryPayment.gateway}

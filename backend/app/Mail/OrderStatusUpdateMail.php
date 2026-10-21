@@ -20,7 +20,7 @@ class OrderStatusUpdateMail extends Mailable
 
     public function build(): self
     {
-        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', 'orders@erryimprints.com.au'));
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', 'Info@erryimprints.com.au'));
         $fromName = config('mail.from.name', env('MAIL_FROM_NAME', 'Erry Imprints'));
         $customerName = $this->order->shipping_address['name'] ?? $this->order->user?->name ?? 'Valued Customer';
         $orderNumber = $this->order->order_number;
@@ -52,7 +52,7 @@ class OrderStatusUpdateMail extends Mailable
             . "Thank you for printing with Erry Imprints.\n\n"
             . "Warm regards,\n"
             . "Erry Imprints Production & Dispatch Team\n"
-            . "orders@erryimprints.com.au";
+            . "Info@erryimprints.com.au";
 
         return $this->from($fromEmail, $fromName)
             ->replyTo($fromEmail, $fromName)

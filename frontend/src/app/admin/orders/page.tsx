@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { manualOrderService, ManualOrderListItem } from '@/services/admin/manualOrderService';
-import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle, Trash2 } from 'lucide-react';
+import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle, Trash2, Pencil, Copy } from 'lucide-react';
 
 type FilterTab = 'all' | 'draft' | 'artwork_review' | 'changes_requested' | 'in_production' | 'dispatched' | 'delivered';
 
@@ -250,13 +250,30 @@ export default function AdminOrdersPage() {
                       {order.date}
                     </td>
                     <td className="px-6 py-4 text-right whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-3">
+                      <div className="flex items-center justify-end gap-2">
                         <Link
                           href={`/admin/orders/${order.id}`}
                           className="inline-flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 font-medium transition-colors"
+                          title="Manage order"
                         >
                           <span>Manage</span>
                           <span>→</span>
+                        </Link>
+                        <Link
+                          href={`/admin/orders/create?orderId=${order.id}`}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-colors"
+                          title="Edit order details, products & configuration"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          <span>Edit</span>
+                        </Link>
+                        <Link
+                          href={`/admin/orders/create?copyId=${order.id}`}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 transition-colors"
+                          title="Copy / Duplicate order into new draft"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>Copy</span>
                         </Link>
                         <button
                           type="button"
