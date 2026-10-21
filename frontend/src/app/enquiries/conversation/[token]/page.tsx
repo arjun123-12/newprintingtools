@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef, use } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import {
   MessageSquare,
   Send,
@@ -261,18 +262,18 @@ export default function CustomerConversationPage({ params }: { params: any }) {
       <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center gap-2 group">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center text-white font-black text-sm shadow-md group-hover:scale-105 transition">
-                EI
-              </div>
-              <div>
-                <span className="font-black text-sm tracking-tight text-white block">
-                  Erry Imprints
-                </span>
-                <span className="text-[10px] text-slate-400 block -mt-0.5">
-                  Direct Customer Prepress Portal
-                </span>
-              </div>
+            <Link href="/" className="flex items-center gap-3 group">
+              <Image
+                src="/assets/images/erry_imprints_logo_white.png"
+                alt="Erry Imprints"
+                width={180}
+                height={45}
+                className="h-9 sm:h-10 w-auto object-contain transition-transform duration-200 group-hover:scale-105"
+                priority
+              />
+              <span className="hidden sm:inline-block border-l border-slate-700 pl-3 text-[11px] text-slate-400 font-medium">
+                Direct Customer Prepress Portal
+              </span>
             </Link>
           </div>
 

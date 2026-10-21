@@ -796,7 +796,7 @@ export default function AdminEnquiriesPage() {
                                 {isAdmin ? (
                                   <>
                                     <Sparkles className="w-3 h-3 text-sky-600" />
-                                    <span>{msg.sender_name || 'Admin Team'}</span>
+                                    <span>{msg.sender_name || 'Erry Imprints Team'}</span>
                                     <span className="px-1.5 py-0.2 rounded text-[9px] bg-slate-200 text-slate-800 font-bold">
                                       Staff
                                     </span>
