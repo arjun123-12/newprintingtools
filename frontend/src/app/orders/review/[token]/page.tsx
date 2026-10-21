@@ -31,6 +31,9 @@ import {
   MapPin,
   ChevronRight,
   Box,
+  Scissors,
+  PackageCheck,
+  Store,
 } from 'lucide-react';
 import { orderReviewService, CustomerReviewData } from '@/services/orderReviewService';
 import { Artwork3DViewer } from '@/components/designer/controls/Artwork3DViewer';
@@ -44,6 +47,7 @@ interface TrackOrderStep {
   description: string;
   pickupDescription?: string;
   icon: React.ComponentType<{ className?: string }>;
+  pickupIcon?: React.ComponentType<{ className?: string }>;
 }
 
 const TRACK_ORDER_STEPS: TrackOrderStep[] = [
@@ -66,32 +70,31 @@ const TRACK_ORDER_STEPS: TrackOrderStep[] = [
     icon: ThumbsUp,
   },
   {
-    key: 'in_production',
-    label: 'In Production',
-    description: 'Printing, finishing and quality check in progress.',
+    key: 'printing',
+    label: 'Printing',
+    description: 'Commercial printing in progress on selected material.',
     icon: Printer,
   },
   {
-    key: 'packing',
-    label: 'Packing',
-    description: 'Order is being packed securely for dispatch.',
-    icon: Package,
+    key: 'cutting_and_finishing',
+    label: 'Cutting & Finishing',
+    description: 'Precision trimming, guillotine cutting, folding & finishing.',
+    icon: Scissors,
   },
   {
-    key: 'ready_for_dispatch',
-    label: 'Ready for Dispatch',
+    key: 'quality_check_and_packaging',
+    label: 'Quality Check & Packaging',
+    description: 'Quality inspected and securely packaged for dispatch or pickup.',
+    icon: PackageCheck,
+  },
+  {
+    key: 'dispatch_or_pickup',
+    label: 'Delivery',
     pickupLabel: 'Ready for Pickup',
-    description: 'Order is ready and awaiting courier pickup.',
-    pickupDescription: 'Order is packed and ready for customer pickup.',
+    description: 'In transit with courier for delivery to your address.',
+    pickupDescription: 'Order is ready for collection at our store.',
     icon: Truck,
-  },
-  {
-    key: 'delivered',
-    label: 'Delivered',
-    pickupLabel: 'Collected',
-    description: 'Delivered to your provided address.',
-    pickupDescription: 'Order collected by customer from store.',
-    icon: MapPin,
+    pickupIcon: Store,
   },
 ];
 
@@ -106,27 +109,31 @@ function getTrackOrderStepIndex(status: string): number {
       return 1; // Step 2: Artwork Review
     case 'approved':
       return 2; // Step 3: Artwork Approved
+    case 'printing':
     case 'in_production':
     case 'production_started':
+      return 3; // Step 4: Printing
+    case 'cutting_and_finishing':
     case 'cutting_in_progress':
-      return 3; // Step 4: In Production
+      return 4; // Step 5: Cutting & Finishing
+    case 'quality_check_and_packaging':
     case 'production_completed':
     case 'packing':
-      return 4; // Step 5: Packing
+      return 5; // Step 6: Quality Check & Packaging
+    case 'ready_for_pickup':
     case 'ready_for_shipping':
     case 'ready_for_dispatch':
     case 'dispatched':
     case 'handed_over_to_courier':
-      return 5; // Step 6: Ready for Dispatch / Pickup
     case 'delivered':
     case 'collected':
-      return 6; // Step 7: Delivered
+      return 6; // Step 7: Ready for Pickup / Delivery
     default:
       return 3;
   }
 }
 
-function getTrackOrderStepTitle(stepIndex: number, isPickup: boolean): string {
+function getTrackOrderStepTitle(stepIndex: number, isPickup: boolean, status?: string): string {
   switch (stepIndex) {
     case 0:
       return 'Order Received';
@@ -135,40 +142,46 @@ function getTrackOrderStepTitle(stepIndex: number, isPickup: boolean): string {
     case 2:
       return 'Artwork Approved';
     case 3:
-      return 'Order in Production';
+      return 'Printing';
     case 4:
-      return 'Order Packing';
+      return 'Cutting & Finishing';
     case 5:
-      return isPickup ? 'Ready for Pickup' : 'Ready for Dispatch';
+      return 'Quality Check & Packaging';
     case 6:
-      return isPickup ? 'Order Collected' : 'Order Delivered';
+      if (isPickup) {
+        return status === 'collected' ? 'Order Collected' : 'Ready for Pickup';
+      }
+      return status === 'delivered' ? 'Order Delivered' : 'Out for Delivery';
     default:
-      return 'Order in Production';
+      return 'Printing';
   }
 }
 
-function getTrackOrderSubtitle(stepIndex: number, orderNumber: string, isPickup: boolean): string {
+function getTrackOrderSubtitle(stepIndex: number, orderNumber: string, isPickup: boolean, status?: string): string {
   switch (stepIndex) {
     case 0:
-      return `Your order ${orderNumber} has been received and is being prepared.`;
+      return `Your order ${orderNumber} has been received and payment is confirmed.`;
     case 1:
       return `Your order ${orderNumber} artwork is currently checked for print readiness.`;
     case 2:
       return `Your order ${orderNumber} artwork has been approved and sent to production.`;
     case 3:
-      return `Your order ${orderNumber} is currently in production. Our team is printing and finishing your order.`;
+      return `Your order ${orderNumber} is currently printing on our commercial digital & offset presses.`;
     case 4:
-      return `Your order ${orderNumber} is being packed securely and checked for dispatch.`;
+      return `Your order ${orderNumber} is undergoing precision cutting, trimming, folding and finishing.`;
     case 5:
-      return isPickup
-        ? `Your order ${orderNumber} is packed and ready for collection at our store.`
-        : `Your order ${orderNumber} is ready and awaiting courier pickup.`;
+      return `Your order ${orderNumber} has completed production and is in quality inspection and packaging.`;
     case 6:
-      return isPickup
-        ? `Your order ${orderNumber} has been collected. Thank you for your business!`
-        : `Your order ${orderNumber} has been delivered to your provided address.`;
+      if (isPickup) {
+        return status === 'collected'
+          ? `Your order ${orderNumber} has been collected from our store. Thank you!`
+          : `Your order ${orderNumber} is packed and ready for collection at our store.`;
+      }
+      return status === 'delivered'
+        ? `Your order ${orderNumber} has been delivered to your provided address.`
+        : `Your order ${orderNumber} has been dispatched and is out for delivery with our courier.`;
     default:
-      return `Your order ${orderNumber} is currently in production. Our team is printing and finishing your order.`;
+      return `Your order ${orderNumber} is currently printing on our commercial presses.`;
   }
 }
 
@@ -1601,14 +1614,25 @@ export default function OrderReviewPage({ params }: PageProps) {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-6">
                       <div className="flex items-start sm:items-center gap-4">
                         <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-100/90 flex items-center justify-center text-[#E11D48] shrink-0 shadow-xs">
-                          <Package className="w-7 h-7" />
+                          {(() => {
+                            const stepIdx = getTrackOrderStepIndex(orderData.status);
+                            const isStorePickup = Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup'));
+                            if (stepIdx === 0) return <FileCheck className="w-7 h-7" />;
+                            if (stepIdx === 1) return <ImageIcon className="w-7 h-7" />;
+                            if (stepIdx === 2) return <ThumbsUp className="w-7 h-7" />;
+                            if (stepIdx === 3) return <Printer className="w-7 h-7" />;
+                            if (stepIdx === 4) return <Scissors className="w-7 h-7" />;
+                            if (stepIdx === 5) return <PackageCheck className="w-7 h-7" />;
+                            return isStorePickup ? <Store className="w-7 h-7" /> : <Truck className="w-7 h-7" />;
+                          })()}
                         </div>
                         <div>
                           <div className="flex flex-wrap items-center gap-2.5">
                             <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
                               {getTrackOrderStepTitle(
                                 getTrackOrderStepIndex(orderData.status),
-                                Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup'))
+                                Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup')),
+                                orderData.status
                               )}
                             </h2>
                             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase tracking-wide bg-rose-50 text-rose-600 border border-rose-200/70">
@@ -1619,7 +1643,8 @@ export default function OrderReviewPage({ params }: PageProps) {
                             {getTrackOrderSubtitle(
                               getTrackOrderStepIndex(orderData.status),
                               orderData.order_number,
-                              Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup'))
+                              Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup')),
+                              orderData.status
                             )}
                           </p>
                         </div>
@@ -1643,12 +1668,27 @@ export default function OrderReviewPage({ params }: PageProps) {
                         <div className="flex items-stretch gap-2 min-w-[980px] xl:min-w-0 xl:gap-1.5 w-full">
                           {TRACK_ORDER_STEPS.map((step, idx) => {
                             const currentIdx = getTrackOrderStepIndex(orderData.status);
-                            const isComplete = idx < currentIdx || orderData.status === 'delivered';
-                            const isCurrent = idx === currentIdx && orderData.status !== 'delivered';
                             const isStorePickup = Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup'));
-                            const StepIcon = step.icon;
-                            const title = isStorePickup && step.pickupLabel ? step.pickupLabel : step.label;
-                            const description = isStorePickup && step.pickupDescription ? step.pickupDescription : step.description;
+                            const isDeliveredOrCollected = orderData.status === 'delivered' || orderData.status === 'collected';
+                            const isComplete = idx < currentIdx || (idx === 6 && isDeliveredOrCollected);
+                            const isCurrent = idx === currentIdx && !isDeliveredOrCollected;
+                            const StepIcon = (isStorePickup && step.pickupIcon) ? step.pickupIcon : step.icon;
+
+                            let title = step.label;
+                            let description = step.description;
+                            if (idx === 6) {
+                              if (isStorePickup) {
+                                title = orderData.status === 'collected' ? 'Order Collected' : 'Ready for Pickup';
+                                description = orderData.status === 'collected'
+                                  ? 'Order collected by customer from store.'
+                                  : 'Order is packed and ready for collection at our store.';
+                              } else {
+                                title = orderData.status === 'delivered' ? 'Delivered' : 'Out for Delivery';
+                                description = orderData.status === 'delivered'
+                                  ? 'Delivered to your provided address.'
+                                  : 'Dispatched and in transit with courier for delivery.';
+                              }
+                            }
 
                             return (
                               <React.Fragment key={step.key}>

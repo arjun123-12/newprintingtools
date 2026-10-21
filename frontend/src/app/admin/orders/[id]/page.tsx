@@ -32,12 +32,28 @@ import {
 } from 'lucide-react';
 
 const PRODUCTION_STATUS_SEQUENCE = [
-  { value: 'production_started', label: 'Production started' },
-  { value: 'cutting_in_progress', label: 'Cutting in progress' },
-  { value: 'production_completed', label: 'Production completed' },
-  { value: 'ready_for_shipping', label: 'Ready for shipping' },
+  { value: 'printing', label: 'Printing' },
+  { value: 'cutting_and_finishing', label: 'Cutting & Finishing' },
+  { value: 'quality_check_and_packaging', label: 'Quality Check & Packaging' },
+  { value: 'ready_for_pickup', label: 'Ready for Store Pickup' },
   { value: 'handed_over_to_courier', label: 'Handed over to courier' },
   { value: 'delivered', label: 'Delivered' },
+  { value: 'collected', label: 'Order Collected' },
+];
+
+const getProductionStatusSequence = (isPickup: boolean) => [
+  { value: 'printing', label: 'Printing' },
+  { value: 'cutting_and_finishing', label: 'Cutting & Finishing' },
+  { value: 'quality_check_and_packaging', label: 'Quality Check & Packaging' },
+  ...(isPickup
+    ? [
+        { value: 'ready_for_pickup', label: 'Ready for Store Pickup' },
+        { value: 'collected', label: 'Order Collected by Customer' },
+      ]
+    : [
+        { value: 'handed_over_to_courier', label: 'Handed over to courier (Out for Delivery)' },
+        { value: 'delivered', label: 'Delivered to Address' },
+      ]),
 ];
 
 interface PageProps {
@@ -655,30 +671,42 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
 
             {/* Mobile-Friendly Status Selection Control */}
             <div className="space-y-3">
-              <label className="text-xs font-medium text-slate-400 block">
-                Update Status (Customer Visible Sequence)
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-slate-400 block">
+                  Update Status (Customer Visible Sequence)
+                </label>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-slate-800 text-sky-400 border border-slate-700">
+                  {order.delivery_method?.toLowerCase().includes('pickup') ? 'Store Pickup' : 'Courier Delivery'}
+                </span>
+              </div>
 
-              <select
-                value={selectedStatus}
-                onChange={(e) => {
-                  setSelectedStatus(e.target.value);
-                  setStatusActionError(null);
-                }}
-                disabled={statusUpdating}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500 disabled:opacity-50"
-              >
-                {!PRODUCTION_STATUS_SEQUENCE.some((s) => s.value === order.status) && (
-                  <option value={order.status}>
-                    Current: {order.status_label || order.status.replace(/_/g, ' ')}
-                  </option>
-                )}
-                {PRODUCTION_STATUS_SEQUENCE.map((s, idx) => (
-                  <option key={s.value} value={s.value}>
-                    {idx + 1}. {s.label}
-                  </option>
-                ))}
-              </select>
+              {(() => {
+                const isPickup = Boolean(order.delivery_method?.toLowerCase().includes('pickup'));
+                const sequenceOptions = getProductionStatusSequence(isPickup);
+
+                return (
+                  <select
+                    value={selectedStatus}
+                    onChange={(e) => {
+                      setSelectedStatus(e.target.value);
+                      setStatusActionError(null);
+                    }}
+                    disabled={statusUpdating}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500 disabled:opacity-50"
+                  >
+                    {!sequenceOptions.some((s) => s.value === order.status) && (
+                      <option value={order.status}>
+                        Current: {order.status_label || order.status.replace(/_/g, ' ')}
+                      </option>
+                    )}
+                    {sequenceOptions.map((s, idx) => (
+                      <option key={s.value} value={s.value}>
+                        {idx + 1}. {s.label}
+                      </option>
+                    ))}
+                  </select>
+                );
+              })()}
 
               {/* Courier & Tracking required when Handed over to courier is selected */}
               {(selectedStatus === 'handed_over_to_courier' ||

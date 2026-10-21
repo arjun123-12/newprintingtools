@@ -388,7 +388,10 @@ HTML;
      */
     public function sendOrderStatusUpdate(Order $order, string $newStatus, ?string $secureTrackingUrl = null, ?string $carrierTrackingUrl = null): bool
     {
-        $customerEmail = $order->shipping_address['email'] ?? $order->user?->email;
+        $customerEmail = $order->shipping_address['email']
+            ?? $order->billing_address['email']
+            ?? $order->user?->email;
+
         if (!$customerEmail) {
             Log::warning("No customer email found for order {$order->order_number} status notification ({$newStatus})");
             return false;
@@ -396,18 +399,18 @@ HTML;
 
         $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
         $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
-        $customerName = $order->shipping_address['name'] ?? $order->user?->name ?? 'Valued Customer';
+        $customerName = $order->shipping_address['name'] ?? $order->billing_address['name'] ?? $order->user?->name ?? 'Valued Customer';
         $orderNumber = $order->order_number;
 
         $statusLabel = match ($newStatus) {
-            'production_started' => 'Production Started',
-            'cutting_in_progress' => 'Cutting in Progress',
-            'production_completed' => 'Production Completed',
-            'ready_for_shipping' => 'Ready for Shipping',
-            'handed_over_to_courier' => 'Handed Over to Courier',
+            'printing', 'production_started', 'in_production' => 'Printing',
+            'cutting_and_finishing', 'cutting_in_progress' => 'Cutting & Finishing',
+            'quality_check_and_packaging', 'production_completed' => 'Quality Check & Packaging',
+            'ready_for_pickup' => 'Ready for Pickup',
+            'handed_over_to_courier', 'dispatched' => 'Handed Over to Courier',
             'delivered' => 'Delivered',
-            'in_production' => 'In Production',
-            'dispatched' => 'Dispatched',
+            'collected' => 'Collected',
+            'ready_for_shipping' => 'Ready for Pickup / Dispatch',
             default => ucwords(str_replace('_', ' ', $newStatus)),
         };
 

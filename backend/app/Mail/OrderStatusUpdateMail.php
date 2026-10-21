@@ -44,14 +44,26 @@ class OrderStatusUpdateMail extends Mailable
             $trackingLinkSection = "\nYou can track your live order status and production history anytime at:\n{$this->secureTrackingUrl}\n";
         }
 
+        $statusDetails = match ($this->order->status->value ?? (string) $this->order->status) {
+            'printing', 'production_started', 'in_production' => "Your order {$orderNumber} is currently running on our commercial printing presses.",
+            'cutting_and_finishing', 'cutting_in_progress' => "Your order {$orderNumber} is currently undergoing precision cutting, trimming, folding and finishing.",
+            'quality_check_and_packaging', 'production_completed' => "Your order {$orderNumber} has completed production and is currently in final quality inspection and protective packaging.",
+            'ready_for_pickup' => "Great news! Your order {$orderNumber} has been packed and is ready for collection at our store. Please present your order number upon collection.",
+            'handed_over_to_courier', 'dispatched' => "Your order {$orderNumber} has been dispatched and handed over to the courier for delivery.",
+            'delivered' => "Your order {$orderNumber} has been delivered to your provided address. Thank you for your business!",
+            'collected' => "Your order {$orderNumber} has been collected from our store. Thank you for choosing Erry Imprints!",
+            default => "The status of your order {$orderNumber} has been updated to: {$this->statusLabel}.",
+        };
+
         $body = "Dear {$customerName},\n\n"
-            . "We are pleased to inform you that the status of your order {$orderNumber} has been updated to:\n\n"
-            . ">>> {$this->statusLabel} <<<\n"
+            . "Order Update for {$orderNumber}:\n\n"
+            . "Status: {$this->statusLabel}\n\n"
+            . "{$statusDetails}\n"
             . $shippingSection
             . $trackingLinkSection . "\n"
-            . "Thank you for printing with Erry Imprints.\n\n"
+            . "Thank you for choosing Erry Imprints.\n\n"
             . "Warm regards,\n"
-            . "Erry Imprints Production & Dispatch Team\n"
+            . "Erry Imprints Team\n"
             . "Info@erryimprints.com.au";
 
         return $this->from($fromEmail, $fromName)

@@ -849,24 +849,22 @@ class ManualOrderService
             ]
         );
 
-        // Only send email notification on actual status change (do not resend if only carrier info edited)
-        if ($statusChanged) {
-            $link = $order->activeReviewLink;
-            if (!$link) {
-                $link = $this->generateReviewLink($order, $adminUser);
-            }
-
-            $baseUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:3000')), '/');
-            $secureTrackingUrl = "{$baseUrl}/orders/review/{$link->token}";
-            $carrierTrackingUrl = self::resolveCarrierTrackingUrl($order->shipping_carrier, $order->tracking_number);
-
-            $this->notificationService->sendOrderStatusUpdate(
-                $order,
-                $newStatus,
-                $secureTrackingUrl,
-                $carrierTrackingUrl
-            );
+        // Send customer notification on any update performed by admin
+        $link = $order->activeReviewLink;
+        if (!$link) {
+            $link = $this->generateReviewLink($order, $adminUser);
         }
+
+        $baseUrl = static::getLiveFrontendUrl();
+        $secureTrackingUrl = "{$baseUrl}/orders/review/{$link->token}";
+        $carrierTrackingUrl = self::resolveCarrierTrackingUrl($order->shipping_carrier, $order->tracking_number);
+
+        $this->notificationService->sendOrderStatusUpdate(
+            $order,
+            $newStatus,
+            $secureTrackingUrl,
+            $carrierTrackingUrl
+        );
 
         return $order->fresh(['activities', 'activeReviewLink', 'items']);
     }
