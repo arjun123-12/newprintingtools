@@ -140,22 +140,98 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  // Dimensions & Aspect Ratio Calculation
-  const widthMm = documentSettings.width || 85;
-  const heightMm = documentSettings.height || 55;
-  const aspectRatio = widthMm / heightMm;
+  // Read intrinsic dimensions of the artwork image to preserve exact orientation and aspect ratio
+  const [naturalDimensions, setNaturalDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [backNaturalDimensions, setBackNaturalDimensions] = useState<{ width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    if (!previewUrl) {
+      setNaturalDimensions(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        setNaturalDimensions({
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        });
+      }
+    };
+    img.src = previewUrl;
+    if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+      setNaturalDimensions({
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+      });
+    }
+  }, [previewUrl]);
+
+  useEffect(() => {
+    if (!backPreviewUrl) {
+      setBackNaturalDimensions(null);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        setBackNaturalDimensions({
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        });
+      }
+    };
+    img.src = backPreviewUrl;
+    if (img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+      setBackNaturalDimensions({
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+      });
+    }
+  }, [backPreviewUrl]);
+
+  // Dimensions & Aspect Ratio Calculation:
+  // Priority: intrinsic image width & height (front or back active), then documentSettings, then dimensions
+  const activeNatural = (activeSide === 'back' && backNaturalDimensions)
+    ? backNaturalDimensions
+    : (naturalDimensions || backNaturalDimensions);
+
+  const intrinsicRatio = activeNatural && activeNatural.width > 0 && activeNatural.height > 0
+    ? activeNatural.width / activeNatural.height
+    : null;
+
+  const widthMm = documentSettings?.width ? Number(documentSettings.width) : 0;
+  const heightMm = documentSettings?.height ? Number(documentSettings.height) : 0;
+  const settingsRatio = widthMm > 0 && heightMm > 0 ? widthMm / heightMm : null;
+  const dimensionsRatio = dimensions?.widthPx && dimensions?.heightPx
+    ? Number(dimensions.widthPx) / Number(dimensions.heightPx)
+    : null;
+
+  // Preserve true orientation: landscape (> 1.0) or portrait (< 1.0)
+  const aspectRatio = intrinsicRatio || settingsRatio || dimensionsRatio || 1.54;
 
   // Base display sizes for responsive 3D card
   const maxAvailableWidth = isCompact ? 240 : isMobile ? 310 : 640;
   const maxAvailableHeight = isCompact ? 180 : isMobile ? 210 : 410;
 
-  const baseCardWidth = isCompact
-    ? 240
-    : aspectRatio >= 1.0
-    ? Math.min(maxAvailableWidth, maxAvailableHeight * aspectRatio)
-    : Math.min(maxAvailableWidth, maxAvailableHeight) * aspectRatio;
+  let baseCardWidth: number;
+  let baseCardHeight: number;
 
-  const baseCardHeight = baseCardWidth / aspectRatio;
+  if (isCompact) {
+    if (aspectRatio >= 1.0) {
+      baseCardWidth = Math.min(240, 180 * aspectRatio);
+      baseCardHeight = baseCardWidth / aspectRatio;
+    } else {
+      baseCardHeight = Math.min(180, 240 / aspectRatio);
+      baseCardWidth = baseCardHeight * aspectRatio;
+    }
+  } else if (aspectRatio >= 1.0) {
+    baseCardWidth = Math.min(maxAvailableWidth, maxAvailableHeight * aspectRatio);
+    baseCardHeight = baseCardWidth / aspectRatio;
+  } else {
+    baseCardHeight = Math.min(maxAvailableHeight, maxAvailableWidth / aspectRatio);
+    baseCardWidth = baseCardHeight * aspectRatio;
+  }
 
   // Dynamic Specular Glare Gradient based on rotation angle
   const glareAngle = (rotY + 45) % 360;
@@ -208,7 +284,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
 
           {/* FRONT FACE (Printed Artwork) */}
           <div
-            className="absolute inset-0 bg-white rounded-xs overflow-hidden backface-hidden ring-1 ring-black/10"
+            className="absolute inset-0 bg-transparent rounded-none overflow-hidden backface-hidden ring-1 ring-black/10"
             style={{
               transform: 'translateZ(1.5px)',
               boxShadow:
@@ -219,7 +295,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
             <img
               src={previewUrl}
               alt="3D Front Artwork"
-              className="w-full h-full object-contain bg-white select-none pointer-events-none block"
+              className="w-full h-full object-fill select-none pointer-events-none block rounded-none"
             />
 
             {/* Dynamic Specular Light Glare */}
@@ -244,7 +320,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
 
           {/* BACK FACE (Printed Artwork or Clean Backing) */}
           <div
-            className="absolute inset-0 bg-[#fbfbfb] rounded-xs overflow-hidden backface-hidden ring-1 ring-black/10 flex flex-col items-center justify-center"
+            className="absolute inset-0 bg-[#fbfbfb] rounded-none overflow-hidden backface-hidden ring-1 ring-black/10 flex flex-col items-center justify-center"
             style={{
               transform: 'rotateY(180deg) translateZ(1.5px)',
               boxShadow:
@@ -256,7 +332,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
               <img
                 src={backPreviewUrl}
                 alt="3D Back Artwork"
-                className="w-full h-full object-contain bg-white select-none pointer-events-none block"
+                className="w-full h-full object-fill select-none pointer-events-none block rounded-none"
               />
             ) : (
               <div className="w-full h-full bg-[#fcfcfc]" />
@@ -274,7 +350,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
 
           {/* 3D Extruded Edge Layers (Paper Core Thickness) */}
           <div
-            className="absolute inset-0 bg-slate-300 pointer-events-none"
+            className="absolute inset-0 bg-slate-300 pointer-events-none rounded-none"
             style={{
               transform: 'translateZ(0px)',
               boxShadow: '0 0 0 1px #cbd5e1',

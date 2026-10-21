@@ -300,9 +300,9 @@ class CustomerOrderReviewController extends Controller
                             'canvas_json' => $itemArtwork?->canvas_json ?? $item->designer_canvas_state,
                             'document_settings' => $itemArtwork?->document_settings ?? [],
                             'dimensions' => [
-                                'width_px' => $itemArtwork?->width_px,
-                                'height_px' => $itemArtwork?->height_px,
-                                'dpi' => $itemArtwork?->dpi,
+                                'width_px' => $itemVersion?->width_px ?? $itemArtwork?->width_px,
+                                'height_px' => $itemVersion?->height_px ?? $itemArtwork?->height_px,
+                                'dpi' => $itemVersion?->dpi ?? $itemArtwork?->dpi,
                             ],
                         ],
                     ];
