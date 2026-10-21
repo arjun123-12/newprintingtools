@@ -57,12 +57,27 @@ class AuthController extends Controller
         }
 
         /*
-         * Delete the previous token with the same name.
-         * This prevents unused tokens accumulating.
+         * For customer accounts, enforce single-session policy by revoking previous tokens.
+         * For admin/staff accounts, allow concurrent multi-device logins:
+         * keep existing tokens so other active browser/device sessions stay valid.
          */
-        $user->tokens()
-            ->where('name', $tokenName)
-            ->delete();
+        if (!$user->canAccessAdminPanel()) {
+            $user->tokens()
+                ->where('name', $tokenName)
+                ->delete();
+        } else {
+            // Housekeeping: remove only explicitly expired tokens without affecting active sessions
+            $user->tokens()
+                ->where('name', $tokenName)
+                ->whereNotNull('expires_at')
+                ->where('expires_at', '<', now())
+                ->delete();
+        }
+
+        // Regenerate session ID on login if session is available (session fixation protection)
+        if ($request->hasSession()) {
+            $request->session()->regenerate();
+        }
 
         $token = $user->createToken(
             $tokenName,
@@ -228,13 +243,19 @@ class AuthController extends Controller
     }
 
     /**
-     * Delete the current Sanctum token.
+     * Delete the current Sanctum token and invalidate the current session.
+     * Only logs out the current device/browser without affecting other active sessions.
      */
     public function logout(Request $request): JsonResponse
     {
         $request->user()
             ?->currentAccessToken()
             ?->delete();
+
+        if ($request->hasSession()) {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
 
         return response()->json([
             'success' => true,

@@ -51,10 +51,25 @@ class ClientBriefAuthController extends Controller
             ], 403);
         }
 
-        // Remove old brief-login tokens for this user.
-        $user->tokens()
-            ->where('name', 'client-brief-admin')
-            ->delete();
+        /*
+         * Allow concurrent logins for admin accounts while preserving single-token
+         * policy for non-admin accounts.
+         */
+        if (!$user->canAccessAdminPanel() && $user->role !== 'client_brief_admin') {
+            $user->tokens()
+                ->where('name', 'client-brief-admin')
+                ->delete();
+        } else {
+            $user->tokens()
+                ->where('name', 'client-brief-admin')
+                ->whereNotNull('expires_at')
+                ->where('expires_at', '<', now())
+                ->delete();
+        }
+
+        if ($request->hasSession()) {
+            $request->session()->regenerate();
+        }
 
         $token = $user
             ->createToken('client-brief-admin')
@@ -96,6 +111,11 @@ class ClientBriefAuthController extends Controller
         $request->user()
             ->currentAccessToken()
             ?->delete();
+
+        if ($request->hasSession()) {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
 
         return response()->json([
             'success' => true,

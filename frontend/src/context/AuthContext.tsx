@@ -208,7 +208,8 @@ export function AuthProvider({
     setIsLoading(true);
 
     try {
-      if (token) {
+      const activeToken = token || getAuthToken();
+      if (activeToken) {
         await apiClient
           .post(API_ENDPOINTS.AUTH_LOGOUT)
           .catch(() => { });

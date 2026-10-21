@@ -174,10 +174,14 @@ const NAV_ITEMS: NavItem[] = [
 export default function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
-  function handleLogout() {
-    removeAuthToken();
+  async function handleLogout() {
+    try {
+      await logout();
+    } catch {
+      removeAuthToken();
+    }
     router.push('/admin/login');
   }
 
