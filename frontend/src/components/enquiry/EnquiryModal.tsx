@@ -44,6 +44,7 @@ export const EnquiryModal: React.FC = () => {
   const [successData, setSuccessData] = useState<{
     reference: string;
     message: string;
+    conversationUrl?: string;
   } | null>(null);
 
   const modalRef = useRef<HTMLDivElement>(null);
@@ -173,6 +174,7 @@ export const EnquiryModal: React.FC = () => {
         setSuccessData({
           reference: response.data.data.reference,
           message: response.data.message,
+          conversationUrl: response.data.data.conversation_url || (response.data.data.access_token ? `/enquiries/conversation/${response.data.data.access_token}` : undefined),
         });
       } else {
         throw new Error(response.data?.message || 'Could not submit enquiry.');
@@ -269,15 +271,26 @@ export const EnquiryModal: React.FC = () => {
                 )}
               </div>
 
-              <div className="pt-4 flex justify-center">
+              <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
+                {successData.conversationUrl && (
+                  <a
+                    href={successData.conversationUrl}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-sky-600/20 hover:shadow-lg transition cursor-pointer"
+                  >
+                    <span>Open Live Discussion & Upload Proofs</span>
+                  </a>
+                )}
                 <button
                   type="button"
                   onClick={handleReset}
-                  className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-sm transition"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
                 >
-                  Close & Return to Browsing
+                  Close & Return
                 </button>
               </div>
+              <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                We've also emailed you a secure link so you can return to this conversation at any time.
+              </p>
             </div>
           ) : (
             /* Main Form */

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Enquiries\StoreCustomerEnquiryRequest;
 use App\Http\Requests\Enquiries\UpdateCustomerEnquiryRequest;
 use App\Models\CustomerEnquiry;
+use App\Models\CustomerEnquiryMessage;
 use App\Services\Notification\OrderNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -72,11 +73,31 @@ class CustomerEnquiryController extends Controller
             'user_agent' => substr((string) $request->userAgent(), 0, 500),
         ]);
 
-        // Send enquiry notification to linked admin email (erryimprints@gmail.com) from Info@erryimprints.com.au
+        // Record initial customer project requirements as the first message in the chat
+        $initialText = !empty($enquiry->additional_requirements)
+            ? $enquiry->additional_requirements
+            : ("Customer requested a quote for " . ($enquiry->product_name ?: 'custom printing') . ($enquiry->quantity ? " (" . number_format($enquiry->quantity) . " units)" : "") . ".");
+
+        $enquiry->messages()->create([
+            'sender_type' => CustomerEnquiryMessage::SENDER_CUSTOMER,
+            'sender_name' => $enquiry->name,
+            'message' => $initialText,
+            'attachment_path' => $storedAttachment,
+            'attachment_original_name' => $attachmentOriginalName,
+            'attachment_mime_type' => $attachmentMime,
+            'attachment_size_bytes' => $attachmentSize,
+            'is_read_by_admin' => false,
+            'is_read_by_customer' => true,
+            'ip_address' => $request->ip(),
+        ]);
+
+        // Send enquiry notification to linked store staff and customer confirmation
         try {
             (new OrderNotificationService())->sendCustomerEnquiryNotification($enquiry);
         } catch (\Throwable $e) {
-            // Non-blocking log
+            \Illuminate\Support\Facades\Log::warning("Could not dispatch enquiry notifications for {$enquiry->reference}: {$e->getMessage()}", [
+                'error' => $e->getMessage(),
+            ]);
         }
 
         return response()->json([
@@ -89,6 +110,7 @@ class CustomerEnquiryController extends Controller
                 'email' => $enquiry->email,
                 'product_name' => $enquiry->product_name,
                 'status' => $enquiry->status,
+                'conversation_url' => $enquiry->conversation_url,
                 'created_at' => $enquiry->created_at->toISOString(),
             ],
         ], 201);
@@ -170,7 +192,7 @@ class CustomerEnquiryController extends Controller
             ], 403);
         }
 
-        $enquiry = CustomerEnquiry::find($id);
+        $enquiry = CustomerEnquiry::with('messages')->find($id);
 
         if (!$enquiry) {
             return response()->json([
@@ -178,6 +200,9 @@ class CustomerEnquiryController extends Controller
                 'message' => 'Enquiry not found.',
             ], 404);
         }
+
+        // Mark unread customer messages as read by admin
+        $enquiry->messages()->where('sender_type', CustomerEnquiryMessage::SENDER_CUSTOMER)->where('is_read_by_admin', false)->update(['is_read_by_admin' => true]);
 
         return response()->json([
             'success' => true,
@@ -244,11 +269,240 @@ class CustomerEnquiryController extends Controller
             Storage::disk('public')->delete($enquiry->attachment_path);
         }
 
+        // Also clean up any message attachments
+        foreach ($enquiry->messages as $msg) {
+            if ($msg->attachment_path) {
+                Storage::disk('public')->delete($msg->attachment_path);
+            }
+        }
+
         $enquiry->delete();
 
         return response()->json([
             'success' => true,
             'message' => 'Enquiry deleted successfully.',
         ]);
+    }
+
+    /**
+     * Admin: Fetch all messages for a specific enquiry and mark as read.
+     */
+    public function getAdminMessages(Request $request, int|string $id): JsonResponse
+    {
+        $enquiry = CustomerEnquiry::with('messages')->find($id);
+
+        if (!$enquiry) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Enquiry not found.',
+            ], 404);
+        }
+
+        // Mark unread customer messages as read by admin
+        $enquiry->messages()->where('sender_type', CustomerEnquiryMessage::SENDER_CUSTOMER)->where('is_read_by_admin', false)->update(['is_read_by_admin' => true]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $enquiry->messages()->get(),
+        ]);
+    }
+
+    /**
+     * Admin: Send a message reply to the customer.
+     */
+    public function sendAdminMessage(Request $request, int|string $id): JsonResponse
+    {
+        $enquiry = CustomerEnquiry::find($id);
+
+        if (!$enquiry) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Enquiry not found.',
+            ], 404);
+        }
+
+        $validated = $request->validate([
+            'message' => ['required_without:attachment', 'nullable', 'string', 'max:5000'],
+            'attachment' => ['nullable', 'file', 'max:26214', 'mimes:pdf,png,jpg,jpeg,webp,ai,eps,psd,tif,tiff'],
+        ], [
+            'message.required_without' => 'Please provide a message or attach a file.',
+            'attachment.max' => 'Attachment file size must not exceed 25MB.',
+            'attachment.mimes' => 'Attachment must be a valid document or artwork file (PDF, PNG, JPG, WebP, AI, EPS, PSD, TIFF).',
+        ]);
+
+        $storedAttachment = null;
+        $attachmentOriginalName = null;
+        $attachmentMime = null;
+        $attachmentSize = null;
+
+        if ($request->hasFile('attachment')) {
+            $file = $request->file('attachment');
+            $extension = strtolower($file->getClientOriginalExtension());
+            $filename = Str::uuid() . ($extension ? '.' . $extension : '');
+            $path = $file->storeAs('enquiries/' . $enquiry->reference . '/staff', $filename, 'public');
+
+            if ($path) {
+                $storedAttachment = $path;
+                $attachmentOriginalName = $file->getClientOriginalName();
+                $attachmentMime = $file->getMimeType();
+                $attachmentSize = $file->getSize();
+            }
+        }
+
+        $user = $request->user();
+        $senderName = $user?->name ?: 'Erry Imprints Prepress Team';
+
+        // 1. Save reply in database first
+        $message = $enquiry->messages()->create([
+            'sender_type' => CustomerEnquiryMessage::SENDER_ADMIN,
+            'sender_name' => $senderName,
+            'sender_id' => $user?->id,
+            'message' => trim($validated['message'] ?? ''),
+            'attachment_path' => $storedAttachment,
+            'attachment_original_name' => $attachmentOriginalName,
+            'attachment_mime_type' => $attachmentMime,
+            'attachment_size_bytes' => $attachmentSize,
+            'is_read_by_admin' => true,
+            'is_read_by_customer' => false,
+            'ip_address' => $request->ip(),
+        ]);
+
+        // Update enquiry timestamps and status
+        $enquiry->last_message_at = now();
+        if ($enquiry->status === CustomerEnquiry::STATUS_NEW) {
+            $enquiry->status = CustomerEnquiry::STATUS_CONTACTED;
+        }
+        $enquiry->save();
+
+        // 2. Send email notification to customer with secure conversation link
+        try {
+            (new OrderNotificationService())->sendAdminReplyToCustomer($enquiry, $message);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Could not send admin reply notification email to customer: {$e->getMessage()}");
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Reply sent successfully and customer notified via email.',
+            'data' => $message,
+            'enquiry_status' => $enquiry->status,
+        ], 201);
+    }
+
+    /**
+     * Public / Customer: View conversation by secure unguessable access_token.
+     */
+    public function showConversation(Request $request, string $token): JsonResponse
+    {
+        $enquiry = CustomerEnquiry::where('access_token', $token)->with('messages')->first();
+
+        if (!$enquiry) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Conversation not found or link has expired.',
+            ], 404);
+        }
+
+        // Mark admin messages as read by customer
+        $enquiry->messages()->where('sender_type', CustomerEnquiryMessage::SENDER_ADMIN)->where('is_read_by_customer', false)->update(['is_read_by_customer' => true]);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'reference' => $enquiry->reference,
+                'name' => $enquiry->name,
+                'email' => $enquiry->email,
+                'phone' => $enquiry->phone,
+                'product_name' => $enquiry->product_name,
+                'quantity' => $enquiry->quantity,
+                'specifications' => $enquiry->specifications,
+                'delivery_location' => $enquiry->delivery_location,
+                'additional_requirements' => $enquiry->additional_requirements,
+                'attachment_url' => $enquiry->attachment_url,
+                'attachment_original_name' => $enquiry->attachment_original_name,
+                'attachment_size_bytes' => $enquiry->attachment_size_bytes,
+                'status' => $enquiry->status,
+                'created_at' => $enquiry->created_at->toIso8601String(),
+                'formatted_date' => $enquiry->created_at->format('d M Y, h:i A'),
+                'messages' => $enquiry->messages()->get(),
+            ],
+        ]);
+    }
+
+    /**
+     * Public / Customer: Send reply from the secure conversation page.
+     */
+    public function sendCustomerMessage(Request $request, string $token): JsonResponse
+    {
+        $enquiry = CustomerEnquiry::where('access_token', $token)->first();
+
+        if (!$enquiry) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Conversation not found or link has expired.',
+            ], 404);
+        }
+
+        $validated = $request->validate([
+            'message' => ['required_without:attachment', 'nullable', 'string', 'max:5000'],
+            'attachment' => ['nullable', 'file', 'max:26214', 'mimes:pdf,png,jpg,jpeg,webp,ai,eps,psd,tif,tiff'],
+        ], [
+            'message.required_without' => 'Please provide a message or attach a file.',
+            'attachment.max' => 'Attachment file size must not exceed 25MB.',
+            'attachment.mimes' => 'Attachment must be a valid document or artwork file (PDF, PNG, JPG, WebP, AI, EPS, PSD, TIFF).',
+        ]);
+
+        $storedAttachment = null;
+        $attachmentOriginalName = null;
+        $attachmentMime = null;
+        $attachmentSize = null;
+
+        if ($request->hasFile('attachment')) {
+            $file = $request->file('attachment');
+            $extension = strtolower($file->getClientOriginalExtension());
+            $filename = Str::uuid() . ($extension ? '.' . $extension : '');
+            $path = $file->storeAs('enquiries/' . $enquiry->reference . '/customer', $filename, 'public');
+
+            if ($path) {
+                $storedAttachment = $path;
+                $attachmentOriginalName = $file->getClientOriginalName();
+                $attachmentMime = $file->getMimeType();
+                $attachmentSize = $file->getSize();
+            }
+        }
+
+        // 1. Save customer reply in database first
+        $message = $enquiry->messages()->create([
+            'sender_type' => CustomerEnquiryMessage::SENDER_CUSTOMER,
+            'sender_name' => $enquiry->name,
+            'message' => trim($validated['message'] ?? ''),
+            'attachment_path' => $storedAttachment,
+            'attachment_original_name' => $attachmentOriginalName,
+            'attachment_mime_type' => $attachmentMime,
+            'attachment_size_bytes' => $attachmentSize,
+            'is_read_by_admin' => false,
+            'is_read_by_customer' => true,
+            'ip_address' => $request->ip(),
+        ]);
+
+        // Update enquiry timestamps
+        $enquiry->last_message_at = now();
+        if ($enquiry->status === CustomerEnquiry::STATUS_CLOSED) {
+            $enquiry->status = CustomerEnquiry::STATUS_CONTACTED;
+        }
+        $enquiry->save();
+
+        // 2. Email the configured business inbox that customer replied
+        try {
+            (new OrderNotificationService())->sendCustomerReplyToAdmin($enquiry, $message);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Could not send customer reply email notification to staff: {$e->getMessage()}");
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Your reply has been sent to our prepress team.',
+            'data' => $message,
+        ], 201);
     }
 }

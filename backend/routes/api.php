@@ -280,6 +280,19 @@ Route::post('/enquiries', [
     'store',
 ])->middleware('throttle:30,1');
 
+// Secure customer conversation thread (token-based unguessable access)
+Route::prefix('enquiries/conversation/{token}')->group(function () {
+    Route::get('/', [
+        App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+        'showConversation',
+    ])->middleware('throttle:60,1');
+
+    Route::post('/reply', [
+        App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+        'sendCustomerMessage',
+    ])->middleware('throttle:20,1');
+});
+
 // ==========================================
 // GUEST CART
 // ==========================================
@@ -763,6 +776,14 @@ Route::middleware(['auth:sanctum', 'admin.access'])
             Route::delete('/enquiries/{id}', [
                 App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
                 'destroy',
+            ]);
+            Route::get('/enquiries/{id}/messages', [
+                App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+                'getAdminMessages',
+            ]);
+            Route::post('/enquiries/{id}/messages', [
+                App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+                'sendAdminMessage',
             ]);
         });
 

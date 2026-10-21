@@ -26,6 +26,7 @@ class CustomerEnquiry extends Model
 
     protected $fillable = [
         'reference',
+        'access_token',
         'name',
         'email',
         'phone',
@@ -41,6 +42,7 @@ class CustomerEnquiry extends Model
         'attachment_mime_type',
         'attachment_size_bytes',
         'status',
+        'last_message_at',
         'admin_notes',
         'ip_address',
         'user_agent',
@@ -50,13 +52,32 @@ class CustomerEnquiry extends Model
         'specifications' => 'array',
         'quantity' => 'integer',
         'attachment_size_bytes' => 'integer',
+        'last_message_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
 
     protected $appends = [
         'attachment_url',
+        'conversation_url',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (CustomerEnquiry $enquiry) {
+            if (empty($enquiry->access_token)) {
+                $enquiry->access_token = static::generateAccessToken();
+            }
+        });
+    }
+
+    /**
+     * Relationship: Chronological chat messages for this enquiry.
+     */
+    public function messages(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(CustomerEnquiryMessage::class, 'customer_enquiry_id')->orderBy('created_at', 'asc');
+    }
 
     /**
      * Get the public URL for the uploaded attachment if present.
@@ -67,7 +88,25 @@ class CustomerEnquiry extends Model
             return null;
         }
 
-        return Storage::disk('public')->url($this->attachment_path);
+        if (app()->environment('local') || env('APP_ENV') === 'local') {
+            return Storage::disk('public')->url($this->attachment_path);
+        }
+
+        return \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($this->attachment_path);
+    }
+
+    /**
+     * Get the authoritative frontend conversation link for this enquiry.
+     */
+    public function getConversationUrlAttribute(): string
+    {
+        if (app()->environment('local') || env('APP_ENV') === 'local') {
+            $frontend = env('FRONTEND_STORE_URL', 'http://localhost:3000');
+            return rtrim($frontend, '/') . '/enquiries/conversation/' . $this->access_token;
+        }
+
+        $frontend = \App\Services\Order\ManualOrderService::getLiveFrontendUrl();
+        return rtrim($frontend, '/') . '/enquiries/conversation/' . $this->access_token;
     }
 
     /**
@@ -78,5 +117,13 @@ class CustomerEnquiry extends Model
         $prefix = 'ENQ-' . date('Y');
         $random = strtoupper(bin2hex(random_bytes(3))); // 6 hex chars
         return "{$prefix}-{$random}";
+    }
+
+    /**
+     * Generate a 64-character unguessable secure token for customer access.
+     */
+    public static function generateAccessToken(): string
+    {
+        return bin2hex(random_bytes(32));
     }
 }

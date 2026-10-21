@@ -68,29 +68,114 @@ class OrderNotificationService
     }
 
     /**
-     * Send customer enquiry notification to linked email.
+     * Send customer enquiry notification to linked store staff and customer confirmation.
      */
     public function sendCustomerEnquiryNotification(CustomerEnquiry $enquiry): void
     {
-        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
-        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
-        $linkedAdminEmail = env('ADMIN_NOTIFICATION_EMAIL', self::LINKED_ADMIN_EMAIL);
+        // 1. Resolve Admin / Prepress notification recipients
+        $rawAdminEmails = env('ADMIN_NOTIFICATION_EMAIL');
+        $adminEmails = [];
+        if (!empty($rawAdminEmails)) {
+            foreach (explode(',', $rawAdminEmails) as $emailItem) {
+                $clean = trim($emailItem);
+                if (filter_var($clean, FILTER_VALIDATE_EMAIL)) {
+                    $adminEmails[] = strtolower($clean);
+                }
+            }
+        }
+        // Always include linked admin email and configured mail username as fallback
+        $linked = self::LINKED_ADMIN_EMAIL;
+        if (filter_var($linked, FILTER_VALIDATE_EMAIL)) {
+            $adminEmails[] = strtolower($linked);
+        }
+        $mailUsername = env('MAIL_USERNAME');
+        if (!empty($mailUsername) && filter_var($mailUsername, FILTER_VALIDATE_EMAIL)) {
+            $adminEmails[] = strtolower($mailUsername);
+        }
+        $adminEmails = array_values(array_unique($adminEmails));
 
-        Log::info("Customer enquiry {$enquiry->reference} notification routed from {$fromEmail} to {$linkedAdminEmail}");
+        Log::info("Customer enquiry {$enquiry->reference} notification dispatching to staff: " . implode(', ', $adminEmails) . " and customer: {$enquiry->email}");
+
+        // 2. Dispatch Staff Notification Email
+        foreach ($adminEmails as $recipient) {
+            try {
+                Mail::to($recipient)->send(new \App\Mail\CustomerEnquiryStaffMail($enquiry));
+                Log::info("Enquiry staff notification email sent to {$recipient} for [{$enquiry->reference}]");
+            } catch (Throwable $e) {
+                Log::warning("Could not send enquiry staff email to {$recipient}: {$e->getMessage()}");
+            }
+        }
+
+        // 3. Dispatch Customer Confirmation Email (if valid customer email provided)
+        if (!empty($enquiry->email) && filter_var($enquiry->email, FILTER_VALIDATE_EMAIL)) {
+            try {
+                Mail::to($enquiry->email)->send(new \App\Mail\CustomerEnquiryCustomerMail($enquiry));
+                Log::info("Enquiry customer confirmation email sent to {$enquiry->email} for [{$enquiry->reference}]");
+            } catch (Throwable $e) {
+                Log::warning("Could not send enquiry confirmation email to customer {$enquiry->email}: {$e->getMessage()}");
+            }
+        }
+    }
+
+    /**
+     * Send email notification to customer when an admin/staff replies to their enquiry.
+     */
+    public function sendAdminReplyToCustomer(CustomerEnquiry $enquiry, \App\Models\CustomerEnquiryMessage $message): bool
+    {
+        if (empty($enquiry->email) || !filter_var($enquiry->email, FILTER_VALIDATE_EMAIL)) {
+            Log::warning("Cannot send admin reply notification: enquiry {$enquiry->reference} has invalid email");
+            return false;
+        }
 
         try {
-            Mail::raw(
-                "New Customer Quote / Enquiry Received!\n\nReference: {$enquiry->reference}\nName: {$enquiry->name}\nEmail: {$enquiry->email}\nPhone: {$enquiry->phone}\nProduct: {$enquiry->product_name}\nQuantity: {$enquiry->quantity}\nLocation: {$enquiry->delivery_location}\n\nRequirements:\n{$enquiry->additional_requirements}\n\nPlease follow up with the customer via Erry Imprints Admin Portal.",
-                function ($message) use ($linkedAdminEmail, $enquiry, $fromEmail, $fromName) {
-                    $message->to($linkedAdminEmail)
-                        ->from($fromEmail, $fromName)
-                        ->replyTo($enquiry->email, $enquiry->name)
-                        ->subject("📩 New Customer Enquiry: {$enquiry->reference} - {$enquiry->name} | Erry Imprints");
-                }
-            );
+            Mail::to($enquiry->email)->send(new \App\Mail\CustomerEnquiryAdminReplyMail($enquiry, $message));
+            Log::info("Admin reply email sent to customer {$enquiry->email} for [{$enquiry->reference}]");
+            return true;
         } catch (Throwable $e) {
-            Log::warning("Could not send enquiry email to {$linkedAdminEmail}: {$e->getMessage()}");
+            Log::warning("Failed sending admin reply email to customer {$enquiry->email} for [{$enquiry->reference}]: {$e->getMessage()}");
+            return false;
         }
+    }
+
+    /**
+     * Send email notification to store staff when a customer replies via their conversation link.
+     */
+    public function sendCustomerReplyToAdmin(CustomerEnquiry $enquiry, \App\Models\CustomerEnquiryMessage $message): bool
+    {
+        $rawAdminEmails = env('ADMIN_NOTIFICATION_EMAIL');
+        $adminEmails = [];
+        if (!empty($rawAdminEmails)) {
+            foreach (explode(',', $rawAdminEmails) as $emailItem) {
+                $clean = trim($emailItem);
+                if (filter_var($clean, FILTER_VALIDATE_EMAIL)) {
+                    $adminEmails[] = strtolower($clean);
+                }
+            }
+        }
+        $linked = self::LINKED_ADMIN_EMAIL;
+        if (filter_var($linked, FILTER_VALIDATE_EMAIL)) {
+            $adminEmails[] = strtolower($linked);
+        }
+        $mailUsername = env('MAIL_USERNAME');
+        if (!empty($mailUsername) && filter_var($mailUsername, FILTER_VALIDATE_EMAIL)) {
+            $adminEmails[] = strtolower($mailUsername);
+        }
+        $adminEmails = array_values(array_unique($adminEmails));
+
+        Log::info("Customer reply on {$enquiry->reference} routing to staff: " . implode(', ', $adminEmails));
+
+        $sentCount = 0;
+        foreach ($adminEmails as $recipient) {
+            try {
+                Mail::to($recipient)->send(new \App\Mail\CustomerEnquiryCustomerReplyMail($enquiry, $message));
+                Log::info("Customer reply notification sent to staff {$recipient} for [{$enquiry->reference}]");
+                $sentCount++;
+            } catch (Throwable $e) {
+                Log::warning("Could not send customer reply notification to staff {$recipient}: {$e->getMessage()}");
+            }
+        }
+
+        return $sentCount > 0;
     }
 
     /**
