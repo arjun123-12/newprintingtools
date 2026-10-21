@@ -852,7 +852,7 @@ export default function CreateManualOrderPage() {
         {/* 3-Step Wizard Progress */}
         <div className="flex items-center gap-4 text-xs">
           <div className="flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-pink-600 text-white flex items-center justify-center font-bold text-[11px]">
+            <span className="w-5 h-5 rounded-full bg-black text-white border border-slate-700 flex items-center justify-center font-bold text-[11px]">
               1
             </span>
             <span className="text-white font-medium">Order details</span>
