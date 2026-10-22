@@ -23,6 +23,17 @@ import {
   AlertTriangle,
   Truck,
   Eye,
+  FileCheck,
+  Image as ImageIcon,
+  ThumbsUp,
+  Printer,
+  Scissors,
+  PackageCheck,
+  Store,
+  MapPin,
+  ShoppingBag,
+  ExternalLink,
+  ChevronRight,
 } from 'lucide-react';
 import { orderReviewService, CustomerReviewData } from '@/services/orderReviewService';
 import { Artwork3DViewer } from '@/components/designer/controls/Artwork3DViewer';
@@ -65,6 +76,167 @@ declare global {
         };
       };
     };
+  }
+}
+
+interface TrackOrderStep {
+  key: string;
+  label: string;
+  pickupLabel?: string;
+  description: string;
+  pickupDescription?: string;
+  icon: React.ComponentType<{ className?: string }>;
+  pickupIcon?: React.ComponentType<{ className?: string }>;
+}
+
+const TRACK_ORDER_STEPS: TrackOrderStep[] = [
+  {
+    key: 'order_received',
+    label: 'Order Received',
+    description: 'Payment confirmed and order is being prepared.',
+    icon: FileCheck,
+  },
+  {
+    key: 'artwork_review',
+    label: 'Artwork Review',
+    description: 'Artwork checked for print readiness.',
+    icon: ImageIcon,
+  },
+  {
+    key: 'artwork_approved',
+    label: 'Artwork Approved',
+    description: 'Final artwork approved and sent to production.',
+    icon: ThumbsUp,
+  },
+  {
+    key: 'printing',
+    label: 'Printing',
+    description: 'Commercial printing in progress on selected material.',
+    icon: Printer,
+  },
+  {
+    key: 'cutting_and_finishing',
+    label: 'Cutting & Finishing',
+    description: 'Precision trimming, guillotine cutting, folding & finishing.',
+    icon: Scissors,
+  },
+  {
+    key: 'quality_check_and_packaging',
+    label: 'Quality Check & Packaging',
+    description: 'Quality inspected and securely packaged for dispatch or pickup.',
+    icon: PackageCheck,
+  },
+  {
+    key: 'ready_for_dispatch',
+    label: 'Ready for Dispatch',
+    pickupLabel: 'Ready for Store Pickup',
+    description: 'Order is ready and awaiting courier pickup.',
+    pickupDescription: 'Order is packed and ready for collection at our store.',
+    icon: Truck,
+    pickupIcon: Store,
+  },
+  {
+    key: 'delivered',
+    label: 'Delivered',
+    pickupLabel: 'Order Collected',
+    description: 'Delivered to your provided address.',
+    pickupDescription: 'Order collected by customer from store.',
+    icon: MapPin,
+    pickupIcon: ShoppingBag,
+  },
+];
+
+function getTrackOrderStepIndex(status: string): number {
+  switch (status) {
+    case 'draft':
+    case 'pending_payment':
+      return 0; // Step 1: Order Received
+    case 'artwork_required':
+    case 'artwork_review':
+    case 'changes_requested':
+      return 1; // Step 2: Artwork Review
+    case 'approved':
+      return 2; // Step 3: Artwork Approved
+    case 'printing':
+    case 'in_production':
+    case 'production_started':
+      return 3; // Step 4: Printing
+    case 'cutting_and_finishing':
+    case 'cutting_in_progress':
+      return 4; // Step 5: Cutting & Finishing
+    case 'quality_check_and_packaging':
+    case 'production_completed':
+    case 'packing':
+      return 5; // Step 6: Quality Check & Packaging
+    case 'ready_for_pickup':
+    case 'ready_for_shipping':
+    case 'ready_for_dispatch':
+    case 'dispatched':
+    case 'handed_over_to_courier':
+      return 6; // Step 7: Ready for Dispatch / Store Pickup
+    case 'delivered':
+    case 'collected':
+      return 7; // Step 8: Delivered / Collected
+    default:
+      return 3;
+  }
+}
+
+function getTrackOrderStepTitle(stepIndex: number, isPickup: boolean, status?: string): string {
+  switch (stepIndex) {
+    case 0:
+      return 'Order Received';
+    case 1:
+      return 'Artwork Review';
+    case 2:
+      return 'Artwork Approved';
+    case 3:
+      return 'Printing';
+    case 4:
+      return 'Cutting & Finishing';
+    case 5:
+      return 'Quality Check & Packaging';
+    case 6:
+      if (isPickup) {
+        return 'Ready for Store Pickup';
+      }
+      return status === 'handed_over_to_courier' || status === 'dispatched'
+        ? 'Dispatched / In Transit'
+        : 'Ready for Dispatch';
+    case 7:
+      return isPickup ? 'Order Collected' : 'Order Delivered';
+    default:
+      return 'Printing';
+  }
+}
+
+function getTrackOrderSubtitle(stepIndex: number, orderNumber: string, isPickup: boolean, status?: string): string {
+  switch (stepIndex) {
+    case 0:
+      return `Your order ${orderNumber} has been received and payment is confirmed.`;
+    case 1:
+      return `Your order ${orderNumber} artwork is currently checked for print readiness.`;
+    case 2:
+      return `Your order ${orderNumber} artwork has been approved and sent to production.`;
+    case 3:
+      return `Your order ${orderNumber} is currently printing on our commercial digital & offset presses.`;
+    case 4:
+      return `Your order ${orderNumber} is undergoing precision cutting, trimming, folding and finishing.`;
+    case 5:
+      return `Your order ${orderNumber} has completed production and is in quality inspection and packaging.`;
+    case 6:
+      if (isPickup) {
+        return `Your order ${orderNumber} is packed and ready for collection at our store.`;
+      }
+      return status === 'handed_over_to_courier' || status === 'dispatched'
+        ? `Your order ${orderNumber} has been dispatched and is in transit with the courier.`
+        : `Your order ${orderNumber} is packed and awaiting courier pickup for delivery.`;
+    case 7:
+      return isPickup
+        ? `Your order ${orderNumber} has been collected. Thank you for your business!`
+        : `Your order ${orderNumber} has been delivered to your provided address.`;
+    default:
+      return `Your order ${orderNumber} is currently in production. Our team is printing and finishing your order.`;
   }
 }
 
@@ -122,6 +294,7 @@ export default function OrderReviewPage({ params }: PageProps) {
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentReceipt, setPaymentReceipt] = useState<string | null>(null);
+  const [showStatusHistoryLog, setShowStatusHistoryLog] = useState(false);
   const bpointControllerRef = useRef<any>(null);
 
   // 1. Fetch Authoritative Order Data
@@ -135,8 +308,26 @@ export default function OrderReviewPage({ params }: PageProps) {
         setSelectedProofItemId(res.data.items?.[0]?.id || '');
 
         // Derive initial step based on order status
-        if (res.data.status === 'in_production' || res.data.payment_status === 'paid') {
-          if (res.data.status === 'in_production') {
+        const isPostReviewStatus = [
+          'in_production',
+          'printing',
+          'production_started',
+          'cutting_and_finishing',
+          'cutting_in_progress',
+          'quality_check_and_packaging',
+          'production_completed',
+          'packing',
+          'ready_for_pickup',
+          'ready_for_shipping',
+          'ready_for_dispatch',
+          'dispatched',
+          'handed_over_to_courier',
+          'delivered',
+          'collected',
+        ].includes(res.data.status);
+
+        if (isPostReviewStatus || res.data.payment_status === 'paid') {
+          if (isPostReviewStatus || res.data.status === 'in_production') {
             setCurrentStep('production');
           } else {
             setCurrentStep('payment');
@@ -982,14 +1173,14 @@ export default function OrderReviewPage({ params }: PageProps) {
                 ? 'Your artwork is ready to review'
                 : currentStep === 'payment'
                   ? 'Proof approved — Complete payment'
-                  : 'Order confirmed & in production'}
+                  : 'Track Your Order Progress'}
             </h1>
             <p className="text-sm font-medium text-slate-500 mt-1">
               Order {orderData.order_number} • {primaryItem?.product_name || 'Print Products'} • {orderData.proof.version_label}
             </p>
           </div>
 
-          {/* Stepper matching screenshot: 1 Review artwork -> 2 Payment -> 3 Production */}
+          {/* Stepper matching screenshot: 1 Review artwork -> 2 Payment -> 3 Track order */}
           <div className="flex items-center gap-2 sm:gap-3 text-xs font-medium text-slate-400 self-start md:self-auto bg-white px-4 py-2 rounded-2xl border border-slate-200 shadow-xs">
             {/* Step 1 */}
             <button
@@ -1053,7 +1244,7 @@ export default function OrderReviewPage({ params }: PageProps) {
                 className={`font-semibold ${currentStep === 'production' ? 'text-slate-900' : 'text-slate-400'
                   }`}
               >
-                Production
+                Track Order
               </span>
             </div>
           </div>
@@ -1410,52 +1601,281 @@ export default function OrderReviewPage({ params }: PageProps) {
                 </>
               )}
 
-              {/* STEP 3: PRODUCTION CONTENT */}
+              {/* STEP 3: PRODUCTION & SHIPPING WORKFLOW TRACKING */}
               {currentStep === 'production' && (
-                <div className="bg-white rounded-3xl border border-slate-200/90 p-8 shadow-sm text-center space-y-6">
-                  <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto flex items-center justify-center">
-                    <CheckCircle2 className="w-9 h-9" />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-black text-slate-900">
-                      Order In Production!
-                    </h2>
-                    <p className="text-slate-600 text-sm mt-1 max-w-md mx-auto">
-                      Your proof has been approved and payment has been verified. Your job has been scheduled for printing.
-                    </p>
+                <div className="space-y-6">
+                  {/* Status Banner Card matching user's image */}
+                  <div className="bg-white rounded-3xl border border-slate-200/90 p-6 sm:p-8 shadow-sm">
+                    {/* Top Row: Icon + Title + Step badge + Subtitle */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-6">
+                      <div className="flex items-start sm:items-center gap-4">
+                        <div className="w-14 h-14 rounded-2xl bg-rose-50 border border-rose-100/90 flex items-center justify-center text-[#E11D48] shrink-0 shadow-xs">
+                          {(() => {
+                            const stepIdx = getTrackOrderStepIndex(orderData.status);
+                            const isStorePickup = Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup'));
+                            if (stepIdx === 0) return <FileCheck className="w-7 h-7" />;
+                            if (stepIdx === 1) return <ImageIcon className="w-7 h-7" />;
+                            if (stepIdx === 2) return <ThumbsUp className="w-7 h-7" />;
+                            if (stepIdx === 3) return <Printer className="w-7 h-7" />;
+                            if (stepIdx === 4) return <Scissors className="w-7 h-7" />;
+                            if (stepIdx === 5) return <PackageCheck className="w-7 h-7" />;
+                            if (stepIdx === 6) return isStorePickup ? <Store className="w-7 h-7" /> : <Truck className="w-7 h-7" />;
+                            return isStorePickup ? <ShoppingBag className="w-7 h-7" /> : <MapPin className="w-7 h-7" />;
+                          })()}
+                        </div>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2.5">
+                            <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                              {getTrackOrderStepTitle(
+                                getTrackOrderStepIndex(orderData.status),
+                                Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup')),
+                                orderData.status
+                              )}
+                            </h2>
+                            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase tracking-wide bg-rose-50 text-rose-600 border border-rose-200/70">
+                              STEP {getTrackOrderStepIndex(orderData.status) + 1} OF {TRACK_ORDER_STEPS.length}
+                            </span>
+                          </div>
+                          <p className="text-slate-500 text-xs sm:text-sm mt-1">
+                            {getTrackOrderSubtitle(
+                              getTrackOrderStepIndex(orderData.status),
+                              orderData.order_number,
+                              Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup')),
+                              orderData.status
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      {paymentReceipt && (
+                        <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs text-slate-600 self-start sm:self-auto font-mono">
+                          Receipt: <strong className="text-slate-900">{paymentReceipt}</strong>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Stepper Section */}
+                    <div className="pt-6">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
+                        ORDER PROGRESS
+                      </h4>
+
+                      {/* 8-Step Horizontal Stepper with Arrow Separators */}
+                      <div className="overflow-x-auto pb-3 -mx-2 px-2 scrollbar-thin">
+                        <div className="flex items-stretch gap-2 min-w-[1050px] xl:min-w-0 xl:gap-1.5 w-full">
+                          {TRACK_ORDER_STEPS.map((step, idx) => {
+                            const currentIdx = getTrackOrderStepIndex(orderData.status);
+                            const isStorePickup = Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup'));
+                            const isDeliveredOrCollected = orderData.status === 'delivered' || orderData.status === 'collected';
+                            const isComplete = idx < currentIdx || (idx === TRACK_ORDER_STEPS.length - 1 && isDeliveredOrCollected);
+                            const isCurrent = idx === currentIdx && !isDeliveredOrCollected;
+                            const StepIcon = isStorePickup && step.pickupIcon ? step.pickupIcon : step.icon;
+                            const title = isStorePickup && step.pickupLabel ? step.pickupLabel : step.label;
+                            const description = isStorePickup && step.pickupDescription ? step.pickupDescription : step.description;
+
+                            return (
+                              <React.Fragment key={step.key}>
+                                <div
+                                  className={`flex-1 min-w-[125px] relative p-3 sm:p-3.5 rounded-2xl border transition-all flex flex-col justify-between text-center ${
+                                    isCurrent
+                                      ? 'bg-rose-50/20 border-rose-300 ring-2 ring-[#E11D48]/15 shadow-sm'
+                                      : isComplete
+                                      ? 'bg-emerald-50/30 border-emerald-200/90 shadow-2xs'
+                                      : 'bg-white border-slate-200/80 shadow-2xs opacity-90'
+                                  }`}
+                                >
+                                  {/* Top Left Step Number Circle */}
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span
+                                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                                        isComplete
+                                          ? 'bg-emerald-600 text-white'
+                                          : isCurrent
+                                          ? 'bg-[#E11D48] text-white shadow-xs'
+                                          : 'bg-slate-200 text-slate-600'
+                                      }`}
+                                    >
+                                      {idx + 1}
+                                    </span>
+                                  </div>
+
+                                  {/* Center Circular Icon */}
+                                  <div className="my-1 flex justify-center">
+                                    <div
+                                      className={`w-11 h-11 rounded-full flex items-center justify-center transition-transform ${
+                                        isComplete
+                                          ? 'bg-emerald-100/70 text-emerald-600 border border-emerald-200/60'
+                                          : isCurrent
+                                          ? 'bg-rose-100/70 text-[#E11D48] border border-rose-200/60'
+                                          : 'bg-slate-100 text-slate-500 border border-slate-200/60'
+                                      }`}
+                                    >
+                                      <StepIcon className="w-5 h-5" />
+                                    </div>
+                                  </div>
+
+                                  {/* Step Title & Description */}
+                                  <div className="my-1.5 flex-1 flex flex-col justify-center">
+                                    <h5 className="text-xs font-bold text-slate-900 leading-tight mb-1">
+                                      {title}
+                                    </h5>
+                                    <p className="text-[11px] text-slate-500 leading-snug line-clamp-3">
+                                      {description}
+                                    </p>
+                                  </div>
+
+                                  {/* Bottom Status Indicator */}
+                                  <div className="mt-2 pt-1 flex justify-center items-center min-h-[24px]">
+                                    {isComplete ? (
+                                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100/70 px-2.5 py-0.5 rounded-full border border-emerald-200/80 shadow-2xs">
+                                        <Check className="w-3 h-3 stroke-[2.5]" />
+                                        <span>Completed</span>
+                                      </span>
+                                    ) : isCurrent ? (
+                                      <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#E11D48]">
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        <span>Current Step</span>
+                                      </span>
+                                    ) : (
+                                      <div className="h-5" />
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Arrow separator between cards */}
+                                {idx < TRACK_ORDER_STEPS.length - 1 && (
+                                  <div className="flex items-center justify-center shrink-0 text-slate-300 self-center">
+                                    <ChevronRight className="w-4 h-4" />
+                                  </div>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Order Status History Collapsible Section */}
+                      <div className="pt-6 mt-8 border-t border-slate-100">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 font-bold text-slate-800 text-sm">
+                            <Clock className="w-4 h-4 text-slate-500" />
+                            <span>Order Status History</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowStatusHistoryLog((prev) => !prev)}
+                            className="text-xs font-bold text-sky-600 hover:text-sky-700 flex items-center gap-1 transition cursor-pointer"
+                          >
+                            <span>{showStatusHistoryLog ? 'Hide Log' : 'View Full Log'}</span>
+                            <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showStatusHistoryLog ? 'rotate-90' : ''}`} />
+                          </button>
+                        </div>
+
+                        {/* Status History Events List */}
+                        {showStatusHistoryLog && (
+                          <div className="mt-4 bg-slate-50 border border-slate-200/80 rounded-2xl p-4 sm:p-5 space-y-3">
+                            {orderData.status_history && orderData.status_history.length > 0 ? (
+                              <div className="space-y-3">
+                                {orderData.status_history.map((hist, i) => (
+                                  <div
+                                    key={hist.id || i}
+                                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4 pb-3 border-b border-slate-200/60 last:border-b-0 last:pb-0 text-xs"
+                                  >
+                                    <div className="flex items-start gap-2.5">
+                                      <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
+                                      <div>
+                                        <p className="font-semibold text-slate-900">{hist.description || hist.event_type}</p>
+                                        {hist.status_label && (
+                                          <span className="inline-block mt-0.5 text-[10px] px-2 py-0.2 rounded-full bg-slate-200 text-slate-700 font-medium">
+                                            {hist.status_label}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="text-[11px] text-slate-400 sm:text-right shrink-0 font-mono">
+                                      {hist.formatted_date || hist.time_ago || hist.created_at}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-center py-4 text-xs text-slate-500">
+                                Prepress verification and order creation logged.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  {paymentReceipt && (
-                    <div className="inline-block bg-slate-50 border border-slate-200 rounded-2xl px-6 py-3 text-xs text-slate-600">
-                      BPOINT Payment Receipt: <strong className="text-slate-900">{paymentReceipt}</strong>
+                  {/* Courier & Tracking Details Card */}
+                  {(orderData.shipping_carrier ||
+                    orderData.tracking_number ||
+                    ['handed_over_to_courier', 'dispatched', 'delivered'].includes(orderData.status)) && (
+                    <div className="bg-gradient-to-br from-indigo-900 via-slate-900 to-slate-950 text-white rounded-3xl p-6 sm:p-7 shadow-md">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="space-y-2">
+                          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-semibold">
+                            <Truck className="w-3.5 h-3.5" />
+                            <span>Shipped with {orderData.shipping_carrier || 'Courier Partner'}</span>
+                          </div>
+
+                          <div className="flex flex-wrap items-baseline gap-2 pt-1">
+                            <span className="text-xs text-slate-400 font-medium">Tracking Number:</span>
+                            <span className="font-mono text-lg font-bold text-white tracking-wide">
+                              {orderData.tracking_number || 'Awaiting dispatch confirmation'}
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-slate-300">
+                            Delivering to: {orderData.delivery_summary.full_address || 'Shipping address provided'}
+                          </p>
+                        </div>
+
+                        {orderData.carrier_tracking_url ? (
+                          <a
+                            href={orderData.carrier_tracking_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white hover:bg-slate-100 text-slate-950 font-bold text-xs shadow-md transition shrink-0"
+                          >
+                            <span>Track Package</span>
+                            <ExternalLink className="w-4 h-4 text-slate-700" />
+                          </a>
+                        ) : orderData.tracking_number ? (
+                          <div className="text-xs text-slate-400 sm:text-right">
+                            <span>Direct carrier tracking link unavailable</span>
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   )}
 
-                  <div className="max-w-md mx-auto bg-slate-50 rounded-2xl p-6 text-left space-y-4">
-                    <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider">
-                      Production Timeline
-                    </h4>
-                    <div className="space-y-3 text-xs">
-                      <div className="flex items-center gap-3 text-emerald-700">
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span className="font-semibold">Proof V{orderData.proof.current_version} Approved</span>
+                  {/* Store Pickup Notice Card (if method is pickup and ready) */}
+                  {Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup')) &&
+                    ['ready_for_pickup', 'collected'].includes(orderData.status) && (
+                      <div className="bg-gradient-to-br from-emerald-900 via-slate-900 to-slate-950 text-white rounded-3xl p-6 sm:p-7 shadow-md">
+                        <div className="flex items-start gap-4">
+                          <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400 shrink-0">
+                            <Store className="w-6 h-6" />
+                          </div>
+                          <div className="space-y-1">
+                            <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold">
+                              {orderData.status === 'collected' ? 'Order Collected' : 'Ready for Customer Pickup'}
+                            </span>
+                            <h4 className="text-base font-bold text-white">
+                              {orderData.status === 'collected'
+                                ? 'Thank you! Your order has been collected.'
+                                : 'Your print package is ready for pickup!'}
+                            </h4>
+                            <p className="text-xs text-slate-300">
+                              Please present your order number <strong className="text-white font-mono">{orderData.order_number}</strong> at our collection counter.
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 text-emerald-700">
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span className="font-semibold">Payment Confirmed (${orderData.totals.total_inc_gst.toFixed(2)} AUD)</span>
-                      </div>
-                      <div className="flex items-center gap-3 text-[#E11D48] font-bold">
-                        <span className="w-4 h-4 rounded-full border-2 border-[#E11D48] flex items-center justify-center">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#E11D48]"></span>
-                        </span>
-                        <span>Printing & Finishing</span>
-                      </div>
-                      <div className="flex items-center gap-3 text-slate-400">
-                        <span className="w-4 h-4 rounded-full border-2 border-slate-300"></span>
-                        <span>Quality Inspection & Dispatch</span>
-                      </div>
-                    </div>
-                  </div>
+                    )}
                 </div>
               )}
             </div>
