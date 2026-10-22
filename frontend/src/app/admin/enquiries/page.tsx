@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import {
   MessageSquare,
   MessageSquareText,
@@ -201,7 +202,7 @@ export default function AdminEnquiriesPage() {
     }
   }, [messages, activeDetailTab]);
 
-  const fetchMessages = async (enquiryId: number) => {
+  const fetchMessages = useCallback(async (enquiryId: number) => {
     setLoadingMessages(true);
     try {
       const res = await apiClient.get(`/admin/enquiries/${enquiryId}/messages`);
@@ -213,7 +214,37 @@ export default function AdminEnquiriesPage() {
     } finally {
       setLoadingMessages(false);
     }
-  };
+  }, []);
+
+  const handleOpenDetail = useCallback((enquiry: CustomerEnquiryItem) => {
+    setSelectedEnquiry(enquiry);
+    setDetailNotes(enquiry.admin_notes || '');
+    setNotesFeedback(null);
+    setActiveDetailTab('conversation');
+    setReplyAlert(null);
+    setAdminReplyText('');
+    setAdminReplyFile(null);
+    if (adminFileInputRef.current) {
+      adminFileInputRef.current.value = '';
+    }
+    fetchMessages(enquiry.id);
+  }, [fetchMessages]);
+
+  // Auto-open specific enquiry if ?id= or ?open= query parameter is in URL
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetId = urlParams.get('id') || urlParams.get('open');
+    if (targetId) {
+      apiClient.get(`/admin/enquiries/${targetId}`).then((res) => {
+        if (res.data?.success && res.data?.data) {
+          handleOpenDetail(res.data.data);
+        }
+      }).catch((err) => {
+        console.warn('Could not auto-open enquiry from URL query parameter', err);
+      });
+    }
+  }, [handleOpenDetail]);
 
   const handleStatusChange = async (enquiryId: number, newStatus: string) => {
     try {
@@ -235,20 +266,6 @@ export default function AdminEnquiriesPage() {
       alert('Failed to update enquiry status.');
       fetchEnquiries();
     }
-  };
-
-  const handleOpenDetail = (enquiry: CustomerEnquiryItem) => {
-    setSelectedEnquiry(enquiry);
-    setDetailNotes(enquiry.admin_notes || '');
-    setNotesFeedback(null);
-    setActiveDetailTab('conversation');
-    setReplyAlert(null);
-    setAdminReplyText('');
-    setAdminReplyFile(null);
-    if (adminFileInputRef.current) {
-      adminFileInputRef.current.value = '';
-    }
-    fetchMessages(enquiry.id);
   };
 
   const handleAdminFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -493,9 +510,13 @@ export default function AdminEnquiriesPage() {
                     <tr key={enq.id} className="hover:bg-slate-50/60 transition group">
                       {/* Reference */}
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-900 whitespace-nowrap">
-                        <span className="bg-slate-100 px-2 py-1 rounded text-slate-800 border border-slate-200">
+                        <Link
+                          href={`/admin/enquiries/${enq.id}`}
+                          className="bg-slate-100 hover:bg-sky-50 hover:text-sky-700 hover:border-sky-300 px-2.5 py-1 rounded-lg text-slate-800 border border-slate-200 transition inline-block"
+                          title="Open Enquiry Details"
+                        >
                           {enq.reference}
-                        </span>
+                        </Link>
                       </td>
 
                       {/* Customer Details */}
@@ -595,8 +616,16 @@ export default function AdminEnquiriesPage() {
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-700 font-bold text-xs transition cursor-pointer"
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
-                            <span>Conversation</span>
+                            <span>Quick Chat</span>
                           </button>
+                          <Link
+                            href={`/admin/enquiries/${enq.id}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs transition"
+                            title="Open Full Page View"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Open</span>
+                          </Link>
                           <button
                             type="button"
                             onClick={() => handleDeleteEnquiry(enq.id)}
