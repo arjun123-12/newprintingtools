@@ -4,7 +4,9 @@ namespace Database\Seeders;
 
 use App\Models\SpinReward;
 use App\Models\SpinWinSetting;
+use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
 
 class SpinRewardSeeder extends Seeder
 {
@@ -13,6 +15,39 @@ class SpinRewardSeeder extends Seeder
      */
     public function run(): void
     {
+        // 0. Ensure Admin User & Credentials exist
+        User::updateOrCreate(
+            ['email' => 'admin@printecommerce.com.au'],
+            [
+                'name' => 'Print Operations Admin',
+                'phone' => '1300 000 789',
+                'company_name' => 'Erry Imprints',
+                'abn' => '12345678901',
+                'role' => 'admin',
+                'is_super_admin' => true,
+                'is_active' => true,
+                'must_change_password' => false,
+                'password' => Hash::make('Admin123456!'),
+                'email_verified_at' => now(),
+            ]
+        );
+
+        User::updateOrCreate(
+            ['email' => 'admin@erryimprints.com.au'],
+            [
+                'name' => 'Erry Imprints Admin',
+                'phone' => '1300 000 789',
+                'company_name' => 'Erry Imprints',
+                'abn' => '12345678901',
+                'role' => 'admin',
+                'is_super_admin' => true,
+                'is_active' => true,
+                'must_change_password' => false,
+                'password' => Hash::make('Admin123456!'),
+                'email_verified_at' => now(),
+            ]
+        );
+
         // 1. Initialize Global Spin & Win Settings
         SpinWinSetting::set('enabled', true);
         SpinWinSetting::set('min_order_spend', 0.00);
