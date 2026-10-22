@@ -476,19 +476,14 @@ export default function CreateManualOrderPage() {
       setCustomPresetSize(matchedPreset ? matchedPreset[0] : 'custom');
 
       const stock = item.options?.stock || '350gsm Premium Silk Artboard';
-      if (STOCK_OPTIONS.includes(stock)) {
-        setCustomStock(stock);
-        setCustomCustomStock('');
-      } else {
-        setCustomStock('Custom Material...');
-        setCustomCustomStock(stock);
-      }
+      setCustomStock(stock);
+      setCustomCustomStock('');
 
       const sides = item.options?.sides || 'Double Sided (Full Colour 4/4)';
-      setCustomSides(SIDES_OPTIONS.includes(sides) ? sides : 'Double Sided (Full Colour 4/4)');
+      setCustomSides(sides);
 
       const finish = item.options?.finish || 'None / Uncoated';
-      setCustomFinish(FINISH_OPTIONS.includes(finish) ? finish : 'None / Uncoated');
+      setCustomFinish(finish);
 
       setCustomNotes(item.options?.notes || '');
     }
@@ -511,9 +506,7 @@ export default function CreateManualOrderPage() {
       const qty = Math.max(1, parseInt(String(customQty)) || 500);
       const price = Math.max(0, parseFloat(String(customPrice)) || 0);
 
-      const activeStock = customStock === 'Custom Material...'
-        ? (customCustomStock.trim() || 'Custom Stock')
-        : customStock;
+      const activeStock = customStock.trim() || 'Custom Stock';
 
       const dimStr = customWidth && customHeight ? `${customWidth} × ${customHeight} mm` : '';
       const specParts = [
@@ -657,9 +650,7 @@ export default function CreateManualOrderPage() {
     const qty = Math.max(1, parseInt(String(customQty)) || 500);
     const price = Math.max(0, parseFloat(String(customPrice)) || 0);
 
-    const activeStock = customStock === 'Custom Material...'
-      ? (customCustomStock.trim() || 'Custom Stock')
-      : customStock;
+    const activeStock = customStock.trim() || 'Custom Stock';
 
     const dimStr = customWidth && customHeight ? `${customWidth} × ${customHeight} mm` : '';
     const specParts = [
@@ -1779,56 +1770,53 @@ export default function CreateManualOrderPage() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-slate-400 mb-1 font-medium">Paper Stock / Material</label>
-                      <select
+                      <input
+                        type="text"
+                        list="stock-options-list"
                         value={customStock}
                         onChange={(e) => setCustomStock(e.target.value)}
+                        placeholder="e.g. 350gsm Premium Silk Artboard"
                         className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-pink-500"
-                      >
-                        {STOCK_OPTIONS.map((st) => (
-                          <option key={st} value={st}>
-                            {st}
-                          </option>
+                      />
+                      <datalist id="stock-options-list">
+                        {STOCK_OPTIONS.filter((st) => st !== 'Custom Material...').map((st) => (
+                          <option key={st} value={st} />
                         ))}
-                      </select>
-                      {customStock === 'Custom Material...' && (
-                        <input
-                          type="text"
-                          value={customCustomStock}
-                          onChange={(e) => setCustomCustomStock(e.target.value)}
-                          placeholder="Type custom material..."
-                          className="w-full mt-2 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-pink-500"
-                        />
-                      )}
+                      </datalist>
                     </div>
 
                     <div>
                       <label className="block text-slate-400 mb-1 font-medium">Print Sides / Colour</label>
-                      <select
+                      <input
+                        type="text"
+                        list="sides-options-list"
                         value={customSides}
                         onChange={(e) => setCustomSides(e.target.value)}
+                        placeholder="e.g. Double Sided (Full Colour 4/4)"
                         className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-pink-500"
-                      >
+                      />
+                      <datalist id="sides-options-list">
                         {SIDES_OPTIONS.map((side) => (
-                          <option key={side} value={side}>
-                            {side}
-                          </option>
+                          <option key={side} value={side} />
                         ))}
-                      </select>
+                      </datalist>
                     </div>
 
                     <div>
                       <label className="block text-slate-400 mb-1 font-medium">Finish / Coating</label>
-                      <select
+                      <input
+                        type="text"
+                        list="finish-options-list"
                         value={customFinish}
                         onChange={(e) => setCustomFinish(e.target.value)}
+                        placeholder="e.g. None / Uncoated, Matte Lamination"
                         className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-pink-500"
-                      >
+                      />
+                      <datalist id="finish-options-list">
                         {FINISH_OPTIONS.map((fn) => (
-                          <option key={fn} value={fn}>
-                            {fn}
-                          </option>
+                          <option key={fn} value={fn} />
                         ))}
-                      </select>
+                      </datalist>
                     </div>
                   </div>
 
@@ -1905,8 +1893,8 @@ export default function CreateManualOrderPage() {
                       </div>
                       <p className="text-slate-300 mt-1 font-medium">
                         {customName || 'Custom Print'} — {customWidth && customHeight ? `${customWidth}×${customHeight}mm • ` : ''}
-                        {customStock === 'Custom Material...' ? customCustomStock || 'Custom Material' : customStock} • {customSides}
-                        {customFinish !== 'None / Uncoated' ? ` • ${customFinish}` : ''}
+                        {customStock} • {customSides}
+                        {customFinish && customFinish !== 'None / Uncoated' ? ` • ${customFinish}` : ''}
                       </p>
                     </div>
                     <div className="text-right pl-3 flex-shrink-0">
