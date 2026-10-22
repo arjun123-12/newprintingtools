@@ -123,26 +123,17 @@ const TRACK_ORDER_STEPS: TrackOrderStep[] = [
   {
     key: 'quality_check_and_packaging',
     label: 'Quality Check & Packaging',
-    description: 'Quality inspected and securely packaged for dispatch or pickup.',
+    description: 'Quality inspected and securely packaged.',
     icon: PackageCheck,
   },
   {
-    key: 'ready_for_dispatch',
-    label: 'Ready for Dispatch',
-    pickupLabel: 'Ready for Store Pickup',
-    description: 'Order is ready and awaiting courier pickup.',
-    pickupDescription: 'Order is packed and ready for collection at our store.',
+    key: 'pickup_or_delivery',
+    label: 'Delivery',
+    pickupLabel: 'Pickup in Store',
+    description: 'Dispatched and delivered to your address.',
+    pickupDescription: 'Packed and ready for pickup in store.',
     icon: Truck,
     pickupIcon: Store,
-  },
-  {
-    key: 'delivered',
-    label: 'Delivered',
-    pickupLabel: 'Order Collected',
-    description: 'Delivered to your provided address.',
-    pickupDescription: 'Order collected by customer from store.',
-    icon: MapPin,
-    pickupIcon: ShoppingBag,
   },
 ];
 
@@ -173,10 +164,9 @@ function getTrackOrderStepIndex(status: string): number {
     case 'ready_for_dispatch':
     case 'dispatched':
     case 'handed_over_to_courier':
-      return 6; // Step 7: Ready for Dispatch / Store Pickup
     case 'delivered':
     case 'collected':
-      return 7; // Step 8: Delivered / Collected
+      return 6; // Step 7: Pickup in Store / Delivery
     default:
       return 3;
   }
@@ -197,14 +187,7 @@ function getTrackOrderStepTitle(stepIndex: number, isPickup: boolean, status?: s
     case 5:
       return 'Quality Check & Packaging';
     case 6:
-      if (isPickup) {
-        return 'Ready for Store Pickup';
-      }
-      return status === 'handed_over_to_courier' || status === 'dispatched'
-        ? 'Dispatched / In Transit'
-        : 'Ready for Dispatch';
-    case 7:
-      return isPickup ? 'Order Collected' : 'Order Delivered';
+      return isPickup ? 'Pickup in Store' : 'Delivery';
     default:
       return 'Printing';
   }
@@ -226,15 +209,13 @@ function getTrackOrderSubtitle(stepIndex: number, orderNumber: string, isPickup:
       return `Your order ${orderNumber} has completed production and is in quality inspection and packaging.`;
     case 6:
       if (isPickup) {
-        return `Your order ${orderNumber} is packed and ready for collection at our store.`;
+        return status === 'collected'
+          ? `Your order ${orderNumber} has been collected from our store. Thank you for your business!`
+          : `Your order ${orderNumber} is packed and ready for pickup in store.`;
       }
-      return status === 'handed_over_to_courier' || status === 'dispatched'
-        ? `Your order ${orderNumber} has been dispatched and is in transit with the courier.`
-        : `Your order ${orderNumber} is packed and awaiting courier pickup for delivery.`;
-    case 7:
-      return isPickup
-        ? `Your order ${orderNumber} has been collected. Thank you for your business!`
-        : `Your order ${orderNumber} has been delivered to your provided address.`;
+      return status === 'delivered'
+        ? `Your order ${orderNumber} has been delivered to your provided address.`
+        : `Your order ${orderNumber} is on the way for delivery to your address.`;
     default:
       return `Your order ${orderNumber} is currently in production. Our team is printing and finishing your order.`;
   }
@@ -1660,9 +1641,9 @@ export default function OrderReviewPage({ params }: PageProps) {
                         ORDER PROGRESS
                       </h4>
 
-                      {/* 8-Step Horizontal Stepper with Arrow Separators */}
+                      {/* 7-Step Horizontal Stepper with Arrow Separators */}
                       <div className="overflow-x-auto pb-3 -mx-2 px-2 scrollbar-thin">
-                        <div className="flex items-stretch gap-2 min-w-[1050px] xl:min-w-0 xl:gap-1.5 w-full">
+                        <div className="flex items-stretch gap-2 min-w-[980px] xl:min-w-0 xl:gap-1.5 w-full">
                           {TRACK_ORDER_STEPS.map((step, idx) => {
                             const currentIdx = getTrackOrderStepIndex(orderData.status);
                             const isStorePickup = Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup'));
@@ -1670,8 +1651,23 @@ export default function OrderReviewPage({ params }: PageProps) {
                             const isComplete = idx < currentIdx || (idx === TRACK_ORDER_STEPS.length - 1 && isDeliveredOrCollected);
                             const isCurrent = idx === currentIdx && !isDeliveredOrCollected;
                             const StepIcon = isStorePickup && step.pickupIcon ? step.pickupIcon : step.icon;
-                            const title = isStorePickup && step.pickupLabel ? step.pickupLabel : step.label;
-                            const description = isStorePickup && step.pickupDescription ? step.pickupDescription : step.description;
+
+                            let title = isStorePickup && step.pickupLabel ? step.pickupLabel : step.label;
+                            let description = isStorePickup && step.pickupDescription ? step.pickupDescription : step.description;
+
+                            if (idx === 6) {
+                              if (isStorePickup) {
+                                title = 'Pickup in Store';
+                                description = orderData.status === 'collected'
+                                  ? 'Order collected by customer from store.'
+                                  : 'Order is packed and ready for pickup in store.';
+                              } else {
+                                title = 'Delivery';
+                                description = orderData.status === 'delivered'
+                                  ? 'Delivered to your provided address.'
+                                  : 'Dispatched and on the way for delivery to your address.';
+                              }
+                            }
 
                             return (
                               <React.Fragment key={step.key}>
@@ -1818,7 +1814,7 @@ export default function OrderReviewPage({ params }: PageProps) {
                         <div className="space-y-2">
                           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-semibold">
                             <Truck className="w-3.5 h-3.5" />
-                            <span>Shipped with {orderData.shipping_carrier || 'Courier Partner'}</span>
+                            <span>Delivery with {orderData.shipping_carrier || 'Courier Partner'}</span>
                           </div>
 
                           <div className="flex flex-wrap items-baseline gap-2 pt-1">
@@ -1862,12 +1858,12 @@ export default function OrderReviewPage({ params }: PageProps) {
                           </div>
                           <div className="space-y-1">
                             <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold">
-                              {orderData.status === 'collected' ? 'Order Collected' : 'Ready for Customer Pickup'}
+                              {orderData.status === 'collected' ? 'Order Collected' : 'Ready for Pickup in Store'}
                             </span>
                             <h4 className="text-base font-bold text-white">
                               {orderData.status === 'collected'
                                 ? 'Thank you! Your order has been collected.'
-                                : 'Your print package is ready for pickup!'}
+                                : 'Your print package is ready for pickup in store!'}
                             </h4>
                             <p className="text-xs text-slate-300">
                               Please present your order number <strong className="text-white font-mono">{orderData.order_number}</strong> at our collection counter.
