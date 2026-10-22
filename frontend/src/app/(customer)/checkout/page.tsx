@@ -24,6 +24,8 @@ import {
   Check,
   RefreshCw,
   Navigation,
+  Gift,
+  Tag,
 } from 'lucide-react';
 import GoogleAddressAutocomplete, {
   SelectedAustralianAddress,
@@ -37,6 +39,7 @@ import {
   CheckoutShippingMethod,
   CheckoutValidationResponse,
 } from '@/services/checkoutService';
+import { spinWinService } from '@/services/spinWinService';
 import { formatImageUrl } from '@/utils/imageUrl';
 
 const AU_STATES = [
@@ -103,6 +106,17 @@ export default function CheckoutPage() {
   const [orderSuccessMessage, setOrderSuccessMessage] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<string, string[]>>({});
   const [validationSuccess, setValidationSuccess] = useState<CheckoutValidationResponse['data'] | null>(null);
+
+  // Spin & Win Reward Voucher State
+  const [voucherCodeInput, setVoucherCodeInput] = useState('');
+  const [appliedReward, setAppliedReward] = useState<{
+    code: string;
+    title: string;
+    discount_amount: number;
+    reward_type: string;
+  } | null>(null);
+  const [validatingVoucher, setValidatingVoucher] = useState(false);
+  const [voucherError, setVoucherError] = useState<string | null>(null);
 
   // 1. Initial Load of Authoritative Checkout Data
   useEffect(() => {
@@ -326,9 +340,40 @@ export default function CheckoutPage() {
   const subtotalExGst = checkoutData?.subtotal_ex_gst || 0;
   const gstAmount = checkoutData?.gst_amount || 0;
   const shippingAmount = activeShippingMethod?.price_inc_gst || 0;
+  const rewardDiscount = appliedReward?.discount_amount || 0;
   const grandTotal = useMemo(() => {
-    return Math.max(0, subtotalExGst + gstAmount + shippingAmount);
-  }, [subtotalExGst, gstAmount, shippingAmount]);
+    return Math.max(0, subtotalExGst + gstAmount + shippingAmount - rewardDiscount);
+  }, [subtotalExGst, gstAmount, shippingAmount, rewardDiscount]);
+
+  const handleApplyVoucher = async () => {
+    const code = voucherCodeInput.trim();
+    if (!code) return;
+    setValidatingVoucher(true);
+    setVoucherError(null);
+    try {
+      const res = await spinWinService.validateVoucher(code, subtotalExGst + gstAmount);
+      if (res?.valid) {
+        setAppliedReward({
+          code: res.reward_code,
+          title: res.title,
+          discount_amount: Number(res.discount_amount),
+          reward_type: res.reward_type,
+        });
+        setVoucherCodeInput('');
+      } else {
+        setVoucherError(res?.message || 'Invalid or expired reward voucher code.');
+      }
+    } catch (err: any) {
+      setVoucherError(err.response?.data?.message || 'Unable to apply voucher code.');
+    } finally {
+      setValidatingVoucher(false);
+    }
+  };
+
+  const handleRemoveVoucher = () => {
+    setAppliedReward(null);
+    setVoucherError(null);
+  };
 
   // Handle Form Submission / Backend Order Creation
   const handlePlaceOrder = async (e: React.FormEvent) => {
@@ -371,6 +416,8 @@ export default function CheckoutPage() {
       customer_notes: customerNotes.trim() || undefined,
       notes: customerNotes.trim() || undefined,
       save_address: saveAddress,
+      reward_code: appliedReward?.code || undefined,
+      voucher_code: appliedReward?.code || undefined,
     };
 
     try {
@@ -1176,6 +1223,58 @@ export default function CheckoutPage() {
                     `$${shippingAmount.toFixed(2)}`
                   )}
                 </span>
+              </div>
+
+              {/* Spin & Win Reward Voucher */}
+              <div className="pt-2 border-t border-slate-100">
+                {appliedReward ? (
+                  <div className="flex items-center justify-between text-emerald-700 bg-emerald-50 px-3 py-2 rounded-xl border border-emerald-200 text-xs">
+                    <div>
+                      <div className="flex items-center gap-1 font-bold">
+                        <Gift className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Reward: {appliedReward.title}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-emerald-800 font-medium">{appliedReward.code}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold text-sm">-${appliedReward.discount_amount.toFixed(2)}</span>
+                      <button
+                        type="button"
+                        onClick={handleRemoveVoucher}
+                        className="text-slate-400 hover:text-rose-600 font-bold text-sm ml-1"
+                        title="Remove voucher"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="flex gap-1.5">
+                      <div className="relative flex-1">
+                        <Tag className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Reward Voucher (e.g. SPIN-...)"
+                          value={voucherCodeInput}
+                          onChange={(e) => setVoucherCodeInput(e.target.value.toUpperCase())}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-8 pr-2.5 py-1.5 text-xs text-slate-800 placeholder-slate-400 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 uppercase"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleApplyVoucher}
+                        disabled={validatingVoucher || !voucherCodeInput.trim()}
+                        className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition disabled:opacity-40"
+                      >
+                        {validatingVoucher ? 'Checking...' : 'Apply'}
+                      </button>
+                    </div>
+                    {voucherError && (
+                      <p className="text-[10.5px] text-rose-600 font-medium pl-1">{voucherError}</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="pt-3 border-t border-slate-200 flex items-baseline justify-between">

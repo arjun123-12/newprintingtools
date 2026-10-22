@@ -16,10 +16,19 @@ import {
   LogOut,
   AlertCircle,
   Loader2,
+  Gift,
+  Coins,
+  Crown,
+  Copy,
+  Check,
+  Tag,
+  Clock,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/services/api/client';
 import { useCartStore } from '@/stores/cartStore';
+import { spinWinService, CustomerRewardsResponse } from '@/services/spinWinService';
 
 interface SavedCustomerArtwork {
   id: string;
@@ -51,6 +60,11 @@ export default function AccountPage() {
   const [loadingArtworks, setLoadingArtworks] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // Spin & Win Rewards state
+  const [rewardsData, setRewardsData] = useState<CustomerRewardsResponse | null>(null);
+  const [loadingRewards, setLoadingRewards] = useState(false);
+  const [copiedRewardCode, setCopiedRewardCode] = useState<string | null>(null);
+
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       router.push('/login?redirect=/account');
@@ -72,9 +86,28 @@ export default function AccountPage() {
         }
       };
 
+      const fetchRewards = async () => {
+        setLoadingRewards(true);
+        try {
+          const res = await spinWinService.getCustomerRewards();
+          setRewardsData(res);
+        } catch (err) {
+          console.warn('Could not load customer rewards:', err);
+        } finally {
+          setLoadingRewards(false);
+        }
+      };
+
       void fetchArtworks();
+      void fetchRewards();
     }
   }, [authLoading, isAuthenticated, router]);
+
+  const copyRewardCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedRewardCode(code);
+    setTimeout(() => setCopiedRewardCode(null), 2000);
+  };
 
   const handleDeleteArtwork = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -159,6 +192,138 @@ export default function AccountPage() {
           <span>{deleteError}</span>
         </div>
       )}
+
+      {/* ERRY PRINT BANK™ & SPIN REWARDS LEDGER */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl space-y-6 border border-white/10 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-5 relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 to-pink-500 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-pink-500/20">
+              <Coins className="w-6 h-6 text-slate-950" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-black tracking-tight text-white">
+                  Erry Print Bank™ & Spin Rewards
+                </h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-400 text-slate-950">
+                  VIP WALLET
+                </span>
+              </div>
+              <p className="text-xs text-slate-300">
+                Guaranteed rewards won from your verified paid print orders
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 bg-white/10 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/10">
+            <div>
+              <span className="text-[10px] text-amber-300 block uppercase font-bold tracking-wider">
+                Print Bank Balance
+              </span>
+              <span className="text-2xl font-black text-white">
+                ${rewardsData ? Number(rewardsData.print_bank_balance).toFixed(2) : '0.00'} AUD
+              </span>
+            </div>
+            <div className="h-8 w-px bg-white/20" />
+            <div>
+              <span className="text-[10px] text-slate-300 block uppercase font-bold tracking-wider">
+                Active Vouchers
+              </span>
+              <span className="text-xl font-extrabold text-pink-300">
+                {rewardsData?.active_rewards_count ?? 0}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Rewards List */}
+        <div className="relative z-10 space-y-3">
+          {loadingRewards ? (
+            <div className="py-8 text-center text-slate-400 space-y-2">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto text-pink-400" />
+              <p className="text-xs">Loading your reward vouchers...</p>
+            </div>
+          ) : !rewardsData || rewardsData.rewards.length === 0 ? (
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center space-y-2">
+              <Gift className="w-8 h-8 text-pink-400 mx-auto opacity-75" />
+              <h3 className="text-sm font-bold text-white">No Spin Rewards Yet</h3>
+              <p className="text-xs text-slate-300 max-w-sm mx-auto">
+                Place a qualifying print order and spin the Wheel of Fortune right after your BPOINT payment is confirmed!
+              </p>
+              <Link
+                href="/products"
+                className="inline-flex items-center gap-1.5 px-4 py-2 mt-2 bg-gradient-to-r from-amber-500 to-pink-600 rounded-xl text-xs font-black text-slate-950 uppercase tracking-wide hover:opacity-95 transition"
+              >
+                <span>Browse Print Products</span>
+                <Sparkles className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {rewardsData.rewards.map((reward) => (
+                <div
+                  key={reward.id}
+                  className={`bg-slate-950/80 border rounded-2xl p-4 flex flex-col justify-between space-y-3 transition-all ${
+                    reward.status === 'active'
+                      ? 'border-amber-400/40 hover:border-amber-400/80 hover:shadow-lg shadow-black/40'
+                      : 'border-white/5 opacity-70'
+                  }`}
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-white/10 text-slate-300">
+                        {reward.reward_type.replace('_', ' ')}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                          reward.status === 'active'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            : reward.status === 'redeemed'
+                            ? 'bg-slate-700 text-slate-300'
+                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                        }`}
+                      >
+                        {reward.status}
+                      </span>
+                    </div>
+
+                    <h4 className="font-extrabold text-sm text-white">{reward.title}</h4>
+                    <p className="text-[11px] text-slate-300 line-clamp-2">{reward.how_to_use}</p>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-white/10">
+                    {/* Voucher Code Copy Bar */}
+                    <div className="flex items-center justify-between gap-2 bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5">
+                      <span className="font-mono text-xs font-black text-pink-300 tracking-wider">
+                        {reward.reward_code}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyRewardCode(reward.reward_code)}
+                        className="p-1 text-slate-300 hover:text-white rounded transition"
+                        title="Copy Voucher Code"
+                      >
+                        {copiedRewardCode === reward.reward_code ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Order #{reward.order_number || 'N/A'}</span>
+                      <span>Expires {new Date(reward.expires_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Saved Artworks / Customer Designs */}
       <div className="space-y-4">

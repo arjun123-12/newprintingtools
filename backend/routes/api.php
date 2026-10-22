@@ -139,6 +139,18 @@ Route::prefix('order-review')
         ])->where('token', '[A-Za-z0-9_-]+')->middleware('throttle:20,1');
     });
 
+// ==========================================
+// SPIN & WIN REWARDS (PUBLIC & CUSTOMER VERIFIED)
+// ==========================================
+Route::prefix('spin-win')->group(function () {
+    Route::get('/eligibility', [\App\Http\Controllers\Api\V1\Rewards\SpinRewardController::class, 'checkEligibility'])
+        ->middleware('throttle:60,1');
+    Route::post('/spin', [\App\Http\Controllers\Api\V1\Rewards\SpinRewardController::class, 'spin'])
+        ->middleware('throttle:20,1');
+    Route::post('/validate-voucher', [\App\Http\Controllers\Api\V1\Rewards\SpinRewardController::class, 'validateReward'])
+        ->middleware('throttle:30,1');
+});
+
 // Catalog
 Route::prefix('products')->group(function () {
     Route::get('/', [
@@ -412,6 +424,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
             App\Http\Controllers\Api\V1\Checkout\CheckoutController::class,
             'saveAddress',
         ]);
+    });
+
+    Route::prefix('rewards')->group(function () {
+        Route::get('/my-rewards', [\App\Http\Controllers\Api\V1\Rewards\SpinRewardController::class, 'customerRewards']);
     });
 });
 
@@ -848,6 +864,13 @@ Route::middleware(['auth:sanctum', 'admin.access'])
             Route::put('/{id}', [StaffController::class, 'update'])->whereNumber('id');
             Route::patch('/{id}/toggle-active', [StaffController::class, 'toggleActive'])->whereNumber('id');
             Route::delete('/{id}', [StaffController::class, 'destroy'])->whereNumber('id');
+        });
+
+        // Spin & Win Rewards Configuration & Ledger
+        Route::prefix('spin-win')->group(function () {
+            Route::get('/settings', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'getSettings']);
+            Route::put('/settings', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'updateSettings']);
+            Route::get('/ledger', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'getLedger']);
         });
     });
 Route::prefix('client-brief-auth')->group(function () {

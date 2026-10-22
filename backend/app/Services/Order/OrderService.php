@@ -113,6 +113,18 @@ class OrderService
                 'customer_notes' => $data['customer_notes'] ?? $data['notes'] ?? null,
             ]);
 
+            // If a Spin & Win reward voucher was redeemed on this new order, update durable ledger
+            $appliedRewardCode = $validationResult['reward_code'] ?? $data['reward_code'] ?? $data['voucher_code'] ?? null;
+            if (!empty($appliedRewardCode) && (float) ($validationResult['discount'] ?? 0) > 0) {
+                \App\Models\CustomerRewardLedger::where('reward_code', strtoupper(trim($appliedRewardCode)))
+                    ->where('status', 'active')
+                    ->update([
+                        'status' => 'redeemed',
+                        'redeemed_at' => now(),
+                        'redeemed_order_id' => $order->id,
+                    ]);
+            }
+
             // Create OrderItems from cart items
             $itemsMap = collect($validationResult['items'])->keyBy('id');
 

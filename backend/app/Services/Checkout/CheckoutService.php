@@ -172,7 +172,19 @@ class CheckoutService
         }
 
         $shippingAmount = (float) $selectedRate['price_inc_gst'];
-        $grandTotal = round($recalculated['subtotal_inc_gst'] + $shippingAmount, 2);
+
+        // Validate optional Spin & Win reward voucher for future orders
+        $discount = 0.00;
+        $rewardCode = !empty($data['reward_code']) ? $data['reward_code'] : ($data['voucher_code'] ?? null);
+        if (!empty($rewardCode)) {
+            $spinService = app(\App\Services\Rewards\SpinRewardService::class);
+            $rewardValidation = $spinService->validateRewardForCheckout($rewardCode, (float) $recalculated['subtotal_inc_gst'], $user);
+            if ($rewardValidation['valid'] ?? false) {
+                $discount = (float) ($rewardValidation['discount_amount'] ?? 0.00);
+            }
+        }
+
+        $grandTotal = max(0.00, round($recalculated['subtotal_inc_gst'] + $shippingAmount - $discount, 2));
 
         // 5. Persist/update user address in database (deduplicating existing addresses)
         $savedShippingAddress = $this->saveOrUpdateUserAddress($user, $shipping, 'shipping');
@@ -196,7 +208,8 @@ class CheckoutService
             'gst_amount' => $recalculated['gst_amount'],
             'shipping' => $shippingAmount,
             'shipping_method' => $selectedRate,
-            'discount' => 0.00,
+            'discount' => $discount,
+            'reward_code' => $rewardCode,
             'total' => $grandTotal,
             'currency' => 'AUD',
             'shipping_address' => [

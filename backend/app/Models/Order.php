@@ -118,4 +118,14 @@ class Order extends Model
     {
         return $this->hasOne(Shipment::class)->latestOfMany();
     }
+
+    public function spinEntitlement(): HasOne
+    {
+        return $this->hasOne(OrderSpinEntitlement::class);
+    }
+
+    public function rewardLedger(): HasOne
+    {
+        return $this->hasOne(CustomerRewardLedger::class);
+    }
 }

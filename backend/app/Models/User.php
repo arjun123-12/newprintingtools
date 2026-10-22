@@ -298,4 +298,14 @@ class User extends Authenticatable
     {
         return $this->hasPermission('templates');
     }
+
+    public function spinEntitlements(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(OrderSpinEntitlement::class);
+    }
+
+    public function rewardLedgers(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(CustomerRewardLedger::class);
+    }
 }
