@@ -27,11 +27,11 @@ export const EnquiryModal: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [productName, setProductName] = useState('');
   const [quantity, setQuantity] = useState<number | string>(100);
-  const [size, setSize] = useState('Standard Size');
-  const [gsm, setGsm] = useState('150 GSM');
-  const [sides, setSides] = useState('Double-Sided');
-  const [finishing, setFinishing] = useState('Standard Finish');
-  const [folding, setFolding] = useState('No Folding');
+  const [size, setSize] = useState('');
+  const [gsm, setGsm] = useState('');
+  const [sides, setSides] = useState('');
+  const [finishing, setFinishing] = useState('');
+  const [folding, setFolding] = useState('');
   const [deliveryLocation, setDeliveryLocation] = useState('');
   const [additionalRequirements, setAdditionalRequirements] = useState('');
   const [privacyConsent, setPrivacyConsent] = useState(true);
@@ -421,31 +421,24 @@ export const EnquiryModal: React.FC = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Paper Stock / GSM</label>
-                    <select
+                    <input
+                      type="text"
                       value={gsm}
                       onChange={(e) => setGsm(e.target.value)}
+                      placeholder="e.g. 150 GSM, 350 GSM"
                       className="w-full px-2.5 py-2 rounded-lg border border-slate-300 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500"
-                    >
-                      <option value="128 GSM">128 GSM Art Paper</option>
-                      <option value="150 GSM">150 GSM Gloss</option>
-                      <option value="170 GSM">170 GSM Silk</option>
-                      <option value="250 GSM">250 GSM Premium</option>
-                      <option value="350 GSM">350 GSM Heavy Board</option>
-                      <option value="450 GSM">450 GSM Luxury</option>
-                      <option value="Custom Stock">Custom / Other</option>
-                    </select>
+                    />
                   </div>
 
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Printing Sides</label>
-                    <select
+                    <input
+                      type="text"
                       value={sides}
                       onChange={(e) => setSides(e.target.value)}
+                      placeholder="e.g. Single-Sided, Double-Sided"
                       className="w-full px-2.5 py-2 rounded-lg border border-slate-300 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500"
-                    >
-                      <option value="Single-Sided">Single-Sided (Front)</option>
-                      <option value="Double-Sided">Double-Sided (Both)</option>
-                    </select>
+                    />
                   </div>
 
                   <div>
@@ -461,18 +454,13 @@ export const EnquiryModal: React.FC = () => {
 
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Finishing / Fold</label>
-                    <select
+                    <input
+                      type="text"
                       value={finishing}
                       onChange={(e) => setFinishing(e.target.value)}
+                      placeholder="e.g. Matte Velvet, Gloss, Half-Fold"
                       className="w-full px-2.5 py-2 rounded-lg border border-slate-300 text-xs text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500"
-                    >
-                      <option value="Standard Finish">Standard Uncoated/Gloss</option>
-                      <option value="Matte Velvet Lamination">Matte Velvet</option>
-                      <option value="Gloss Lamination">Gloss Lamination</option>
-                      <option value="Half-Fold">Half-Fold</option>
-                      <option value="Tri-Fold">Tri-Fold</option>
-                      <option value="Spot UV Accents">Spot UV Accents</option>
-                    </select>
+                    />
                   </div>
                 </div>
               </div>
