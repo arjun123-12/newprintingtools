@@ -4,9 +4,9 @@ export const STATUS_STYLES: Record<string, string> = {
   collected: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
   completed: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30',
 
-  // 2. Ready for pickup / Ready for shipping -> Lime / Cyan
-  ready_for_pickup: 'bg-lime-500/15 text-lime-400 border border-lime-500/30',
-  ready_for_shipping: 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30',
+  // 2. Ready for pickup / Ready for shipping -> Cyan / Teal
+  ready_for_pickup: 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30',
+  ready_for_shipping: 'bg-teal-500/15 text-teal-300 border border-teal-500/30',
 
   // 3. Dispatched / Out with Courier -> Blue
   dispatched: 'bg-blue-500/15 text-blue-400 border border-blue-500/30',
@@ -80,7 +80,7 @@ export function getStatusStyle(status: string): string {
     return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
   }
   if (s.includes('pickup')) {
-    return 'bg-lime-500/15 text-lime-400 border border-lime-500/30';
+    return 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30';
   }
   if (s.includes('dispatch') || s.includes('courier') || s.includes('ship')) {
     return 'bg-blue-500/15 text-blue-400 border border-blue-500/30';

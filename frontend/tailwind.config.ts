@@ -2,10 +2,12 @@ import type { Config } from 'tailwindcss';
 
 const config: Config = {
   content: [
-    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/features/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
+    './src/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
+  safelist: [
+    {
+      pattern: /(bg|text|border)-(emerald|cyan|teal|blue|sky|indigo|purple|violet|fuchsia|rose|amber|yellow|slate|red|orange|lime)-(300|400|500)(\/(10|15|20|30))?/,
+    },
   ],
   theme: {
     extend: {
