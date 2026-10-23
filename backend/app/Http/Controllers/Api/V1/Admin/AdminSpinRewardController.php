@@ -25,6 +25,9 @@ class AdminSpinRewardController extends Controller
             'banner_title' => (string) SpinWinSetting::get('banner_title', 'SPIN & WIN'),
             'banner_subtitle' => (string) SpinWinSetting::get('banner_subtitle', 'AMAZING PRINTING REWARDS AWAIT!'),
             'banner_tagline' => (string) SpinWinSetting::get('banner_tagline', 'Play the wheel and unlock exciting rewards for your business.'),
+            'proof_watermark_opacity' => (int) SpinWinSetting::get('proof_watermark_opacity', 40),
+            'order_cutoff_time' => (string) SpinWinSetting::get('order_cutoff_time', '15:00'),
+            'order_cutoff_timezone' => (string) SpinWinSetting::get('order_cutoff_timezone', 'Australia/Adelaide'),
         ];
 
         $categories = SpinRewardCategory::query()
@@ -70,6 +73,9 @@ class AdminSpinRewardController extends Controller
             'banner_title' => ['nullable', 'string', 'max:100'],
             'banner_subtitle' => ['nullable', 'string', 'max:150'],
             'banner_tagline' => ['nullable', 'string', 'max:255'],
+            'proof_watermark_opacity' => ['sometimes', 'integer', 'between:0,100'],
+            'order_cutoff_time' => ['sometimes', 'date_format:H:i'],
+            'order_cutoff_timezone' => ['sometimes', 'timezone'],
             'segments' => ['nullable', 'array'],
             'segments.*.id' => ['nullable', 'integer'],
             'segments.*.category_id' => ['nullable', 'integer', 'exists:spin_reward_categories,id'],
@@ -101,6 +107,15 @@ class AdminSpinRewardController extends Controller
         }
         if (isset($validated['banner_tagline'])) {
             SpinWinSetting::set('banner_tagline', $validated['banner_tagline']);
+        }
+        if (array_key_exists('proof_watermark_opacity', $validated)) {
+            SpinWinSetting::set('proof_watermark_opacity', $validated['proof_watermark_opacity']);
+        }
+        if (array_key_exists('order_cutoff_time', $validated)) {
+            SpinWinSetting::set('order_cutoff_time', $validated['order_cutoff_time']);
+        }
+        if (array_key_exists('order_cutoff_timezone', $validated)) {
+            SpinWinSetting::set('order_cutoff_timezone', $validated['order_cutoff_timezone']);
         }
 
         // Get or default category

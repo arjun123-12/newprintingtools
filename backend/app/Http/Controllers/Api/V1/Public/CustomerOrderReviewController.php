@@ -12,6 +12,7 @@ use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\OrderActivity;
 use App\Models\OrderReviewLink;
+use App\Models\SpinWinSetting;
 use App\Services\Invoice\InvoiceGeneratorService;
 use App\Services\Notification\OrderNotificationService;
 use App\Services\Payments\PaymentGatewayService;
@@ -221,6 +222,9 @@ class CustomerOrderReviewController extends Controller
                 'tracking_number' => $order->tracking_number,
                 'carrier_tracking_url' => \App\Services\Order\ManualOrderService::resolveCarrierTrackingUrl($order->shipping_carrier, $order->tracking_number),
                 'status_history' => $statusHistory,
+                'proof_watermark_opacity' => $order->proof_watermark_opacity ?? (int) SpinWinSetting::get('proof_watermark_opacity', 40),
+                'order_cutoff_time' => $order->order_cutoff_time ?? (string) SpinWinSetting::get('order_cutoff_time', '15:00'),
+                'order_cutoff_timezone' => $order->order_cutoff_timezone ?? (string) SpinWinSetting::get('order_cutoff_timezone', 'Australia/Adelaide'),
                 'payment_status' => $order->payment_status->value ?? (string) $order->payment_status,
                 'customer' => [
                     'name' => $order->shipping_address['name'] ?? $order->user?->name,

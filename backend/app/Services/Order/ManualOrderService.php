@@ -79,6 +79,9 @@ class ManualOrderService
                 ],
                 'customer_notes' => $data['customer_notes'] ?? null,
                 'admin_notes' => $data['internal_notes'] ?? null,
+                'order_cutoff_time' => $data['order_cutoff_time'] ?? null,
+                'order_cutoff_timezone' => $data['order_cutoff_timezone'] ?? null,
+                'proof_watermark_opacity' => isset($data['proof_watermark_opacity']) ? (int) $data['proof_watermark_opacity'] : null,
                 'current_proof_version' => 1,
             ]);
 
@@ -174,6 +177,9 @@ class ManualOrderService
                 'billing_address' => $billingAddress,
                 'customer_notes' => array_key_exists('customer_notes', $data) ? $data['customer_notes'] : $order->customer_notes,
                 'admin_notes' => array_key_exists('internal_notes', $data) ? $data['internal_notes'] : $order->admin_notes,
+                'order_cutoff_time' => array_key_exists('order_cutoff_time', $data) ? $data['order_cutoff_time'] : $order->order_cutoff_time,
+                'order_cutoff_timezone' => array_key_exists('order_cutoff_timezone', $data) ? $data['order_cutoff_timezone'] : $order->order_cutoff_timezone,
+                'proof_watermark_opacity' => array_key_exists('proof_watermark_opacity', $data) ? (int) $data['proof_watermark_opacity'] : $order->proof_watermark_opacity,
             ]);
 
             // Replace line items if provided

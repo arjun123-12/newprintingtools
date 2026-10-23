@@ -23,6 +23,9 @@ export interface CustomerReviewData {
     formatted_date: string;
     time_ago: string;
   }>;
+  proof_watermark_opacity?: number | null;
+  order_cutoff_time?: string;
+  order_cutoff_timezone?: string;
   payment_status: string;
   customer: {
     name?: string;

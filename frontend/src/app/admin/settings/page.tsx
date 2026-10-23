@@ -6,6 +6,7 @@ import {
   Gift,
   Coins,
   ShieldCheck,
+  Clock,
   Save,
   RefreshCw,
   Plus,
@@ -63,6 +64,9 @@ export default function AdminSettingsPage() {
   const [bannerTitle, setBannerTitle] = useState('SPIN & WIN');
   const [bannerSubtitle, setBannerSubtitle] = useState('AMAZING PRINTING REWARDS AWAIT!');
   const [bannerTagline, setBannerTagline] = useState('Play the wheel and unlock exciting rewards for your business.');
+  const [proofWatermarkOpacity, setProofWatermarkOpacity] = useState(40);
+  const [orderCutoffTime, setOrderCutoffTime] = useState('15:00');
+  const [orderCutoffTimezone, setOrderCutoffTimezone] = useState('Australia/Adelaide');
 
   const [categories, setCategories] = useState<RewardCategory[]>([]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<number | 'all'>('all');
@@ -110,6 +114,9 @@ export default function AdminSettingsPage() {
         setBannerTitle(data.settings?.banner_title ?? 'SPIN & WIN');
         setBannerSubtitle(data.settings?.banner_subtitle ?? 'AMAZING PRINTING REWARDS AWAIT!');
         setBannerTagline(data.settings?.banner_tagline ?? 'Play the wheel and unlock exciting rewards for your business.');
+        setProofWatermarkOpacity(Number(data.settings?.proof_watermark_opacity ?? 40));
+        setOrderCutoffTime(data.settings?.order_cutoff_time ?? '15:00');
+        setOrderCutoffTimezone(data.settings?.order_cutoff_timezone ?? 'Australia/Adelaide');
         setCategories(data.categories ?? []);
         setSegments(data.segments ?? []);
         if (data.stats) {
@@ -170,6 +177,9 @@ export default function AdminSettingsPage() {
         banner_title: bannerTitle,
         banner_subtitle: bannerSubtitle,
         banner_tagline: bannerTagline,
+        proof_watermark_opacity: proofWatermarkOpacity,
+        order_cutoff_time: orderCutoffTime,
+        order_cutoff_timezone: orderCutoffTimezone,
         segments: sanitizedSegments,
       });
       setSuccessMsg('Spin & Win reward segments and settings saved successfully!');
@@ -441,7 +451,7 @@ export default function AdminSettingsPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="p-4 bg-slate-950/70 border border-slate-800/80 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-200">Promotion Status</label>
@@ -480,7 +490,64 @@ export default function AdminSettingsPage() {
                 />
                 <span className="text-[10px] text-slate-400">Displayed prominently on the wheel header</span>
               </div>
+
+              <div className="p-4 bg-slate-950/70 border border-slate-800/80 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <label htmlFor="proof-watermark-opacity" className="text-xs font-bold text-slate-200">Artwork watermark opacity</label>
+                  <span className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-bold text-pink-300">{proofWatermarkOpacity}%</span>
+                </div>
+                <input
+                  id="proof-watermark-opacity"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={proofWatermarkOpacity}
+                  onChange={(e) => setProofWatermarkOpacity(Number(e.target.value))}
+                  className="w-full accent-pink-500 cursor-pointer"
+                  aria-describedby="proof-watermark-opacity-help"
+                />
+                <p id="proof-watermark-opacity-help" className="text-[10px] text-slate-400">Controls the Erry Imprints logo visibility on customer flat and 3D artwork previews. Save All Changes to apply.</p>
+              </div>
             </div>
+          </div>
+
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 space-y-4">
+            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+              <div className="rounded-xl bg-sky-500/10 p-2 text-sky-300"><Clock className="h-5 w-5" /></div>
+              <div>
+                <h2 className="text-base font-bold text-white">Customer Order Cut-Off Time</h2>
+                <p className="mt-0.5 text-xs text-slate-400">This schedule is shown on the customer artwork review page. Choose the store time zone.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+              <label className="space-y-1.5">
+                <span className="block text-xs font-bold text-slate-200">Daily cut-off time</span>
+                <input
+                  type="time"
+                  value={orderCutoffTime}
+                  onChange={(e) => setOrderCutoffTime(e.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-pink-500 focus:outline-none"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="block text-xs font-bold text-slate-200">Store time zone</span>
+                <select
+                  value={orderCutoffTimezone}
+                  onChange={(e) => setOrderCutoffTimezone(e.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white focus:border-pink-500 focus:outline-none"
+                >
+                  <option value="Australia/Adelaide">Adelaide</option>
+                  <option value="Australia/Sydney">Sydney</option>
+                  <option value="Australia/Melbourne">Melbourne</option>
+                  <option value="Australia/Brisbane">Brisbane</option>
+                  <option value="Australia/Perth">Perth</option>
+                  <option value="Australia/Darwin">Darwin</option>
+                  <option value="Australia/Hobart">Hobart</option>
+                </select>
+              </label>
+            </div>
+            <p className="text-[11px] text-slate-500">Use the Save All Changes button above to publish the cutoff shown to customers.</p>
           </div>
 
           {/* Configurable Reward Segments with Category Filter */}

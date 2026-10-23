@@ -27,6 +27,7 @@ import {
   Package,
   Pencil,
   Copy,
+  Clock,
 } from 'lucide-react';
 
 interface CustomerOption {
@@ -148,6 +149,9 @@ export default function CreateManualOrderPage() {
   const [customerNotes, setCustomerNotes] = useState(
     'Please check all details carefully. Let us know if you\'d like any changes.'
   );
+  const [orderCutoffTime, setOrderCutoffTime] = useState('15:00');
+  const [orderCutoffTimezone, setOrderCutoffTimezone] = useState('Australia/Adelaide');
+  const [proofWatermarkOpacity, setProofWatermarkOpacity] = useState(40);
 
   // Products List
   const [items, setItems] = useState<ManualOrderItemPayload[]>([]);
@@ -233,20 +237,35 @@ export default function CreateManualOrderPage() {
       } catch (e) {
         // Fallback
       }
-    }
-    loadDirectory();
 
-    // Check if editing or copying an existing order via query params
-    if (typeof window !== 'undefined') {
-      const searchParams = new URLSearchParams(window.location.search);
-      const copyIdParam = searchParams.get('copyId') || searchParams.get('duplicateId');
-      const orderIdParam = searchParams.get('orderId') || searchParams.get('id');
-      if (copyIdParam) {
-        loadCopyOrder(copyIdParam);
-      } else if (orderIdParam) {
-        loadExistingOrder(orderIdParam);
+      try {
+        const settingsRes = await apiClient.get('/admin/spin-win/settings');
+        const settings = settingsRes.data?.data?.settings;
+        if (settings) {
+          setOrderCutoffTime(settings.order_cutoff_time ?? '15:00');
+          setOrderCutoffTimezone(settings.order_cutoff_timezone ?? 'Australia/Adelaide');
+          setProofWatermarkOpacity(Number(settings.proof_watermark_opacity ?? 40));
+        }
+      } catch (e) {
+        // Keep sensible defaults if global admin settings are unavailable.
       }
     }
+    const initializePage = async () => {
+      await loadDirectory();
+
+      // Load the order after global defaults so per-order settings take precedence.
+      if (typeof window !== 'undefined') {
+        const searchParams = new URLSearchParams(window.location.search);
+        const copyIdParam = searchParams.get('copyId') || searchParams.get('duplicateId');
+        const orderIdParam = searchParams.get('orderId') || searchParams.get('id');
+        if (copyIdParam) {
+          await loadCopyOrder(copyIdParam);
+        } else if (orderIdParam) {
+          await loadExistingOrder(orderIdParam);
+        }
+      }
+    };
+    void initializePage();
   }, []);
 
   const loadCopyOrder = async (copyId: string) => {
@@ -266,6 +285,9 @@ export default function CreateManualOrderPage() {
         setDeliveryAddress(ord.shipping_address?.address_line_1 || (ord as any).delivery_address || '');
         setInternalNotes(ord.internal_notes || (ord as any).admin_notes || '');
         if (ord.customer_notes) setCustomerNotes(ord.customer_notes);
+        if (ord.order_cutoff_time) setOrderCutoffTime(ord.order_cutoff_time);
+        if (ord.order_cutoff_timezone) setOrderCutoffTimezone(ord.order_cutoff_timezone);
+        if (ord.proof_watermark_opacity != null) setProofWatermarkOpacity(ord.proof_watermark_opacity);
 
         if (Array.isArray(ord.items)) {
           setItems(
@@ -308,6 +330,9 @@ export default function CreateManualOrderPage() {
         setDeliveryAddress(ord.shipping_address?.address_line_1 || (ord as any).delivery_address || '');
         setInternalNotes(ord.internal_notes || (ord as any).admin_notes || '');
         if (ord.customer_notes) setCustomerNotes(ord.customer_notes);
+        if (ord.order_cutoff_time) setOrderCutoffTime(ord.order_cutoff_time);
+        if (ord.order_cutoff_timezone) setOrderCutoffTimezone(ord.order_cutoff_timezone);
+        if (ord.proof_watermark_opacity != null) setProofWatermarkOpacity(ord.proof_watermark_opacity);
 
         if (Array.isArray(ord.items)) {
           setItems(
@@ -924,6 +949,9 @@ export default function CreateManualOrderPage() {
         delivery_address: deliveryAddress || 'TBD',
         customer_notes: customerNotes,
         internal_notes: internalNotes,
+        order_cutoff_time: orderCutoffTime,
+        order_cutoff_timezone: orderCutoffTimezone,
+        proof_watermark_opacity: proofWatermarkOpacity,
         items,
       };
 
@@ -982,6 +1010,9 @@ export default function CreateManualOrderPage() {
         delivery_address: deliveryAddress || 'TBD',
         customer_notes: customerNotes,
         internal_notes: internalNotes,
+        order_cutoff_time: orderCutoffTime,
+        order_cutoff_timezone: orderCutoffTimezone,
+        proof_watermark_opacity: proofWatermarkOpacity,
         items,
       };
 
@@ -1214,6 +1245,60 @@ export default function CreateManualOrderPage() {
                   className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-xs focus:outline-none focus:border-sky-500"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Per-order customer review display settings */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-sky-400" />
+              <div>
+                <h2 className="text-sm font-semibold text-slate-200">Customer review display settings</h2>
+                <p className="mt-1 text-[11px] text-slate-500">Set what this customer sees on their artwork review link. Values start from Platform Settings and can be adjusted for this order.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <label className="space-y-1.5">
+                <span className="block text-xs font-medium text-slate-400">Order cut-off time</span>
+                <input
+                  type="time"
+                  value={orderCutoffTime}
+                  onChange={(e) => setOrderCutoffTime(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="block text-xs font-medium text-slate-400">Time zone</span>
+                <select
+                  value={orderCutoffTimezone}
+                  onChange={(e) => setOrderCutoffTimezone(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                >
+                  <option value="Australia/Adelaide">Adelaide</option>
+                  <option value="Australia/Sydney">Sydney</option>
+                  <option value="Australia/Melbourne">Melbourne</option>
+                  <option value="Australia/Brisbane">Brisbane</option>
+                  <option value="Australia/Perth">Perth</option>
+                  <option value="Australia/Darwin">Darwin</option>
+                  <option value="Australia/Hobart">Hobart</option>
+                </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="flex items-center justify-between text-xs font-medium text-slate-400">
+                  <span>Watermark opacity</span>
+                  <span className="font-bold text-pink-300">{proofWatermarkOpacity}%</span>
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={proofWatermarkOpacity}
+                  onChange={(e) => setProofWatermarkOpacity(Number(e.target.value))}
+                  className="w-full accent-pink-500 cursor-pointer"
+                />
+                <span className="block text-[10px] text-slate-500">Opacity of the Erry Imprints watermark shown over this order’s customer proof.</span>
+              </label>
             </div>
           </div>
 

@@ -24,6 +24,9 @@ export interface ManualOrderPayload {
   delivery_address: string;
   customer_notes?: string;
   internal_notes?: string;
+  order_cutoff_time?: string;
+  order_cutoff_timezone?: string;
+  proof_watermark_opacity?: number;
   items: ManualOrderItemPayload[];
   shipping_fee?: number;
 }
@@ -94,6 +97,9 @@ export interface ManualOrderDetail {
   billing_address: Record<string, any>;
   customer_notes?: string;
   internal_notes?: string;
+  order_cutoff_time?: string | null;
+  order_cutoff_timezone?: string | null;
+  proof_watermark_opacity?: number | null;
   subtotal_ex_gst: number;
   gst_amount: number;
   shipping_fee_inc_gst: number;

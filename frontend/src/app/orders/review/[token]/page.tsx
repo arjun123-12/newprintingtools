@@ -1239,6 +1239,18 @@ export default function OrderReviewPage({ params }: PageProps) {
           </div>
         </div>
 
+        {orderData.order_cutoff_time && orderData.order_cutoff_timezone && (
+          <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 sm:px-5">
+            <Clock className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div>
+              <h2 className="text-sm font-bold">Daily order cut-off time</h2>
+              <p className="mt-0.5 text-xs text-amber-800">
+                Orders submitted by {new Date(`2000-01-01T${orderData.order_cutoff_time}:00Z`).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })} ({orderData.order_cutoff_timezone.replace('Australia/', '')} time).
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Change Request Banner (if currently changes_requested) */}
         {orderData.status === 'changes_requested' && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
@@ -1472,7 +1484,10 @@ export default function OrderReviewPage({ params }: PageProps) {
                     {/* Viewport: 3D Scene or Flat Artwork */}
                     {proofView === '3d' ? (
                       frontMockupUrl ? (
-                        <div className="h-[460px] sm:h-[540px] w-full overflow-hidden bg-slate-950">
+                        <div
+                          className="relative h-[460px] sm:h-[540px] w-full overflow-hidden bg-slate-950 select-none"
+                          onContextMenu={(event) => event.preventDefault()}
+                        >
                           <Artwork3DViewer
                             previewUrl={frontMockupUrl}
                             backPreviewUrl={backMockupUrl}
@@ -1481,6 +1496,18 @@ export default function OrderReviewPage({ params }: PageProps) {
                             autoRotateInitially={false}
                             activeSide={activeSide}
                           />
+                          <div aria-hidden="true" className="absolute inset-0 z-10 grid grid-cols-2 grid-rows-3 place-items-center overflow-hidden pointer-events-none select-none">
+                            {Array.from({ length: 6 }, (_, index) => (
+                              <img
+                                key={index}
+                                src="/assets/images/erry_imprints_logo_white.png"
+                                alt=""
+                                draggable={false}
+                                style={{ opacity: (orderData.proof_watermark_opacity ?? 40) / 100 }}
+                                className="w-28 sm:w-40 h-auto -rotate-[24deg] drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]"
+                              />
+                            ))}
+                          </div>
                         </div>
                       ) : (
                         <div className="bg-[#EBEBEB] min-h-[380px] p-6 flex items-center justify-center text-center">
@@ -1492,17 +1519,36 @@ export default function OrderReviewPage({ params }: PageProps) {
                         </div>
                       )
                     ) : (
-                      <div className="bg-[#EBEBEB] min-h-[420px] sm:min-h-[500px] p-6 sm:p-10 flex items-center justify-center overflow-auto relative">
+                        <div
+                          className="bg-[#EBEBEB] min-h-[420px] sm:min-h-[500px] p-6 sm:p-10 flex items-center justify-center overflow-auto relative"
+                          onContextMenu={(event) => event.preventDefault()}
+                        >
                         <div
                           className="transition-transform duration-200 shadow-2xl rounded-none overflow-hidden bg-white max-w-full"
                           style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'center center' }}
                         >
                           {(activeSide === 'front' ? frontMockupUrl : backMockupUrl) ? (
-                            <img
-                              src={activeSide === 'front' ? frontMockupUrl! : backMockupUrl!}
-                              alt={`${activeSide === 'front' ? 'Front' : 'Back'} Flat Proof`}
-                              className="max-h-[460px] max-w-full object-contain block mx-auto select-none rounded-none"
-                            />
+                              <div className="relative inline-block max-h-[460px] max-w-full align-middle select-none">
+                                <img
+                                  src={activeSide === 'front' ? frontMockupUrl! : backMockupUrl!}
+                                  alt={`${activeSide === 'front' ? 'Front' : 'Back'} Flat Proof`}
+                                  draggable={false}
+                                  onContextMenu={(event) => event.preventDefault()}
+                                  className="max-h-[460px] max-w-full object-contain block mx-auto select-none rounded-none pointer-events-none"
+                                />
+                                <div aria-hidden="true" className="absolute inset-0 grid grid-cols-2 grid-rows-3 place-items-center overflow-hidden pointer-events-none select-none">
+                                  {Array.from({ length: 6 }, (_, index) => (
+                                    <img
+                                      key={index}
+                                      src="/assets/images/erry_imprints_logo.png"
+                                      alt=""
+                                      draggable={false}
+                                      style={{ opacity: (orderData.proof_watermark_opacity ?? 40) / 100 }}
+                                      className="w-24 sm:w-36 h-auto -rotate-[24deg] drop-shadow-[0_1px_3px_rgba(255,255,255,0.9)]"
+                                    />
+                                  ))}
+                                </div>
+                              </div>
                           ) : (
                             <div className="w-[500px] h-[300px] flex flex-col items-center justify-center bg-slate-50 text-slate-400 p-8 rounded-none">
                               <Package className="w-12 h-12 mb-2 stroke-1" />

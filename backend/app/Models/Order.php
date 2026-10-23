@@ -39,6 +39,9 @@ class Order extends Model
         'proof_approved_at',
         'proof_approved_by',
         'reminder_sent_at',
+        'order_cutoff_time',
+        'order_cutoff_timezone',
+        'proof_watermark_opacity',
     ];
 
     protected $casts = [
@@ -55,6 +58,7 @@ class Order extends Model
         'approved_proof_version' => 'integer',
         'proof_approved_at' => 'datetime',
         'reminder_sent_at' => 'datetime',
+        'proof_watermark_opacity' => 'integer',
     ];
 
     public function user(): BelongsTo
