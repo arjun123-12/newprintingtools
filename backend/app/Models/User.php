@@ -98,6 +98,7 @@ class User extends Authenticatable
         'email',
         'phone',
         'company_name',
+        'business_category',
         'abn',
         'role',
         'password',

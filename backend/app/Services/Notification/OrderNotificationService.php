@@ -5,6 +5,7 @@ namespace App\Services\Notification;
 use App\Models\CustomerEnquiry;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\CustomerRewardLedger;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
@@ -64,6 +65,32 @@ class OrderNotificationService
             );
         } catch (Throwable $e) {
             Log::warning("Could not send admin order notification to {$linkedAdminEmail}: {$e->getMessage()}");
+        }
+    }
+
+    /**
+     * Email the customer their saved Spin & Win code and next-order redemption details.
+     */
+    public function sendSpinRewardWonEmail(CustomerRewardLedger $reward, Order $order): bool
+    {
+        $recipient = $order->shipping_address['email'] ?? $order->user?->email;
+        if (empty($recipient) || ! filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+            Log::warning("Cannot email Spin & Win reward {$reward->id}: order {$order->order_number} has no valid customer email.");
+            return false;
+        }
+
+        if ($reward->reward_email_sent_at) {
+            return true;
+        }
+
+        try {
+            Mail::to($recipient)->send(new \App\Mail\SpinRewardWonMail($reward, $order));
+            $reward->forceFill(['reward_email_sent_at' => now()])->save();
+            Log::info("Spin & Win reward email sent for order {$order->order_number} to {$recipient}.");
+            return true;
+        } catch (Throwable $e) {
+            Log::warning("Failed sending Spin & Win reward email for order {$order->order_number}: {$e->getMessage()}");
+            return false;
         }
     }
 

@@ -750,4 +750,88 @@ class CustomerOrderReviewController extends Controller
             return null;
         }
     }
+
+    /**
+     * Check Spin & Win eligibility for the manual order represented by this review token.
+     */
+    public function spinEligibility(
+        Request $request,
+        string $token,
+        \App\Services\Rewards\SpinRewardService $spinRewardService
+    ): JsonResponse {
+        try {
+            $data = $spinRewardService->getEligibility(
+                orderNumber: $request->query('order_number'),
+                user: $request->user(),
+                reviewToken: $token
+            );
+
+            return response()->json([
+                'success' => true,
+                'data' => $data,
+            ]);
+        } catch (\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 403);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to evaluate Spin & Win eligibility: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Execute a Spin & Win prize selection bound to this review token.
+     */
+    public function spin(
+        Request $request,
+        string $token,
+        \App\Services\Rewards\SpinRewardService $spinRewardService
+    ): JsonResponse {
+        $validated = $request->validate([
+            'spin_token' => ['required', 'string', 'max:64'],
+            'order_number' => ['nullable', 'string', 'max:64'],
+        ]);
+
+        try {
+            $data = $spinRewardService->executeSpin(
+                orderNumber: $validated['order_number'] ?? null,
+                spinToken: $validated['spin_token'],
+                user: $request->user(),
+                clientIp: $request->ip(),
+                reviewToken: $token
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Reward selected successfully.',
+                'data' => $data,
+            ]);
+        } catch (\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 403);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage() ?: 'Unable to process reward spin.',
+            ], 422);
+        }
+    }
 }

@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { orderReviewService, CustomerReviewData } from '@/services/orderReviewService';
 import { Artwork3DViewer } from '@/components/designer/controls/Artwork3DViewer';
+import SpinAndWinWheel from '@/components/rewards/SpinAndWinWheel';
 import { formatImageUrl } from '@/utils/imageUrl';
 import type { CanvasDimensions, DocumentSettings, UnitType } from '@/types/designer';
 
@@ -995,6 +996,13 @@ export default function OrderReviewPage({ params }: PageProps) {
           </div>
         )}
 
+        {gatewayStatus === 'success' && (
+          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <span>Payment successfully verified. Your order has been placed into production!</span>
+          </div>
+        )}
+
         {gatewayStatus === 'ready' && (
           <form onSubmit={handlePaymentSubmit} className="space-y-4 max-w-lg">
             {paymentError && (
@@ -1268,24 +1276,58 @@ export default function OrderReviewPage({ params }: PageProps) {
 
         {/* Step-specific Layouts */}
         {currentStep === 'payment' ? (
-          /* STEP 2: PAYMENT STEP - Opposite Order: FIRST Summary, THEN Payment (both Mobile & Desktop) */
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* FIRST: Order Summary Column (Left on desktop, Top on mobile) */}
-            <div className="lg:col-span-7 space-y-6">
-              {renderOrderSummaryCard(false)}
-              {renderDeliverySummaryCard()}
-              {renderVersionHistoryCard()}
-            </div>
+          /* STEP 2: PAYMENT STEP */
+          (gatewayStatus === 'success' || orderData.payment_status === 'paid') ? (
+            /* When paid: Full-Width Celebration & Spin-and-Win Wheel */
+            <div className="space-y-8">
+              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm flex items-center gap-3 shadow-xs">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                <span className="font-semibold">
+                  Payment successfully verified! Your order #{orderData.order_number} has been placed into production. Spin the wheel below to unlock your reward!
+                </span>
+              </div>
 
-            {/* SECOND: Payment Form Column (Right on desktop, Bottom on mobile) */}
-            <div className="lg:col-span-5 space-y-6">
-              {renderPaymentCard()}
-              <div className="p-4 bg-sky-50/80 rounded-2xl border border-sky-100 flex items-start gap-2.5 text-xs text-sky-800">
-                <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
-                <span>Production begins immediately after verified payment. Your tax invoice will be sent via email.</span>
+              {/* Full-Width Spin & Win Reward Wheel on Desktop */}
+              <SpinAndWinWheel
+                orderNumber={orderData.order_number}
+                reviewToken={token}
+              />
+
+              {/* Order Summary & Delivery Details below full-width wheel */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                <div className="lg:col-span-7 space-y-6">
+                  {renderOrderSummaryCard(false)}
+                  {renderDeliverySummaryCard()}
+                </div>
+                <div className="lg:col-span-5 space-y-6">
+                  {renderVersionHistoryCard()}
+                  <div className="p-4 bg-sky-50/80 rounded-2xl border border-sky-100 flex items-start gap-2.5 text-xs text-sky-800">
+                    <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                    <span>Production begins immediately after verified payment. Your tax invoice will be sent via email.</span>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            /* When awaiting payment: 2-column layout (Summary on Left, BPOINT form on Right) */
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* FIRST: Order Summary Column (Left on desktop, Top on mobile) */}
+              <div className="lg:col-span-7 space-y-6">
+                {renderOrderSummaryCard(false)}
+                {renderDeliverySummaryCard()}
+                {renderVersionHistoryCard()}
+              </div>
+
+              {/* SECOND: Payment Form Column (Right on desktop, Bottom on mobile) */}
+              <div className="lg:col-span-5 space-y-6">
+                {renderPaymentCard()}
+                <div className="p-4 bg-sky-50/80 rounded-2xl border border-sky-100 flex items-start gap-2.5 text-xs text-sky-800">
+                  <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                  <span>Production begins immediately after verified payment. Your tax invoice will be sent via email.</span>
+                </div>
+              </div>
+            </div>
+          )
         ) : (
           /* STEPS 1 (REVIEW) & 3 (PRODUCTION): Proof / Status on Left, Summary on Right */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -1585,6 +1627,14 @@ export default function OrderReviewPage({ params }: PageProps) {
               {/* STEP 3: PRODUCTION & SHIPPING WORKFLOW TRACKING */}
               {currentStep === 'production' && (
                 <div className="space-y-6">
+                  {/* Verified Payment Reward Wheel */}
+                  {(gatewayStatus === 'success' || orderData.payment_status === 'paid') && (
+                    <SpinAndWinWheel
+                      orderNumber={orderData.order_number}
+                      reviewToken={token}
+                    />
+                  )}
+
                   {/* Status Banner Card matching user's image */}
                   <div className="bg-white rounded-3xl border border-slate-200/90 p-6 sm:p-8 shadow-sm">
                     {/* Top Row: Icon + Title + Step badge + Subtitle */}

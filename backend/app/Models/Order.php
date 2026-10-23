@@ -18,6 +18,7 @@ class Order extends Model
     protected $fillable = [
         'order_number',
         'user_id',
+        'business_category',
         'status',
         'payment_status',
         'subtotal_ex_gst',

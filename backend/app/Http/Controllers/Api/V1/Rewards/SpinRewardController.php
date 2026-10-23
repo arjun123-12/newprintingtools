@@ -21,19 +21,31 @@ class SpinRewardController extends Controller
     public function checkEligibility(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'order_number' => ['required', 'string', 'max:64'],
+            'order_number' => ['required_without:review_token', 'nullable', 'string', 'max:64'],
+            'review_token' => ['nullable', 'string', 'max:128'],
         ]);
 
         try {
             $result = $this->spinRewardService->getEligibility(
-                $validated['order_number'],
-                $request->user()
+                $validated['order_number'] ?? null,
+                $request->user(),
+                $validated['review_token'] ?? null
             );
 
             return response()->json([
                 'success' => true,
                 'data' => $result,
             ]);
+        } catch (\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 403);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
         } catch (Throwable $e) {
             report($e);
             return response()->json([
@@ -50,16 +62,18 @@ class SpinRewardController extends Controller
     public function spin(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'order_number' => ['required', 'string', 'max:64'],
+            'order_number' => ['required_without:review_token', 'nullable', 'string', 'max:64'],
             'spin_token' => ['required', 'string', 'max:64'],
+            'review_token' => ['nullable', 'string', 'max:128'],
         ]);
 
         try {
             $result = $this->spinRewardService->executeSpin(
-                $validated['order_number'],
+                $validated['order_number'] ?? null,
                 $validated['spin_token'],
                 $request->user(),
-                $request->ip()
+                $request->ip(),
+                $validated['review_token'] ?? null
             );
 
             return response()->json([
@@ -67,6 +81,16 @@ class SpinRewardController extends Controller
                 'message' => 'Reward selected successfully.',
                 'data' => $result,
             ]);
+        } catch (\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 403);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
         } catch (Throwable $e) {
             report($e);
             return response()->json([
@@ -130,6 +154,26 @@ class SpinRewardController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Unable to validate voucher code.',
+            ], 500);
+        }
+    }
+
+    /**
+     * Get all active business/reward categories for customer selection and wheel context.
+     */
+    public function getCategories(): JsonResponse
+    {
+        try {
+            $categories = $this->spinRewardService->getActiveRewardCategories();
+
+            return response()->json([
+                'success' => true,
+                'data' => $categories,
+            ]);
+        } catch (Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unable to load reward categories.',
             ], 500);
         }
     }

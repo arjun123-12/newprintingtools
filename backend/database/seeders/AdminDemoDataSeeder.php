@@ -27,12 +27,12 @@ class AdminDemoDataSeeder extends Seeder
         $primaryAdmin = User::updateOrCreate(
             ['email' => 'admin@printecommerce.com.au'],
             [
-                'name' => 'Print Operations Admin',
+                'name' => 'Erry Imprints Admin',
                 'phone' => '1300 000 789',
-                'company_name' => 'Print Ecommerce Pty Ltd',
+                'company_name' => 'Erry Imprints Pvt Ltd',
                 'abn' => '12345678901',
                 'role' => 'admin',
-                'password' => Hash::make('SecretAdmin2026!'),
+                'password' => 'SecretAdmin2026!',
                 'email_verified_at' => now(),
             ]
         );
@@ -44,7 +44,7 @@ class AdminDemoDataSeeder extends Seeder
                 'phone' => '0400 000 000',
                 'company_name' => 'Print Admin Portal',
                 'role' => 'admin',
-                'password' => Hash::make('admin123'),
+                'password' => 'admin123',
                 'email_verified_at' => now(),
             ]
         );

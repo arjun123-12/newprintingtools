@@ -137,6 +137,16 @@ Route::prefix('order-review')
             \App\Http\Controllers\Api\V1\Public\CustomerOrderReviewController::class,
             'processPayment',
         ])->where('token', '[A-Za-z0-9_-]+')->middleware('throttle:20,1');
+
+        Route::get('/{token}/spin-eligibility', [
+            \App\Http\Controllers\Api\V1\Public\CustomerOrderReviewController::class,
+            'spinEligibility',
+        ])->where('token', '[A-Za-z0-9_-]+')->middleware('throttle:60,1');
+
+        Route::post('/{token}/spin', [
+            \App\Http\Controllers\Api\V1\Public\CustomerOrderReviewController::class,
+            'spin',
+        ])->where('token', '[A-Za-z0-9_-]+')->middleware('throttle:20,1');
     });
 
 // ==========================================
@@ -149,6 +159,8 @@ Route::prefix('spin-win')->group(function () {
         ->middleware('throttle:20,1');
     Route::post('/validate-voucher', [\App\Http\Controllers\Api\V1\Rewards\SpinRewardController::class, 'validateReward'])
         ->middleware('throttle:30,1');
+    Route::get('/categories', [\App\Http\Controllers\Api\V1\Rewards\SpinRewardController::class, 'getCategories'])
+        ->middleware('throttle:60,1');
 });
 
 // Catalog
@@ -350,6 +362,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     Route::prefix('customers')->group(function () {
+        Route::get('/profile', [CustomerController::class, 'profile']);
+
+        Route::put('/profile', [CustomerController::class, 'updateProfile']);
+    });
+
+    Route::prefix('customer')->group(function () {
         Route::get('/profile', [CustomerController::class, 'profile']);
 
         Route::put('/profile', [CustomerController::class, 'updateProfile']);
@@ -871,6 +889,11 @@ Route::middleware(['auth:sanctum', 'admin.access'])
             Route::get('/settings', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'getSettings']);
             Route::put('/settings', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'updateSettings']);
             Route::get('/ledger', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'getLedger']);
+            Route::get('/categories', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'listCategories']);
+            Route::post('/categories', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'storeCategory']);
+            Route::put('/categories/{id}', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'updateCategory'])->whereNumber('id');
+            Route::delete('/categories/{id}', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'deleteCategory'])->whereNumber('id');
+            Route::delete('/rewards/{id}', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'deleteReward'])->whereNumber('id');
         });
     });
 Route::prefix('client-brief-auth')->group(function () {

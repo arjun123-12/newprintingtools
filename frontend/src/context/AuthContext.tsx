@@ -23,6 +23,7 @@ export interface CustomerUser {
   phone?: string | null;
   company_name?: string | null;
   abn?: string | null;
+  business_category?: string | null;
   role: string;
   is_admin: boolean;
   is_super_admin?: boolean;

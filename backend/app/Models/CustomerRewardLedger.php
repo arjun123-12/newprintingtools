@@ -16,6 +16,8 @@ class CustomerRewardLedger extends Model
         'order_id',
         'user_id',
         'spin_reward_id',
+        'category_id',
+        'category_name',
         'reward_code',
         'reward_type',
         'title',
@@ -28,13 +30,21 @@ class CustomerRewardLedger extends Model
         'redeemed_at',
         'redeemed_order_id',
         'claim_token',
+        'reward_email_sent_at',
     ];
 
     protected $casts = [
+        'category_id' => 'integer',
         'value' => 'decimal:2',
         'expires_at' => 'datetime',
         'redeemed_at' => 'datetime',
+        'reward_email_sent_at' => 'datetime',
     ];
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(SpinRewardCategory::class, 'category_id')->withTrashed();
+    }
 
     public function entitlement(): BelongsTo
     {

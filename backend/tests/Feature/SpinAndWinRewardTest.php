@@ -40,7 +40,7 @@ class SpinAndWinRewardTest extends TestCase
             'billing_address' => ['name' => 'John'],
         ]);
 
-        $response = $this->getJson('/api/v1/spin-win/eligibility?order_number=PO-TEST-UNPAID');
+        $response = $this->actingAs($user)->getJson('/api/v1/spin-win/eligibility?order_number=PO-TEST-UNPAID');
 
         $response->assertStatus(200);
         $this->assertFalse($response->json('data.eligible'));
@@ -71,7 +71,7 @@ class SpinAndWinRewardTest extends TestCase
             'status' => 'succeeded',
         ]);
 
-        $response = $this->getJson('/api/v1/spin-win/eligibility?order_number=PO-TEST-PAID');
+        $response = $this->actingAs($user)->getJson('/api/v1/spin-win/eligibility?order_number=PO-TEST-PAID');
 
         $response->assertStatus(200);
         $this->assertTrue($response->json('data.eligible'));
@@ -111,7 +111,7 @@ class SpinAndWinRewardTest extends TestCase
         ]);
 
         // 1. Get spin token
-        $eligibilityRes = $this->getJson('/api/v1/spin-win/eligibility?order_number=PO-TEST-SPIN');
+        $eligibilityRes = $this->actingAs($user)->getJson('/api/v1/spin-win/eligibility?order_number=PO-TEST-SPIN');
         $spinToken = $eligibilityRes->json('data.spin_token');
 
         // 2. Perform spin

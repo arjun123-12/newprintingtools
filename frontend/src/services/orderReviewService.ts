@@ -163,4 +163,24 @@ export const orderReviewService = {
     });
     return response.data;
   },
+
+  /**
+   * Check Spin & Win eligibility for this review token
+   */
+  async getSpinEligibility(token: string, orderNumber?: string) {
+    const params = orderNumber ? { order_number: orderNumber } : {};
+    const response = await axios.get(`${API_BASE_URL}/order-review/${token}/spin-eligibility`, { params });
+    return response.data;
+  },
+
+  /**
+   * Execute Spin & Win for this review token
+   */
+  async spin(token: string, spinToken: string, orderNumber?: string) {
+    const response = await axios.post(`${API_BASE_URL}/order-review/${token}/spin`, {
+      spin_token: spinToken,
+      order_number: orderNumber,
+    });
+    return response.data;
+  },
 };

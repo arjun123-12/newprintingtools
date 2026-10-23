@@ -24,11 +24,16 @@ import {
   Tag,
   Clock,
   Sparkles,
+  Briefcase,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/services/api/client';
 import { useCartStore } from '@/stores/cartStore';
-import { spinWinService, CustomerRewardsResponse } from '@/services/spinWinService';
+import {
+  spinWinService,
+  CustomerRewardsResponse,
+  RewardCategory,
+} from '@/services/spinWinService';
 
 interface SavedCustomerArtwork {
   id: string;
@@ -53,7 +58,7 @@ interface SavedCustomerArtwork {
 
 export default function AccountPage() {
   const router = useRouter();
-  const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, logout, refreshUser } = useAuth();
   const itemsCount = useCartStore((state) => state.itemsCount);
 
   const [artworks, setArtworks] = useState<SavedCustomerArtwork[]>([]);
@@ -64,6 +69,12 @@ export default function AccountPage() {
   const [rewardsData, setRewardsData] = useState<CustomerRewardsResponse | null>(null);
   const [loadingRewards, setLoadingRewards] = useState(false);
   const [copiedRewardCode, setCopiedRewardCode] = useState<string | null>(null);
+
+  // Business Category state
+  const [categories, setCategories] = useState<RewardCategory[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [categorySuccess, setCategorySuccess] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -98,10 +109,47 @@ export default function AccountPage() {
         }
       };
 
+      const fetchCategories = async () => {
+        try {
+          const cats = await spinWinService.getRewardCategories();
+          setCategories(cats);
+        } catch (err) {
+          console.warn('Could not load reward categories:', err);
+        }
+      };
+
       void fetchArtworks();
       void fetchRewards();
+      void fetchCategories();
     }
   }, [authLoading, isAuthenticated, router]);
+
+  useEffect(() => {
+    if (user?.business_category) {
+      setSelectedCategory(user.business_category);
+    } else if (rewardsData?.customer_business_category) {
+      setSelectedCategory(rewardsData.customer_business_category);
+    }
+  }, [user?.business_category, rewardsData?.customer_business_category]);
+
+  const handleCategoryChange = async (newCat: string) => {
+    setSelectedCategory(newCat);
+    setSavingCategory(true);
+    try {
+      await spinWinService.updateCustomerProfile({ business_category: newCat });
+      if (refreshUser) {
+        await refreshUser();
+      }
+      const res = await spinWinService.getCustomerRewards();
+      setRewardsData(res);
+      setCategorySuccess(true);
+      setTimeout(() => setCategorySuccess(false), 2500);
+    } catch (err) {
+      console.error('Failed to update business category', err);
+    } finally {
+      setSavingCategory(false);
+    }
+  };
 
   const copyRewardCode = (code: string) => {
     navigator.clipboard.writeText(code);
@@ -162,6 +210,35 @@ export default function AccountPage() {
                   {user.company_name}
                 </span>
               )}
+            </div>
+
+            {/* Business Category Selection */}
+            <div className="pt-2 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-slate-600 flex items-center gap-1">
+                <Briefcase className="w-3.5 h-3.5 text-sky-600" />
+                <span>Industry Category:</span>
+              </span>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => void handleCategoryChange(e.target.value)}
+                  disabled={savingCategory}
+                  className="text-xs font-bold text-slate-800 bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                >
+                  <option value="">General / Default</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.code}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+                {savingCategory && <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" />}
+                {categorySuccess && (
+                  <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-0.5 animate-in fade-in">
+                    <Check className="w-3 h-3" /> Saved
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -272,10 +349,17 @@ export default function AccountPage() {
                   }`}
                 >
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-white/10 text-slate-300">
-                        {reward.reward_type.replace('_', ' ')}
-                      </span>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-white/10 text-slate-300">
+                          {reward.reward_type.replace('_', ' ')}
+                        </span>
+                        {reward.category_name && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-400/30">
+                            {reward.category_name}
+                          </span>
+                        )}
+                      </div>
                       <span
                         className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
                           reward.status === 'active'

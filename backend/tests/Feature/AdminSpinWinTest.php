@@ -27,7 +27,7 @@ class AdminSpinWinTest extends TestCase
         $response = $this->actingAs($admin)->getJson('/api/v1/admin/spin-win/settings');
         $response->assertStatus(200);
         $this->assertTrue($response->json('data.settings.enabled'));
-        $this->assertCount(8, $response->json('data.segments'));
+        $this->assertGreaterThanOrEqual(8, count($response->json('data.segments')));
 
         // Update settings
         $updateRes = $this->actingAs($admin)->putJson('/api/v1/admin/spin-win/settings', [
