@@ -65,7 +65,7 @@ export default function AdminSettingsPage() {
   const [bannerSubtitle, setBannerSubtitle] = useState('AMAZING PRINTING REWARDS AWAIT!');
   const [bannerTagline, setBannerTagline] = useState('Play the wheel and unlock exciting rewards for your business.');
   const [proofWatermarkOpacity, setProofWatermarkOpacity] = useState(40);
-  const [orderCutoffTime, setOrderCutoffTime] = useState('15:00');
+  const [orderCutoffTime, setOrderCutoffTime] = useState('10:00');
   const [orderCutoffTimezone, setOrderCutoffTimezone] = useState('Australia/Adelaide');
 
   const [categories, setCategories] = useState<RewardCategory[]>([]);
@@ -115,7 +115,7 @@ export default function AdminSettingsPage() {
         setBannerSubtitle(data.settings?.banner_subtitle ?? 'AMAZING PRINTING REWARDS AWAIT!');
         setBannerTagline(data.settings?.banner_tagline ?? 'Play the wheel and unlock exciting rewards for your business.');
         setProofWatermarkOpacity(Number(data.settings?.proof_watermark_opacity ?? 40));
-        setOrderCutoffTime(data.settings?.order_cutoff_time ?? '15:00');
+        setOrderCutoffTime(data.settings?.order_cutoff_time ?? '10:00');
         setOrderCutoffTimezone(data.settings?.order_cutoff_timezone ?? 'Australia/Adelaide');
         setCategories(data.categories ?? []);
         setSegments(data.segments ?? []);

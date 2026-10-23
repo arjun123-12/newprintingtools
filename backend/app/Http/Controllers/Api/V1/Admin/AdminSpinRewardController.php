@@ -26,7 +26,7 @@ class AdminSpinRewardController extends Controller
             'banner_subtitle' => (string) SpinWinSetting::get('banner_subtitle', 'AMAZING PRINTING REWARDS AWAIT!'),
             'banner_tagline' => (string) SpinWinSetting::get('banner_tagline', 'Play the wheel and unlock exciting rewards for your business.'),
             'proof_watermark_opacity' => (int) SpinWinSetting::get('proof_watermark_opacity', 40),
-            'order_cutoff_time' => (string) SpinWinSetting::get('order_cutoff_time', '15:00'),
+            'order_cutoff_time' => (string) SpinWinSetting::get('order_cutoff_time', '10:00'),
             'order_cutoff_timezone' => (string) SpinWinSetting::get('order_cutoff_timezone', 'Australia/Adelaide'),
         ];
 

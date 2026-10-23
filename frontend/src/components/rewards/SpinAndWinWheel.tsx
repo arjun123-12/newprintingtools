@@ -243,7 +243,7 @@ export default function SpinAndWinWheel({
   return (
     <section
       aria-label="Spin and Win Rewards"
-      className={`relative overflow-hidden rounded-3xl border-2 border-amber-400/30 bg-gradient-to-b from-slate-950 via-indigo-950 to-slate-950 text-white shadow-2xl p-4 sm:p-6 lg:p-7 xl:p-8 2xl:p-10 ${className}`}
+      className={`@container relative overflow-hidden rounded-3xl border-2 border-amber-400/30 bg-gradient-to-b from-slate-950 via-indigo-950 to-slate-950 text-white shadow-2xl p-4 sm:p-6 lg:p-7 xl:p-8 2xl:p-10 ${className}`}
     >
       {/* Background ambient lighting */}
       <div className="absolute -top-24 -left-24 w-72 h-72 sm:w-96 sm:h-96 bg-pink-600/15 rounded-full blur-3xl pointer-events-none" />
@@ -320,7 +320,7 @@ export default function SpinAndWinWheel({
       </div>
 
       {/* TOP BRANDED BANNER */}
-      <div className="relative z-10 flex flex-col xl:flex-row items-center justify-between gap-5 border-b border-white/10 pb-5 sm:pb-6 mb-6 sm:mb-8">
+      <div className="relative z-10 flex flex-col @5xl:flex-row items-center justify-between gap-5 border-b border-white/10 pb-5 sm:pb-6 mb-6 sm:mb-8">
         <div className="flex items-center gap-3 self-start xl:self-center">
           <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-amber-400 via-pink-500 to-indigo-600 p-0.5 shadow-lg shadow-pink-500/20 shrink-0">
             <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center">
@@ -339,8 +339,8 @@ export default function SpinAndWinWheel({
         </div>
 
         {/* Big Spin & Win Title */}
-        <div className="text-center xl:text-right w-full xl:w-auto">
-          <div className="flex flex-wrap items-center justify-center xl:justify-end gap-2 mb-1.5">
+        <div className="text-center @5xl:text-right w-full @5xl:w-auto">
+          <div className="flex flex-wrap items-center justify-center @5xl:justify-end gap-2 mb-1.5">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-pink-500/20 border border-pink-500/40 text-pink-300 text-xs font-bold">
               <Sparkles className="w-3.5 h-3.5 text-pink-400" />
               <span>EXCLUSIVE PAYMENT REWARD</span>
@@ -355,18 +355,18 @@ export default function SpinAndWinWheel({
           <h2 className="text-2xl sm:text-3xl lg:text-3xl xl:text-4xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-pink-400 to-sky-300 drop-shadow-sm">
             SPIN & WIN
           </h2>
-          <p className="text-xs xl:text-sm text-slate-300 max-w-md xl:max-w-lg xl:ml-auto">
+          <p className="text-xs xl:text-sm text-slate-300 max-w-md @5xl:max-w-lg @5xl:ml-auto">
             AMAZING PRINTING REWARDS AWAIT! Play the wheel and unlock rewards tailored for your business.
           </p>
         </div>
       </div>
 
       {/* MAIN CONTENT: ADAPTIVE GRID THAT PREVENTS OVAL COMPRESSION */}
-      <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-5 lg:gap-6 xl:gap-8 items-start xl:items-center">
+      <div className="relative z-10 grid grid-cols-1 @md:grid-cols-2 @5xl:grid-cols-12 gap-5 lg:gap-5 xl:gap-8 items-start @5xl:items-center">
         {/* CENTER COLUMN: THE WHEEL OF FORTUNE (Rendered first on mobile/tablet/constrained, centered on xl) */}
-        <div className="col-span-1 md:col-span-2 xl:col-span-6 flex flex-col items-center justify-center order-1 xl:order-2 w-full py-2">
+        <div className="col-span-1 @md:col-span-2 @5xl:col-span-6 flex flex-col items-center justify-center order-1 @5xl:order-2 w-full min-w-0 py-2">
           {/* Guaranteed 1:1 Aspect Ratio Wheel Container (NO explicit height, immune to oval stretching) */}
-          <div className="relative w-full max-w-[280px] xs:max-w-[320px] sm:max-w-[360px] md:max-w-[390px] xl:max-w-[420px] 2xl:max-w-[450px] aspect-square flex items-center justify-center select-none mx-auto shrink-0">
+          <div className="relative w-full max-w-[280px] xs:max-w-[320px] sm:max-w-[360px] md:max-w-[390px] lg:max-w-[380px] xl:max-w-[420px] 2xl:max-w-[450px] aspect-square flex items-center justify-center select-none mx-auto shrink-0">
             {/* Outer Golden Rim with Lighting Bulbs */}
             <div className="absolute inset-0 rounded-full border-[8px] sm:border-[10px] xl:border-[14px] border-amber-400 bg-radial from-amber-300 via-amber-500 to-amber-700 shadow-[0_0_50px_rgba(245,158,11,0.45)]">
               {/* Outer Bulbs */}
@@ -589,7 +589,7 @@ export default function SpinAndWinWheel({
         </div>
 
         {/* LEFT COLUMN: HOW IT WORKS */}
-        <div className="col-span-1 xl:col-span-3 space-y-3.5 xl:space-y-4 order-2 xl:order-1 flex flex-col justify-between w-full">
+        <div className="col-span-1 @md:col-span-1 @5xl:col-span-3 space-y-3.5 xl:space-y-4 order-2 @5xl:order-1 flex flex-col justify-between w-full min-w-0">
           <div className="bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 p-4 sm:p-5 shadow-lg">
             <h3 className="text-sm font-extrabold text-amber-400 uppercase tracking-wider mb-3.5 sm:mb-4 flex items-center gap-2">
               <Zap className="w-4 h-4 text-amber-400" />
@@ -660,7 +660,7 @@ export default function SpinAndWinWheel({
         </div>
 
         {/* RIGHT COLUMN: YOUR POSSIBLE REWARDS */}
-        <div className="col-span-1 xl:col-span-3 space-y-3.5 xl:space-y-4 order-3 flex flex-col justify-between w-full">
+        <div className="col-span-1 @md:col-span-1 @5xl:col-span-3 space-y-3.5 xl:space-y-4 order-3 flex flex-col justify-between w-full min-w-0">
           <div className="bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-800 p-4 sm:p-5 shadow-lg">
             <h3 className="text-sm font-extrabold text-pink-400 uppercase tracking-wider mb-3.5 sm:mb-4 flex items-center justify-between">
               <span>Your Possible Rewards</span>

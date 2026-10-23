@@ -226,6 +226,86 @@ interface PageProps {
   params: Promise<{ token: string }>;
 }
 
+type ZonedClockParts = { year: number; month: number; day: number; hour: number; minute: number; second: number };
+
+function getZonedClockParts(date: Date, timeZone: string): ZonedClockParts {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    hour: Number(values.hour),
+    minute: Number(values.minute),
+    second: Number(values.second),
+  };
+}
+
+function zonedTimeToTimestamp(year: number, month: number, day: number, hour: number, minute: number, timeZone: string): number {
+  const desiredWallTime = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let timestamp = desiredWallTime;
+  // Resolve the timezone offset iteratively so DST changes are respected.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const local = getZonedClockParts(new Date(timestamp), timeZone);
+    const representedWallTime = Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second);
+    timestamp += desiredWallTime - representedWallTime;
+  }
+  return timestamp;
+}
+
+function getNextBusinessCutoffTimestamp(now: number, cutoffTime: string, timeZone: string): number {
+  const localNow = getZonedClockParts(new Date(now), timeZone);
+  const [hour, minute] = cutoffTime.split(':').map(Number);
+  let localDate = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day));
+  let target = zonedTimeToTimestamp(localNow.year, localNow.month, localNow.day, hour || 10, minute || 0, timeZone);
+
+  if (target <= now || localDate.getUTCDay() === 0 || localDate.getUTCDay() === 6) {
+    do {
+      localDate.setUTCDate(localDate.getUTCDate() + 1);
+    } while (localDate.getUTCDay() === 0 || localDate.getUTCDay() === 6);
+
+    target = zonedTimeToTimestamp(
+      localDate.getUTCFullYear(),
+      localDate.getUTCMonth() + 1,
+      localDate.getUTCDate(),
+      hour || 10,
+      minute || 0,
+      timeZone,
+    );
+  }
+
+  return target;
+}
+
+function formatCountdown(milliseconds: number): string {
+  const totalMinutes = Math.max(0, Math.floor(milliseconds / 60_000));
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  return `${days}d ${hours}h ${minutes}m`;
+}
+
+function getCountdownUnits(milliseconds: number): { days: string; hours: string; minutes: string } {
+  const totalMinutes = Math.max(0, Math.floor(milliseconds / 60_000));
+  const days = Math.floor(totalMinutes / (24 * 60));
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+  const minutes = totalMinutes % 60;
+  return {
+    days: String(days).padStart(2, '0'),
+    hours: String(hours).padStart(2, '0'),
+    minutes: String(minutes).padStart(2, '0'),
+  };
+}
+
 export default function OrderReviewPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const token = resolvedParams.token;
@@ -234,6 +314,7 @@ export default function OrderReviewPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<CustomerReviewData | null>(null);
+  const [countdownNow, setCountdownNow] = useState(Date.now());
   const [selectedProofItemId, setSelectedProofItemId] = useState<string>('');
   const [templatePreviewUrl, setTemplatePreviewUrl] = useState<string | null>(null);
   const [templateBackPreviewUrl, setTemplateBackPreviewUrl] = useState<string | null>(null);
@@ -278,6 +359,11 @@ export default function OrderReviewPage({ params }: PageProps) {
   const [paymentReceipt, setPaymentReceipt] = useState<string | null>(null);
   const [showStatusHistoryLog, setShowStatusHistoryLog] = useState(false);
   const bpointControllerRef = useRef<any>(null);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCountdownNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // 1. Fetch Authoritative Order Data
   const loadOrder = async () => {
@@ -1239,17 +1325,207 @@ export default function OrderReviewPage({ params }: PageProps) {
           </div>
         </div>
 
-        {orderData.order_cutoff_time && orderData.order_cutoff_timezone && (
-          <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 sm:px-5">
-            <Clock className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-            <div>
-              <h2 className="text-sm font-bold">Daily order cut-off time</h2>
-              <p className="mt-0.5 text-xs text-amber-800">
-                Orders submitted by {new Date(`2000-01-01T${orderData.order_cutoff_time}:00Z`).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })} ({orderData.order_cutoff_timezone.replace('Australia/', '')} time).
-              </p>
+        {(() => {
+          const timezone = orderData.order_cutoff_timezone || 'Australia/Adelaide';
+          const cutoffTime = orderData.order_cutoff_time || '10:00';
+          const isPaid = orderData.payment_status === 'paid';
+          const dispatchTarget = isPaid && orderData.estimated_dispatch_at
+            ? Date.parse(orderData.estimated_dispatch_at)
+            : Number.NaN;
+          const target = isPaid ? dispatchTarget : getNextBusinessCutoffTimestamp(countdownNow, cutoffTime, timezone);
+          const hasValidTarget = Number.isFinite(target);
+          const units = hasValidTarget ? getCountdownUnits(target - countdownNow) : null;
+          const targetDate = hasValidTarget
+            ? new Intl.DateTimeFormat('en-AU', {
+                timeZone: timezone,
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                hour: 'numeric',
+                minute: '2-digit',
+              }).format(new Date(target))
+            : null;
+
+          return (
+            <div
+              className={`relative overflow-hidden rounded-2xl sm:rounded-3xl border p-4 sm:p-5 transition-shadow shadow-xs hover:shadow-md ${
+                isPaid
+                  ? 'border-emerald-200/90 bg-gradient-to-br from-emerald-50/95 via-teal-50/60 to-emerald-50/80 text-emerald-950'
+                  : 'border-amber-200/90 bg-gradient-to-br from-amber-50/95 via-amber-100/40 to-orange-50/60 text-amber-950'
+              }`}
+            >
+              {/* Subtle ambient glow aura */}
+              <div
+                aria-hidden="true"
+                className={`pointer-events-none absolute -right-8 -top-8 h-36 w-36 rounded-full blur-2xl opacity-40 transition-opacity ${
+                  isPaid ? 'bg-emerald-400/30' : 'bg-amber-400/30'
+                }`}
+              />
+
+              <div className="relative z-10 flex flex-col gap-3">
+                {/* Header row: animated icon + title + status pill */}
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`relative flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl border shadow-xs transition-colors ${
+                        isPaid
+                          ? 'border-emerald-300/80 bg-white/95 text-emerald-600'
+                          : 'border-amber-300/80 bg-white/95 text-amber-600'
+                      }`}
+                    >
+                      {/* Gentle animated ping ring, respecting prefers-reduced-motion */}
+                      <span
+                        className={`absolute inset-0 rounded-xl opacity-25 motion-safe:animate-ping motion-reduce:hidden ${
+                          isPaid ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}
+                        style={{ animationDuration: '3s' }}
+                      />
+                      {/* Subtle pulse on the clock icon */}
+                      <Clock className="relative h-5 w-5 motion-safe:animate-pulse motion-reduce:animate-none" />
+                    </span>
+                    <div>
+                      <h2 className="text-sm sm:text-base font-bold tracking-tight">
+                        {isPaid ? 'Estimated Dispatch Countdown' : 'Time Until Next Cut-Off'}
+                      </h2>
+                      <p className={`text-[11px] sm:text-xs font-medium ${isPaid ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {isPaid
+                          ? 'Live production & packaging timer'
+                          : `Daily cut-off: ${cutoffTime} (${timezone.replace('Australia/', '')} time)`}
+                      </p>
+                    </div>
+                  </div>
+
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold border ${
+                      isPaid
+                        ? 'bg-emerald-100/80 border-emerald-300 text-emerald-800'
+                        : 'bg-amber-100/80 border-amber-300 text-amber-800'
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        isPaid ? 'bg-emerald-600' : 'bg-amber-600'
+                      } motion-safe:animate-pulse`}
+                    />
+                    {isPaid ? 'In Production' : 'Daily Cut-Off'}
+                  </span>
+                </div>
+
+                {/* Digit tiles: only rendered if a valid countdown target exists */}
+                {units && (
+                  <div className="flex items-center gap-2 sm:gap-3 py-1">
+                    {/* Days Tile */}
+                    <div
+                      className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${
+                        isPaid
+                          ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
+                          : 'border-amber-200/90 bg-white/95 text-amber-950'
+                      }`}
+                    >
+                      <span className="font-mono text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums text-slate-900">
+                        {units.days}
+                      </span>
+                      <span
+                        className={`mt-0.5 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase ${
+                          isPaid ? 'text-emerald-700' : 'text-amber-700'
+                        }`}
+                      >
+                        Days
+                      </span>
+                    </div>
+
+                    <span
+                      className={`font-mono text-lg sm:text-xl font-bold select-none ${
+                        isPaid ? 'text-emerald-400' : 'text-amber-400'
+                      }`}
+                    >
+                      :
+                    </span>
+
+                    {/* Hours Tile */}
+                    <div
+                      className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${
+                        isPaid
+                          ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
+                          : 'border-amber-200/90 bg-white/95 text-amber-950'
+                      }`}
+                    >
+                      <span className="font-mono text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums text-slate-900">
+                        {units.hours}
+                      </span>
+                      <span
+                        className={`mt-0.5 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase ${
+                          isPaid ? 'text-emerald-700' : 'text-amber-700'
+                        }`}
+                      >
+                        Hours
+                      </span>
+                    </div>
+
+                    <span
+                      className={`font-mono text-lg sm:text-xl font-bold select-none ${
+                        isPaid ? 'text-emerald-400' : 'text-amber-400'
+                      }`}
+                    >
+                      :
+                    </span>
+
+                    {/* Minutes Tile */}
+                    <div
+                      className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${
+                        isPaid
+                          ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
+                          : 'border-amber-200/90 bg-white/95 text-amber-950'
+                      }`}
+                    >
+                      <span className="font-mono text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums text-slate-900">
+                        {units.minutes}
+                      </span>
+                      <span
+                        className={`mt-0.5 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase ${
+                          isPaid ? 'text-emerald-700' : 'text-amber-700'
+                        }`}
+                      >
+                        Min
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Explanatory lines below digits */}
+                <div className="pt-1 text-xs">
+                  {isPaid ? (
+                    targetDate ? (
+                      <div className="space-y-0.5 text-emerald-900">
+                        <p className="font-medium text-emerald-950">
+                          Estimated dispatch: <span className="font-semibold">{targetDate}</span> ({timezone.replace('Australia/', '')} time)
+                        </p>
+                        <p className="text-[11px] text-emerald-800">
+                          Based on {orderData.production_days} production business day{orderData.production_days === 1 ? '' : 's'}. Courier delivery time is additional.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-emerald-900 font-medium">
+                        Your payment is confirmed. The dispatch estimate will appear once production time is set for this order.
+                      </p>
+                    )
+                  ) : (
+                    <div className="space-y-0.5 text-amber-900">
+                      <p className="font-medium text-amber-950">
+                        Pay before today’s cut-off to start processing today. Weekend payments start on the next business day.
+                      </p>
+                      {targetDate && (
+                        <p className="text-[11px] text-amber-800">
+                          Next cut-off deadline: <span className="font-semibold">{targetDate}</span> ({timezone.replace('Australia/', '')} time).
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Change Request Banner (if currently changes_requested) */}
         {orderData.status === 'changes_requested' && (

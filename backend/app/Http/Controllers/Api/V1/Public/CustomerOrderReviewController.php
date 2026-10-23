@@ -223,8 +223,10 @@ class CustomerOrderReviewController extends Controller
                 'carrier_tracking_url' => \App\Services\Order\ManualOrderService::resolveCarrierTrackingUrl($order->shipping_carrier, $order->tracking_number),
                 'status_history' => $statusHistory,
                 'proof_watermark_opacity' => $order->proof_watermark_opacity ?? (int) SpinWinSetting::get('proof_watermark_opacity', 40),
-                'order_cutoff_time' => $order->order_cutoff_time ?? (string) SpinWinSetting::get('order_cutoff_time', '15:00'),
+                'order_cutoff_time' => $order->order_cutoff_time ?? (string) SpinWinSetting::get('order_cutoff_time', '10:00'),
                 'order_cutoff_timezone' => $order->order_cutoff_timezone ?? (string) SpinWinSetting::get('order_cutoff_timezone', 'Australia/Adelaide'),
+                'production_days' => $order->production_days,
+                'estimated_dispatch_at' => $this->estimatedDispatchAt($order),
                 'payment_status' => $order->payment_status->value ?? (string) $order->payment_status,
                 'customer' => [
                     'name' => $order->shipping_address['name'] ?? $order->user?->name,
@@ -385,6 +387,51 @@ class CustomerOrderReviewController extends Controller
             ],
         ]);
 
+    }
+
+    /** Estimate dispatch only from a recorded successful gateway payment. */
+    private function estimatedDispatchAt(Order $order): ?string
+    {
+        $productionDays = (int) $order->production_days;
+        if ($productionDays < 1) {
+            return null;
+        }
+
+        $successfulPayment = $order->payments()
+            ->where('status', 'succeeded')
+            ->oldest('created_at')
+            ->first();
+
+        if (! $successfulPayment) {
+            return null;
+        }
+
+        $timezone = $order->order_cutoff_timezone
+            ?? (string) SpinWinSetting::get('order_cutoff_timezone', 'Australia/Adelaide');
+        $cutoff = $order->order_cutoff_time
+            ?? (string) SpinWinSetting::get('order_cutoff_time', '10:00');
+        [$hour, $minute] = array_map('intval', explode(':', $cutoff));
+        $paidAt = $successfulPayment->created_at->copy()->timezone($timezone);
+        $cutoffToday = $paidAt->copy()->setTime($hour, $minute, 0);
+
+        // Before the cut-off on a weekday counts today; after it, or on a weekend,
+        // the next weekday is the first production day.
+        $dispatchDay = $paidAt->copy()->startOfDay();
+        if ($paidAt->isWeekend() || $paidAt->greaterThanOrEqualTo($cutoffToday)) {
+            do {
+                $dispatchDay->addDay();
+            } while ($dispatchDay->isWeekend());
+        }
+
+        $remainingDays = $productionDays - 1;
+        while ($remainingDays > 0) {
+            $dispatchDay->addDay();
+            if (! $dispatchDay->isWeekend()) {
+                $remainingDays--;
+            }
+        }
+
+        return $dispatchDay->setTime(17, 0, 0)->toIso8601String();
     }
 
     /**

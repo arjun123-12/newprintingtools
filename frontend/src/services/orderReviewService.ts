@@ -26,6 +26,8 @@ export interface CustomerReviewData {
   proof_watermark_opacity?: number | null;
   order_cutoff_time?: string;
   order_cutoff_timezone?: string;
+  production_days?: number | null;
+  estimated_dispatch_at?: string | null;
   payment_status: string;
   customer: {
     name?: string;

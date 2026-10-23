@@ -42,6 +42,7 @@ class Order extends Model
         'order_cutoff_time',
         'order_cutoff_timezone',
         'proof_watermark_opacity',
+        'production_days',
     ];
 
     protected $casts = [
@@ -59,6 +60,7 @@ class Order extends Model
         'proof_approved_at' => 'datetime',
         'reminder_sent_at' => 'datetime',
         'proof_watermark_opacity' => 'integer',
+        'production_days' => 'integer',
     ];
 
     public function user(): BelongsTo

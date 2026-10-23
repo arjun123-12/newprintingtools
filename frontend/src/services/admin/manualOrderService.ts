@@ -27,6 +27,7 @@ export interface ManualOrderPayload {
   order_cutoff_time?: string;
   order_cutoff_timezone?: string;
   proof_watermark_opacity?: number;
+  production_days?: number;
   items: ManualOrderItemPayload[];
   shipping_fee?: number;
 }
@@ -100,6 +101,7 @@ export interface ManualOrderDetail {
   order_cutoff_time?: string | null;
   order_cutoff_timezone?: string | null;
   proof_watermark_opacity?: number | null;
+  production_days?: number | null;
   subtotal_ex_gst: number;
   gst_amount: number;
   shipping_fee_inc_gst: number;

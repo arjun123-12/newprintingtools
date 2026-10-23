@@ -149,9 +149,10 @@ export default function CreateManualOrderPage() {
   const [customerNotes, setCustomerNotes] = useState(
     'Please check all details carefully. Let us know if you\'d like any changes.'
   );
-  const [orderCutoffTime, setOrderCutoffTime] = useState('15:00');
+  const [orderCutoffTime, setOrderCutoffTime] = useState('10:00');
   const [orderCutoffTimezone, setOrderCutoffTimezone] = useState('Australia/Adelaide');
   const [proofWatermarkOpacity, setProofWatermarkOpacity] = useState(40);
+  const [productionDays, setProductionDays] = useState(3);
 
   // Products List
   const [items, setItems] = useState<ManualOrderItemPayload[]>([]);
@@ -242,7 +243,7 @@ export default function CreateManualOrderPage() {
         const settingsRes = await apiClient.get('/admin/spin-win/settings');
         const settings = settingsRes.data?.data?.settings;
         if (settings) {
-          setOrderCutoffTime(settings.order_cutoff_time ?? '15:00');
+          setOrderCutoffTime(settings.order_cutoff_time ?? '10:00');
           setOrderCutoffTimezone(settings.order_cutoff_timezone ?? 'Australia/Adelaide');
           setProofWatermarkOpacity(Number(settings.proof_watermark_opacity ?? 40));
         }
@@ -288,6 +289,7 @@ export default function CreateManualOrderPage() {
         if (ord.order_cutoff_time) setOrderCutoffTime(ord.order_cutoff_time);
         if (ord.order_cutoff_timezone) setOrderCutoffTimezone(ord.order_cutoff_timezone);
         if (ord.proof_watermark_opacity != null) setProofWatermarkOpacity(ord.proof_watermark_opacity);
+        if (ord.production_days != null) setProductionDays(ord.production_days);
 
         if (Array.isArray(ord.items)) {
           setItems(
@@ -333,6 +335,7 @@ export default function CreateManualOrderPage() {
         if (ord.order_cutoff_time) setOrderCutoffTime(ord.order_cutoff_time);
         if (ord.order_cutoff_timezone) setOrderCutoffTimezone(ord.order_cutoff_timezone);
         if (ord.proof_watermark_opacity != null) setProofWatermarkOpacity(ord.proof_watermark_opacity);
+        if (ord.production_days != null) setProductionDays(ord.production_days);
 
         if (Array.isArray(ord.items)) {
           setItems(
@@ -952,6 +955,7 @@ export default function CreateManualOrderPage() {
         order_cutoff_time: orderCutoffTime,
         order_cutoff_timezone: orderCutoffTimezone,
         proof_watermark_opacity: proofWatermarkOpacity,
+        production_days: productionDays,
         items,
       };
 
@@ -1013,6 +1017,7 @@ export default function CreateManualOrderPage() {
         order_cutoff_time: orderCutoffTime,
         order_cutoff_timezone: orderCutoffTimezone,
         proof_watermark_opacity: proofWatermarkOpacity,
+        production_days: productionDays,
         items,
       };
 
@@ -1254,10 +1259,10 @@ export default function CreateManualOrderPage() {
               <Clock className="h-4 w-4 text-sky-400" />
               <div>
                 <h2 className="text-sm font-semibold text-slate-200">Customer review display settings</h2>
-                <p className="mt-1 text-[11px] text-slate-500">Set what this customer sees on their artwork review link. Values start from Platform Settings and can be adjusted for this order.</p>
+                <p className="mt-1 text-[11px] text-slate-500">Set this order’s production estimate, cut-off and proof watermark. Cut-off and opacity start from Platform Settings.</p>
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               <label className="space-y-1.5">
                 <span className="block text-xs font-medium text-slate-400">Order cut-off time</span>
                 <input
@@ -1282,6 +1287,19 @@ export default function CreateManualOrderPage() {
                   <option value="Australia/Darwin">Darwin</option>
                   <option value="Australia/Hobart">Hobart</option>
                 </select>
+              </label>
+              <label className="space-y-1.5">
+                <span className="block text-xs font-medium text-slate-400">Production time (business days)</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="60"
+                  step="1"
+                  value={productionDays}
+                  onChange={(e) => setProductionDays(Math.min(60, Math.max(1, Number(e.target.value) || 1)))}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                />
+                <span className="block text-[10px] text-slate-500">Customer sees an estimated dispatch countdown after payment is verified.</span>
               </label>
               <label className="space-y-1.5">
                 <span className="flex items-center justify-between text-xs font-medium text-slate-400">
