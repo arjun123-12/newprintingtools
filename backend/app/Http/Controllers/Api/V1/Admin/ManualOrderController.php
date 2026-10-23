@@ -44,7 +44,27 @@ class ManualOrderController extends Controller
 
         // Status filter
         if (!empty($status) && $status !== 'all') {
-            $query->where('status', $status);
+            if ($status === 'delivered' || $status === 'completed') {
+                $query->whereIn('status', ['delivered', 'collected', 'completed']);
+            } elseif ($status === 'in_production') {
+                $query->whereIn('status', [
+                    'in_production',
+                    'printing',
+                    'production_started',
+                    'cutting_and_finishing',
+                    'cutting_in_progress',
+                    'quality_check_and_packaging',
+                    'production_completed',
+                ]);
+            } elseif ($status === 'dispatched') {
+                $query->whereIn('status', [
+                    'dispatched',
+                    'handed_over_to_courier',
+                    'ready_for_shipping',
+                ]);
+            } else {
+                $query->where('status', $status);
+            }
         }
 
         // Quick filter: Pending customer approval

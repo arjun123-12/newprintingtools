@@ -23,21 +23,7 @@ interface Order {
   date: string;
 }
 
-// ─── Status Badge ─────────────────────────────────────────────────────────────
-const STATUS_STYLES: Record<Order['status'], string> = {
-  pending: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-  artwork_review: 'bg-violet-500/10 text-violet-400 border border-violet-500/20',
-  printing: 'bg-sky-500/10 text-sky-400 border border-sky-500/20',
-  dispatched: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-  delivered: 'bg-slate-500/10 text-slate-400 border border-slate-500/20',
-};
-const STATUS_LABELS: Record<Order['status'], string> = {
-  pending: 'Pending',
-  artwork_review: 'Artwork Review',
-  printing: 'Printing',
-  dispatched: 'Dispatched',
-  delivered: 'Delivered',
-};
+import { getStatusStyle, formatStatusLabel } from '@/utils/orderStatus';
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 const MOCK_ORDERS: Order[] = [
@@ -190,8 +176,9 @@ export default function AdminDashboardPage() {
                   <td className="px-6 py-4 text-slate-400">{order.product}</td>
                   <td className="px-6 py-4 text-white font-medium">{order.total}</td>
                   <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[order.status]}`}>
-                      {STATUS_LABELS[order.status]}
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide ${getStatusStyle(order.status)}`}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+                      <span>{formatStatusLabel(order.status)}</span>
                     </span>
                   </td>
                   <td className="px-6 py-4 text-slate-500">{order.date}</td>

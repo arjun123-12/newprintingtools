@@ -5,38 +5,32 @@ import Link from 'next/link';
 import { manualOrderService, ManualOrderListItem } from '@/services/admin/manualOrderService';
 import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle, Trash2, Pencil, Copy } from 'lucide-react';
 
-type FilterTab = 'all' | 'draft' | 'artwork_review' | 'changes_requested' | 'in_production' | 'dispatched' | 'delivered';
+type FilterTab =
+  | 'all'
+  | 'draft'
+  | 'pending_payment'
+  | 'artwork_review'
+  | 'changes_requested'
+  | 'in_production'
+  | 'ready_for_pickup'
+  | 'dispatched'
+  | 'delivered';
 
-const STATUS_STYLES: Record<string, string> = {
-  draft: 'bg-slate-700/50 text-slate-300 border border-slate-600',
-  pending_payment: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-  artwork_review: 'bg-violet-500/10 text-violet-400 border border-violet-500/20',
-  changes_requested: 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
-  approved: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-  in_production: 'bg-sky-500/10 text-sky-400 border border-sky-500/20',
-  dispatched: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-  delivered: 'bg-slate-500/10 text-slate-400 border border-slate-500/20',
-  cancelled: 'bg-red-500/10 text-red-400 border border-red-500/20',
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: 'Draft',
-  pending_payment: 'Pending Payment',
-  artwork_review: 'Artwork Review',
-  changes_requested: 'Changes Requested',
-  approved: 'Approved',
-  in_production: 'Printing',
-  dispatched: 'Dispatched',
-  delivered: 'Delivered',
-  cancelled: 'Cancelled',
-};
+import {
+  STATUS_STYLES,
+  STATUS_LABELS,
+  getStatusStyle,
+  formatStatusLabel,
+} from '@/utils/orderStatus';
 
 const FILTER_TABS: { label: string; value: FilterTab }[] = [
   { label: 'All', value: 'all' },
   { label: 'Draft', value: 'draft' },
+  { label: 'Pending Payment', value: 'pending_payment' },
   { label: 'Artwork Review', value: 'artwork_review' },
   { label: 'Changes Requested', value: 'changes_requested' },
   { label: 'Printing', value: 'in_production' },
+  { label: 'Ready for Pickup', value: 'ready_for_pickup' },
   { label: 'Dispatched', value: 'dispatched' },
   { label: 'Delivered', value: 'delivered' },
 ];
@@ -239,11 +233,12 @@ export default function AdminOrdersPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          STATUS_STYLES[order.status] || 'bg-slate-800 text-slate-400'
-                        }`}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${getStatusStyle(
+                          order.status
+                        )}`}
                       >
-                        {STATUS_LABELS[order.status] || order.status}
+                        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+                        <span>{formatStatusLabel(order.status)}</span>
                       </span>
                     </td>
                     <td className="px-6 py-4 text-slate-400 text-xs whitespace-nowrap">

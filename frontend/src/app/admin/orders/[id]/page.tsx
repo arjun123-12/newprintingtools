@@ -3,6 +3,7 @@
 import React, { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { getStatusStyle, formatStatusLabel } from '@/utils/orderStatus';
 import {
   manualOrderService,
   ManualOrderDetail,
@@ -330,8 +331,13 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-white font-mono">{order.order_number}</h1>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium uppercase tracking-wider bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                {order.status.replace('_', ' ')}
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide ${getStatusStyle(
+                  order.status
+                )}`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+                <span>{formatStatusLabel(order.status)}</span>
               </span>
               <span
                 className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
