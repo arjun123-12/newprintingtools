@@ -226,6 +226,56 @@ interface PageProps {
   params: Promise<{ token: string }>;
 }
 
+const ORDER_TRUST_PRODUCTS = [
+  'Business Cards',
+  'Flyers & Brochures',
+  'Posters',
+  'Vinyl & Pull-Up Banners',
+  'Stickers & Labels',
+  'Signage',
+  'Packaging & Roll Labels',
+];
+
+function OrderTrustStrip() {
+  return (
+    <section
+      aria-label="Erry Imprints print products and service guarantees"
+      className="sticky top-20 z-40 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur"
+    >
+      <div className="mx-auto flex h-12 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
+        <div className="hidden shrink-0 items-center gap-2 text-xs font-bold text-slate-700 sm:flex">
+          <PackageCheck className="h-4 w-4 text-emerald-600" />
+          <span>Print products we deliver</span>
+        </div>
+        <div className="order-review-trust-marquee relative min-w-0 flex-1 overflow-hidden">
+          <div className="order-review-trust-track flex w-max items-center">
+            {[0, 1].map((copy) => (
+              <div
+                key={copy}
+                aria-hidden={copy === 1}
+                className="flex shrink-0 items-center gap-6 pr-6 sm:gap-8 sm:pr-8"
+              >
+                {ORDER_TRUST_PRODUCTS.map((product) => (
+                  <span key={product} className="inline-flex items-center gap-2 whitespace-nowrap text-xs font-semibold text-slate-600">
+                    <span className="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden="true" />
+                    {product}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+          <span className="pointer-events-none absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-white to-transparent" aria-hidden="true" />
+          <span className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-white to-transparent" aria-hidden="true" />
+        </div>
+        <div className="hidden shrink-0 items-center gap-1.5 text-[11px] font-semibold text-emerald-700 lg:flex">
+          <ShieldCheck className="h-4 w-4" />
+          <span>Quality checked · Australia-wide</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 type ZonedClockParts = { year: number; month: number; day: number; hour: number; minute: number; second: number };
 
 function getZonedClockParts(date: Date, timeZone: string): ZonedClockParts {
@@ -1459,7 +1509,23 @@ export default function OrderReviewPage({ params }: PageProps) {
           min-height: 26px;
           display: block;
         }
+        @keyframes order-review-trust-scroll {
+          from { transform: translateX(0); }
+          to { transform: translateX(-50%); }
+        }
+        .order-review-trust-track {
+          animation: order-review-trust-scroll 34s linear infinite;
+        }
+        .order-review-trust-marquee:hover .order-review-trust-track {
+          animation-play-state: paused;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .order-review-trust-track { animation: none; }
+          .order-review-trust-marquee { overflow-x: auto; }
+        }
       `}</style>
+
+      <OrderTrustStrip />
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full space-y-8">
