@@ -90,6 +90,8 @@ export interface PrintGuidesSettings {
   safeZoneColor: string;
   trimColor: string;
   foldColor?: string;
+  artworkShape?: 'rectangle' | 'rounded_rectangle' | 'circle' | 'oval' | 'pill' | 'custom_die_cut';
+  cutLineColor?: string;
 }
 
 export type DesignerLayerType =

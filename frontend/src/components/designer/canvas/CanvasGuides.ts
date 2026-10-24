@@ -277,6 +277,34 @@ export class CanvasGuides {
     this.canvas?.requestRenderAll();
   }
 
+  private traceArtworkShape(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    shape: string
+  ): void {
+    const safeWidth = Math.max(0, width);
+    const safeHeight = Math.max(0, height);
+    ctx.beginPath();
+
+    if (shape === 'circle') {
+      const diameter = Math.min(safeWidth, safeHeight);
+      ctx.ellipse(x + safeWidth / 2, y + safeHeight / 2, diameter / 2, diameter / 2, 0, 0, Math.PI * 2);
+    } else if (shape === 'oval') {
+      ctx.ellipse(x + safeWidth / 2, y + safeHeight / 2, safeWidth / 2, safeHeight / 2, 0, 0, Math.PI * 2);
+    } else if ((shape === 'rounded_rectangle' || shape === 'pill') && typeof ctx.roundRect === 'function') {
+      const radius = shape === 'pill'
+        ? Math.min(safeWidth, safeHeight) / 2
+        : Math.min(safeWidth, safeHeight) * 0.1;
+      ctx.roundRect(x, y, safeWidth, safeHeight, radius);
+    } else {
+      // Custom die-cut uses the rectangular fallback until a vector contour is configured.
+      ctx.rect(x, y, safeWidth, safeHeight);
+    }
+  }
+
   public renderGuides(
     ctx: CanvasRenderingContext2D,
     zoom: number
@@ -292,6 +320,7 @@ export class CanvasGuides {
     } = this.getArtworkBounds();
 
     const dpi = this.dimensions.dpi || 300;
+    const shape = this.settings.artworkShape || 'rectangle';
 
     ctx.save();
     ctx.scale(zoom, zoom);
@@ -309,21 +338,18 @@ export class CanvasGuides {
         const bottomBleedPx = mmToPx(this.printLayout.outerBleed.bottom, dpi);
         const leftBleedPx = mmToPx(this.printLayout.outerBleed.left, dpi);
 
-        const halfStroke = 0.75 / zoom;
-        ctx.strokeRect(
-          bleedPx - leftBleedPx + halfStroke,
-          bleedPx - topBleedPx + halfStroke,
-          Math.max(trimWidth + leftBleedPx + rightBleedPx - 1.5 / zoom, 0),
-          Math.max(trimHeight + topBleedPx + bottomBleedPx - 1.5 / zoom, 0)
+        this.traceArtworkShape(
+          ctx,
+          bleedPx - leftBleedPx,
+          bleedPx - topBleedPx,
+          trimWidth + leftBleedPx + rightBleedPx,
+          trimHeight + topBleedPx + bottomBleedPx,
+          shape
         );
+        ctx.stroke();
       } else {
-        const halfStroke = 0.75 / zoom;
-        ctx.strokeRect(
-          halfStroke,
-          halfStroke,
-          Math.max(artworkWidth - 1.5 / zoom, 0),
-          Math.max(artworkHeight - 1.5 / zoom, 0)
-        );
+        this.traceArtworkShape(ctx, 0, 0, artworkWidth, artworkHeight, shape);
+        ctx.stroke();
       }
 
       ctx.restore();
@@ -334,14 +360,19 @@ export class CanvasGuides {
       ctx.save();
       ctx.setLineDash([]);
 
-      // Subtle casing keeps trim line visible over dark artwork
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+      const drawCutPath = () => {
+        this.traceArtworkShape(ctx, bleedPx, bleedPx, trimWidth, trimHeight, shape);
+      };
+      // The cut contour is a non-printing editor guide, like the existing trim line.
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
       ctx.lineWidth = 3 / zoom;
-      ctx.strokeRect(bleedPx, bleedPx, trimWidth, trimHeight);
+      drawCutPath();
+      ctx.stroke();
 
-      ctx.strokeStyle = this.settings.trimColor || '#000000';
+      ctx.strokeStyle = this.settings.cutLineColor || this.settings.trimColor || '#000000';
       ctx.lineWidth = 1.5 / zoom;
-      ctx.strokeRect(bleedPx, bleedPx, trimWidth, trimHeight);
+      drawCutPath();
+      ctx.stroke();
 
       ctx.restore();
     }
@@ -363,12 +394,15 @@ export class CanvasGuides {
           trimWidth > leftSafePx + rightSafePx &&
           trimHeight > topSafePx + bottomSafePx
         ) {
-          ctx.strokeRect(
+          this.traceArtworkShape(
+            ctx,
             bleedPx + leftSafePx,
             bleedPx + topSafePx,
             trimWidth - leftSafePx - rightSafePx,
-            trimHeight - topSafePx - bottomSafePx
+            trimHeight - topSafePx - bottomSafePx,
+            shape
           );
+          ctx.stroke();
         }
       } else {
         const marginPx = Math.max(0, Number(this.dimensions.marginPx ?? 0));
@@ -378,12 +412,15 @@ export class CanvasGuides {
         );
 
         if (safeInset > 0 && safeInset * 2 < trimWidth && safeInset * 2 < trimHeight) {
-          ctx.strokeRect(
+          this.traceArtworkShape(
+            ctx,
             bleedPx + safeInset,
             bleedPx + safeInset,
             trimWidth - safeInset * 2,
-            trimHeight - safeInset * 2
+            trimHeight - safeInset * 2,
+            shape
           );
+          ctx.stroke();
         }
       }
 

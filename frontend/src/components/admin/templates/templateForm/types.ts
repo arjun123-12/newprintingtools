@@ -65,6 +65,13 @@ export interface ProductOption {
   bleed_mm?: number;
   safe_area_mm?: number;
   print_layout?: PrintLayoutConfig | null;
+  artwork_module?: {
+    enabled: boolean;
+    type: 'generic' | 'sticker' | 'label';
+    shape: 'rectangle' | 'rounded_rectangle' | 'circle' | 'oval' | 'pill' | 'custom_die_cut';
+    cut_line_color?: string;
+    customer_note?: string;
+  } | null;
 }
 
 export type TemplateFormErrors = Record<string, string>;

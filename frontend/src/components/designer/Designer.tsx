@@ -275,6 +275,7 @@ export default function Designer({
   const [saveStatus, setSaveStatus] = useState<ArtworkSaveStatus>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [productArtworkModule, setProductArtworkModule] = useState<any>(null);
 
   const [pages, setPages] = useState<PageData[]>([
     {
@@ -1144,6 +1145,8 @@ export default function Designer({
         showBleed: canvasManager.getGuidesSettings()?.showBleed ?? true,
         showSafeZone: canvasManager.getGuidesSettings()?.showSafeZone ?? true,
         showTrim: canvasManager.getGuidesSettings()?.showTrim ?? true,
+        artworkShape: canvasManager.getGuidesSettings()?.artworkShape || 'rectangle',
+        cutLineColor: canvasManager.getGuidesSettings()?.cutLineColor || '#000000',
         bleedColor: canvasManager.getGuidesSettings()?.bleedColor,
         safeZoneColor: canvasManager.getGuidesSettings()?.safeZoneColor,
         trimColor: canvasManager.getGuidesSettings()?.trimColor,
@@ -1551,6 +1554,8 @@ export default function Designer({
             t.artwork_config?.print_layout ||
             t.artwork_config?.printLayout ||
             null;
+          const artworkModule = p?.artwork_module?.enabled ? p.artwork_module : null;
+          setProductArtworkModule(artworkModule);
 
           const templateArtworkConfig = {
             width: resolvedWidth,
@@ -1565,9 +1570,18 @@ export default function Designer({
             name: t.name || designNameRef.current,
             print_layout: resolvedPrintLayout,
             printLayout: resolvedPrintLayout,
+            guides: {
+              ...(t.artwork_config?.guides || {}),
+              artworkShape: artworkModule?.shape === 'custom_die_cut' ? 'rectangle' : (artworkModule?.shape || t.artwork_config?.guides?.artworkShape || 'rectangle'),
+              cutLineColor: artworkModule?.cut_line_color || t.artwork_config?.guides?.cutLineColor || '#000000',
+            },
           };
 
           const newDocSettings = canvasManager.initializeArtwork(templateArtworkConfig);
+          canvasManager.updateGuidesSettings({
+            artworkShape: templateArtworkConfig.guides?.artworkShape || 'rectangle',
+            cutLineColor: templateArtworkConfig.guides?.cutLineColor || '#000000',
+          });
           if (resolvedPrintLayout) {
             newDocSettings.printLayout = resolvedPrintLayout;
             canvasManager.setPrintLayout(resolvedPrintLayout);
@@ -1809,7 +1823,7 @@ export default function Designer({
 
   // Load product print & folding settings when opening a product without a pre-saved template or artwork
   useEffect(() => {
-    if (!productId || templateId || artworkIdProp || !canvasManager) return;
+    if (!productId || !canvasManager) return;
     if (productId === 'default') return;
 
     let isMounted = true;
@@ -1835,6 +1849,15 @@ export default function Designer({
         const resolvedMargin = prod.margin_mm !== undefined ? Number(prod.margin_mm) : resolvedSafe;
         const resolvedSides = (prod.print_sides || 'front') as PrintSides;
         const resolvedPrintLayout = prod.print_layout || null;
+        const artworkModule = prod.artwork_module?.enabled ? prod.artwork_module : null;
+        setProductArtworkModule(artworkModule);
+        canvasManager.updateGuidesSettings({
+          artworkShape: artworkModule?.shape === 'custom_die_cut' ? 'rectangle' : (artworkModule?.shape || 'rectangle'),
+          cutLineColor: artworkModule?.cut_line_color || '#000000',
+        });
+        // Existing artwork/template dimensions and content remain authoritative;
+        // the product configuration still supplies its customer-facing cut guide.
+        if (templateId || artworkIdProp) return;
 
         const docConfig = {
           width: resolvedWidth,
@@ -1849,6 +1872,10 @@ export default function Designer({
           name: prod.name || designNameRef.current,
           print_layout: resolvedPrintLayout,
           printLayout: resolvedPrintLayout,
+          guides: artworkModule ? {
+            artworkShape: artworkModule.shape === 'custom_die_cut' ? 'rectangle' : artworkModule.shape,
+            cutLineColor: artworkModule.cut_line_color || '#ef4444',
+          } : undefined,
         };
 
         const newDoc = canvasManager.initializeArtwork(docConfig);
@@ -2002,6 +2029,8 @@ export default function Designer({
           bleedColor: manager.getGuidesSettings()?.bleedColor,
           safeZoneColor: manager.getGuidesSettings()?.safeZoneColor,
           trimColor: manager.getGuidesSettings()?.trimColor,
+          artworkShape: manager.getGuidesSettings()?.artworkShape || 'rectangle',
+          cutLineColor: manager.getGuidesSettings()?.cutLineColor || '#000000',
         },
         backgroundColor: currentDoc.backgroundColor || '#ffffff',
         name: currentDoc.name || designNameRef.current,
@@ -2093,7 +2122,18 @@ export default function Designer({
         savedArtwork.backgroundColor ??
         template.backgroundColor ??
         '#ffffff',
+      guides: {
+        ...(savedArtwork.guides || {}),
+        artworkShape: product?.artwork_module?.enabled
+          ? (product.artwork_module.shape === 'custom_die_cut' ? 'rectangle' : product.artwork_module.shape)
+          : (savedArtwork.guides?.artworkShape || 'rectangle'),
+        cutLineColor: product?.artwork_module?.enabled
+          ? (product.artwork_module.cut_line_color || '#ef4444')
+          : (savedArtwork.guides?.cutLineColor || '#000000'),
+      },
     };
+    const appliedArtworkModule = product?.artwork_module?.enabled ? product.artwork_module : null;
+    setProductArtworkModule(appliedArtworkModule);
 
     // Extract pages from the selected template (1 page -> 1, 2 pages -> 2, 3 pages -> 3, etc.)
     const extracted = extractTemplatePages(
@@ -2143,6 +2183,10 @@ export default function Designer({
         canvasManagerRef.current.setPrintLayout(resolvedPrintLayout);
       }
       const newDocSettings = canvasManagerRef.current.initializeArtwork(templateArtworkConfig);
+      canvasManagerRef.current.updateGuidesSettings({
+        artworkShape: templateArtworkConfig.guides?.artworkShape || 'rectangle',
+        cutLineColor: templateArtworkConfig.guides?.cutLineColor || '#000000',
+      });
       if (resolvedPrintLayout) {
         newDocSettings.printLayout = resolvedPrintLayout;
       }
@@ -2257,7 +2301,8 @@ export default function Designer({
         await processCroppedElementsForSvgExport(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
         await rasterizeFramesForVectorPdf(svgDoc, manager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
         normalizeSvgStrokeWeightsForPdf(svgDoc, manager);
-        injectVisibleTrimLineInSvg(svgDoc, bounds);
+        const guides = manager.getGuidesSettings();
+        injectVisibleTrimLineInSvg(svgDoc, bounds, guides.artworkShape || 'rectangle', guides.cutLineColor || '#000000');
         const foldingConfig = dimensionsRef.current.printLayout?.folding || documentSettings.printLayout?.folding || manager.getPrintLayout()?.folding;
         if (foldingConfig?.enabled) {
           injectVisibleFoldMarksInSvg(svgDoc, bounds, foldingConfig, 'front');
@@ -2660,6 +2705,15 @@ export default function Designer({
 
         {/* Center Canvas Area with Live Zone Alert Banners */}
         <div className="relative flex-1 h-full w-full min-h-0 min-w-0 overflow-hidden flex flex-col">
+
+          {productArtworkModule && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 max-w-[min(90%,42rem)] rounded-xl border border-violet-200 bg-white/95 px-4 py-2 text-center text-xs text-violet-950 shadow-md backdrop-blur-sm">
+              <span className="font-bold capitalize">{productArtworkModule.type} artwork</span>
+              <span> · Follow the cut line when positioning artwork.</span>
+              {productArtworkModule.customer_note && <span className="block mt-0.5 text-violet-800">{productArtworkModule.customer_note}</span>}
+              {productArtworkModule.shape === 'custom_die_cut' && <span className="block mt-0.5 text-amber-700">Custom die-cut contour preview has not been supplied; rectangular guide is shown.</span>}
+            </div>
+          )}
 
           {/* Floating Draw Toolbar */}
           {activeSidebarTab === 'draw' && (

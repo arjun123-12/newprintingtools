@@ -369,7 +369,8 @@ export async function exportLayeredPsd(
     const marksCtx = marksCanvas.getContext('2d');
     if (marksCtx) {
       if (includeTrimMarks) {
-        renderVisibleTrimLineOnCanvas(marksCtx, bounds, bounds.exportMultiplier);
+        const guides = canvasManager.getGuidesSettings();
+        renderVisibleTrimLineOnCanvas(marksCtx, bounds, bounds.exportMultiplier, guides.artworkShape || 'rectangle', guides.cutLineColor || '#000000');
       }
       if (hasFoldMarks) {
         renderVisibleFoldMarksOnCanvas(marksCtx, bounds, foldingConfig, side, bounds.exportMultiplier);
@@ -401,7 +402,8 @@ export async function exportLayeredPsd(
   }
   compositeContext.drawImage(compositeImage, 0, 0, width, height);
   if (includeTrimMarks) {
-    renderVisibleTrimLineOnCanvas(compositeContext, bounds, bounds.exportMultiplier);
+    const guides = canvasManager.getGuidesSettings();
+    renderVisibleTrimLineOnCanvas(compositeContext, bounds, bounds.exportMultiplier, guides.artworkShape || 'rectangle', guides.cutLineColor || '#000000');
   }
   if (hasFoldMarks) {
     renderVisibleFoldMarksOnCanvas(compositeContext, bounds, foldingConfig, side, bounds.exportMultiplier);

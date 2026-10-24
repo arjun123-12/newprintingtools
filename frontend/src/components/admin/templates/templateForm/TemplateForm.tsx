@@ -110,48 +110,27 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({
         p.name === selectedId
     );
 
-    if (prod && !hasCustomizedMeasurements) {
-      setFormData((prev) => ({
-        ...prev,
-        product_id: prod.id,
-        print_sides:
-          prod.print_sides || prev.print_sides || 'front',
-        width_mm:
-          prod.width_mm !== null &&
-            prod.width_mm !== undefined
-            ? Number(prod.width_mm)
-            : prev.width_mm,
-        height_mm:
-          prod.height_mm !== null &&
-            prod.height_mm !== undefined
-            ? Number(prod.height_mm)
-            : prev.height_mm,
-        margin_mm:
-          prod.margin_mm !== null &&
-            prod.margin_mm !== undefined
-            ? Number(prod.margin_mm)
-            : prev.margin_mm,
-        bleed_mm:
-          prod.bleed_mm !== null &&
-            prod.bleed_mm !== undefined
-            ? Number(prod.bleed_mm)
-            : prev.bleed_mm,
-        safe_area_mm:
-          prod.safe_area_mm !== null &&
-            prod.safe_area_mm !== undefined
-            ? Number(prod.safe_area_mm)
-            : prev.safe_area_mm,
-        artwork_config: {
-          ...(prev.artwork_config || {}),
-          print_layout: prod.print_layout || null,
+    setFormData((prev) => ({
+      ...prev,
+      product_id: prod?.id || selectedId,
+      ...(prod && !hasCustomizedMeasurements ? {
+        print_sides: prod.print_sides || prev.print_sides || 'front',
+        width_mm: prod.width_mm !== null && prod.width_mm !== undefined ? Number(prod.width_mm) : prev.width_mm,
+        height_mm: prod.height_mm !== null && prod.height_mm !== undefined ? Number(prod.height_mm) : prev.height_mm,
+        margin_mm: prod.margin_mm !== null && prod.margin_mm !== undefined ? Number(prod.margin_mm) : prev.margin_mm,
+        bleed_mm: prod.bleed_mm !== null && prod.bleed_mm !== undefined ? Number(prod.bleed_mm) : prev.bleed_mm,
+        safe_area_mm: prod.safe_area_mm !== null && prod.safe_area_mm !== undefined ? Number(prod.safe_area_mm) : prev.safe_area_mm,
+      } : {}),
+      artwork_config: {
+        ...(prev.artwork_config || {}),
+        print_layout: prod?.print_layout || null,
+        guides: {
+          ...(prev.artwork_config?.guides || {}),
+          artworkShape: prod?.artwork_module?.enabled ? (prod.artwork_module.shape === 'custom_die_cut' ? 'rectangle' : prod.artwork_module.shape) : 'rectangle',
+          cutLineColor: prod?.artwork_module?.enabled ? (prod.artwork_module.cut_line_color || '#ef4444') : '#000000',
         },
-      }));
-    } else {
-      setFormData((prev) => ({
-        ...prev,
-        product_id: selectedId,
-      }));
-    }
+      },
+    }));
   };
 
   const handleProductSelect = (selectedId: string) => {

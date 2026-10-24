@@ -57,6 +57,7 @@ class Product extends Model
         'margin_mm',
         'bleed_mm',
         'safe_area_mm',
+        'artwork_module',
         'print_layout',
         'folding_pricing',
         'printing_pricing',
@@ -86,6 +87,7 @@ class Product extends Model
         'bleed_mm' => 'decimal:2',
         'safe_area_mm' => 'decimal:2',
         'print_layout' => 'array',
+        'artwork_module' => 'array',
         'folding_pricing' => 'array',
         'printing_pricing' => 'array',
         'weight_pricing' => 'array',
@@ -187,4 +189,4 @@ class Product extends Model
             ->orderByDesc('is_featured')
             ->orderBy('sort_order');
     }
-} // 
+}

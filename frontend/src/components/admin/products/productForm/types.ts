@@ -162,6 +162,14 @@ export interface ProductSideItem {
   print_areas: PrintAreaItem[];
 }
 
+export interface ProductArtworkModule {
+  enabled: boolean;
+  type: 'generic' | 'sticker' | 'label';
+  shape: 'rectangle' | 'rounded_rectangle' | 'circle' | 'oval' | 'pill' | 'custom_die_cut';
+  cut_line_color: string;
+  customer_note: string;
+}
+
 export interface ProductFormData {
   // 1. Basic Info
   name: string;
@@ -213,6 +221,7 @@ export interface ProductFormData {
   margin_mm: number;
   bleed_mm: number;
   safe_area_mm: number;
+  artwork_module: ProductArtworkModule;
   print_layout?: import('@/types/folding').PrintLayoutConfig | null;
 
   // 8. Design Templates

@@ -70,6 +70,13 @@ export interface Product {
   margin_mm?: number;
   bleed_mm?: number;
   safe_area_mm?: number;
+  artwork_module?: {
+    enabled: boolean;
+    type: 'generic' | 'sticker' | 'label';
+    shape: 'rectangle' | 'rounded_rectangle' | 'circle' | 'oval' | 'pill' | 'custom_die_cut';
+    cut_line_color?: string;
+    customer_note?: string;
+  } | null;
   print_layout?: PrintLayoutConfig | null;
   attributes: ProductAttribute[];
   print_areas: PrintAreaSpecification[];

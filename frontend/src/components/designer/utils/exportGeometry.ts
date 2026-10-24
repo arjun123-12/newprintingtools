@@ -645,7 +645,9 @@ export function getArtworkExportBounds(
 export function renderVisibleTrimLineOnCanvas(
   ctx: CanvasRenderingContext2D,
   bounds: ArtworkExportBounds,
-  scale: number = 1
+  scale: number = 1,
+  artworkShape: string = 'rectangle',
+  cutLineColor: string = '#000000'
 ): void {
   const xLeft = bounds.trimLeftPx * scale;
   const yTop = bounds.trimTopPx * scale;
@@ -653,6 +655,42 @@ export function renderVisibleTrimLineOnCanvas(
   const yBottom = (bounds.trimTopPx + bounds.trimHeightPx) * scale;
   const totalW = bounds.widthPx * scale;
   const totalH = bounds.heightPx * scale;
+
+  // For shaped products, export the actual cut contour instead of rectangular
+  // corner marks. Keep the old crop-mark layout for standard rectangular jobs.
+  if (artworkShape !== 'rectangle' && artworkShape !== 'custom_die_cut') {
+    const cx = (xLeft + xRight) / 2;
+    const cy = (yTop + yBottom) / 2;
+    const rx = (xRight - xLeft) / 2;
+    const ry = (yBottom - yTop) / 2;
+    const trace = () => {
+      ctx.beginPath();
+      if (artworkShape === 'circle') {
+        const radius = Math.min(rx, ry);
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      } else if (artworkShape === 'oval') {
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      } else if (artworkShape === 'pill') {
+        ctx.roundRect(xLeft, yTop, xRight - xLeft, yBottom - yTop, Math.min(rx, ry));
+      } else if (artworkShape === 'rounded_rectangle') {
+        ctx.roundRect(xLeft, yTop, xRight - xLeft, yBottom - yTop, Math.min(24 * scale, rx / 3, ry / 3));
+      } else {
+        ctx.rect(xLeft, yTop, xRight - xLeft, yBottom - yTop);
+      }
+    };
+    ctx.save();
+    ctx.lineJoin = 'round';
+    trace();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = Math.max(1.5, 3 * scale);
+    ctx.stroke();
+    trace();
+    ctx.strokeStyle = cutLineColor || '#000000';
+    ctx.lineWidth = Math.max(0.75, 1.25 * scale);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
 
   const markLen = bounds.bleedPx > 0
     ? bounds.bleedPx * scale
@@ -703,7 +741,7 @@ export function renderVisibleTrimLineOnCanvas(
   ctx.stroke();
 
   // Crisp black trim mark lines
-  ctx.strokeStyle = '#000000';
+  ctx.strokeStyle = cutLineColor || '#000000';
   ctx.lineWidth = Math.max(0.75, 1.25 * scale);
   ctx.beginPath();
   for (const [x1, y1, x2, y2] of lines) {
@@ -721,7 +759,9 @@ export function renderVisibleTrimLineOnCanvas(
  */
 export function injectVisibleTrimLineInSvg(
   svgDoc: Document,
-  bounds: ArtworkExportBounds
+  bounds: ArtworkExportBounds,
+  artworkShape: string = 'rectangle',
+  cutLineColor: string = '#000000'
 ): void {
   if (svgDoc.querySelector('[data-print-trim-line="true"]')) {
     return;
@@ -732,6 +772,44 @@ export function injectVisibleTrimLineInSvg(
   const yBottom = bounds.trimTopPx + bounds.trimHeightPx;
   const totalW = bounds.widthPx;
   const totalH = bounds.heightPx;
+
+  if (artworkShape !== 'rectangle' && artworkShape !== 'custom_die_cut') {
+    const g = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('id', 'export-visible-trim-marks');
+    g.setAttribute('data-print-trim-line', 'true');
+    const x = xLeft;
+    const y = yTop;
+    const width = bounds.trimWidthPx;
+    const height = bounds.trimHeightPx;
+    const makeContour = (stroke: string, strokeWidth: string) => {
+      let contour: SVGElement;
+      if (artworkShape === 'circle' || artworkShape === 'oval') {
+        contour = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+        contour.setAttribute('cx', String(x + width / 2));
+        contour.setAttribute('cy', String(y + height / 2));
+        const radius = artworkShape === 'circle' ? Math.min(width, height) / 2 : undefined;
+        contour.setAttribute('rx', String(radius ?? width / 2));
+        contour.setAttribute('ry', String(radius ?? height / 2));
+      } else {
+        contour = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        contour.setAttribute('x', String(x));
+        contour.setAttribute('y', String(y));
+        contour.setAttribute('width', String(width));
+        contour.setAttribute('height', String(height));
+        const radius = artworkShape === 'pill' ? Math.min(width, height) / 2 : Math.min(24, width / 6, height / 6);
+        contour.setAttribute('rx', String(radius));
+        contour.setAttribute('ry', String(radius));
+      }
+      contour.setAttribute('fill', 'none');
+      contour.setAttribute('stroke', stroke);
+      contour.setAttribute('stroke-width', strokeWidth);
+      g.appendChild(contour);
+    };
+    makeContour('rgba(255, 255, 255, 0.85)', '3');
+    makeContour(cutLineColor || '#000000', '1.25');
+    svgDoc.documentElement.appendChild(g);
+    return;
+  }
 
   const markLen = bounds.bleedPx > 0
     ? bounds.bleedPx
@@ -777,7 +855,7 @@ export function injectVisibleTrimLineInSvg(
   casingGroup.setAttribute('stroke-linecap', 'square');
 
   const blackGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
-  blackGroup.setAttribute('stroke', '#000000');
+  blackGroup.setAttribute('stroke', cutLineColor || '#000000');
   blackGroup.setAttribute('stroke-width', '1.25');
   blackGroup.setAttribute('stroke-linecap', 'square');
 

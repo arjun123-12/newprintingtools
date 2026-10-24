@@ -74,7 +74,10 @@ class ProductController extends Controller
                 $side = $product->sides()->create($sideData);
                 
                 if (!empty($printAreas)) {
-                    $side->printAreas()->createMany($printAreas);
+                    $side->printAreas()->createMany(array_map(
+                        fn (array $printArea) => array_merge($printArea, ['product_id' => $product->id]),
+                        $printAreas
+                    ));
                 }
             }
         }
@@ -187,7 +190,10 @@ class ProductController extends Controller
                     $side = $product->sides()->create($sideData);
                     
                     if (!empty($printAreas)) {
-                        $side->printAreas()->createMany($printAreas);
+                        $side->printAreas()->createMany(array_map(
+                            fn (array $printArea) => array_merge($printArea, ['product_id' => $product->id]),
+                            $printAreas
+                        ));
                     }
                 }
                 unset($validated['sides']);

@@ -92,6 +92,12 @@ class UpdateProductRequest extends FormRequest
                 'numeric',
                 'min:0',
             ],
+            'artwork_module' => ['sometimes', 'nullable', 'array'],
+            'artwork_module.enabled' => ['sometimes', 'boolean'],
+            'artwork_module.type' => ['sometimes', 'nullable', 'string', 'in:generic,sticker,label'],
+            'artwork_module.shape' => ['sometimes', 'nullable', 'string', 'in:rectangle,rounded_rectangle,circle,oval,pill,custom_die_cut'],
+            'artwork_module.cut_line_color' => ['sometimes', 'nullable', 'string', 'max:20'],
+            'artwork_module.customer_note' => ['sometimes', 'nullable', 'string', 'max:500'],
             'print_layout' => [
                 'sometimes',
                 'nullable',

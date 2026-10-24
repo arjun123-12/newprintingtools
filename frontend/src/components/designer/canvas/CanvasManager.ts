@@ -107,13 +107,11 @@ if (
 }
 
 /**
- * Fabric's WebGL Blur filter should preserve the source image's pixel bounds.
- * Some browser/GPU combinations have returned a filtered surface with a
- * different aspect ratio, which makes a portrait appear clipped inside its
- * unchanged Fabric selection box. If that happens, regenerate the same filter
- * stack from the untouched source with Fabric's 2D backend at the exact source
- * dimensions. This runs for every FabricImage.applyFilters call, including
- * images restored from saved artwork.
+ * Fabric's WebGL pixel filters should preserve the source image's pixel bounds.
+ * Some browser/GPU combinations return a surface with a different aspect ratio,
+ * which makes an image appear cropped after applying an otherwise cosmetic
+ * filter. Rebuild such a result from the untouched source with Fabric's 2D
+ * backend at the exact source dimensions. This also covers restored artwork.
  */
 const installBlurOutputBoundsGuard = (() => {
   let installed = false;
@@ -130,16 +128,14 @@ const installBlurOutputBoundsGuard = (() => {
       this: any,
       filterList: any[] = this.filters || []
     ) {
-      const result = originalApplyFilters.call(this, filterList);
       const activeFilters = (filterList || this.filters || []).filter(
         (filter: any) => filter && !filter.isNeutralState?.()
       );
-      const hasBlur = activeFilters.some(
-        (filter: any) => filter.type === 'Blur' || filter.constructor?.type === 'Blur'
-      );
       const source = this._originalElement;
 
-      if (!hasBlur || !source) return result;
+      if (activeFilters.length === 0 || !source) {
+        return originalApplyFilters.call(this, filterList);
+      }
 
       const sourceWidth = Math.round(
         Number(source.naturalWidth || source.width || this.width) || 0
@@ -150,27 +146,17 @@ const installBlurOutputBoundsGuard = (() => {
       // `_element` is the bitmap Fabric actually draws. `_filteredEl` may still
       // be the full-size intermediate while a resize filter has replaced the
       // render element with a clipped/incorrectly-sized surface.
-      const filtered = this._element || this._filteredEl;
-      const filteredWidth = Number(filtered?.width) || 0;
-      const filteredHeight = Number(filtered?.height) || 0;
-
-      if (!sourceWidth || !sourceHeight || !filteredWidth || !filteredHeight) {
-        return result;
+      if (!sourceWidth || !sourceHeight) {
+        return originalApplyFilters.call(this, filterList);
       }
 
-      const sourceRatio = sourceWidth / sourceHeight;
-      const filteredRatio = filteredWidth / filteredHeight;
-      const ratioError = Math.abs(filteredRatio - sourceRatio) / sourceRatio;
-      if (ratioError < 0.01) return result;
-
-      console.warn('Blur output bounds differ from source; rebuilding full-size image.', {
-        source: { width: sourceWidth, height: sourceHeight },
-        rendered: { width: filteredWidth, height: filteredHeight },
-        crop: { x: Number(this.cropX) || 0, y: Number(this.cropY) || 0 },
-        scale: { x: Number(this.scaleX) || 1, y: Number(this.scaleY) || 1 },
-      });
-
       try {
+        // Apply color/effect filters to a full-resolution bitmap. Fabric's
+        // WebGL backend can downscale its output to the GPU texture limit;
+        // with cropped images this changes the crop-to-source scale and makes
+        // the photo look zoomed/cut after a cosmetic adjustment. The 2D path
+        // keeps the source pixel bounds exact, so these effects cannot alter
+        // placement, crop, or aspect ratio.
         const canvas = document.createElement('canvas');
         canvas.width = sourceWidth;
         canvas.height = sourceHeight;
@@ -188,24 +174,16 @@ const installBlurOutputBoundsGuard = (() => {
           this._filterScalingX = 1;
           this._filterScalingY = 1;
           this.dirty = true;
+          return fallbackResult;
         } else {
-          this._filteredEl = undefined;
-          this._element = source;
-          this._filterScalingX = 1;
-          this._filterScalingY = 1;
-          this.dirty = true;
+          return originalApplyFilters.call(this, filterList);
         }
       } catch (error) {
-        // Keep the full original image visible if the fallback itself fails.
-        console.warn('Blur filter bounds fallback failed; restoring source image:', error);
-        this._filteredEl = undefined;
-        this._element = source;
-        this._filterScalingX = 1;
-        this._filterScalingY = 1;
-        this.dirty = true;
+        // Keep filters available as a fallback on browsers that reject pixel
+        // readback from the 2D canvas (for example, a cross-origin image).
+        console.warn('Full-size 2D filter failed; using Fabric filter backend:', error);
+        return originalApplyFilters.call(this, filterList);
       }
-
-      return result;
     };
   };
 })();

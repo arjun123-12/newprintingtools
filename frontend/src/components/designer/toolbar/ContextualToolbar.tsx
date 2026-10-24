@@ -1337,7 +1337,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 }`}
             >
               <div
-                className="w-5.5 h-5.5 rounded-lg border border-gray-300 shadow-2xs"
+                className="h-6 w-6 shrink-0 rounded-md border border-gray-300 shadow-2xs"
                 style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#2563eb') }}
               />
             </button>

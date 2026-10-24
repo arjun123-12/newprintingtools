@@ -1268,7 +1268,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
         // Visible BLACK trim/cut line inside RED boundary
         if (includeTrimMarks) {
-          renderVisibleTrimLineOnCanvas(ctx, bounds, bounds.exportMultiplier);
+          const guides = canvasManager.getGuidesSettings();
+          renderVisibleTrimLineOnCanvas(ctx, bounds, bounds.exportMultiplier, guides.artworkShape || 'rectangle', guides.cutLineColor || '#000000');
         }
 
         // Render visible FOLD MARKS & crease cut line
@@ -1528,7 +1529,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
           // 7. Inject visible BLACK trim/cut line inside RED export boundary
           if (includeTrimMarks) {
-            injectVisibleTrimLineInSvg(svgDoc, bounds);
+            const guides = canvasManager.getGuidesSettings();
+            injectVisibleTrimLineInSvg(svgDoc, bounds, guides.artworkShape || 'rectangle', guides.cutLineColor || '#000000');
           }
 
           // Inject visible FOLD MARKS & crease guides
@@ -1872,7 +1874,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
           // Inject visible BLACK trim/cut line inside RED export boundary
           if (includeTrimMarks) {
-            injectVisibleTrimLineInSvg(svgDoc, bounds);
+            const guides = canvasManager.getGuidesSettings();
+            injectVisibleTrimLineInSvg(svgDoc, bounds, guides.artworkShape || 'rectangle', guides.cutLineColor || '#000000');
           }
 
           // Inject visible FOLD MARKS & crease guides
@@ -2129,7 +2132,8 @@ export const DownloadExportModal: React.FC<DownloadExportModalProps> = ({
 
         // Render visible BLACK trim/cut line inside RED export boundary
         if (includeTrimMarks) {
-          renderVisibleTrimLineOnCanvas(tempCtx, bounds, bounds.exportMultiplier);
+          const guides = canvasManager.getGuidesSettings();
+          renderVisibleTrimLineOnCanvas(tempCtx, bounds, bounds.exportMultiplier, guides.artworkShape || 'rectangle', guides.cutLineColor || '#000000');
         }
 
         // Render visible FOLD MARKS & crease guides

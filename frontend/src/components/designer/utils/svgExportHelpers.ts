@@ -1445,7 +1445,23 @@ export async function processCroppedElementsForSvgExport(
   let processedCount = 0;
 
   for (const obj of allObjects) {
-    if (!obj || !isObjectCropped(obj)) continue;
+    if (!obj) continue;
+
+    const isImg =
+      obj instanceof FabricImage ||
+      (obj as any).type === 'image' ||
+      (obj as any).type === 'FabricImage';
+    const adjustments = (obj as any)._adjustments || {};
+    const hasPixelEffects = isImg && (
+      ((obj as any).filters || []).some((filter: any) => filter && !filter.isNeutralState?.()) ||
+      (obj as any)._activeFilterPreset && (obj as any)._activeFilterPreset !== 'none' ||
+      Object.values(adjustments).some((value: any) => Number(value) !== 0)
+    );
+
+    // Preserve image filters and adjustments in SVG/PDF by embedding the exact
+    // rendered bitmap. This avoids PDF renderers silently dropping Fabric's
+    // pixel-filter state. Cropped images use this same raster path.
+    if (!isObjectCropped(obj) && !hasPixelEffects) continue;
 
     const targetEl = findSvgElementForFabricObject(svgDoc, obj, allObjects);
     if (!targetEl) continue;
@@ -1458,11 +1474,6 @@ export async function processCroppedElementsForSvgExport(
     ) {
       continue;
     }
-
-    const isImg =
-      obj instanceof FabricImage ||
-      (obj as any).type === 'image' ||
-      (obj as any).type === 'FabricImage';
 
     if (typeof obj.toCanvasElement === 'function') {
       const localWidth = Math.max(1, Number(obj.width) || 1);

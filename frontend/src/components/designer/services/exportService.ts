@@ -491,7 +491,8 @@ export async function exportHighResolutionImage(
     ctx.drawImage(img, 0, 0, bounds.targetWidthPx, bounds.targetHeightPx);
 
     // Visible BLACK trim/cut line inside the RED export boundary
-    renderVisibleTrimLineOnCanvas(ctx, bounds, bounds.exportMultiplier);
+    const guides = canvasManager.getGuidesSettings();
+    renderVisibleTrimLineOnCanvas(ctx, bounds, bounds.exportMultiplier, guides.artworkShape || 'rectangle', guides.cutLineColor || '#000000');
 
     const foldingConfig = (dimensions as any)?.printLayout?.folding || documentSettings.printLayout?.folding || canvasManager.getPrintLayout()?.folding;
     if (foldingConfig?.enabled) {
@@ -2622,7 +2623,8 @@ export async function exportVectorPdf(
           await rasterizeFramesForVectorPdf(svgDoc, options.canvasManager, { preferredMultiplier: 4, maxLongEdgePx: 8192 });
           if (options.geometry) {
             const bounds = getArtworkExportBounds(options.geometry, 300);
-            injectVisibleTrimLineInSvg(svgDoc, bounds);
+            const guides = options.canvasManager?.getGuidesSettings();
+            injectVisibleTrimLineInSvg(svgDoc, bounds, guides?.artworkShape || 'rectangle', guides?.cutLineColor || '#000000');
           }
           normalizeSvgStrokeWeightsForPdf(svgDoc, options.canvasManager);
           svg = new XMLSerializer().serializeToString(svgDoc);

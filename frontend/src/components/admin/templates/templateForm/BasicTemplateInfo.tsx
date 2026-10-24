@@ -154,6 +154,15 @@ export const BasicTemplateInfo: React.FC<BasicTemplateInfoProps> = ({
                 </span>
               </div>
 
+              <div className="rounded-lg bg-violet-950/60 p-2.5 border border-violet-700/50">
+                <span className="text-violet-300 block text-[11px] mb-0.5">Customer artwork</span>
+                <span className="font-semibold text-white capitalize">
+                  {selectedProduct.artwork_module?.enabled
+                    ? `${selectedProduct.artwork_module.type} · ${selectedProduct.artwork_module.shape.replaceAll('_', ' ')}`
+                    : 'Standard rectangular canvas'}
+                </span>
+              </div>
+
               <div className="rounded-lg bg-slate-800/60 p-2.5 border border-slate-700/50">
                 <span className="text-slate-400 block text-[11px] mb-0.5">Safe Margin</span>
                 <span className="font-semibold text-white">

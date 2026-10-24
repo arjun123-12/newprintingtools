@@ -41,7 +41,7 @@ class DesignTemplateController extends Controller
                 'updated_at',
             ])
             ->with([
-                'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
+                'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout,artwork_module',
                 'categories:id,name,slug',
             ])
             ->when(
@@ -226,7 +226,7 @@ class DesignTemplateController extends Controller
         }
 
         $template->load([
-            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
+            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout,artwork_module',
             'categories:id,name,slug',
         ]);
         $this->appendDocumentSettings($template);
@@ -245,7 +245,7 @@ class DesignTemplateController extends Controller
         DesignTemplate $template
     ): JsonResponse {
         $template->load([
-            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
+            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout,artwork_module',
             'categories:id,name,slug',
         ]);
         $this->appendDocumentSettings($template);
@@ -420,7 +420,7 @@ class DesignTemplateController extends Controller
 
         $template->refresh();
         $template->load([
-            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout',
+            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout,artwork_module',
             'categories:id,name,slug',
         ]);
         $this->appendDocumentSettings($template);

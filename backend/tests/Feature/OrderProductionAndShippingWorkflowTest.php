@@ -104,7 +104,7 @@ class OrderProductionAndShippingWorkflowTest extends TestCase
                 'success' => true,
                 'data' => [
                     'status' => 'production_started',
-                    'status_label' => 'Production started',
+                    'status_label' => 'Printing',
                 ],
             ]);
 
