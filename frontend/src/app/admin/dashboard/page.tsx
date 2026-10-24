@@ -102,7 +102,7 @@ export default function AdminDashboardPage() {
     <div className="flex-1 p-8 space-y-8 overflow-y-auto">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Operations Dashboard</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Operations Dashboard</h1>
         <p className="text-slate-400 text-sm mt-1">
           {new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           &nbsp;·&nbsp;Real-time overview of revenue, production, and dispatch.

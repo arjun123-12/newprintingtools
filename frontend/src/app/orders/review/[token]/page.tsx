@@ -1805,17 +1805,14 @@ export default function OrderReviewPage({ params }: PageProps) {
                             autoRotateInitially={false}
                             activeSide={activeSide}
                           />
-                          <div aria-hidden="true" className="absolute inset-0 z-10 grid grid-cols-2 grid-rows-3 place-items-center overflow-hidden pointer-events-none select-none">
-                            {Array.from({ length: 6 }, (_, index) => (
-                              <img
-                                key={index}
-                                src="/assets/images/erry_imprints_logo_white.png"
-                                alt=""
-                                draggable={false}
-                                style={{ opacity: (orderData.proof_watermark_opacity ?? 40) / 100 }}
-                                className="w-28 sm:w-40 h-auto -rotate-[24deg] drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]"
-                              />
-                            ))}
+                          <div aria-hidden="true" className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden pointer-events-none select-none">
+                            <img
+                              src="/assets/images/erry_imprints_logo_white.png"
+                              alt=""
+                              draggable={false}
+                              style={{ opacity: (orderData.proof_watermark_opacity ?? 40) / 100 }}
+                              className="w-32 sm:w-44 h-auto drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]"
+                            />
                           </div>
                         </div>
                       ) : (
@@ -1845,17 +1842,14 @@ export default function OrderReviewPage({ params }: PageProps) {
                                 onContextMenu={(event) => event.preventDefault()}
                                 className="max-h-[460px] max-w-full object-contain block mx-auto select-none rounded-none pointer-events-none"
                               />
-                              <div aria-hidden="true" className="absolute inset-0 grid grid-cols-2 grid-rows-3 place-items-center overflow-hidden pointer-events-none select-none">
-                                {Array.from({ length: 6 }, (_, index) => (
-                                  <img
-                                    key={index}
-                                    src="/assets/images/erry_imprints_logo.png"
-                                    alt=""
-                                    draggable={false}
-                                    style={{ opacity: (orderData.proof_watermark_opacity ?? 40) / 100 }}
-                                    className="w-24 sm:w-36 h-auto -rotate-[24deg] drop-shadow-[0_1px_3px_rgba(255,255,255,0.9)]"
-                                  />
-                                ))}
+                              <div aria-hidden="true" className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none select-none">
+                                <img
+                                  src="/assets/images/erry_imprints_logo.png"
+                                  alt=""
+                                  draggable={false}
+                                  style={{ opacity: (orderData.proof_watermark_opacity ?? 40) / 100 }}
+                                  className="w-28 sm:w-40 h-auto drop-shadow-[0_1px_3px_rgba(255,255,255,0.9)]"
+                                />
                               </div>
                             </div>
                           ) : (

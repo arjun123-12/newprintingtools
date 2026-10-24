@@ -677,12 +677,22 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
 
             {/* Mobile-Friendly Status Selection Control */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <label className="text-xs font-medium text-slate-400 block">
                   Update Status (Customer Visible Sequence)
                 </label>
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-slate-800 text-sky-400 border border-slate-700">
-                  {order.delivery_method?.toLowerCase().includes('pickup') ? 'Store Pickup' : 'Courier Delivery'}
+                <span className="text-[10px] px-2.5 py-0.5 rounded-full font-semibold bg-slate-800 text-sky-400 border border-slate-700 text-center leading-tight inline-flex flex-col items-center justify-center shrink-0">
+                  {order.delivery_method?.toLowerCase().includes('pickup') ? (
+                    <>
+                      <span>Store</span>
+                      <span>Pickup</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Courier</span>
+                      <span>Delivery</span>
+                    </>
+                  )}
                 </span>
               </div>
 

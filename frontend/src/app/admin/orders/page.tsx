@@ -87,7 +87,7 @@ export default function AdminOrdersPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-white tracking-tight">Order Management</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Order Management</h1>
             <span className="text-xs bg-slate-800 text-slate-400 px-2.5 py-1 rounded-full border border-slate-700">
               {orders.length} orders
             </span>
@@ -135,11 +135,10 @@ export default function AdminOrdersPage() {
           <button
             key={tab.value}
             onClick={() => setFilter(tab.value)}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              filter === tab.value
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${filter === tab.value
                 ? 'bg-sky-600 text-white shadow-sm'
                 : 'bg-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
-            }`}
+              }`}
           >
             {tab.label}
           </button>
@@ -214,11 +213,10 @@ export default function AdminOrdersPage() {
                         </span>
                         {order.review_link && (
                           <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded ${
-                              order.review_link.open_count > 0
+                            className={`text-[10px] px-1.5 py-0.5 rounded ${order.review_link.open_count > 0
                                 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                                 : 'bg-slate-800 text-slate-400 border border-slate-700'
-                            }`}
+                              }`}
                             title={`Opened ${order.review_link.open_count} time(s)`}
                           >
                             {order.review_link.open_count > 0

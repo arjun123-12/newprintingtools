@@ -1101,7 +1101,7 @@ export default function CreateManualOrderPage() {
       {/* Main Title & Stepper */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-white tracking-tight">
+          <h1 className="text-2xl font-bold  tracking-tight">
             {currentOrderId ? `Edit Order ${orderNumber || 'Draft'}` : 'Create manual order'}
           </h1>
           <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
@@ -1120,7 +1120,7 @@ export default function CreateManualOrderPage() {
             <span className="w-5 h-5 rounded-full bg-black text-white border border-slate-700 flex items-center justify-center font-bold text-[11px]">
               1
             </span>
-            <span className="text-white font-medium">Order details</span>
+            <span className=" font-medium">Order details</span>
           </div>
           <div className="w-8 h-[1px] bg-slate-700" />
           <div className="flex items-center gap-2 text-slate-500">
@@ -1363,196 +1363,195 @@ export default function CreateManualOrderPage() {
                     const lineKey = item.client_key || item.id || `line-${idx}`;
                     const selectedArtworkEntries = itemArtworkEntries[lineKey] || [];
                     return (
-                    <React.Fragment key={lineKey}>
-                    <tr className="hover:bg-slate-800/20 transition-colors">
-                      <td className="py-3 font-medium text-slate-200">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 font-bold text-xs flex-shrink-0">
-                            <Layers className="w-4 h-4 text-pink-400" />
-                          </div>
-                          <div>
-                            <div className="font-semibold text-white">{item.product_name}</div>
-                            <div className="text-[10px] text-slate-500 flex items-center gap-1.5 mt-0.5">
-                              <span className={`px-1.5 py-0.2 rounded text-[9px] ${item.product_id ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' : 'bg-pink-500/10 text-pink-400 border border-pink-500/20'}`}>
-                                {item.product_id ? 'Catalog' : 'Custom'}
-                              </span>
-                              {item.id && (
-                                <span className="text-[9px] text-emerald-400/90 font-mono">DB Saved</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3 text-slate-300 max-w-sm">
-                        <div className="text-xs leading-relaxed font-medium">
-                          {item.specifications || 'Standard Specifications'}
-                        </div>
-                        {item.options?.notes && (
-                          <div className="mt-1 text-[11px] text-pink-400/90 italic">
-                            Notes: {item.options.notes}
-                          </div>
-                        )}
-                        {item.options?.template_name && (
-                          <div className="mt-1 text-[10px] text-sky-400 font-medium">
-                            Template: {item.options.template_name}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-3 text-slate-200 font-mono">{item.quantity}</td>
-                      <td className="py-3 text-slate-200 font-mono">
-                        ${Number(item.price ?? 100).toFixed(2)}
-                      </td>
-                      <td className="py-3 text-white font-semibold font-mono">
-                        ${Number(item.price ?? 100).toFixed(2)}
-                      </td>
-                      <td className="py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditProduct(idx)}
-                            className="p-1.5 rounded hover:bg-sky-500/10 text-slate-400 hover:text-sky-400 transition-colors"
-                            title="Edit product configuration & specifications"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItem(idx)}
-                            className="p-1.5 rounded hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-colors"
-                            title={currentOrderId && item.id ? 'Delete product directly from database' : 'Remove product'}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                    <tr className="border-b-2 border-slate-700/80 bg-slate-950/50">
-                      <td colSpan={6} className="px-3 pb-3 pt-2">
-                        <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-4">
-                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span className="flex h-7 min-w-7 items-center justify-center rounded-md border border-sky-500/30 bg-sky-500/10 px-1.5 text-[10px] font-bold text-sky-300">
-                                {String(idx + 1).padStart(2, '0')}
-                              </span>
-                              <div className="min-w-0">
-                                <h3 className="text-xs font-semibold text-white">Artwork for {item.product_name}</h3>
-                                <p className="text-[10px] text-slate-500">
-                                  Supports both Front and Back artwork. Attached specifically to product {idx + 1}.
-                                </p>
+                      <React.Fragment key={lineKey}>
+                        <tr className="hover:bg-slate-800/20 transition-colors">
+                          <td className="py-3 font-medium text-slate-200">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 font-bold text-xs flex-shrink-0">
+                                <Layers className="w-4 h-4 text-pink-400" />
+                              </div>
+                              <div>
+                                <div className="font-semibold text-white">{item.product_name}</div>
+                                <div className="text-[10px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                                  <span className={`px-1.5 py-0.2 rounded text-[9px] ${item.product_id ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' : 'bg-pink-500/10 text-pink-400 border border-pink-500/20'}`}>
+                                    {item.product_id ? 'Catalog' : 'Custom'}
+                                  </span>
+                                  {item.id && (
+                                    <span className="text-[9px] text-emerald-400/90 font-mono">DB Saved</span>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                            {(item.artwork_id || uploadedItemArtwork[lineKey]) && selectedArtworkEntries.length === 0 && (
-                              <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-400">
-                                Existing artwork attached
-                              </span>
+                          </td>
+                          <td className="py-3 text-slate-300 max-w-sm">
+                            <div className="text-xs leading-relaxed font-medium">
+                              {item.specifications || 'Standard Specifications'}
+                            </div>
+                            {item.options?.notes && (
+                              <div className="mt-1 text-[11px] text-pink-400/90 italic">
+                                Notes: {item.options.notes}
+                              </div>
                             )}
-                          </div>
-
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                            <label
-                              className="flex min-h-[140px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700 bg-slate-950/40 p-5 text-center transition-colors hover:border-pink-500/50"
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={(event) => {
-                                event.preventDefault();
-                                handleItemArtworkSelect(lineKey, event.dataTransfer.files);
-                              }}
-                            >
-                              <input
-                                type="file"
-                                accept=".jpg,.jpeg,.svg,.png,.pdf,.webp"
-                                multiple
-                                className="hidden"
-                                onChange={(event) => {
-                                  handleItemArtworkSelect(lineKey, event.target.files);
-                                  event.currentTarget.value = '';
-                                }}
-                              />
-                              <Upload className="mb-2 h-6 w-6 text-slate-400" />
-                              <p className="text-xs font-medium text-slate-300">Drag & drop Front & Back files</p>
-                              <p className="mt-1 text-[11px] text-pink-400">or browse files (multi-select allowed)</p>
-                              <span className="mt-2 text-[10px] text-slate-500">JPG, PNG, SVG, PDF (max 50MB each)</span>
-                            </label>
-
-                            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:col-span-2">
-                              {selectedArtworkEntries.map((entry) => (
-                                <div
-                                  key={entry.id}
-                                  className="flex min-w-0 flex-col justify-between rounded-xl border border-slate-700/80 bg-slate-950/70 p-3 transition-colors hover:border-slate-600"
-                                >
-                                  <div className="flex items-start gap-3">
-                                    {entry.previewUrl ? (
-                                      <img
-                                        src={entry.previewUrl}
-                                        alt={`Preview of ${entry.name}`}
-                                        className="h-16 w-16 shrink-0 rounded-lg border border-slate-700 bg-slate-900 object-contain p-0.5"
-                                      />
-                                    ) : (
-                                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400">
-                                        <FileCheck className="h-6 w-6" />
-                                      </div>
-                                    )}
-                                    <div className="min-w-0 flex-1">
-                                      <p className="truncate text-xs font-medium text-slate-200" title={entry.name}>
-                                        {entry.name}
-                                      </p>
-                                      <p className="mt-0.5 text-[10px] text-slate-500">{entry.size}</p>
-
-                                      {/* Side indicator badge and toggle */}
-                                      <div className="mt-2 flex items-center gap-1.5">
-                                        <span className="text-[10px] font-medium text-slate-400">Side:</span>
-                                        <div className="inline-flex rounded-lg border border-slate-700 bg-slate-900 p-0.5 text-[10px]">
-                                          <button
-                                            type="button"
-                                            onClick={() => handleToggleArtworkSide(lineKey, entry.id, 'Front')}
-                                            className={`rounded px-2 py-0.5 font-semibold transition ${
-                                              entry.side === 'Front'
-                                                ? 'bg-sky-600 text-white shadow-xs'
-                                                : 'text-slate-400 hover:text-slate-200'
-                                            }`}
-                                          >
-                                            Front
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleToggleArtworkSide(lineKey, entry.id, 'Back')}
-                                            className={`rounded px-2 py-0.5 font-semibold transition ${
-                                              entry.side === 'Back'
-                                                ? 'bg-purple-600 text-white shadow-xs'
-                                                : 'text-slate-400 hover:text-slate-200'
-                                            }`}
-                                          >
-                                            Back
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveArtworkFile(lineKey, entry.id)}
-                                      className="shrink-0 rounded-lg p-1.5 text-slate-500 transition hover:bg-red-500/10 hover:text-red-400"
-                                      title={`Remove ${entry.name}`}
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </button>
+                            {item.options?.template_name && (
+                              <div className="mt-1 text-[10px] text-sky-400 font-medium">
+                                Template: {item.options.template_name}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 text-slate-200 font-mono">{item.quantity}</td>
+                          <td className="py-3 text-slate-200 font-mono">
+                            ${Number(item.price ?? 100).toFixed(2)}
+                          </td>
+                          <td className="py-3 text-white font-semibold font-mono">
+                            ${Number(item.price ?? 100).toFixed(2)}
+                          </td>
+                          <td className="py-3 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditProduct(idx)}
+                                className="p-1.5 rounded hover:bg-sky-500/10 text-slate-400 hover:text-sky-400 transition-colors"
+                                title="Edit product configuration & specifications"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(idx)}
+                                className="p-1.5 rounded hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-colors"
+                                title={currentOrderId && item.id ? 'Delete product directly from database' : 'Remove product'}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        <tr className="border-b-2 border-slate-700/80 bg-slate-950/50">
+                          <td colSpan={6} className="px-3 pb-3 pt-2">
+                            <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-4">
+                              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="flex h-7 min-w-7 items-center justify-center rounded-md border border-sky-500/30 bg-sky-500/10 px-1.5 text-[10px] font-bold text-sky-300">
+                                    {String(idx + 1).padStart(2, '0')}
+                                  </span>
+                                  <div className="min-w-0">
+                                    <h3 className="text-xs font-semibold text-white">Artwork for {item.product_name}</h3>
+                                    <p className="text-[10px] text-slate-500">
+                                      Supports both Front and Back artwork. Attached specifically to product {idx + 1}.
+                                    </p>
                                   </div>
                                 </div>
-                              ))}
+                                {(item.artwork_id || uploadedItemArtwork[lineKey]) && selectedArtworkEntries.length === 0 && (
+                                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-400">
+                                    Existing artwork attached
+                                  </span>
+                                )}
+                              </div>
 
-                              {selectedArtworkEntries.length === 0 && (
-                                <div className="flex min-h-[140px] items-center justify-center rounded-xl border border-dashed border-slate-800 bg-slate-950/30 px-4 text-center text-xs text-slate-500">
-                                  {item.artwork_id || uploadedItemArtwork[lineKey]
-                                    ? 'Artwork is saved for this product. Upload new files above to revise proof.'
-                                    : 'No artwork selected yet. Drag & drop or browse Front and/or Back images.'}
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                <label
+                                  className="flex min-h-[140px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-700 bg-slate-950/40 p-5 text-center transition-colors hover:border-pink-500/50"
+                                  onDragOver={(event) => event.preventDefault()}
+                                  onDrop={(event) => {
+                                    event.preventDefault();
+                                    handleItemArtworkSelect(lineKey, event.dataTransfer.files);
+                                  }}
+                                >
+                                  <input
+                                    type="file"
+                                    accept=".jpg,.jpeg,.svg,.png,.pdf,.webp"
+                                    multiple
+                                    className="hidden"
+                                    onChange={(event) => {
+                                      handleItemArtworkSelect(lineKey, event.target.files);
+                                      event.currentTarget.value = '';
+                                    }}
+                                  />
+                                  <Upload className="mb-2 h-6 w-6 text-slate-400" />
+                                  <p className="text-xs font-medium text-slate-300">Drag & drop Front & Back files</p>
+                                  <p className="mt-1 text-[11px] text-pink-400">or browse files (multi-select allowed)</p>
+                                  <span className="mt-2 text-[10px] text-slate-500">JPG, PNG, SVG, PDF (max 50MB each)</span>
+                                </label>
+
+                                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:col-span-2">
+                                  {selectedArtworkEntries.map((entry) => (
+                                    <div
+                                      key={entry.id}
+                                      className="flex min-w-0 flex-col justify-between rounded-xl border border-slate-700/80 bg-slate-950/70 p-3 transition-colors hover:border-slate-600"
+                                    >
+                                      <div className="flex items-start gap-3">
+                                        {entry.previewUrl ? (
+                                          <img
+                                            src={entry.previewUrl}
+                                            alt={`Preview of ${entry.name}`}
+                                            className="h-16 w-16 shrink-0 rounded-lg border border-slate-700 bg-slate-900 object-contain p-0.5"
+                                          />
+                                        ) : (
+                                          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400">
+                                            <FileCheck className="h-6 w-6" />
+                                          </div>
+                                        )}
+                                        <div className="min-w-0 flex-1">
+                                          <p className="truncate text-xs font-medium text-slate-200" title={entry.name}>
+                                            {entry.name}
+                                          </p>
+                                          <p className="mt-0.5 text-[10px] text-slate-500">{entry.size}</p>
+
+                                          {/* Side indicator badge and toggle */}
+                                          <div className="mt-2 flex items-center gap-1.5">
+                                            <span className="text-[10px] font-medium text-slate-400">Side:</span>
+                                            <div className="inline-flex rounded-lg border border-slate-700 bg-slate-900 p-0.5 text-[10px]">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleToggleArtworkSide(lineKey, entry.id, 'Front')}
+                                                className={`rounded px-2 py-0.5 font-semibold transition ${entry.side === 'Front'
+                                                  ? 'bg-sky-600 text-white shadow-xs'
+                                                  : 'text-slate-400 hover:text-slate-200'
+                                                  }`}
+                                              >
+                                                Front
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleToggleArtworkSide(lineKey, entry.id, 'Back')}
+                                                className={`rounded px-2 py-0.5 font-semibold transition ${entry.side === 'Back'
+                                                  ? 'bg-purple-600 text-white shadow-xs'
+                                                  : 'text-slate-400 hover:text-slate-200'
+                                                  }`}
+                                              >
+                                                Back
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveArtworkFile(lineKey, entry.id)}
+                                          className="shrink-0 rounded-lg p-1.5 text-slate-500 transition hover:bg-red-500/10 hover:text-red-400"
+                                          title={`Remove ${entry.name}`}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+
+                                  {selectedArtworkEntries.length === 0 && (
+                                    <div className="flex min-h-[140px] items-center justify-center rounded-xl border border-dashed border-slate-800 bg-slate-950/30 px-4 text-center text-xs text-slate-500">
+                                      {item.artwork_id || uploadedItemArtwork[lineKey]
+                                        ? 'Artwork is saved for this product. Upload new files above to revise proof.'
+                                        : 'No artwork selected yet. Drag & drop or browse Front and/or Back images.'}
+                                    </div>
+                                  )}
                                 </div>
-                              )}
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                    </React.Fragment>
-                  )})}
+                          </td>
+                        </tr>
+                      </React.Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1773,11 +1772,10 @@ export default function CreateManualOrderPage() {
                 <button
                   type="button"
                   onClick={() => setModalTab('custom')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                    modalTab === 'custom'
-                      ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${modalTab === 'custom'
+                    ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                    }`}
                 >
                   <Sliders className="w-3.5 h-3.5" />
                   <span>Custom Product</span>
@@ -1785,11 +1783,10 @@ export default function CreateManualOrderPage() {
                 <button
                   type="button"
                   onClick={() => setModalTab('catalog')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                    modalTab === 'catalog'
-                      ? 'bg-sky-600 text-white shadow'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${modalTab === 'catalog'
+                    ? 'bg-sky-600 text-white shadow'
+                    : 'text-slate-400 hover:text-white'
+                    }`}
                 >
                   <Layers className="w-3.5 h-3.5" />
                   <span>From Catalog</span>
@@ -1940,11 +1937,10 @@ export default function CreateManualOrderPage() {
                             key={q}
                             type="button"
                             onClick={() => setCustomQty(q)}
-                            className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${
-                              customQty === q
-                                ? 'bg-pink-600 text-white border-pink-500'
-                                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
-                            }`}
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${customQty === q
+                              ? 'bg-pink-600 text-white border-pink-500'
+                              : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                              }`}
                           >
                             {q}
                           </button>
