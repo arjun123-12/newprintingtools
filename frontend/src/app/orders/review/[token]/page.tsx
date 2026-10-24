@@ -306,6 +306,206 @@ function getCountdownUnits(milliseconds: number): { days: string; hours: string;
   };
 }
 
+interface ReviewCountdownCardProps {
+  orderData: CustomerReviewData;
+}
+
+function ReviewCountdownCard({ orderData }: ReviewCountdownCardProps) {
+  // Self-contained 1-second timer: updates ONLY this card without re-rendering the 2300-line parent page
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const timezone = orderData.order_cutoff_timezone || 'Australia/Adelaide';
+  const cutoffTime = orderData.order_cutoff_time || '10:00';
+  const isPaid = orderData.payment_status === 'paid';
+  const dispatchTarget = isPaid && orderData.estimated_dispatch_at
+    ? Date.parse(orderData.estimated_dispatch_at)
+    : Number.NaN;
+  const target = isPaid ? dispatchTarget : getNextBusinessCutoffTimestamp(now, cutoffTime, timezone);
+  const hasValidTarget = Number.isFinite(target);
+  const units = hasValidTarget ? getCountdownUnits(target - now) : null;
+  const targetDate = hasValidTarget
+    ? new Intl.DateTimeFormat('en-AU', {
+      timeZone: timezone,
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(new Date(target))
+    : null;
+
+  return (
+    <div
+      className={`relative overflow-hidden rounded-2xl sm:rounded-3xl border p-4 sm:p-5 transition-shadow shadow-xs hover:shadow-md ${isPaid
+        ? 'border-emerald-200/90 bg-gradient-to-br from-emerald-50/95 via-teal-50/60 to-emerald-50/80 text-emerald-950'
+        : 'border-amber-200/90 bg-gradient-to-br from-amber-50/95 via-amber-100/40 to-orange-50/60 text-amber-950'
+        }`}
+    >
+      {/* Subtle ambient glow aura */}
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none absolute -right-8 -top-8 h-36 w-36 rounded-full blur-2xl opacity-40 transition-opacity ${isPaid ? 'bg-emerald-400/30' : 'bg-amber-400/30'
+          }`}
+      />
+
+      <div className="relative z-10 flex flex-col gap-3">
+        {/* Header row: animated icon + title + status pill */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <span
+              className={`relative flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl border shadow-xs transition-colors ${isPaid
+                ? 'border-emerald-300/80 bg-white/95 text-emerald-600'
+                : 'border-amber-300/80 bg-white/95 text-amber-600'
+                }`}
+            >
+              {/* Gentle animated ping ring, respecting prefers-reduced-motion */}
+              <span
+                className={`absolute inset-0 rounded-xl opacity-25 motion-safe:animate-ping motion-reduce:hidden ${isPaid ? 'bg-emerald-500' : 'bg-amber-500'
+                  }`}
+                style={{ animationDuration: '3s' }}
+              />
+              {/* Subtle pulse on the clock icon */}
+              <Clock className="relative h-5 w-5 motion-safe:animate-pulse motion-reduce:animate-none" />
+            </span>
+            <div>
+              <h2 className="text-sm sm:text-base font-bold tracking-tight">
+                {isPaid ? 'Estimated Dispatch Countdown' : 'Time Until Next Cut-Off'}
+              </h2>
+              <p className={`text-[11px] sm:text-xs font-medium ${isPaid ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {isPaid
+                  ? 'Live production & packaging timer'
+                  : `Daily cut-off: ${cutoffTime} (${timezone.replace('Australia/', '')} time)`}
+              </p>
+            </div>
+          </div>
+
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold border ${isPaid
+              ? 'bg-emerald-100/80 border-emerald-300 text-emerald-800'
+              : 'bg-amber-100/80 border-amber-300 text-amber-800'
+              }`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${isPaid ? 'bg-emerald-600' : 'bg-amber-600'
+                } motion-safe:animate-pulse`}
+            />
+            {isPaid ? 'In Production' : 'Daily Cut-Off'}
+          </span>
+        </div>
+
+        {/* Digit tiles: only rendered if a valid countdown target exists */}
+        {units && (
+          <div className="flex items-center gap-2 sm:gap-3 py-1">
+            {/* Days Tile */}
+            <div
+              className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${isPaid
+                ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
+                : 'border-amber-200/90 bg-white/95 text-amber-950'
+                }`}
+            >
+              <span className="font-mono text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums text-slate-900">
+                {units.days}
+              </span>
+              <span
+                className={`mt-0.5 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase ${isPaid ? 'text-emerald-700' : 'text-amber-700'
+                  }`}
+              >
+                Days
+              </span>
+            </div>
+
+            <span
+              className={`font-mono text-lg sm:text-xl font-bold select-none ${isPaid ? 'text-emerald-400' : 'text-amber-400'
+                }`}
+            >
+              :
+            </span>
+
+            {/* Hours Tile */}
+            <div
+              className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${isPaid
+                ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
+                : 'border-amber-200/90 bg-white/95 text-amber-950'
+                }`}
+            >
+              <span className="font-mono text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums text-slate-900">
+                {units.hours}
+              </span>
+              <span
+                className={`mt-0.5 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase ${isPaid ? 'text-emerald-700' : 'text-amber-700'
+                  }`}
+              >
+                Hours
+              </span>
+            </div>
+
+            <span
+              className={`font-mono text-lg sm:text-xl font-bold select-none ${isPaid ? 'text-emerald-400' : 'text-amber-400'
+                }`}
+            >
+              :
+            </span>
+
+            {/* Minutes Tile */}
+            <div
+              className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${isPaid
+                ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
+                : 'border-amber-200/90 bg-white/95 text-amber-950'
+                }`}
+            >
+              <span className="font-mono text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums text-slate-900">
+                {units.minutes}
+              </span>
+              <span
+                className={`mt-0.5 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase ${isPaid ? 'text-emerald-700' : 'text-amber-700'
+                  }`}
+              >
+                Min
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Explanatory lines below digits */}
+        <div className="pt-1 text-xs">
+          {isPaid ? (
+            targetDate ? (
+              <div className="space-y-0.5 text-emerald-900">
+                <p className="font-medium text-emerald-950">
+                  Estimated dispatch: <span className="font-semibold">{targetDate}</span> ({timezone.replace('Australia/', '')} time)
+                </p>
+                <p className="text-[11px] text-emerald-800">
+                  Based on {orderData.production_days} production business day{orderData.production_days === 1 ? '' : 's'}. Courier delivery time is additional.
+                </p>
+              </div>
+            ) : (
+              <p className="text-emerald-900 font-medium">
+                Your payment is confirmed. The dispatch estimate will appear once production time is set for this order.
+              </p>
+            )
+          ) : (
+            <div className="space-y-0.5 text-amber-900">
+              <p className="font-medium text-amber-950">
+                Pay before today’s cut-off to start processing today.
+              </p>
+              {targetDate && (
+                <p className="text-[11px] text-amber-800">
+                  Next cut-off deadline: <span className="font-semibold">{targetDate}</span> ({timezone.replace('Australia/', '')} time).
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function OrderReviewPage({ params }: PageProps) {
   const resolvedParams = use(params);
   const token = resolvedParams.token;
@@ -314,7 +514,6 @@ export default function OrderReviewPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [orderData, setOrderData] = useState<CustomerReviewData | null>(null);
-  const [countdownNow, setCountdownNow] = useState(Date.now());
   const [selectedProofItemId, setSelectedProofItemId] = useState<string>('');
   const [templatePreviewUrl, setTemplatePreviewUrl] = useState<string | null>(null);
   const [templateBackPreviewUrl, setTemplateBackPreviewUrl] = useState<string | null>(null);
@@ -359,11 +558,6 @@ export default function OrderReviewPage({ params }: PageProps) {
   const [paymentReceipt, setPaymentReceipt] = useState<string | null>(null);
   const [showStatusHistoryLog, setShowStatusHistoryLog] = useState(false);
   const bpointControllerRef = useRef<any>(null);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setCountdownNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   // 1. Fetch Authoritative Order Data
   const loadOrder = async () => {
@@ -850,6 +1044,8 @@ export default function OrderReviewPage({ params }: PageProps) {
                   <img
                     src={formatImageUrl(item.artwork_preview?.thumbnail_url || orderData.proof.thumbnail_url || '')}
                     alt={`${item.product_name} artwork`}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -1325,207 +1521,7 @@ export default function OrderReviewPage({ params }: PageProps) {
           </div>
         </div>
 
-        {(() => {
-          const timezone = orderData.order_cutoff_timezone || 'Australia/Adelaide';
-          const cutoffTime = orderData.order_cutoff_time || '10:00';
-          const isPaid = orderData.payment_status === 'paid';
-          const dispatchTarget = isPaid && orderData.estimated_dispatch_at
-            ? Date.parse(orderData.estimated_dispatch_at)
-            : Number.NaN;
-          const target = isPaid ? dispatchTarget : getNextBusinessCutoffTimestamp(countdownNow, cutoffTime, timezone);
-          const hasValidTarget = Number.isFinite(target);
-          const units = hasValidTarget ? getCountdownUnits(target - countdownNow) : null;
-          const targetDate = hasValidTarget
-            ? new Intl.DateTimeFormat('en-AU', {
-                timeZone: timezone,
-                weekday: 'long',
-                day: 'numeric',
-                month: 'long',
-                hour: 'numeric',
-                minute: '2-digit',
-              }).format(new Date(target))
-            : null;
-
-          return (
-            <div
-              className={`relative overflow-hidden rounded-2xl sm:rounded-3xl border p-4 sm:p-5 transition-shadow shadow-xs hover:shadow-md ${
-                isPaid
-                  ? 'border-emerald-200/90 bg-gradient-to-br from-emerald-50/95 via-teal-50/60 to-emerald-50/80 text-emerald-950'
-                  : 'border-amber-200/90 bg-gradient-to-br from-amber-50/95 via-amber-100/40 to-orange-50/60 text-amber-950'
-              }`}
-            >
-              {/* Subtle ambient glow aura */}
-              <div
-                aria-hidden="true"
-                className={`pointer-events-none absolute -right-8 -top-8 h-36 w-36 rounded-full blur-2xl opacity-40 transition-opacity ${
-                  isPaid ? 'bg-emerald-400/30' : 'bg-amber-400/30'
-                }`}
-              />
-
-              <div className="relative z-10 flex flex-col gap-3">
-                {/* Header row: animated icon + title + status pill */}
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`relative flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl border shadow-xs transition-colors ${
-                        isPaid
-                          ? 'border-emerald-300/80 bg-white/95 text-emerald-600'
-                          : 'border-amber-300/80 bg-white/95 text-amber-600'
-                      }`}
-                    >
-                      {/* Gentle animated ping ring, respecting prefers-reduced-motion */}
-                      <span
-                        className={`absolute inset-0 rounded-xl opacity-25 motion-safe:animate-ping motion-reduce:hidden ${
-                          isPaid ? 'bg-emerald-500' : 'bg-amber-500'
-                        }`}
-                        style={{ animationDuration: '3s' }}
-                      />
-                      {/* Subtle pulse on the clock icon */}
-                      <Clock className="relative h-5 w-5 motion-safe:animate-pulse motion-reduce:animate-none" />
-                    </span>
-                    <div>
-                      <h2 className="text-sm sm:text-base font-bold tracking-tight">
-                        {isPaid ? 'Estimated Dispatch Countdown' : 'Time Until Next Cut-Off'}
-                      </h2>
-                      <p className={`text-[11px] sm:text-xs font-medium ${isPaid ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        {isPaid
-                          ? 'Live production & packaging timer'
-                          : `Daily cut-off: ${cutoffTime} (${timezone.replace('Australia/', '')} time)`}
-                      </p>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold border ${
-                      isPaid
-                        ? 'bg-emerald-100/80 border-emerald-300 text-emerald-800'
-                        : 'bg-amber-100/80 border-amber-300 text-amber-800'
-                    }`}
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        isPaid ? 'bg-emerald-600' : 'bg-amber-600'
-                      } motion-safe:animate-pulse`}
-                    />
-                    {isPaid ? 'In Production' : 'Daily Cut-Off'}
-                  </span>
-                </div>
-
-                {/* Digit tiles: only rendered if a valid countdown target exists */}
-                {units && (
-                  <div className="flex items-center gap-2 sm:gap-3 py-1">
-                    {/* Days Tile */}
-                    <div
-                      className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${
-                        isPaid
-                          ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
-                          : 'border-amber-200/90 bg-white/95 text-amber-950'
-                      }`}
-                    >
-                      <span className="font-mono text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums text-slate-900">
-                        {units.days}
-                      </span>
-                      <span
-                        className={`mt-0.5 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase ${
-                          isPaid ? 'text-emerald-700' : 'text-amber-700'
-                        }`}
-                      >
-                        Days
-                      </span>
-                    </div>
-
-                    <span
-                      className={`font-mono text-lg sm:text-xl font-bold select-none ${
-                        isPaid ? 'text-emerald-400' : 'text-amber-400'
-                      }`}
-                    >
-                      :
-                    </span>
-
-                    {/* Hours Tile */}
-                    <div
-                      className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${
-                        isPaid
-                          ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
-                          : 'border-amber-200/90 bg-white/95 text-amber-950'
-                      }`}
-                    >
-                      <span className="font-mono text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums text-slate-900">
-                        {units.hours}
-                      </span>
-                      <span
-                        className={`mt-0.5 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase ${
-                          isPaid ? 'text-emerald-700' : 'text-amber-700'
-                        }`}
-                      >
-                        Hours
-                      </span>
-                    </div>
-
-                    <span
-                      className={`font-mono text-lg sm:text-xl font-bold select-none ${
-                        isPaid ? 'text-emerald-400' : 'text-amber-400'
-                      }`}
-                    >
-                      :
-                    </span>
-
-                    {/* Minutes Tile */}
-                    <div
-                      className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${
-                        isPaid
-                          ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
-                          : 'border-amber-200/90 bg-white/95 text-amber-950'
-                      }`}
-                    >
-                      <span className="font-mono text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums text-slate-900">
-                        {units.minutes}
-                      </span>
-                      <span
-                        className={`mt-0.5 text-[10px] sm:text-[11px] font-bold tracking-wider uppercase ${
-                          isPaid ? 'text-emerald-700' : 'text-amber-700'
-                        }`}
-                      >
-                        Min
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Explanatory lines below digits */}
-                <div className="pt-1 text-xs">
-                  {isPaid ? (
-                    targetDate ? (
-                      <div className="space-y-0.5 text-emerald-900">
-                        <p className="font-medium text-emerald-950">
-                          Estimated dispatch: <span className="font-semibold">{targetDate}</span> ({timezone.replace('Australia/', '')} time)
-                        </p>
-                        <p className="text-[11px] text-emerald-800">
-                          Based on {orderData.production_days} production business day{orderData.production_days === 1 ? '' : 's'}. Courier delivery time is additional.
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-emerald-900 font-medium">
-                        Your payment is confirmed. The dispatch estimate will appear once production time is set for this order.
-                      </p>
-                    )
-                  ) : (
-                    <div className="space-y-0.5 text-amber-900">
-                      <p className="font-medium text-amber-950">
-                        Pay before today’s cut-off to start processing today. Weekend payments start on the next business day.
-                      </p>
-                      {targetDate && (
-                        <p className="text-[11px] text-amber-800">
-                          Next cut-off deadline: <span className="font-semibold">{targetDate}</span> ({timezone.replace('Australia/', '')} time).
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
+        <ReviewCountdownCard orderData={orderData} />
 
         {/* Change Request Banner (if currently changes_requested) */}
         {orderData.status === 'changes_requested' && (
@@ -1795,36 +1791,36 @@ export default function OrderReviewPage({ params }: PageProps) {
                         </div>
                       )
                     ) : (
-                        <div
-                          className="bg-[#EBEBEB] min-h-[420px] sm:min-h-[500px] p-6 sm:p-10 flex items-center justify-center overflow-auto relative"
-                          onContextMenu={(event) => event.preventDefault()}
-                        >
+                      <div
+                        className="bg-[#EBEBEB] min-h-[420px] sm:min-h-[500px] p-6 sm:p-10 flex items-center justify-center overflow-auto relative"
+                        onContextMenu={(event) => event.preventDefault()}
+                      >
                         <div
                           className="transition-transform duration-200 shadow-2xl rounded-none overflow-hidden bg-white max-w-full"
                           style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'center center' }}
                         >
                           {(activeSide === 'front' ? frontMockupUrl : backMockupUrl) ? (
-                              <div className="relative inline-block max-h-[460px] max-w-full align-middle select-none">
-                                <img
-                                  src={activeSide === 'front' ? frontMockupUrl! : backMockupUrl!}
-                                  alt={`${activeSide === 'front' ? 'Front' : 'Back'} Flat Proof`}
-                                  draggable={false}
-                                  onContextMenu={(event) => event.preventDefault()}
-                                  className="max-h-[460px] max-w-full object-contain block mx-auto select-none rounded-none pointer-events-none"
-                                />
-                                <div aria-hidden="true" className="absolute inset-0 grid grid-cols-2 grid-rows-3 place-items-center overflow-hidden pointer-events-none select-none">
-                                  {Array.from({ length: 6 }, (_, index) => (
-                                    <img
-                                      key={index}
-                                      src="/assets/images/erry_imprints_logo.png"
-                                      alt=""
-                                      draggable={false}
-                                      style={{ opacity: (orderData.proof_watermark_opacity ?? 40) / 100 }}
-                                      className="w-24 sm:w-36 h-auto -rotate-[24deg] drop-shadow-[0_1px_3px_rgba(255,255,255,0.9)]"
-                                    />
-                                  ))}
-                                </div>
+                            <div className="relative inline-block max-h-[460px] max-w-full align-middle select-none">
+                              <img
+                                src={activeSide === 'front' ? frontMockupUrl! : backMockupUrl!}
+                                alt={`${activeSide === 'front' ? 'Front' : 'Back'} Flat Proof`}
+                                draggable={false}
+                                onContextMenu={(event) => event.preventDefault()}
+                                className="max-h-[460px] max-w-full object-contain block mx-auto select-none rounded-none pointer-events-none"
+                              />
+                              <div aria-hidden="true" className="absolute inset-0 grid grid-cols-2 grid-rows-3 place-items-center overflow-hidden pointer-events-none select-none">
+                                {Array.from({ length: 6 }, (_, index) => (
+                                  <img
+                                    key={index}
+                                    src="/assets/images/erry_imprints_logo.png"
+                                    alt=""
+                                    draggable={false}
+                                    style={{ opacity: (orderData.proof_watermark_opacity ?? 40) / 100 }}
+                                    className="w-24 sm:w-36 h-auto -rotate-[24deg] drop-shadow-[0_1px_3px_rgba(255,255,255,0.9)]"
+                                  />
+                                ))}
                               </div>
+                            </div>
                           ) : (
                             <div className="w-[500px] h-[300px] flex flex-col items-center justify-center bg-slate-50 text-slate-400 p-8 rounded-none">
                               <Package className="w-12 h-12 mb-2 stroke-1" />
@@ -2044,24 +2040,22 @@ export default function OrderReviewPage({ params }: PageProps) {
                             return (
                               <React.Fragment key={step.key}>
                                 <div
-                                  className={`flex-1 min-w-[125px] relative p-3 sm:p-3.5 rounded-2xl border transition-all flex flex-col justify-between text-center ${
-                                    isCurrent
+                                  className={`flex-1 min-w-[125px] relative p-3 sm:p-3.5 rounded-2xl border transition-all flex flex-col justify-between text-center ${isCurrent
                                       ? 'bg-rose-50/20 border-rose-300 ring-2 ring-[#E11D48]/15 shadow-sm'
                                       : isComplete
-                                      ? 'bg-emerald-50/30 border-emerald-200/90 shadow-2xs'
-                                      : 'bg-white border-slate-200/80 shadow-2xs opacity-90'
-                                  }`}
+                                        ? 'bg-emerald-50/30 border-emerald-200/90 shadow-2xs'
+                                        : 'bg-white border-slate-200/80 shadow-2xs opacity-90'
+                                    }`}
                                 >
                                   {/* Top Left Step Number Circle */}
                                   <div className="flex items-center justify-between mb-1">
                                     <span
-                                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                                        isComplete
+                                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${isComplete
                                           ? 'bg-emerald-600 text-white'
                                           : isCurrent
-                                          ? 'bg-[#E11D48] text-white shadow-xs'
-                                          : 'bg-slate-200 text-slate-600'
-                                      }`}
+                                            ? 'bg-[#E11D48] text-white shadow-xs'
+                                            : 'bg-slate-200 text-slate-600'
+                                        }`}
                                     >
                                       {idx + 1}
                                     </span>
@@ -2070,13 +2064,12 @@ export default function OrderReviewPage({ params }: PageProps) {
                                   {/* Center Circular Icon */}
                                   <div className="my-1 flex justify-center">
                                     <div
-                                      className={`w-11 h-11 rounded-full flex items-center justify-center transition-transform ${
-                                        isComplete
+                                      className={`w-11 h-11 rounded-full flex items-center justify-center transition-transform ${isComplete
                                           ? 'bg-emerald-100/70 text-emerald-600 border border-emerald-200/60'
                                           : isCurrent
-                                          ? 'bg-rose-100/70 text-[#E11D48] border border-rose-200/60'
-                                          : 'bg-slate-100 text-slate-500 border border-slate-200/60'
-                                      }`}
+                                            ? 'bg-rose-100/70 text-[#E11D48] border border-rose-200/60'
+                                            : 'bg-slate-100 text-slate-500 border border-slate-200/60'
+                                        }`}
                                     >
                                       <StepIcon className="w-5 h-5" />
                                     </div>
@@ -2181,44 +2174,44 @@ export default function OrderReviewPage({ params }: PageProps) {
                   {(orderData.shipping_carrier ||
                     orderData.tracking_number ||
                     ['handed_over_to_courier', 'dispatched', 'delivered'].includes(orderData.status)) && (
-                    <div className="bg-gradient-to-br from-indigo-900 via-slate-900 to-slate-950 text-white rounded-3xl p-6 sm:p-7 shadow-md">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div className="space-y-2">
-                          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-semibold">
-                            <Truck className="w-3.5 h-3.5" />
-                            <span>Delivery with {orderData.shipping_carrier || 'Courier Partner'}</span>
+                      <div className="bg-gradient-to-br from-indigo-900 via-slate-900 to-slate-950 text-white rounded-3xl p-6 sm:p-7 shadow-md">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="space-y-2">
+                            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-semibold">
+                              <Truck className="w-3.5 h-3.5" />
+                              <span>Delivery with {orderData.shipping_carrier || 'Courier Partner'}</span>
+                            </div>
+
+                            <div className="flex flex-wrap items-baseline gap-2 pt-1">
+                              <span className="text-xs text-slate-400 font-medium">Tracking Number:</span>
+                              <span className="font-mono text-lg font-bold text-white tracking-wide">
+                                {orderData.tracking_number || 'Awaiting dispatch confirmation'}
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-slate-300">
+                              Delivering to: {orderData.delivery_summary.full_address || 'Shipping address provided'}
+                            </p>
                           </div>
 
-                          <div className="flex flex-wrap items-baseline gap-2 pt-1">
-                            <span className="text-xs text-slate-400 font-medium">Tracking Number:</span>
-                            <span className="font-mono text-lg font-bold text-white tracking-wide">
-                              {orderData.tracking_number || 'Awaiting dispatch confirmation'}
-                            </span>
-                          </div>
-
-                          <p className="text-xs text-slate-300">
-                            Delivering to: {orderData.delivery_summary.full_address || 'Shipping address provided'}
-                          </p>
+                          {orderData.carrier_tracking_url ? (
+                            <a
+                              href={orderData.carrier_tracking_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white hover:bg-slate-100 text-slate-950 font-bold text-xs shadow-md transition shrink-0"
+                            >
+                              <span>Track Package</span>
+                              <ExternalLink className="w-4 h-4 text-slate-700" />
+                            </a>
+                          ) : orderData.tracking_number ? (
+                            <div className="text-xs text-slate-400 sm:text-right">
+                              <span>Direct carrier tracking link unavailable</span>
+                            </div>
+                          ) : null}
                         </div>
-
-                        {orderData.carrier_tracking_url ? (
-                          <a
-                            href={orderData.carrier_tracking_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white hover:bg-slate-100 text-slate-950 font-bold text-xs shadow-md transition shrink-0"
-                          >
-                            <span>Track Package</span>
-                            <ExternalLink className="w-4 h-4 text-slate-700" />
-                          </a>
-                        ) : orderData.tracking_number ? (
-                          <div className="text-xs text-slate-400 sm:text-right">
-                            <span>Direct carrier tracking link unavailable</span>
-                          </div>
-                        ) : null}
                       </div>
-                    </div>
-                  )}
+                    )}
 
                   {/* Store Pickup Notice Card (if method is pickup and ready) */}
                   {Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup')) &&
