@@ -294,8 +294,9 @@ function formatCountdown(milliseconds: number): string {
   return `${days}d ${hours}h ${minutes}m`;
 }
 
-function getCountdownUnits(milliseconds: number): { days: string; hours: string; minutes: string } {
-  const totalMinutes = Math.max(0, Math.floor(milliseconds / 60_000));
+function getCountdownUnits(milliseconds: number): { days: string; hours: string; minutes: string; seconds: string } {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const totalMinutes = Math.floor(totalSeconds / 60);
   const days = Math.floor(totalMinutes / (24 * 60));
   const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
   const minutes = totalMinutes % 60;
@@ -303,6 +304,7 @@ function getCountdownUnits(milliseconds: number): { days: string; hours: string;
     days: String(days).padStart(2, '0'),
     hours: String(hours).padStart(2, '0'),
     minutes: String(minutes).padStart(2, '0'),
+    seconds: String(totalSeconds % 60).padStart(2, '0'),
   };
 }
 
@@ -400,10 +402,10 @@ function ReviewCountdownCard({ orderData }: ReviewCountdownCardProps) {
 
         {/* Digit tiles: only rendered if a valid countdown target exists */}
         {units && (
-          <div className="flex items-center gap-2 sm:gap-3 py-1">
+          <div className="grid w-full max-w-[680px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 sm:gap-3 py-1">
             {/* Days Tile */}
             <div
-              className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${isPaid
+              className={`flex min-w-0 w-full flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-1 sm:px-3 py-2 sm:py-2.5 shadow-xs transition-transform ${isPaid
                 ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
                 : 'border-amber-200/90 bg-white/95 text-amber-950'
                 }`}
@@ -420,7 +422,7 @@ function ReviewCountdownCard({ orderData }: ReviewCountdownCardProps) {
             </div>
 
             <span
-              className={`font-mono text-lg sm:text-xl font-bold select-none ${isPaid ? 'text-emerald-400' : 'text-amber-400'
+              className={`font-mono text-sm sm:text-xl font-bold select-none ${isPaid ? 'text-emerald-400' : 'text-amber-400'
                 }`}
             >
               :
@@ -428,7 +430,7 @@ function ReviewCountdownCard({ orderData }: ReviewCountdownCardProps) {
 
             {/* Hours Tile */}
             <div
-              className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${isPaid
+              className={`flex min-w-0 w-full flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-1 sm:px-3 py-2 sm:py-2.5 shadow-xs transition-transform ${isPaid
                 ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
                 : 'border-amber-200/90 bg-white/95 text-amber-950'
                 }`}
@@ -445,7 +447,7 @@ function ReviewCountdownCard({ orderData }: ReviewCountdownCardProps) {
             </div>
 
             <span
-              className={`font-mono text-lg sm:text-xl font-bold select-none ${isPaid ? 'text-emerald-400' : 'text-amber-400'
+              className={`font-mono text-sm sm:text-xl font-bold select-none ${isPaid ? 'text-emerald-400' : 'text-amber-400'
                 }`}
             >
               :
@@ -453,7 +455,7 @@ function ReviewCountdownCard({ orderData }: ReviewCountdownCardProps) {
 
             {/* Minutes Tile */}
             <div
-              className={`flex min-w-[72px] sm:min-w-[88px] flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-3 py-2 sm:px-4 sm:py-2.5 shadow-xs transition-transform ${isPaid
+              className={`flex min-w-0 w-full flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-1 sm:px-3 py-2 sm:py-2.5 shadow-xs transition-transform ${isPaid
                 ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
                 : 'border-amber-200/90 bg-white/95 text-amber-950'
                 }`}
@@ -466,6 +468,32 @@ function ReviewCountdownCard({ orderData }: ReviewCountdownCardProps) {
                   }`}
               >
                 Min
+              </span>
+            </div>
+
+            <span
+              className={`font-mono text-sm sm:text-xl font-bold select-none ${isPaid ? 'text-emerald-400' : 'text-amber-400'
+                }`}
+              aria-hidden="true"
+            >
+              :
+            </span>
+
+            {/* Seconds Tile */}
+            <div
+              className={`flex min-w-0 w-full flex-col items-center justify-center rounded-xl sm:rounded-2xl border px-1 sm:px-3 py-2 sm:py-2.5 shadow-xs transition-transform ${isPaid
+                ? 'border-emerald-200/90 bg-white/95 text-emerald-950'
+                : 'border-amber-200/90 bg-white/95 text-amber-950'
+                }`}
+            >
+              <span className="font-mono text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums text-slate-900">
+                {units.seconds}
+              </span>
+              <span
+                className={`mt-0.5 text-[9px] sm:text-[11px] font-bold tracking-wider uppercase ${isPaid ? 'text-emerald-700' : 'text-amber-700'
+                  }`}
+              >
+                Sec
               </span>
             </div>
           </div>
