@@ -7,6 +7,7 @@ use App\Enums\PaymentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\ArtworkReview;
 use App\Models\ArtworkVersion;
+use App\Models\Artwork;
 use App\Models\DesignTemplate;
 use App\Models\Invoice;
 use App\Models\Order;
@@ -108,9 +109,32 @@ class CustomerOrderReviewController extends Controller
 
         $order = Order::with([
             'user:id,name,email,company_name',
+            'items' => function ($query) {
+                // designer_canvas_state can contain embedded print-resolution artwork.
+                // It is not needed for the public item summary.
+                $query->select([
+                    'id', 'order_id', 'product_id', 'artwork_id', 'product_name',
+                    'product_sku', 'quantity', 'unit_price_ex_gst',
+                    'total_price_inc_gst', 'options_snapshot',
+                ]);
+            },
             'items.product:id,name,slug',
+            'items.artwork' => function ($query) {
+                $query->select([
+                    'id', 'current_version', 'thumbnail_url', 'storage_path',
+                    'template_id', 'design_template_id', 'document_settings',
+                    'width_px', 'height_px', 'dpi',
+                ]);
+            },
             'items.artwork.versions' => function ($q) {
                 $q->orderByDesc('version_number');
+            },
+            'artworks' => function ($query) {
+                $query->select([
+                    'id', 'order_id', 'current_version', 'thumbnail_url', 'storage_path',
+                    'template_id', 'design_template_id', 'document_settings',
+                    'width_px', 'height_px', 'dpi',
+                ]);
             },
             'artworks.versions' => function ($q) {
                 $q->orderByDesc('version_number');
@@ -120,6 +144,7 @@ class CustomerOrderReviewController extends Controller
         $primaryItem = $order->items->first(fn ($item) => $item->artwork_id || $item->artwork)
             ?: $order->items->first(fn ($item) => data_get($item->options_snapshot, 'template_id'))
             ?: $order->items->first();
+        $isSingleItemOrder = $order->items->count() === 1;
         $artwork = $primaryItem?->artwork ?: $order->artworks->first();
         $selectedTemplateId = data_get($primaryItem?->options_snapshot, 'template_id')
             ?: $artwork?->template_id
@@ -127,7 +152,7 @@ class CustomerOrderReviewController extends Controller
         $selectedTemplate = $selectedTemplateId
             ? DesignTemplate::query()
                 ->select([
-                    'id', 'name', 'thumbnail_url', 'canvas_json', 'back_canvas_json',
+                    'id', 'name', 'thumbnail_url',
                     'width_mm', 'height_mm', 'bleed_mm', 'safe_area_mm',
                 ])
                 ->find($selectedTemplateId)
@@ -163,6 +188,30 @@ class CustomerOrderReviewController extends Controller
         }
 
         $hasUploadedProof = !empty($proofFiles) || !empty($currentVersion?->storage_path);
+
+        // Load only the one template canvas actually needed, and only when there
+        // is no uploaded proof. The public page does not need canvas JSON per item.
+        if (! $hasUploadedProof && $isSingleItemOrder && $artwork) {
+            $artwork->setAttribute('canvas_json', Artwork::query()
+                ->whereKey($artwork->getKey())
+                ->value('canvas_json'));
+        }
+
+        $primaryItemCanvasState = null;
+        if (! $hasUploadedProof && $isSingleItemOrder && ! $artwork?->canvas_json && $primaryItem) {
+            $primaryItemCanvasState = DB::table('order_items')
+                ->where('id', $primaryItem->id)
+                ->value('designer_canvas_state');
+        }
+
+        if (! $hasUploadedProof && $isSingleItemOrder && $selectedTemplate) {
+            $selectedTemplate->setAttribute('canvas_json', DesignTemplate::query()
+                ->whereKey($selectedTemplate->getKey())
+                ->value('canvas_json'));
+            $selectedTemplate->setAttribute('back_canvas_json', DesignTemplate::query()
+                ->whereKey($selectedTemplate->getKey())
+                ->value('back_canvas_json'));
+        }
 
         $publicStorageUrl = function (?string $url, ?string $storagePath = null): ?string {
             if (empty($url)) return null;
@@ -303,7 +352,9 @@ class CustomerOrderReviewController extends Controller
                             'front_url' => $frontUrl,
                             'back_url' => $backUrl,
                             'thumbnail_url' => $itemThumbnail,
-                            'canvas_json' => $itemArtwork?->canvas_json ?? $item->designer_canvas_state,
+                            // Canvas JSON is returned once at proof level when needed,
+                            // never duplicated for each item in the public payload.
+                            'canvas_json' => null,
                             'document_settings' => $itemArtwork?->document_settings ?? [],
                             'dimensions' => [
                                 'width_px' => $itemVersion?->width_px ?? $itemArtwork?->width_px,
@@ -327,12 +378,12 @@ class CustomerOrderReviewController extends Controller
                     'files' => $proofFiles,
                     'pdf_url' => $pdfUrl,
                     'thumbnail_url' => $thumbnailUrl,
-                    'template_canvas_json' => $hasUploadedProof
+                    'template_canvas_json' => $hasUploadedProof || ! $isSingleItemOrder
                         ? null
                         : ($artwork?->canvas_json
-                            ?? $primaryItem?->designer_canvas_state
+                            ?? $primaryItemCanvasState
                             ?? $selectedTemplate?->canvas_json),
-                    'template_back_canvas_json' => $hasUploadedProof
+                    'template_back_canvas_json' => $hasUploadedProof || ! $isSingleItemOrder
                         ? null
                         : ((is_array($artwork?->canvas_json) && array_is_list($artwork->canvas_json)
                             ? ($artwork->canvas_json[1] ?? null)

@@ -628,6 +628,10 @@ export default function OrderReviewPage({ params }: PageProps) {
       Boolean(selectedItem?.artwork_preview?.thumbnail_url);
     setTemplatePreviewUrl(null);
     setTemplateBackPreviewUrl(null);
+    // Offscreen Fabric previews are only used for single-item artwork review.
+    // Do not render large canvases while the customer is paying/tracking or on
+    // multi-item orders, where each item must use its own uploaded proof.
+    if (currentStep !== 'review' || (orderData?.items.length ?? 0) > 1) return;
     if (hasSelectedItemImage) {
       setTemplatePreviewUrl(null);
       setTemplateBackPreviewUrl(null);
@@ -690,6 +694,7 @@ export default function OrderReviewPage({ params }: PageProps) {
     orderData?.proof.dimensions,
     orderData?.items,
     selectedProofItemId,
+    currentStep,
   ]);
 
   // 2. Initialize BPOINT payment session if on payment step
