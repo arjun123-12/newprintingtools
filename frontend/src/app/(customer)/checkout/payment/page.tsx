@@ -464,12 +464,12 @@ function PaymentContent() {
         </div>
       </div>
 
-      {/* BRANDED SPIN & WIN REWARDS COMPONENT (Unlocked only after verified BPOINT payment) */}
-      {(gatewayStatus === 'success' || order.payment_status === 'paid') && (
+      {/* BRANDED SPIN & WIN REWARDS COMPONENT (Temporarily disabled for customer view) */}
+      {/* {(gatewayStatus === 'success' || order.payment_status === 'paid') && (
         <div className="mb-10">
           <SpinAndWinWheel orderNumber={order.order_number} />
         </div>
-      )}
+      )} */}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Column: Order Summary & Address Snapshots */}

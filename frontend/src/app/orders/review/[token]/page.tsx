@@ -1566,22 +1566,22 @@ export default function OrderReviewPage({ params }: PageProps) {
         {currentStep === 'payment' ? (
           /* STEP 2: PAYMENT STEP */
           (gatewayStatus === 'success' || orderData.payment_status === 'paid') ? (
-            /* When paid: Full-Width Celebration & Spin-and-Win Wheel */
+            /* When paid: Full-Width Celebration & Order Summary */
             <div className="space-y-8">
               <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm flex items-center gap-3 shadow-xs">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <span className="font-semibold">
-                  Payment successfully verified! Your order #{orderData.order_number} has been placed into production. Spin the wheel below to unlock your reward!
+                  Payment successfully verified! Your order #{orderData.order_number} has been placed into production.
                 </span>
               </div>
 
-              {/* Full-Width Spin & Win Reward Wheel on Desktop */}
-              <SpinAndWinWheel
+              {/* Full-Width Spin & Win Reward Wheel on Desktop (Temporarily disabled for customer view) */}
+              {/* <SpinAndWinWheel
                 orderNumber={orderData.order_number}
                 reviewToken={token}
-              />
+              /> */}
 
-              {/* Order Summary & Delivery Details below full-width wheel */}
+              {/* Order Summary & Delivery Details */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
                 <div className="lg:col-span-7 space-y-6">
                   {renderOrderSummaryCard(false)}
@@ -1949,13 +1949,13 @@ export default function OrderReviewPage({ params }: PageProps) {
               {/* STEP 3: PRODUCTION & SHIPPING WORKFLOW TRACKING */}
               {currentStep === 'production' && (
                 <div className="space-y-6">
-                  {/* Verified Payment Reward Wheel */}
-                  {(gatewayStatus === 'success' || orderData.payment_status === 'paid') && (
+                  {/* Verified Payment Reward Wheel (Temporarily disabled for customer view) */}
+                  {/* {(gatewayStatus === 'success' || orderData.payment_status === 'paid') && (
                     <SpinAndWinWheel
                       orderNumber={orderData.order_number}
                       reviewToken={token}
                     />
-                  )}
+                  )} */}
 
                   {/* Status Banner Card matching user's image */}
                   <div className="bg-white rounded-3xl border border-slate-200/90 p-6 sm:p-8 shadow-sm">
