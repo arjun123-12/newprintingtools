@@ -40,7 +40,7 @@ function isDoubleSidedPrintingOption(opt: any): boolean {
   if (!opt) return false;
   const id = String(opt.id || '').toLowerCase();
   const type = String(opt.side_type || opt.sideType || opt.type || '').toLowerCase();
-  const name = String(opt.name || opt.label || '').toLowerCase();
+  const name = String(opt.name || opt.label || opt.option_name || '').toLowerCase();
 
   if (type === 'front_back' || type === 'both' || type === 'double' || type === 'two_sides') {
     return true;
@@ -103,6 +103,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     isPrintingConfig?: boolean;
     configName?: string;
     gsmName?: string;
+      sideCount?: number;
   } | null>(null);
 
   const [loadingPrice, setLoadingPrice] = useState(false);
@@ -220,6 +221,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
   const activeGsmObj = gsmOptions.find((g) => g.id === selectedGsmId) || gsmOptions[0] || null;
   const currentPrintingConfig = printingOptions.find((o) => o.id === printingSide) || printingOptions[0] || null;
   const activeFoldingObj = foldingOptions.find((f) => f.id === selectedFolding) || null;
+  const selectedSideCount = pricing?.sideCount ?? (isDoubleSidedPrintingOption(currentPrintingConfig) ? 2 : 1);
 
   // Available quantities based on selected GSM and printing configuration
   const availableQuantities = React.useMemo(() => {
@@ -293,6 +295,10 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
             isPrintingConfig: Boolean(printingDetails.enabled),
             configName: printingDetails.option_name,
             gsmName: printingDetails.gsm_name || activeGsmObj?.name,
+            sideCount: isDoubleSidedPrintingOption({
+              ...printingDetails,
+              name: printingDetails.option_name || currentPrintingConfig?.name,
+            }) ? 2 : 1,
           });
         }
       } catch (err: any) {
@@ -501,7 +507,12 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
                         key={opt.id}
                         className="p-2.5 rounded-xl border text-left text-xs font-semibold flex items-center justify-between bg-sky-50 border-sky-500 text-sky-900 ring-1 ring-sky-500 shadow-2xs"
                       >
-                        <span className="truncate">{opt.name}</span>
+                        <span className="truncate">
+                          {opt.name}
+                          <span className="ml-2 font-medium text-sky-700">
+                            · {isDoubleSidedPrintingOption(opt) ? '2 sides · Front + Back' : '1 side · Front only'}
+                          </span>
+                        </span>
                         <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0" />
                       </div>
                     ))}
@@ -630,7 +641,9 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
 
                 {/* Printing Fixed Total */}
                 <div className="flex items-center justify-between text-xs text-slate-300">
-                  <span>Printing Total ({quantity} cards):</span>
+                  <span>
+                    {selectedSideCount === 2 ? 'Double-sided print (Front + Back)' : 'Single-sided print (Front)'} · {quantity.toLocaleString()} pcs:
+                  </span>
                   <span className="font-semibold text-white">
                     {loadingPrice ? '...' : `$${(pricing?.printingPrice ?? pricing?.subtotalExGst ?? 0).toFixed(2)}`}
                   </span>

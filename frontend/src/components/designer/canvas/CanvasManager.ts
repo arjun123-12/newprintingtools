@@ -695,15 +695,10 @@ export class CanvasManager {
       this.canvas = null;
     }
 
-    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
-    const trimWidth = this.dimensions.widthPx || 1063;
-    const trimHeight = this.dimensions.heightPx || 591;
-    const baseWidth = trimWidth + bleedPx * 2;
-    const baseHeight = trimHeight + bleedPx * 2;
-
     this.zoom = this.zoom || 1.0;
-    const targetWidth = Math.round(baseWidth * this.zoom);
-    const targetHeight = Math.round(baseHeight * this.zoom);
+    const editorSize = this.getEditorCanvasSize(this.zoom);
+    const targetWidth = editorSize.width;
+    const targetHeight = editorSize.height;
 
     const canvas = new Canvas(canvasEl, {
       width: targetWidth,
@@ -737,12 +732,20 @@ export class CanvasManager {
     if (origRenderBackground) {
       (canvas as any)._renderBackground = (ctx: CanvasRenderingContext2D) => {
         origRenderBackground(ctx);
+        // Fabric paints its background before applying viewportTransform, so
+        // the guides need the editor pasteboard offset applied explicitly.
+        const guideOffset = this.getWorkspacePaddingPx() * this.zoom;
+        ctx.save();
+        ctx.translate(guideOffset, guideOffset);
         this.guides.renderGuides(ctx, this.zoom);
+        ctx.restore();
       };
     }
 
     applyCanvaControlsGlobal();
     canvas.setZoom(this.zoom);
+    const workspaceOffset = this.getWorkspacePaddingPx() * this.zoom;
+    canvas.setViewportTransform([this.zoom, 0, 0, this.zoom, workspaceOffset, workspaceOffset]);
 
     this.canvas = canvas;
     if (typeof window !== 'undefined') {
@@ -785,6 +788,30 @@ export class CanvasManager {
     return this.dimensions;
   }
 
+  /** 15 mm of editor-only pasteboard around the bleed-inclusive artwork. */
+  private getWorkspacePaddingPx(): number {
+    const dpi = Math.max(1, Number(this.dimensions.dpi) || 300);
+    return (15 / 25.4) * dpi;
+  }
+
+  private getEditorCanvasSize(zoom = this.zoom): { width: number; height: number } {
+    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+    const paddingPx = this.getWorkspacePaddingPx();
+    const artworkWidth = (this.dimensions.widthPx || 1063) + bleedPx * 2;
+    const artworkHeight = (this.dimensions.heightPx || 591) + bleedPx * 2;
+    return {
+      width: Math.round((artworkWidth + paddingPx * 2) * zoom),
+      height: Math.round((artworkHeight + paddingPx * 2) * zoom),
+    };
+  }
+
+  /** Keep document coordinates unchanged while shifting the artboard into the pasteboard. */
+  private applyEditorViewportTransform(zoom = this.zoom): void {
+    if (!this.canvas) return;
+    const offset = this.getWorkspacePaddingPx() * zoom;
+    this.canvas.setViewportTransform([zoom, 0, 0, zoom, offset, offset]);
+  }
+
   public setDimensions(dims: CanvasDimensions): void {
     this.dimensions = dims;
     this.guides.updateDimensions(dims);
@@ -792,11 +819,9 @@ export class CanvasManager {
     this.smartSpacingManager.updateDimensions(dims);
 
     if (this.canvas) {
-      const bleedPx = Math.max(0, Number(dims.bleedPx) || 0);
-      const artworkWidth = dims.widthPx + bleedPx * 2;
-      const artworkHeight = dims.heightPx + bleedPx * 2;
-      const targetWidth = Math.round(artworkWidth * this.zoom);
-      const targetHeight = Math.round(artworkHeight * this.zoom);
+      const editorSize = this.getEditorCanvasSize(this.zoom);
+      const targetWidth = editorSize.width;
+      const targetHeight = editorSize.height;
 
       this.canvas.setDimensions({
         width: targetWidth,
@@ -804,6 +829,7 @@ export class CanvasManager {
       });
 
       this.canvas.setZoom(this.zoom);
+      this.applyEditorViewportTransform(this.zoom);
       this.syncArtworkBoundaryLines();
       this.canvas.calcOffset();
       this.canvas.forEachObject((obj) => {
@@ -909,11 +935,9 @@ export class CanvasManager {
     }
 
     if (this.canvas) {
-      const bleedPx = Math.max(0, Number(newDims.bleedPx) || 0);
-      const artworkWidth = newDims.widthPx + bleedPx * 2;
-      const artworkHeight = newDims.heightPx + bleedPx * 2;
-      const targetWidth = Math.round(artworkWidth * this.zoom);
-      const targetHeight = Math.round(artworkHeight * this.zoom);
+      const editorSize = this.getEditorCanvasSize(this.zoom);
+      const targetWidth = editorSize.width;
+      const targetHeight = editorSize.height;
 
       this.canvas.setDimensions({
         width: targetWidth,
@@ -921,6 +945,7 @@ export class CanvasManager {
       });
 
       this.canvas.setZoom(this.zoom);
+      this.applyEditorViewportTransform(this.zoom);
       this.syncArtworkBoundaryLines();
       this.canvas.requestRenderAll();
       this.notifyChange();
@@ -1622,12 +1647,10 @@ export class CanvasManager {
 
       // IMPORTANT: zoom the complete bleed-inclusive artwork.
       // Using trim-only dimensions here clips the right/bottom bleed edges after zoom.
-      const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
-      const baseWidth = (this.dimensions.widthPx || 1063) + bleedPx * 2;
-      const baseHeight = (this.dimensions.heightPx || 591) + bleedPx * 2;
-
-      const targetWidth = Math.round(baseWidth * zoomToApply);
-      const targetHeight = Math.round(baseHeight * zoomToApply);
+      const editorSize = this.getEditorCanvasSize(zoomToApply);
+      const targetWidth = editorSize.width;
+      const targetHeight = editorSize.height;
+      const workspaceOffsetPx = this.getWorkspacePaddingPx();
 
       const viewport =
         this.viewportElement ||
@@ -1662,6 +1685,7 @@ export class CanvasManager {
         });
 
         this.canvas.setZoom(zoomToApply);
+        this.applyEditorViewportTransform(zoomToApply);
         this.zoom = zoomToApply;
 
         const paddingX = 16;
@@ -1670,14 +1694,14 @@ export class CanvasManager {
         const totalContentH = targetHeight + paddingY * 2;
 
         if (totalContentW > viewport.clientWidth) {
-          const targetScrollLeft = paddingX + designX * zoomToApply - mouseViewportX;
+          const targetScrollLeft = paddingX + (workspaceOffsetPx + designX) * zoomToApply - mouseViewportX;
           viewport.scrollLeft = Math.max(0, targetScrollLeft);
         } else {
           viewport.scrollLeft = 0;
         }
 
         if (totalContentH > viewport.clientHeight) {
-          const targetScrollTop = paddingY + designY * zoomToApply - mouseViewportY;
+          const targetScrollTop = paddingY + (workspaceOffsetPx + designY) * zoomToApply - mouseViewportY;
           viewport.scrollTop = Math.max(0, targetScrollTop);
         } else {
           viewport.scrollTop = 0;
@@ -1689,6 +1713,7 @@ export class CanvasManager {
         });
 
         this.canvas.setZoom(zoomToApply);
+        this.applyEditorViewportTransform(zoomToApply);
         this.zoom = zoomToApply;
       }
 
@@ -1736,9 +1761,9 @@ export class CanvasManager {
     const availableW = Math.max(containerWidth - padding * 2 - rulerOffset, 80);
     const availableH = Math.max(containerHeight - padding * 2 - rulerOffset, 80);
 
-    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
-    const baseWidth = (this.dimensions.widthPx || 1063) + bleedPx * 2;
-    const baseHeight = (this.dimensions.heightPx || 591) + bleedPx * 2;
+    const editorSize = this.getEditorCanvasSize(1);
+    const baseWidth = editorSize.width;
+    const baseHeight = editorSize.height;
 
     const scaleX = availableW / baseWidth;
     const scaleY = availableH / baseHeight;
@@ -1749,11 +1774,9 @@ export class CanvasManager {
 
   public centerViewport(): void {
     if (!this.viewportElement || !this.canvas) return;
-    const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
-    const artworkWidth = (this.dimensions.widthPx || 1063) + bleedPx * 2;
-    const artworkHeight = (this.dimensions.heightPx || 591) + bleedPx * 2;
-    const targetWidth = Math.round(artworkWidth * this.zoom);
-    const targetHeight = Math.round(artworkHeight * this.zoom);
+    const editorSize = this.getEditorCanvasSize(this.zoom);
+    const targetWidth = editorSize.width;
+    const targetHeight = editorSize.height;
 
     const paddingX = 16;
     const paddingY = 16;
@@ -2387,18 +2410,27 @@ export class CanvasManager {
 
       this.canvas.renderAll();
 
-      const currentZoom = this.zoom || 1.0;
-      const effectiveMultiplier = (1 / currentZoom) * multiplier;
+      const effectiveMultiplier = multiplier;
+      const previousViewportTransform = this.canvas.viewportTransform
+        ? ([...this.canvas.viewportTransform] as [number, number, number, number, number, number])
+        : null;
 
       let dataUrl: string | null = null;
 
       try {
         // In Fabric.js, toDataURL() exports only lowerCanvas objects.
         // UpperCanvas selection outlines and control handles are never exported.
-        // Using enableRetinaScaling: false prevents fractional DPI resampling blur.
+        // Temporarily remove the editor-only viewport translation and crop to
+        // the original artwork bounds so pasteboard never enters previews.
+        this.canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+        this.canvas.renderAll();
         dataUrl = this.canvas.toDataURL({
           format: 'png',
           multiplier: effectiveMultiplier,
+          left: 0,
+          top: 0,
+          width: (this.dimensions.widthPx || 1063) + Math.max(0, Number(this.dimensions.bleedPx) || 0) * 2,
+          height: (this.dimensions.heightPx || 591) + Math.max(0, Number(this.dimensions.bleedPx) || 0) * 2,
           quality: 1.0,
           enableRetinaScaling: false,
         });
@@ -2411,6 +2443,11 @@ export class CanvasManager {
           }
         } catch (lowerErr) {
           console.error('All toDataURL attempts failed (canvas tainted):', lowerErr);
+        }
+      } finally {
+        if (previousViewportTransform && this.canvas) {
+          this.canvas.setViewportTransform(previousViewportTransform);
+          this.canvas.renderAll();
         }
       }
 
@@ -3136,6 +3173,7 @@ export class CanvasManager {
           // Guarantee that canvas dimensions, bleed margins, and boundary lines are strictly initialized
           this.setDimensions(this.dimensions);
           this.canvas.setZoom(this.zoom);
+          this.applyEditorViewportTransform(this.zoom);
           this.guides.updateDimensions(this.dimensions);
           this.syncArtworkBoundaryLines();
           this.canvas.calcOffset();
