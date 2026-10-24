@@ -1016,12 +1016,14 @@ export default function OrderReviewPage({ params }: PageProps) {
       : null);
 
   // Exact front/back artwork files already saved for the order as the 3D surface textures
-  const rawFrontUrl = (isImageFile(frontFile) ? frontFile?.url : null)
+  const rawFrontUrl = (isImageFile(frontFile) ? (frontFile?.preview_url || frontFile?.url) : null)
+    || (isPreviewImageUrl(selectedArtwork?.front_preview_url) ? selectedArtwork?.front_preview_url : null)
     || (isPreviewImageUrl(selectedArtwork?.front_url) ? selectedArtwork?.front_url : null)
     || proofThumbnailUrl
     || (!isMultiItemOrder ? templatePreviewUrl : null);
   const frontMockupUrl = rawFrontUrl ? formatImageUrl(rawFrontUrl) : null;
-  const rawBackUrl = (isImageFile(backFile) ? backFile?.url : null)
+  const rawBackUrl = (isImageFile(backFile) ? (backFile?.preview_url || backFile?.url) : null)
+    || (isPreviewImageUrl(selectedArtwork?.back_preview_url) ? selectedArtwork?.back_preview_url : null)
     || (isPreviewImageUrl(selectedArtwork?.back_url) ? selectedArtwork?.back_url : null)
     || (!isMultiItemOrder ? templateBackPreviewUrl : null);
   const backMockupUrl = rawBackUrl ? formatImageUrl(rawBackUrl) : null;
@@ -1211,6 +1213,8 @@ export default function OrderReviewPage({ params }: PageProps) {
                     src={ver.thumbnail_url}
                     alt={ver.label}
                     className="w-full h-full object-cover"
+                    loading="lazy"
+                    decoding="async"
                   />
                 ) : (
                   <Package className="w-5 h-5 text-slate-400" />

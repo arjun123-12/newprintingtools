@@ -164,8 +164,22 @@ class CustomerOrderReviewController extends Controller
         $currentVersion = $versions->firstWhere('version_number', $currentVersionNum) ?: $versions->first();
 
         // Format proof files with authoritative live HTTPS URLs
-        $proofFiles = collect($currentVersion?->proof_files ?? [])->map(function ($f) {
+        $proofFiles = collect($currentVersion?->proof_files ?? [])->map(function ($f) use ($currentVersion) {
             if (is_array($f)) {
+                $previewPath = $f['preview_storage_path'] ?? null;
+                if (empty($previewPath) && !empty($f['storage_path'])) {
+                    $preview = \App\Services\Order\ManualOrderService::ensureCustomerProofPreview(
+                        $currentVersion?->storage_disk ?: 'public',
+                        $f['storage_path']
+                    );
+                    $previewPath = $preview['storage_path'] ?? null;
+                    if ($previewPath) {
+                        $f['preview_storage_path'] = $previewPath;
+                    }
+                }
+                if ($previewPath) {
+                    $f['preview_url'] = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($previewPath);
+                }
                 $url = $f['url'] ?? '';
                 if (!empty($url) && (str_contains($url, 'localhost') || str_contains($url, '127.0.0.1') || str_starts_with($url, '/'))) {
                     $f['url'] = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($f['storage_path'] ?? $url);
@@ -174,7 +188,9 @@ class CustomerOrderReviewController extends Controller
             return $f;
         })->all();
 
-        $thumbnailUrl = $currentVersion?->thumbnail_url ?: $artwork?->thumbnail_url;
+        $frontProofFile = collect($proofFiles)->first(fn ($file) => is_array($file) && strtolower($file['label'] ?? '') === 'front')
+            ?: collect($proofFiles)->first(fn ($file) => is_array($file));
+        $thumbnailUrl = $frontProofFile['preview_url'] ?? ($currentVersion?->thumbnail_url ?: $artwork?->thumbnail_url);
         if (!empty($thumbnailUrl) && (str_contains($thumbnailUrl, 'localhost') || str_contains($thumbnailUrl, '127.0.0.1') || str_starts_with($thumbnailUrl, '/'))) {
             $thumbnailUrl = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($currentVersion?->storage_path ?? $thumbnailUrl);
         }
@@ -303,9 +319,26 @@ class CustomerOrderReviewController extends Controller
                     $itemVersion = $itemVersions->firstWhere('version_number', $itemCurrentVerNum)
                         ?: $itemVersions->first();
 
-                    $itemFiles = collect($itemVersion?->proof_files ?? [])->map(function ($file) use ($publicStorageUrl) {
+                    $itemFiles = collect($itemVersion?->proof_files ?? [])->map(function ($file) use ($publicStorageUrl, $itemVersion) {
                         if (!is_array($file)) return $file;
                         $file['url'] = $publicStorageUrl($file['url'] ?? null, $file['storage_path'] ?? null);
+                        $previewPath = $file['preview_storage_path'] ?? null;
+                        if (empty($previewPath) && !empty($file['storage_path'])) {
+                            $preview = \App\Services\Order\ManualOrderService::ensureCustomerProofPreview(
+                                $itemVersion?->storage_disk ?: 'public',
+                                $file['storage_path']
+                            );
+                            $previewPath = $preview['storage_path'] ?? null;
+                            if ($previewPath) {
+                                $file['preview_storage_path'] = $previewPath;
+                            }
+                        }
+                        if ($previewPath) {
+                            $file['preview_url'] = $publicStorageUrl(
+                                \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($previewPath),
+                                $previewPath
+                            );
+                        }
                         return $file;
                     })->values();
 
@@ -313,10 +346,22 @@ class CustomerOrderReviewController extends Controller
                     if ($itemFiles->isEmpty() && ($itemVersion?->proof_pdf_url || $itemVersion?->storage_path || $itemVersion?->thumbnail_url)) {
                         $singleUrl = $publicStorageUrl($itemVersion->proof_pdf_url ?: $itemVersion->thumbnail_url, $itemVersion->storage_path);
                         if ($singleUrl) {
+                            $preview = $itemVersion->storage_path
+                                ? \App\Services\Order\ManualOrderService::ensureCustomerProofPreview(
+                                    $itemVersion->storage_disk ?: 'public',
+                                    $itemVersion->storage_path
+                                )
+                                : null;
                             $itemFiles = collect([[
                                 'label' => 'Front',
                                 'file_name' => $itemVersion->file_name ?: 'Front Artwork',
                                 'url' => $singleUrl,
+                                'preview_url' => $preview
+                                    ? $publicStorageUrl(
+                                        \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($preview['storage_path']),
+                                        $preview['storage_path']
+                                    )
+                                    : null,
                                 'storage_path' => $itemVersion->storage_path,
                                 'mime_type' => $itemVersion->mime_type ?: 'image/jpeg',
                                 'file_size_bytes' => $itemVersion->file_size_bytes,
@@ -330,8 +375,8 @@ class CustomerOrderReviewController extends Controller
                     $backEntry = $itemFiles->first(fn ($f) => is_array($f) && strtolower($f['label'] ?? '') === 'back')
                         ?: ($itemFiles->count() > 1 && $itemFiles[0] === $frontEntry ? $itemFiles[1] : null);
 
-                    $frontUrl = $frontEntry['url'] ?? null;
-                    $backUrl = $backEntry['url'] ?? null;
+                    $frontUrl = $frontEntry['preview_url'] ?? $frontEntry['url'] ?? null;
+                    $backUrl = $backEntry['preview_url'] ?? $backEntry['url'] ?? null;
 
                     $itemThumbnail = $frontUrl ?: $publicStorageUrl(
                         $itemVersion?->thumbnail_url ?: $itemArtwork?->thumbnail_url,
@@ -405,17 +450,39 @@ class CustomerOrderReviewController extends Controller
                     ],
                     'is_approved' => (bool) ($order->approved_proof_version === $currentVersionNum),
                     'approved_at' => $order->proof_approved_at?->toIso8601String(),
-                    'versions' => $versions->map(function ($ver) use ($order) {
+                    'versions' => $versions->map(function ($ver) use ($order, $currentVersionNum) {
+                        $versionPreview = $ver->version_number === $currentVersionNum && $ver->storage_path
+                            ? \App\Services\Order\ManualOrderService::ensureCustomerProofPreview(
+                                $ver->storage_disk ?: 'public',
+                                $ver->storage_path
+                            )
+                            : null;
                         $thumb = $ver->thumbnail_url;
-                        if (!empty($thumb) && (str_contains($thumb, 'localhost') || str_contains($thumb, '127.0.0.1') || str_starts_with($thumb, '/'))) {
+                        if ($versionPreview) {
+                            $thumb = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($versionPreview['storage_path']);
+                        } elseif (!empty($thumb) && (str_contains($thumb, 'localhost') || str_contains($thumb, '127.0.0.1') || str_starts_with($thumb, '/'))) {
                             $thumb = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($ver->storage_path ?? $thumb);
                         }
                         $pUrl = $ver->proof_pdf_url;
                         if (!empty($pUrl) && (str_contains($pUrl, 'localhost') || str_contains($pUrl, '127.0.0.1') || str_starts_with($pUrl, '/'))) {
                             $pUrl = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($ver->storage_path ?? $pUrl);
                         }
-                        $pFiles = collect($ver->proof_files ?? [])->map(function ($f) {
+                        $pFiles = collect($ver->proof_files ?? [])->map(function ($f) use ($ver, $currentVersionNum) {
                             if (is_array($f)) {
+                                $previewPath = $f['preview_storage_path'] ?? null;
+                                if (empty($previewPath) && $ver->version_number === $currentVersionNum && !empty($f['storage_path'])) {
+                                    $preview = \App\Services\Order\ManualOrderService::ensureCustomerProofPreview(
+                                        $ver->storage_disk ?: 'public',
+                                        $f['storage_path']
+                                    );
+                                    $previewPath = $preview['storage_path'] ?? null;
+                                    if ($previewPath) {
+                                        $f['preview_storage_path'] = $previewPath;
+                                    }
+                                }
+                                if ($previewPath) {
+                                    $f['preview_url'] = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($previewPath);
+                                }
                                 $url = $f['url'] ?? '';
                                 if (!empty($url) && (str_contains($url, 'localhost') || str_contains($url, '127.0.0.1') || str_starts_with($url, '/'))) {
                                     $f['url'] = \App\Services\Order\ManualOrderService::formatLivePublicStorageUrl($f['storage_path'] ?? $url);
@@ -423,6 +490,12 @@ class CustomerOrderReviewController extends Controller
                             }
                             return $f;
                         })->all();
+                        $previewThumb = collect($pFiles)->first(fn ($file) => is_array($file) && strtolower($file['label'] ?? '') === 'front')['preview_url']
+                            ?? collect($pFiles)->first(fn ($file) => is_array($file) && !empty($file['preview_url']))['preview_url']
+                            ?? null;
+                        if ($previewThumb) {
+                            $thumb = $previewThumb;
+                        }
 
                         return [
                             'version_number' => $ver->version_number,

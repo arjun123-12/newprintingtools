@@ -28,6 +28,124 @@ class ManualOrderService
     ) {}
 
     /**
+     * Create (or reuse) a small customer-facing JPEG preview while retaining the
+     * original uploaded artwork unchanged for print production.
+     */
+    public static function ensureCustomerProofPreview(string $disk, string $storagePath): ?array
+    {
+        if ((!function_exists('imagecreatefromstring') || !function_exists('imagejpeg')) && !class_exists(\Imagick::class)) {
+            return null;
+        }
+
+        $disk = config("filesystems.disks.{$disk}") ? $disk : config('filesystems.default', 'public');
+        $directory = trim(dirname($storagePath), '.\\/');
+        $basename = pathinfo($storagePath, PATHINFO_FILENAME);
+        $previewPath = ($directory !== '' ? $directory . '/' : '') . $basename . '.customer-preview.jpg';
+
+        try {
+            $storage = Storage::disk($disk);
+            if ($storage->exists($previewPath)) {
+                return ['storage_path' => $previewPath, 'disk' => $disk];
+            }
+            if (!$storage->exists($storagePath)) {
+                return null;
+            }
+
+            $sourceBytes = $storage->get($storagePath);
+            $imageInfo = @getimagesizefromstring($sourceBytes);
+            if (!$imageInfo || empty($imageInfo[0]) || empty($imageInfo[1])) {
+                return null;
+            }
+
+            [$width, $height] = [(int) $imageInfo[0], (int) $imageInfo[1]];
+            $mime = strtolower((string) ($imageInfo['mime'] ?? ''));
+            if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'], true)) {
+                return null;
+            }
+
+            // Avoid attempting to decode pathological images that could exhaust
+            // the API worker. The full original remains available to staff.
+            if ($width * $height > 120_000_000) {
+                return null;
+            }
+
+            if (class_exists(\Imagick::class)) {
+                $image = new \Imagick();
+                $image->setResourceLimit(\Imagick::RESOURCETYPE_MEMORY, 256 * 1024 * 1024);
+                $image->setResourceLimit(\Imagick::RESOURCETYPE_MAP, 256 * 1024 * 1024);
+                $image->setResourceLimit(\Imagick::RESOURCETYPE_DISK, 512 * 1024 * 1024);
+                $image->readImageBlob($sourceBytes);
+                $image->setIteratorIndex(0);
+                $image->setImageBackgroundColor('white');
+                $image = $image->mergeImageLayers(\Imagick::LAYERMETHOD_FLATTEN);
+                $image->thumbnailImage(2000, 2000, true, true);
+                $image->setImageFormat('jpeg');
+                $image->setImageCompressionQuality(82);
+                $image->stripImage();
+                $previewBytes = $image->getImageBlob();
+                $image->clear();
+                $image->destroy();
+            } else {
+                $memoryLimit = trim((string) ini_get('memory_limit'));
+                $limitBytes = self::parseIniMemoryLimit($memoryLimit);
+                $estimatedBytes = ($width * $height * 8) + strlen($sourceBytes) + memory_get_usage(true);
+                if ($width * $height > 80_000_000 || ($limitBytes > 0 && $estimatedBytes > (int) ($limitBytes * 0.85))) {
+                    return null;
+                }
+
+                $source = @imagecreatefromstring($sourceBytes);
+                if ($source === false) {
+                    return null;
+                }
+
+                $maxDimension = 2000;
+                $scale = min(1, $maxDimension / $width, $maxDimension / $height);
+                $targetWidth = max(1, (int) round($width * $scale));
+                $targetHeight = max(1, (int) round($height * $scale));
+                $preview = imagecreatetruecolor($targetWidth, $targetHeight);
+                $white = imagecolorallocate($preview, 255, 255, 255);
+                imagefill($preview, 0, 0, $white);
+                imagecopyresampled($preview, $source, 0, 0, 0, 0, $targetWidth, $targetHeight, $width, $height);
+
+                ob_start();
+                $encoded = imagejpeg($preview, null, 82);
+                $previewBytes = ob_get_clean();
+                imagedestroy($source);
+                imagedestroy($preview);
+
+                if (!$encoded || !is_string($previewBytes) || $previewBytes === '') {
+                    return null;
+                }
+            }
+
+            $storage->put($previewPath, $previewBytes, ['visibility' => 'public', 'ContentType' => 'image/jpeg']);
+            return ['storage_path' => $previewPath, 'disk' => $disk];
+        } catch (\Throwable $exception) {
+            Log::warning('Unable to generate customer proof preview.', [
+                'storage_path' => $storagePath,
+                'error' => $exception->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    private static function parseIniMemoryLimit(string $value): int
+    {
+        if ($value === '' || $value === '-1') {
+            return 0;
+        }
+
+        $number = (float) $value;
+        $unit = strtolower(substr($value, -1));
+        return (int) ($number * match ($unit) {
+            'g' => 1024 ** 3,
+            'm' => 1024 ** 2,
+            'k' => 1024,
+            default => 1,
+        });
+    }
+
+    /**
      * Create a new manual order as a draft.
      */
     public function createManualOrder(User $staffUser, array $data): Order
@@ -322,19 +440,25 @@ class ManualOrderService
                     
                     $storagePath = $file->storeAs('proofs/' . $order->id, $safeFilename, $disk);
                     $url = static::formatLivePublicStorageUrl($storagePath);
+                    $preview = static::ensureCustomerProofPreview($disk, $storagePath);
+                    $previewUrl = $preview
+                        ? static::formatLivePublicStorageUrl($preview['storage_path'])
+                        : null;
 
                     $processedFiles[] = [
                         'label' => $label,
                         'file_name' => $originalName,
                         'storage_path' => $storagePath,
                         'url' => $url,
+                        'preview_storage_path' => $preview['storage_path'] ?? null,
+                        'preview_url' => $previewUrl,
                         'file_size_bytes' => $file->getSize(),
                         'mime_type' => $file->getMimeType(),
                     ];
 
                     if (!$primaryUrl || $label === 'Front') {
                         $primaryUrl = $url;
-                        $primaryThumb = $url;
+                        $primaryThumb = $previewUrl ?: $url;
                     }
                 } elseif (is_array($file) && !empty($file['url'])) {
                     // Pre-uploaded or existing reference

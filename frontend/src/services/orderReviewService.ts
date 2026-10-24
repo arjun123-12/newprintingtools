@@ -57,11 +57,14 @@ export interface CustomerReviewData {
         label: string;
         file_name?: string;
         url: string;
+        preview_url?: string | null;
         mime_type?: string;
         file_size_bytes?: number;
       }>;
       front_url?: string | null;
       back_url?: string | null;
+      front_preview_url?: string | null;
+      back_preview_url?: string | null;
       thumbnail_url?: string | null;
       canvas_json?: unknown;
       document_settings?: CustomerReviewData['proof']['document_settings'];
@@ -98,6 +101,7 @@ export interface CustomerReviewData {
       label: string;
       file_name: string;
       url: string;
+      preview_url?: string | null;
       file_size_bytes?: number;
       mime_type?: string;
     }>;
