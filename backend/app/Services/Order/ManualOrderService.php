@@ -200,9 +200,20 @@ class ManualOrderService
                 'order_cutoff_time' => $data['order_cutoff_time'] ?? null,
                 'order_cutoff_timezone' => $data['order_cutoff_timezone'] ?? null,
                 'proof_watermark_opacity' => isset($data['proof_watermark_opacity']) ? (int) $data['proof_watermark_opacity'] : null,
-                'production_days' => isset($data['production_days']) ? (int) $data['production_days'] : null,
+                'production_days' => isset($data['production_days']) ? (int) $data['production_days'] : (isset($data['turnaround_duration_value']) && ($data['turnaround_duration_unit'] ?? 'days') === 'days' ? (int) $data['turnaround_duration_value'] : null),
+                'turnaround_duration_value' => isset($data['turnaround_duration_value']) ? (int) $data['turnaround_duration_value'] : (isset($data['production_days']) ? (int) $data['production_days'] : null),
+                'turnaround_duration_unit' => $data['turnaround_duration_unit'] ?? (isset($data['turnaround_duration_value']) || isset($data['production_days']) ? 'days' : null),
+                'turnaround_day_type' => $data['turnaround_day_type'] ?? 'business',
+                'turnaround_started_at' => !empty($data['turnaround_started_at']) ? \Carbon\Carbon::parse($data['turnaround_started_at']) : (!empty($data['start_clock_now']) ? now() : null),
+                'estimated_completion_at' => !empty($data['estimated_completion_at']) ? \Carbon\Carbon::parse($data['estimated_completion_at']) : null,
                 'current_proof_version' => 1,
             ]);
+
+            // If start_clock_now or started_at was set without explicit completion, calculate it
+            if ($order->turnaround_started_at && !$order->estimated_completion_at && $order->turnaround_duration_value) {
+                $order->estimated_completion_at = $order->calculateEstimatedCompletion($order->turnaround_started_at);
+                $order->save();
+            }
 
             // Save order line items
             foreach ($calculated['items'] as $itemData) {
@@ -299,8 +310,24 @@ class ManualOrderService
                 'order_cutoff_time' => array_key_exists('order_cutoff_time', $data) ? $data['order_cutoff_time'] : $order->order_cutoff_time,
                 'order_cutoff_timezone' => array_key_exists('order_cutoff_timezone', $data) ? $data['order_cutoff_timezone'] : $order->order_cutoff_timezone,
                 'proof_watermark_opacity' => array_key_exists('proof_watermark_opacity', $data) ? (int) $data['proof_watermark_opacity'] : $order->proof_watermark_opacity,
-                'production_days' => array_key_exists('production_days', $data) ? (int) $data['production_days'] : $order->production_days,
+                'production_days' => array_key_exists('production_days', $data) ? (int) $data['production_days'] : (array_key_exists('turnaround_duration_value', $data) && ($data['turnaround_duration_unit'] ?? 'days') === 'days' ? (int) $data['turnaround_duration_value'] : $order->production_days),
+                'turnaround_duration_value' => array_key_exists('turnaround_duration_value', $data) ? ($data['turnaround_duration_value'] !== null ? (int) $data['turnaround_duration_value'] : null) : $order->turnaround_duration_value,
+                'turnaround_duration_unit' => array_key_exists('turnaround_duration_unit', $data) ? $data['turnaround_duration_unit'] : $order->turnaround_duration_unit,
+                'turnaround_day_type' => array_key_exists('turnaround_day_type', $data) ? $data['turnaround_day_type'] : $order->turnaround_day_type,
+                'turnaround_started_at' => array_key_exists('turnaround_started_at', $data) ? ($data['turnaround_started_at'] ? \Carbon\Carbon::parse($data['turnaround_started_at']) : null) : (!empty($data['start_clock_now']) ? now() : $order->turnaround_started_at),
+                'estimated_completion_at' => array_key_exists('estimated_completion_at', $data) ? ($data['estimated_completion_at'] ? \Carbon\Carbon::parse($data['estimated_completion_at']) : null) : $order->estimated_completion_at,
             ]);
+
+            // If turnaround fields updated and started_at is present but no explicit estimated completion, recalculate
+            if (
+                (array_key_exists('turnaround_duration_value', $data) || array_key_exists('turnaround_started_at', $data) || !empty($data['start_clock_now'])) &&
+                !array_key_exists('estimated_completion_at', $data) &&
+                $order->turnaround_started_at &&
+                $order->turnaround_duration_value
+            ) {
+                $order->estimated_completion_at = $order->calculateEstimatedCompletion($order->turnaround_started_at);
+                $order->save();
+            }
 
             // Replace line items if provided
             if (!empty($data['items'])) {
@@ -701,9 +728,20 @@ class ManualOrderService
             ]);
         }
 
-        $order->update([
+        $updateData = [
             'status' => OrderStatus::IN_PRODUCTION,
-        ]);
+        ];
+
+        // Start turnaround clock when order enters production if duration is set and clock not yet started
+        if (!$order->turnaround_started_at && ($order->turnaround_duration_value || $order->production_days)) {
+            $startedAt = now();
+            $updateData['turnaround_started_at'] = $startedAt;
+            if (!$order->estimated_completion_at) {
+                $updateData['estimated_completion_at'] = $order->calculateEstimatedCompletion($startedAt);
+            }
+        }
+
+        $order->update($updateData);
 
         // Update line items production status
         $order->items()->update(['production_status' => 'printing']);
@@ -957,6 +995,15 @@ class ManualOrderService
         if ($trackingNumber !== null) {
             $order->tracking_number = trim($trackingNumber) ?: null;
         }
+        if ($statusChanged && in_array($newStatus, ['in_production', 'printing', 'cutting_and_finishing'], true)) {
+            if (!$order->turnaround_started_at && ($order->turnaround_duration_value || $order->production_days)) {
+                $order->turnaround_started_at = now();
+                if (!$order->estimated_completion_at) {
+                    $order->estimated_completion_at = $order->calculateEstimatedCompletion($order->turnaround_started_at);
+                }
+            }
+        }
+
         $order->save();
 
         $statusLabel = OrderStatus::WORKFLOW_SEQUENCE[$newStatus]
@@ -1000,4 +1047,76 @@ class ManualOrderService
 
         return $order->fresh(['activities', 'activeReviewLink', 'items']);
     }
+
+    /**
+     * Update order turnaround settings and calculate/override estimated completion.
+     */
+    public function updateTurnaround(Order $order, User $staffUser, array $data): Order
+    {
+        $durationValue = array_key_exists('turnaround_duration_value', $data)
+            ? ($data['turnaround_duration_value'] !== null ? (int) $data['turnaround_duration_value'] : null)
+            : (array_key_exists('duration_value', $data) ? ($data['duration_value'] !== null ? (int) $data['duration_value'] : null) : $order->turnaround_duration_value);
+
+        $durationUnit = array_key_exists('turnaround_duration_unit', $data)
+            ? $data['turnaround_duration_unit']
+            : (array_key_exists('duration_unit', $data) ? $data['duration_unit'] : $order->turnaround_duration_unit);
+
+        $dayType = array_key_exists('turnaround_day_type', $data)
+            ? $data['turnaround_day_type']
+            : (array_key_exists('day_type', $data) ? $data['day_type'] : ($order->turnaround_day_type ?: 'business'));
+
+        $startedAt = null;
+        if (!empty($data['start_clock_now'])) {
+            $startedAt = now();
+        } elseif (array_key_exists('turnaround_started_at', $data)) {
+            $startedAt = $data['turnaround_started_at'] ? \Carbon\Carbon::parse($data['turnaround_started_at']) : null;
+        } elseif (array_key_exists('started_at', $data)) {
+            $startedAt = $data['started_at'] ? \Carbon\Carbon::parse($data['started_at']) : null;
+        } else {
+            $startedAt = $order->turnaround_started_at;
+        }
+
+        $estimatedCompletion = null;
+        if (array_key_exists('estimated_completion_at', $data) && !empty($data['estimated_completion_at'])) {
+            $estimatedCompletion = \Carbon\Carbon::parse($data['estimated_completion_at']);
+        } else {
+            // Calculate automatically if duration exists
+            if ($durationValue) {
+                $order->turnaround_duration_value = $durationValue;
+                $order->turnaround_duration_unit = $durationUnit ?: 'days';
+                $order->turnaround_day_type = $dayType ?: 'business';
+                $order->turnaround_started_at = $startedAt ?: now();
+                $estimatedCompletion = $order->calculateEstimatedCompletion($order->turnaround_started_at);
+            }
+        }
+
+        $order->update([
+            'turnaround_duration_value' => $durationValue,
+            'turnaround_duration_unit' => $durationUnit ?: ($durationValue ? 'days' : null),
+            'turnaround_day_type' => $dayType ?: 'business',
+            'turnaround_started_at' => $startedAt,
+            'estimated_completion_at' => $estimatedCompletion,
+            'production_days' => ($durationUnit === 'days' && $durationValue) ? $durationValue : $order->production_days,
+        ]);
+
+        OrderActivity::record(
+            $order->id,
+            'turnaround_updated',
+            "Turnaround updated by {$staffUser->name}: " .
+            ($durationValue ? "{$durationValue} {$durationUnit} ({$dayType})" : "Custom deadline") .
+            ($estimatedCompletion ? " (Est. completion: " . $estimatedCompletion->setTimezone($order->order_cutoff_timezone ?: 'Australia/Sydney')->format('d M Y, h:i A') . ")" : ""),
+            'staff',
+            $staffUser,
+            [
+                'duration_value' => $durationValue,
+                'duration_unit' => $durationUnit,
+                'day_type' => $dayType,
+                'started_at' => $startedAt?->toIso8601String(),
+                'estimated_completion_at' => $estimatedCompletion?->toIso8601String(),
+            ]
+        );
+
+        return $order->fresh(['activities', 'activeReviewLink', 'items']);
+    }
 }
+

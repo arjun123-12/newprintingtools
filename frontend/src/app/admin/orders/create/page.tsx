@@ -28,7 +28,13 @@ import {
   Pencil,
   Copy,
   Clock,
+  Timer,
+  Calendar,
 } from 'lucide-react';
+import {
+  calculateTurnaroundDeadline,
+  formatTurnaroundDate,
+} from '@/utils/turnaroundTime';
 
 interface CustomerOption {
   id: number;
@@ -153,6 +159,12 @@ export default function CreateManualOrderPage() {
   const [orderCutoffTimezone, setOrderCutoffTimezone] = useState('Australia/Adelaide');
   const [proofWatermarkOpacity, setProofWatermarkOpacity] = useState(40);
   const [productionDays, setProductionDays] = useState(3);
+  const [turnaroundDurationValue, setTurnaroundDurationValue] = useState<number>(3);
+  const [turnaroundDurationUnit, setTurnaroundDurationUnit] = useState<'hours' | 'days'>('days');
+  const [turnaroundDayType, setTurnaroundDayType] = useState<'business' | 'calendar'>('business');
+  const [customCompletionDate, setCustomCompletionDate] = useState<string>('');
+  const [useExactCompletionDate, setUseExactCompletionDate] = useState<boolean>(false);
+  const [startClockImmediately, setStartClockImmediately] = useState<boolean>(false);
 
   // Products List
   const [items, setItems] = useState<ManualOrderItemPayload[]>([]);
@@ -290,6 +302,12 @@ export default function CreateManualOrderPage() {
         if (ord.order_cutoff_timezone) setOrderCutoffTimezone(ord.order_cutoff_timezone);
         if (ord.proof_watermark_opacity != null) setProofWatermarkOpacity(ord.proof_watermark_opacity);
         if (ord.production_days != null) setProductionDays(ord.production_days);
+        if (ord.turnaround_duration_value != null) setTurnaroundDurationValue(Number(ord.turnaround_duration_value));
+        if (ord.turnaround_duration_unit) setTurnaroundDurationUnit(ord.turnaround_duration_unit as 'hours' | 'days');
+        if (ord.turnaround_day_type) setTurnaroundDayType(ord.turnaround_day_type as 'business' | 'calendar');
+        if (ord.estimated_completion_at) {
+          setCustomCompletionDate(ord.estimated_completion_at.slice(0, 16));
+        }
 
         if (Array.isArray(ord.items)) {
           setItems(
@@ -336,6 +354,16 @@ export default function CreateManualOrderPage() {
         if (ord.order_cutoff_timezone) setOrderCutoffTimezone(ord.order_cutoff_timezone);
         if (ord.proof_watermark_opacity != null) setProofWatermarkOpacity(ord.proof_watermark_opacity);
         if (ord.production_days != null) setProductionDays(ord.production_days);
+        if (ord.turnaround_duration_value != null) setTurnaroundDurationValue(Number(ord.turnaround_duration_value));
+        if (ord.turnaround_duration_unit) setTurnaroundDurationUnit(ord.turnaround_duration_unit as 'hours' | 'days');
+        if (ord.turnaround_day_type) setTurnaroundDayType(ord.turnaround_day_type as 'business' | 'calendar');
+        if (ord.estimated_completion_at) {
+          setCustomCompletionDate(ord.estimated_completion_at.slice(0, 16));
+          setUseExactCompletionDate(true);
+        }
+        if (ord.turnaround_started_at) {
+          setStartClockImmediately(true);
+        }
 
         if (Array.isArray(ord.items)) {
           setItems(
@@ -956,6 +984,11 @@ export default function CreateManualOrderPage() {
         order_cutoff_timezone: orderCutoffTimezone,
         proof_watermark_opacity: proofWatermarkOpacity,
         production_days: productionDays,
+        turnaround_duration_value: turnaroundDurationValue,
+        turnaround_duration_unit: turnaroundDurationUnit,
+        turnaround_day_type: turnaroundDayType,
+        estimated_completion_at: useExactCompletionDate && customCompletionDate ? customCompletionDate : undefined,
+        start_clock_now: startClockImmediately,
         items,
       };
 
@@ -1018,6 +1051,11 @@ export default function CreateManualOrderPage() {
         order_cutoff_timezone: orderCutoffTimezone,
         proof_watermark_opacity: proofWatermarkOpacity,
         production_days: productionDays,
+        turnaround_duration_value: turnaroundDurationValue,
+        turnaround_duration_unit: turnaroundDurationUnit,
+        turnaround_day_type: turnaroundDayType,
+        estimated_completion_at: useExactCompletionDate && customCompletionDate ? customCompletionDate : undefined,
+        start_clock_now: startClockImmediately,
         items,
       };
 
@@ -1317,6 +1355,230 @@ export default function CreateManualOrderPage() {
                 />
                 <span className="block text-[10px] text-slate-500">Opacity of the Erry Imprints watermark shown over this order’s customer proof.</span>
               </label>
+            </div>
+          </div>
+
+          {/* Admin-Only Turnaround Time & Estimated Completion Settings */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Timer className="h-4 w-4 text-amber-400" />
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-200">Admin Turnaround Time &amp; Estimated Completion</h2>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    Internal production turnaround tracking, countdown, and completion deadline. Staff only &mdash; never visible to customer.
+                  </p>
+                </div>
+              </div>
+              <span className="self-start sm:self-auto text-[10px] font-semibold tracking-wide uppercase px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                Admin Only
+              </span>
+            </div>
+
+            {/* Quick Presets */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-medium text-slate-400">Quick Presets</label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTurnaroundDurationValue(24);
+                    setTurnaroundDurationUnit('hours');
+                    setTurnaroundDayType('calendar');
+                    setUseExactCompletionDate(false);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    turnaroundDurationValue === 24 && turnaroundDurationUnit === 'hours' && !useExactCompletionDate
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  ⚡ 24 Hours
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTurnaroundDurationValue(2);
+                    setTurnaroundDurationUnit('days');
+                    setTurnaroundDayType('business');
+                    setUseExactCompletionDate(false);
+                    setProductionDays(2);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    turnaroundDurationValue === 2 && turnaroundDurationUnit === 'days' && turnaroundDayType === 'business' && !useExactCompletionDate
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  2 Business Days
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTurnaroundDurationValue(3);
+                    setTurnaroundDurationUnit('days');
+                    setTurnaroundDayType('business');
+                    setUseExactCompletionDate(false);
+                    setProductionDays(3);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    turnaroundDurationValue === 3 && turnaroundDurationUnit === 'days' && turnaroundDayType === 'business' && !useExactCompletionDate
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  3 Business Days (Standard)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTurnaroundDurationValue(5);
+                    setTurnaroundDurationUnit('days');
+                    setTurnaroundDayType('business');
+                    setUseExactCompletionDate(false);
+                    setProductionDays(5);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    turnaroundDurationValue === 5 && turnaroundDurationUnit === 'days' && turnaroundDayType === 'business' && !useExactCompletionDate
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  5 Business Days
+                </button>
+              </div>
+            </div>
+
+            {/* Inputs Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <label className="space-y-1.5">
+                <span className="block text-xs font-medium text-slate-400">Turnaround Duration</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={turnaroundDurationValue}
+                  onChange={(e) => {
+                    const val = Math.max(1, parseInt(e.target.value) || 1);
+                    setTurnaroundDurationValue(val);
+                    if (turnaroundDurationUnit === 'days') {
+                      setProductionDays(val);
+                    }
+                  }}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                />
+              </label>
+
+              <label className="space-y-1.5">
+                <span className="block text-xs font-medium text-slate-400">Duration Unit</span>
+                <select
+                  value={turnaroundDurationUnit}
+                  onChange={(e) => setTurnaroundDurationUnit(e.target.value as 'hours' | 'days')}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                >
+                  <option value="days">Days</option>
+                  <option value="hours">Hours</option>
+                </select>
+              </label>
+
+              {turnaroundDurationUnit === 'days' ? (
+                <label className="space-y-1.5">
+                  <span className="block text-xs font-medium text-slate-400">Day Calculation</span>
+                  <select
+                    value={turnaroundDayType}
+                    onChange={(e) => setTurnaroundDayType(e.target.value as 'business' | 'calendar')}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                  >
+                    <option value="business">Business Days (Mon–Fri, skips weekends)</option>
+                    <option value="calendar">Calendar Days (Consecutive days)</option>
+                  </select>
+                </label>
+              ) : (
+                <div className="flex items-center text-xs text-slate-500 pt-6">
+                  Calculated consecutively from start time
+                </div>
+              )}
+            </div>
+
+            {/* Exact Completion Override */}
+            <div className="space-y-3 pt-1 border-t border-slate-800/80">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={useExactCompletionDate}
+                  onChange={(e) => {
+                    setUseExactCompletionDate(e.target.checked);
+                    if (e.target.checked && !customCompletionDate) {
+                      const estimated = calculateTurnaroundDeadline(
+                        new Date(),
+                        turnaroundDurationValue,
+                        turnaroundDurationUnit,
+                        turnaroundDayType
+                      );
+                      const localIso = new Date(estimated.getTime() - estimated.getTimezoneOffset() * 60000)
+                        .toISOString()
+                        .slice(0, 16);
+                      setCustomCompletionDate(localIso);
+                    }
+                  }}
+                  className="rounded border-slate-700 bg-slate-800 text-amber-500 focus:ring-amber-500/20"
+                />
+                <span className="font-medium">Override with exact deadline date &amp; time</span>
+              </label>
+
+              {useExactCompletionDate && (
+                <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-1.5 max-w-md">
+                  <span className="block text-[11px] font-medium text-slate-400">Exact Completion Date &amp; Time</span>
+                  <input
+                    type="datetime-local"
+                    value={customCompletionDate}
+                    onChange={(e) => setCustomCompletionDate(e.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white focus:border-amber-500 focus:outline-none font-mono"
+                  />
+                  <p className="text-[10px] text-slate-500">Directly sets the production deadline regardless of standard duration formulas.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Start Clock Immediately Option */}
+            <div className="pt-1">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={startClockImmediately}
+                  onChange={(e) => setStartClockImmediately(e.target.checked)}
+                  className="rounded border-slate-700 bg-slate-800 text-sky-500 focus:ring-sky-500/20"
+                />
+                <span>Start turnaround countdown immediately upon saving (otherwise begins upon customer approval / production release)</span>
+              </label>
+            </div>
+
+            {/* Live Target Preview */}
+            <div className="rounded-lg bg-slate-950 border border-slate-800 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Estimated Completion Target:</span>
+                  <span className="font-medium text-white font-mono">
+                    {useExactCompletionDate && customCompletionDate
+                      ? formatTurnaroundDate(customCompletionDate)
+                      : formatTurnaroundDate(
+                          calculateTurnaroundDeadline(
+                            new Date(),
+                            turnaroundDurationValue,
+                            turnaroundDurationUnit,
+                            turnaroundDayType
+                          )
+                        )}
+                  </span>
+                </div>
+              </div>
+              <span className="text-[11px] text-slate-400 font-mono sm:text-right">
+                {turnaroundDurationValue} {turnaroundDurationUnit}{' '}
+                {turnaroundDurationUnit === 'days' ? `(${turnaroundDayType})` : ''}
+              </span>
             </div>
           </div>
 

@@ -30,7 +30,14 @@ import {
   Plus,
   Truck,
   ExternalLink,
+  Timer,
+  Pencil,
 } from 'lucide-react';
+import TurnaroundModal from '@/components/admin/orders/TurnaroundModal';
+import {
+  computeTurnaroundState,
+  formatTurnaroundDate,
+} from '@/utils/turnaroundTime';
 
 const PRODUCTION_STATUS_SEQUENCE = [
   { value: 'printing', label: 'Printing' },
@@ -73,6 +80,15 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
   const [error, setError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showTurnaroundModal, setShowTurnaroundModal] = useState(false);
+  const [currentTime, setCurrentTime] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Production status workflow state
   const [selectedStatus, setSelectedStatus] = useState<string>('');
@@ -649,6 +665,112 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
 
         {/* Right 1 Col: Summary, Customer Info, Audit Timeline */}
         <div className="space-y-6">
+          {/* Admin Turnaround Time & Estimated Completion Widget */}
+          {(() => {
+            const taState = computeTurnaroundState(
+              order.estimated_completion_at,
+              order.turnaround_started_at,
+              currentTime.getTime(),
+              order.status,
+              order.turnaround_duration_value,
+              order.turnaround_duration_unit
+            );
+            const hasTurnaround = Boolean(order.turnaround_duration_value || order.estimated_completion_at);
+
+            return (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Timer className="w-4 h-4 text-amber-400" />
+                    <h3 className="text-sm font-semibold text-white">Turnaround / ETA</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      Admin Only
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowTurnaroundModal(true)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition-colors"
+                      title="Edit turnaround settings"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      <span>{hasTurnaround ? 'Edit' : 'Set ETA'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Status & Countdown Header */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide border ${taState.badgeClass}`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+                      <span>{taState.statusLabel}</span>
+                    </span>
+
+                    <span className="font-mono text-sm font-semibold text-slate-100">
+                      {taState.remainingText}
+                    </span>
+                  </div>
+
+                  {/* Horizontal Progress Bar */}
+                  {taState.status !== 'not_set' && (
+                    <div className="space-y-1">
+                      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                        <div
+                          className={`h-full bg-gradient-to-r ${taState.progressBarClass} transition-all duration-700 ease-out`}
+                          style={{ width: `${taState.elapsedPercent}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                        <span>Elapsed {taState.elapsedPercent}%</span>
+                        <span>
+                          {order.turnaround_duration_value
+                            ? `${order.turnaround_duration_value} ${order.turnaround_duration_unit || 'days'} (${order.turnaround_day_type || 'business'})`
+                            : 'Custom Target'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Deadline & Clock Details */}
+                  <div className="rounded-lg bg-slate-950 border border-slate-800 p-3 text-xs space-y-2">
+                    <div className="flex justify-between items-center text-slate-400">
+                      <span className="text-slate-500">Estimated Target:</span>
+                      <span className="font-mono text-white font-medium">
+                        {order.estimated_completion_at
+                          ? formatTurnaroundDate(order.estimated_completion_at)
+                          : 'Not scheduled'}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center text-slate-400">
+                      <span className="text-slate-500">Clock Started:</span>
+                      <span className="font-mono text-slate-300">
+                        {order.turnaround_started_at
+                          ? formatTurnaroundDate(order.turnaround_started_at)
+                          : 'Awaiting production release'}
+                      </span>
+                    </div>
+
+                    {order.status === 'delivered' || order.status === 'collected' || order.status === 'completed' ? (
+                      <div className="text-[11px] text-emerald-400/90 pt-1 border-t border-slate-900 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Order is completed &mdash; turnaround clock concluded.</span>
+                      </div>
+                    ) : !order.turnaround_started_at ? (
+                      <p className="text-[10px] text-slate-500 pt-1 border-t border-slate-900">
+                        Countdown clock starts automatically once the order is approved and moves to production.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Order Production & Shipping Status Control */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -942,6 +1064,26 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {showTurnaroundModal && order && (
+        <TurnaroundModal
+          isOpen={showTurnaroundModal}
+          orderId={order.id}
+          orderNumber={order.order_number}
+          currentDurationValue={order.turnaround_duration_value}
+          currentDurationUnit={order.turnaround_duration_unit}
+          currentDayType={order.turnaround_day_type}
+          currentStartedAt={order.turnaround_started_at}
+          currentEstimatedCompletionAt={order.estimated_completion_at}
+          currentTimezone="Australia/Sydney"
+          orderStatus={order.status}
+          onClose={() => setShowTurnaroundModal(false)}
+          onSuccess={() => {
+            setShowTurnaroundModal(false);
+            fetchOrder();
+          }}
+        />
       )}
     </div>
   );

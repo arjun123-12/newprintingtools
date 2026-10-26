@@ -705,6 +705,10 @@ Route::middleware(['auth:sanctum', 'admin.access'])
                 \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
                 'updateProductionStatus',
             ]);
+            Route::match(['post', 'patch'], '/manual-orders/{id}/turnaround', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'updateTurnaround',
+            ]);
             Route::delete('/manual-orders/{id}', [
                 \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
                 'destroy',

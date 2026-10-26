@@ -3,7 +3,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { manualOrderService, ManualOrderListItem } from '@/services/admin/manualOrderService';
-import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle, Trash2, Pencil, Copy } from 'lucide-react';
+import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle, Trash2, Pencil, Copy, Clock } from 'lucide-react';
+import TurnaroundCell from '@/components/admin/orders/TurnaroundCell';
+import TurnaroundModal from '@/components/admin/orders/TurnaroundModal';
 
 type FilterTab =
   | 'all'
@@ -41,6 +43,19 @@ export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<ManualOrderListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Single shared timer for all row countdowns (ticks every 10 seconds, zero memory leaks)
+  const [currentTime, setCurrentTime] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Modal state for editing turnaround time directly from the table
+  const [editingTurnaroundOrder, setEditingTurnaroundOrder] = useState<ManualOrderListItem | null>(null);
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -164,6 +179,7 @@ export default function AdminOrdersPage() {
                 <th className="text-left px-6 py-3.5 font-medium">Proof / Link</th>
                 <th className="text-left px-6 py-3.5 font-medium">Total (AUD)</th>
                 <th className="text-left px-6 py-3.5 font-medium">Status</th>
+                <th className="text-left px-6 py-3.5 font-medium">Turnaround / ETA</th>
                 <th className="text-left px-6 py-3.5 font-medium">Date</th>
                 <th className="text-right px-6 py-3.5 font-medium">Action</th>
               </tr>
@@ -171,7 +187,7 @@ export default function AdminOrdersPage() {
             <tbody className="divide-y divide-slate-800">
               {loading && orders.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-16 text-center text-slate-500 text-sm">
+                  <td colSpan={9} className="px-6 py-16 text-center text-slate-500 text-sm">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <RefreshCw className="w-6 h-6 animate-spin text-sky-400" />
                       <span>Loading orders...</span>
@@ -180,7 +196,7 @@ export default function AdminOrdersPage() {
                 </tr>
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-16 text-center text-slate-500 text-sm">
+                  <td colSpan={9} className="px-6 py-16 text-center text-slate-500 text-sm">
                     <p className="text-slate-400 font-medium">No orders found.</p>
                     <p className="text-xs text-slate-500 mt-1">
                       {search || filter !== 'all'
@@ -239,6 +255,17 @@ export default function AdminOrdersPage() {
                         <span>{formatStatusLabel(order.status)}</span>
                       </span>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <TurnaroundCell
+                        estimatedCompletionAt={order.estimated_completion_at || order.turnaround?.estimated_completion_at}
+                        startedAt={order.turnaround_started_at || order.turnaround?.started_at}
+                        orderStatus={order.status}
+                        durationValue={order.turnaround_duration_value ?? order.turnaround?.duration_value}
+                        durationUnit={order.turnaround_duration_unit ?? order.turnaround?.duration_unit}
+                        now={currentTime}
+                        onEdit={() => setEditingTurnaroundOrder(order)}
+                      />
+                    </td>
                     <td className="px-6 py-4 text-slate-400 text-xs whitespace-nowrap">
                       {order.date}
                     </td>
@@ -285,6 +312,50 @@ export default function AdminOrdersPage() {
           </table>
         </div>
       </div>
+
+      {/* Quick Edit Turnaround Modal */}
+      {editingTurnaroundOrder && (
+        <TurnaroundModal
+          isOpen={Boolean(editingTurnaroundOrder)}
+          onClose={() => setEditingTurnaroundOrder(null)}
+          orderId={editingTurnaroundOrder.id}
+          orderNumber={editingTurnaroundOrder.order_number}
+          currentDurationValue={
+            editingTurnaroundOrder.turnaround_duration_value ?? editingTurnaroundOrder.turnaround?.duration_value
+          }
+          currentDurationUnit={
+            editingTurnaroundOrder.turnaround_duration_unit ?? editingTurnaroundOrder.turnaround?.duration_unit
+          }
+          currentDayType={
+            editingTurnaroundOrder.turnaround_day_type ?? editingTurnaroundOrder.turnaround?.day_type
+          }
+          currentStartedAt={
+            editingTurnaroundOrder.turnaround_started_at ?? editingTurnaroundOrder.turnaround?.started_at
+          }
+          currentEstimatedCompletionAt={
+            editingTurnaroundOrder.estimated_completion_at ?? editingTurnaroundOrder.turnaround?.estimated_completion_at
+          }
+          currentTimezone={editingTurnaroundOrder.turnaround?.timezone || 'Australia/Sydney'}
+          orderStatus={editingTurnaroundOrder.status}
+          onSuccess={(updated) => {
+            setOrders((prev) =>
+              prev.map((o) =>
+                o.id === editingTurnaroundOrder.id
+                  ? {
+                      ...o,
+                      turnaround_duration_value: updated.turnaround_duration_value,
+                      turnaround_duration_unit: updated.turnaround_duration_unit,
+                      turnaround_day_type: updated.turnaround_day_type,
+                      turnaround_started_at: updated.turnaround_started_at,
+                      estimated_completion_at: updated.estimated_completion_at,
+                      turnaround: updated.turnaround,
+                    }
+                  : o
+              )
+            );
+          }}
+        />
+      )}
     </div>
   );
 }

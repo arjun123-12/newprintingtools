@@ -135,6 +135,20 @@ class ManualOrderController extends Controller
                 'date' => $order->created_at->format('d M Y'),
                 'created_at' => $order->created_at->toIso8601String(),
                 'proof_version' => 'V' . ($order->current_proof_version ?? 1),
+                'turnaround_duration_value' => $order->turnaround_duration_value,
+                'turnaround_duration_unit' => $order->turnaround_duration_unit,
+                'turnaround_day_type' => $order->turnaround_day_type,
+                'turnaround_started_at' => $order->turnaround_started_at?->toIso8601String(),
+                'estimated_completion_at' => $order->estimated_completion_at?->toIso8601String(),
+                'turnaround' => [
+                    'duration_value' => $order->turnaround_duration_value,
+                    'duration_unit' => $order->turnaround_duration_unit,
+                    'day_type' => $order->turnaround_day_type,
+                    'started_at' => $order->turnaround_started_at?->toIso8601String(),
+                    'estimated_completion_at' => $order->estimated_completion_at?->toIso8601String(),
+                    'timezone' => $order->order_cutoff_timezone ?: 'Australia/Sydney',
+                    'is_completed' => in_array($order->status->value ?? (string) $order->status, ['delivered', 'collected', 'completed'], true),
+                ],
                 'review_link' => $activeLink ? [
                     'status' => $activeLink->status,
                     'open_count' => $activeLink->open_count,
@@ -209,6 +223,20 @@ class ManualOrderController extends Controller
                 'order_cutoff_timezone' => $order->order_cutoff_timezone,
                 'proof_watermark_opacity' => $order->proof_watermark_opacity,
                 'production_days' => $order->production_days,
+                'turnaround_duration_value' => $order->turnaround_duration_value,
+                'turnaround_duration_unit' => $order->turnaround_duration_unit,
+                'turnaround_day_type' => $order->turnaround_day_type,
+                'turnaround_started_at' => $order->turnaround_started_at?->toIso8601String(),
+                'estimated_completion_at' => $order->estimated_completion_at?->toIso8601String(),
+                'turnaround' => [
+                    'duration_value' => $order->turnaround_duration_value,
+                    'duration_unit' => $order->turnaround_duration_unit,
+                    'day_type' => $order->turnaround_day_type,
+                    'started_at' => $order->turnaround_started_at?->toIso8601String(),
+                    'estimated_completion_at' => $order->estimated_completion_at?->toIso8601String(),
+                    'timezone' => $order->order_cutoff_timezone ?: 'Australia/Sydney',
+                    'is_completed' => in_array($order->status->value ?? (string) $order->status, ['delivered', 'collected', 'completed'], true),
+                ],
                 'subtotal_ex_gst' => (float) $order->subtotal_ex_gst,
                 'gst_amount' => (float) $order->gst_amount,
                 'shipping_fee_inc_gst' => (float) $order->shipping_fee_inc_gst,
@@ -332,6 +360,12 @@ class ManualOrderController extends Controller
             'order_cutoff_timezone' => ['nullable', 'timezone'],
             'proof_watermark_opacity' => ['nullable', 'integer', 'between:0,100'],
             'production_days' => ['nullable', 'integer', 'between:1,60'],
+            'turnaround_duration_value' => ['nullable', 'integer', 'min:1', 'max:1000'],
+            'turnaround_duration_unit' => ['nullable', 'string', 'in:hours,days'],
+            'turnaround_day_type' => ['nullable', 'string', 'in:business,calendar'],
+            'turnaround_started_at' => ['nullable', 'date'],
+            'estimated_completion_at' => ['nullable', 'date'],
+            'start_clock_now' => ['nullable', 'boolean'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['nullable', 'string'],
             'items.*.product_name' => ['nullable', 'string'],
@@ -383,6 +417,12 @@ class ManualOrderController extends Controller
             'order_cutoff_timezone' => ['nullable', 'timezone'],
             'proof_watermark_opacity' => ['nullable', 'integer', 'between:0,100'],
             'production_days' => ['nullable', 'integer', 'between:1,60'],
+            'turnaround_duration_value' => ['nullable', 'integer', 'min:1', 'max:1000'],
+            'turnaround_duration_unit' => ['nullable', 'string', 'in:hours,days'],
+            'turnaround_day_type' => ['nullable', 'string', 'in:business,calendar'],
+            'turnaround_started_at' => ['nullable', 'date'],
+            'estimated_completion_at' => ['nullable', 'date'],
+            'start_clock_now' => ['nullable', 'boolean'],
             'items' => ['nullable', 'array'],
             'items.*.id' => ['nullable', 'uuid', 'exists:order_items,id'],
             'items.*.product_id' => ['nullable', 'string'],
@@ -808,5 +848,64 @@ class ManualOrderController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Update order turnaround settings and estimated completion deadline.
+     */
+    public function updateTurnaround(Request $request, string $id): JsonResponse
+    {
+        $order = Order::where('id', $id)->orWhere('order_number', $id)->firstOrFail();
+
+        $validated = $request->validate([
+            'turnaround_duration_value' => ['nullable', 'integer', 'min:1', 'max:1000'],
+            'duration_value' => ['nullable', 'integer', 'min:1', 'max:1000'],
+            'turnaround_duration_unit' => ['nullable', 'string', 'in:hours,days'],
+            'duration_unit' => ['nullable', 'string', 'in:hours,days'],
+            'turnaround_day_type' => ['nullable', 'string', 'in:business,calendar'],
+            'day_type' => ['nullable', 'string', 'in:business,calendar'],
+            'turnaround_started_at' => ['nullable', 'date'],
+            'started_at' => ['nullable', 'date'],
+            'estimated_completion_at' => ['nullable', 'date'],
+            'start_clock_now' => ['nullable', 'boolean'],
+        ]);
+
+        try {
+            $updated = $this->manualOrderService->updateTurnaround(
+                $order,
+                $request->user(),
+                $validated
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Turnaround settings updated successfully.',
+                'data' => [
+                    'id' => $updated->id,
+                    'order_number' => $updated->order_number,
+                    'turnaround_duration_value' => $updated->turnaround_duration_value,
+                    'turnaround_duration_unit' => $updated->turnaround_duration_unit,
+                    'turnaround_day_type' => $updated->turnaround_day_type,
+                    'turnaround_started_at' => $updated->turnaround_started_at?->toIso8601String(),
+                    'estimated_completion_at' => $updated->estimated_completion_at?->toIso8601String(),
+                    'turnaround' => [
+                        'duration_value' => $updated->turnaround_duration_value,
+                        'duration_unit' => $updated->turnaround_duration_unit,
+                        'day_type' => $updated->turnaround_day_type,
+                        'started_at' => $updated->turnaround_started_at?->toIso8601String(),
+                        'estimated_completion_at' => $updated->estimated_completion_at?->toIso8601String(),
+                        'timezone' => $updated->order_cutoff_timezone ?: 'Australia/Sydney',
+                        'is_completed' => in_array($updated->status->value ?? (string) $updated->status, ['delivered', 'collected', 'completed'], true),
+                    ],
+                ],
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage() ?: 'Failed to update turnaround settings.',
+            ], 422);
+        }
+    }
 }
+
 

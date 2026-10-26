@@ -28,6 +28,12 @@ export interface ManualOrderPayload {
   order_cutoff_timezone?: string;
   proof_watermark_opacity?: number;
   production_days?: number;
+  turnaround_duration_value?: number | null;
+  turnaround_duration_unit?: 'hours' | 'days';
+  turnaround_day_type?: 'business' | 'calendar';
+  turnaround_started_at?: string | null;
+  estimated_completion_at?: string | null;
+  start_clock_now?: boolean;
   items: ManualOrderItemPayload[];
   shipping_fee?: number;
 }
@@ -68,6 +74,20 @@ export interface ManualOrderListItem {
   date: string;
   created_at: string;
   proof_version: string;
+  turnaround_duration_value?: number | null;
+  turnaround_duration_unit?: string | null;
+  turnaround_day_type?: string | null;
+  turnaround_started_at?: string | null;
+  estimated_completion_at?: string | null;
+  turnaround?: {
+    duration_value?: number | null;
+    duration_unit?: string | null;
+    day_type?: string | null;
+    started_at?: string | null;
+    estimated_completion_at?: string | null;
+    timezone?: string;
+    is_completed?: boolean;
+  } | null;
   review_link?: {
     status: string;
     open_count: number;
@@ -102,6 +122,20 @@ export interface ManualOrderDetail {
   order_cutoff_timezone?: string | null;
   proof_watermark_opacity?: number | null;
   production_days?: number | null;
+  turnaround_duration_value?: number | null;
+  turnaround_duration_unit?: string | null;
+  turnaround_day_type?: string | null;
+  turnaround_started_at?: string | null;
+  estimated_completion_at?: string | null;
+  turnaround?: {
+    duration_value?: number | null;
+    duration_unit?: string | null;
+    day_type?: string | null;
+    started_at?: string | null;
+    estimated_completion_at?: string | null;
+    timezone?: string;
+    is_completed?: boolean;
+  } | null;
   subtotal_ex_gst: number;
   gst_amount: number;
   shipping_fee_inc_gst: number;
@@ -307,6 +341,28 @@ export const manualOrderService = {
     }
   ): Promise<{ success: boolean; message: string; data: any }> {
     const response = await apiClient.post(`/admin/manual-orders/${id}/production-status`, payload);
+    return response.data;
+  },
+
+  /**
+   * Update order turnaround time and estimated completion deadline
+   */
+  async updateTurnaround(
+    id: string,
+    payload: {
+      turnaround_duration_value?: number | null;
+      duration_value?: number | null;
+      turnaround_duration_unit?: string | null;
+      duration_unit?: string | null;
+      turnaround_day_type?: string | null;
+      day_type?: string | null;
+      turnaround_started_at?: string | null;
+      started_at?: string | null;
+      estimated_completion_at?: string | null;
+      start_clock_now?: boolean;
+    }
+  ): Promise<{ success: boolean; message: string; data: any }> {
+    const response = await apiClient.post(`/admin/manual-orders/${id}/turnaround`, payload);
     return response.data;
   },
 

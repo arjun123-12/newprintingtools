@@ -43,6 +43,11 @@ class Order extends Model
         'order_cutoff_timezone',
         'proof_watermark_opacity',
         'production_days',
+        'turnaround_duration_value',
+        'turnaround_duration_unit',
+        'turnaround_day_type',
+        'turnaround_started_at',
+        'estimated_completion_at',
     ];
 
     protected $casts = [
@@ -61,7 +66,55 @@ class Order extends Model
         'reminder_sent_at' => 'datetime',
         'proof_watermark_opacity' => 'integer',
         'production_days' => 'integer',
+        'turnaround_duration_value' => 'integer',
+        'turnaround_started_at' => 'datetime',
+        'estimated_completion_at' => 'datetime',
     ];
+
+    /**
+     * Calculate estimated completion timestamp based on duration, unit, day type and starting date.
+     */
+    public function calculateEstimatedCompletion(?\Carbon\CarbonInterface $startDate = null): \Carbon\Carbon
+    {
+        $start = $startDate
+            ? $startDate->copy()
+            : ($this->turnaround_started_at ? $this->turnaround_started_at->copy() : now());
+
+        $tz = $this->order_cutoff_timezone ?: 'Australia/Sydney';
+        $date = \Carbon\Carbon::parse($start)->setTimezone($tz);
+
+        $value = (int) ($this->turnaround_duration_value ?: ($this->production_days ?: 3));
+        $unit = strtolower((string) ($this->turnaround_duration_unit ?: 'days'));
+        $dayType = strtolower((string) ($this->turnaround_day_type ?: 'business'));
+
+        if ($unit === 'hours') {
+            return $date->addHours($value);
+        }
+
+        if ($dayType === 'calendar') {
+            return $date->addDays($value);
+        }
+
+        // Business days: skip Saturday & Sunday
+        $added = 0;
+        while ($added < $value) {
+            $date->addDay();
+            if ($date->isWeekday()) {
+                $added++;
+            }
+        }
+
+        return $date;
+    }
+
+    /**
+     * Determine if order is in a completed status.
+     */
+    public function isCompleted(): bool
+    {
+        $statusStr = $this->status instanceof OrderStatus ? $this->status->value : (string) $this->status;
+        return in_array($statusStr, ['delivered', 'collected', 'completed'], true);
+    }
 
     public function user(): BelongsTo
     {
