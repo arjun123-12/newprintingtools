@@ -1715,16 +1715,16 @@ export default function OrderReviewPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Mobile Horizontal Snap-Scroll Cards Track */}
-          <div>
-            <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium px-1 mb-2">
+          {/* Mobile Vertical Steps List (Top to Bottom) */}
+          <div className="pt-1">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-800 px-1 mb-3">
               <span>All 7 Production Stages</span>
-              <span className="text-slate-400 flex items-center gap-1">
-                Swipe stages <ChevronRight className="w-3 h-3" />
+              <span className="text-[11px] font-semibold text-slate-400 font-mono">
+                {currentIdx + (isDeliveredOrCollected ? 1 : 0)} of {TRACK_ORDER_STEPS.length} Completed
               </span>
             </div>
 
-            <div className="flex items-stretch gap-2.5 overflow-x-auto pb-3 pt-1 -mx-2 px-2 snap-x snap-mandatory scrollbar-none">
+            <div className="space-y-3">
               {TRACK_ORDER_STEPS.map((step, idx) => {
                 const isComplete = idx < currentIdx || (idx === TRACK_ORDER_STEPS.length - 1 && isDeliveredOrCollected);
                 const isCurrent = idx === currentIdx && !isDeliveredOrCollected;
@@ -1748,74 +1748,83 @@ export default function OrderReviewPage({ params }: PageProps) {
                 }
 
                 return (
-                  <div
-                    key={step.key}
-                    className={`w-[160px] sm:w-[175px] shrink-0 snap-center relative p-3.5 rounded-2xl border transition-all flex flex-col justify-between text-center ${
-                      isCurrent
-                        ? 'bg-gradient-to-b from-rose-50/80 via-white to-rose-50/40 border-rose-300 ring-2 ring-[#E11D48]/25 shadow-md shadow-rose-500/10'
-                        : isComplete
-                          ? 'bg-emerald-50/40 border-emerald-200/90 shadow-2xs'
-                          : 'bg-white border-slate-200/80 shadow-2xs opacity-85'
-                    }`}
-                  >
-                    {/* Top Row: Step Number */}
-                    <div className="flex items-center justify-between mb-1">
-                      <span
-                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                          isComplete
-                            ? 'bg-emerald-600 text-white'
-                            : isCurrent
-                              ? 'bg-[#E11D48] text-white shadow-xs'
-                              : 'bg-slate-200 text-slate-600'
-                        }`}
-                      >
-                        {idx + 1}
-                      </span>
-                      {isCurrent && (
-                        <span className="text-[10px] font-bold text-[#E11D48]">Active</span>
-                      )}
-                    </div>
-
-                    {/* Circular Icon */}
-                    <div className="my-1.5 flex justify-center">
+                  <div key={step.key} className="relative">
+                    {/* Vertical connector line connecting down to next step */}
+                    {idx < TRACK_ORDER_STEPS.length - 1 && (
                       <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          isComplete
-                            ? 'bg-emerald-100/80 text-emerald-600 border border-emerald-200/70'
-                            : isCurrent
-                              ? 'bg-rose-100/80 text-[#E11D48] border border-rose-200/80 shadow-xs'
-                              : 'bg-slate-100 text-slate-500 border border-slate-200/60'
+                        aria-hidden="true"
+                        className={`absolute left-[23px] top-12 bottom-0 w-0.5 -mb-3 transition-colors ${
+                          idx < currentIdx ? 'bg-emerald-300' : 'bg-slate-200'
                         }`}
-                      >
-                        <StepIcon className="w-4 h-4" />
+                      />
+                    )}
+
+                    <div
+                      className={`relative z-10 p-3.5 sm:p-4 rounded-2xl border transition-all ${
+                        isCurrent
+                          ? 'bg-gradient-to-r from-rose-50/90 via-white to-rose-50/40 border-rose-300 ring-2 ring-[#E11D48]/25 shadow-sm shadow-rose-500/10'
+                          : isComplete
+                            ? 'bg-emerald-50/40 border-emerald-200/90 shadow-2xs'
+                            : 'bg-white border-slate-200/80 shadow-2xs opacity-85'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3.5">
+                        {/* Step Number & Icon */}
+                        <div className="relative shrink-0 flex items-center justify-center">
+                          <div
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center transition-transform ${
+                              isComplete
+                                ? 'bg-emerald-100/80 text-emerald-600 border border-emerald-200/70'
+                                : isCurrent
+                                  ? 'bg-rose-100/80 text-[#E11D48] border border-rose-200/80 shadow-xs'
+                                  : 'bg-slate-100 text-slate-500 border border-slate-200/60'
+                            }`}
+                          >
+                            <StepIcon className="w-5 h-5" />
+                          </div>
+                          <span
+                            className={`absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shadow-2xs ${
+                              isComplete
+                                ? 'bg-emerald-600 text-white'
+                                : isCurrent
+                                  ? 'bg-[#E11D48] text-white shadow-xs'
+                                  : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {idx + 1}
+                          </span>
+                        </div>
+
+                        {/* Title, Status Pill & Description */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <h5 className="text-xs sm:text-sm font-bold text-slate-900 leading-tight">
+                              {title}
+                            </h5>
+
+                            {/* Status Pill */}
+                            {isComplete ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100/70 px-2.5 py-0.5 rounded-full border border-emerald-200/80 shadow-2xs">
+                                <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                                <span>Completed</span>
+                              </span>
+                            ) : isCurrent ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#E11D48] bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200/80 shadow-2xs">
+                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                <span>Current Step</span>
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-medium text-slate-400">
+                                Upcoming
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                            {description}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-
-                    {/* Title & Description */}
-                    <div className="my-1 flex-1 flex flex-col justify-center">
-                      <h5 className="text-xs font-bold text-slate-900 leading-tight mb-1">
-                        {title}
-                      </h5>
-                      <p className="text-[10px] text-slate-500 leading-snug line-clamp-3">
-                        {description}
-                      </p>
-                    </div>
-
-                    {/* Bottom Status Indicator */}
-                    <div className="mt-2 pt-1 flex justify-center items-center min-h-[22px]">
-                      {isComplete ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full border border-emerald-200/80">
-                          <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                          <span>Done</span>
-                        </span>
-                      ) : isCurrent ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#E11D48] bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200/80">
-                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                          <span>Current</span>
-                        </span>
-                      ) : (
-                        <div className="h-4" />
-                      )}
                     </div>
                   </div>
                 );
