@@ -14,6 +14,22 @@ class CustomerEnquiryMessage extends Model
 
     public const SENDER_CUSTOMER = 'customer';
     public const SENDER_ADMIN = 'admin';
+    public const SENDER_AI = 'ai';
+
+    public function isCustomer(): bool
+    {
+        return $this->sender_type === self::SENDER_CUSTOMER;
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->sender_type === self::SENDER_ADMIN;
+    }
+
+    public function isAi(): bool
+    {
+        return $this->sender_type === self::SENDER_AI;
+    }
 
     protected $fillable = [
         'customer_enquiry_id',

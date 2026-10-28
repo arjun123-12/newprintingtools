@@ -7,10 +7,12 @@ use App\Http\Requests\Enquiries\StoreCustomerEnquiryRequest;
 use App\Http\Requests\Enquiries\UpdateCustomerEnquiryRequest;
 use App\Models\CustomerEnquiry;
 use App\Models\CustomerEnquiryMessage;
+use App\Services\AI\AiSupportChatService;
 use App\Services\Notification\OrderNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -132,7 +134,9 @@ class CustomerEnquiryController extends Controller
         $query = CustomerEnquiry::query();
 
         // Status filter
-        if ($request->filled('status') && $request->input('status') !== 'all') {
+        if ($request->input('status') === 'needs_followup') {
+            $query->where('needs_human_followup', true);
+        } elseif ($request->filled('status') && $request->input('status') !== 'all') {
             $query->where('status', $request->input('status'));
         }
 
@@ -155,6 +159,7 @@ class CustomerEnquiryController extends Controller
             ->toArray();
 
         $totalCount = CustomerEnquiry::count();
+        $needsFollowupCount = CustomerEnquiry::where('needs_human_followup', true)->count();
 
         $perPage = max(1, min(100, (int) $request->input('per_page', 15)));
         $enquiries = $query->latest('id')->paginate($perPage);
@@ -175,6 +180,7 @@ class CustomerEnquiryController extends Controller
                 'quoted' => $statusCounts['quoted'] ?? 0,
                 'converted' => $statusCounts['converted'] ?? 0,
                 'closed' => $statusCounts['closed'] ?? 0,
+                'needs_followup' => $needsFollowupCount,
             ], $statusCounts),
         ]);
     }
@@ -369,6 +375,12 @@ class CustomerEnquiryController extends Controller
 
         // Update enquiry timestamps and status
         $enquiry->last_message_at = now();
+        $enquiry->needs_human_followup = false;
+        if ($request->has('is_ai_enabled')) {
+            $enquiry->is_ai_enabled = $request->boolean('is_ai_enabled');
+        } elseif ($request->boolean('pause_ai')) {
+            $enquiry->is_ai_enabled = false;
+        }
         if ($enquiry->status === CustomerEnquiry::STATUS_NEW) {
             $enquiry->status = CustomerEnquiry::STATUS_CONTACTED;
         }
@@ -386,6 +398,8 @@ class CustomerEnquiryController extends Controller
             'message' => 'Reply sent successfully and customer notified via email.',
             'data' => $message,
             'enquiry_status' => $enquiry->status,
+            'is_ai_enabled' => (bool) $enquiry->is_ai_enabled,
+            'needs_human_followup' => (bool) $enquiry->needs_human_followup,
         ], 201);
     }
 
@@ -403,8 +417,11 @@ class CustomerEnquiryController extends Controller
             ], 404);
         }
 
-        // Mark admin messages as read by customer
-        $enquiry->messages()->where('sender_type', CustomerEnquiryMessage::SENDER_ADMIN)->where('is_read_by_customer', false)->update(['is_read_by_customer' => true]);
+        // Mark admin and AI messages as read by customer
+        $enquiry->messages()
+            ->whereIn('sender_type', [CustomerEnquiryMessage::SENDER_ADMIN, CustomerEnquiryMessage::SENDER_AI])
+            ->where('is_read_by_customer', false)
+            ->update(['is_read_by_customer' => true]);
 
         return response()->json([
             'success' => true,
@@ -422,6 +439,8 @@ class CustomerEnquiryController extends Controller
                 'attachment_original_name' => $enquiry->attachment_original_name,
                 'attachment_size_bytes' => $enquiry->attachment_size_bytes,
                 'status' => $enquiry->status,
+                'needs_human_followup' => (bool) $enquiry->needs_human_followup,
+                'is_ai_enabled' => (bool) $enquiry->is_ai_enabled,
                 'created_at' => $enquiry->created_at->toIso8601String(),
                 'formatted_date' => $enquiry->created_at->format('d M Y, h:i A'),
                 'messages' => $enquiry->messages()->get(),
@@ -492,17 +511,263 @@ class CustomerEnquiryController extends Controller
         }
         $enquiry->save();
 
-        // 2. Email the configured business inbox that customer replied
+        // 2. Trigger AI auto-reply if enabled and customer sent text
+        $aiReply = null;
+        if ($enquiry->is_ai_enabled && !empty($message->message)) {
+            try {
+                $chatService = app(AiSupportChatService::class);
+                $aiReply = $chatService->generateReply($enquiry, $message->message);
+            } catch (\Throwable $e) {
+                Log::warning("AI auto-reply failed for {$enquiry->reference}: {$e->getMessage()}");
+            }
+        }
+
+        // 3. Email staff that customer replied
         try {
             (new OrderNotificationService())->sendCustomerReplyToAdmin($enquiry, $message);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning("Could not send customer reply email notification to staff: {$e->getMessage()}");
         }
 
+        $enquiry->refresh();
+
         return response()->json([
             'success' => true,
-            'message' => 'Your reply has been sent to our prepress team.',
+            'message' => 'Your reply has been sent.',
             'data' => $message,
+            'ai_reply' => $aiReply,
+            'needs_human_followup' => (bool) $enquiry->needs_human_followup,
+            'is_ai_enabled' => (bool) $enquiry->is_ai_enabled,
         ], 201);
     }
+
+    /**
+     * Public / Visitor: Send message from the live AI Support Chat widget.
+     */
+    public function sendChatMessage(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'message' => ['required', 'string', 'max:3000'],
+            'token' => ['nullable', 'string', 'size:64'],
+            'session_id' => ['nullable', 'string', 'max:100'],
+            'name' => ['nullable', 'string', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'product_id' => ['nullable', 'string', 'max:255'],
+            'product_name' => ['nullable', 'string', 'max:255'],
+            'idempotency_key' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $messageText = trim($validated['message']);
+        $sessionId = $validated['session_id'] ?? null;
+        $token = $validated['token'] ?? null;
+        $user = $request->user();
+
+        $enquiry = null;
+
+        // 1. If access token is provided, resume existing conversation
+        if ($token) {
+            $enquiry = CustomerEnquiry::where('access_token', $token)->first();
+            if (!$enquiry) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Chat session not found or link has expired.',
+                ], 404);
+            }
+
+            // Verify ownership if session_id is associated
+            if ($sessionId && $enquiry->session_id && $enquiry->session_id !== $sessionId && (!$user || $enquiry->user_id !== $user->id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized conversation access.',
+                ], 403);
+            }
+        } elseif ($sessionId) {
+            // Find recent active chat enquiry for this visitor session
+            $enquiry = CustomerEnquiry::where('session_id', $sessionId)
+                ->where('status', '!=', CustomerEnquiry::STATUS_CLOSED)
+                ->latest('id')
+                ->first();
+        }
+
+        // 2. If no enquiry exists, create one linked to visitor session / user
+        if (!$enquiry) {
+            $customerName = !empty($validated['name']) ? strip_tags(trim($validated['name'])) : ($user?->name ?: 'Website Visitor');
+            $customerEmail = !empty($validated['email']) ? strtolower(trim($validated['email'])) : ($user?->email ?: ('visitor_' . substr(md5($sessionId ?: Str::uuid()->toString()), 0, 8) . '@guest.erryimprints.com.au'));
+
+            $enquiry = CustomerEnquiry::create([
+                'reference' => CustomerEnquiry::generateReference(),
+                'name' => $customerName,
+                'email' => $customerEmail,
+                'session_id' => $sessionId,
+                'user_id' => $user?->id,
+                'channel' => 'web_chat',
+                'product_id' => $validated['product_id'] ?? null,
+                'product_name' => $validated['product_name'] ?? null,
+                'status' => CustomerEnquiry::STATUS_NEW,
+                'is_ai_enabled' => true,
+                'needs_human_followup' => false,
+                'ip_address' => $request->ip(),
+                'user_agent' => substr((string) $request->userAgent(), 0, 500),
+            ]);
+        } else {
+            // Link user if authenticated now and not previously linked
+            if ($user && empty($enquiry->user_id)) {
+                $enquiry->user_id = $user->id;
+                if (str_contains($enquiry->email, '@guest.')) {
+                    $enquiry->email = $user->email;
+                    $enquiry->name = $user->name ?: $enquiry->name;
+                }
+                $enquiry->save();
+            }
+        }
+
+        // 3. Save customer message
+        $customerMsg = $enquiry->messages()->create([
+            'sender_type' => CustomerEnquiryMessage::SENDER_CUSTOMER,
+            'sender_name' => $enquiry->name,
+            'message' => $messageText,
+            'is_read_by_admin' => false,
+            'is_read_by_customer' => true,
+            'ip_address' => $request->ip(),
+        ]);
+
+        $enquiry->last_message_at = now();
+        $enquiry->save();
+
+        // 4. Generate AI Reply if AI is enabled
+        $aiMsg = null;
+        if ($enquiry->is_ai_enabled) {
+            try {
+                $chatService = app(AiSupportChatService::class);
+                $aiMsg = $chatService->generateReply($enquiry, $messageText, $validated['idempotency_key'] ?? null);
+            } catch (\Throwable $e) {
+                Log::warning("AI reply generation failed: {$e->getMessage()}");
+            }
+        }
+
+        $enquiry->refresh();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'token' => $enquiry->access_token,
+                'reference' => $enquiry->reference,
+                'customer_message' => $customerMsg,
+                'ai_message' => $aiMsg,
+                'needs_human_followup' => (bool) $enquiry->needs_human_followup,
+                'is_ai_enabled' => (bool) $enquiry->is_ai_enabled,
+                'conversation_url' => $enquiry->conversation_url,
+            ],
+        ], 201);
+    }
+
+    /**
+     * Public / Visitor: Fetch chat conversation history by token or session_id.
+     */
+    public function getChatHistory(Request $request): JsonResponse
+    {
+        $token = $request->query('token');
+        $sessionId = $request->query('session_id');
+
+        $query = CustomerEnquiry::query();
+
+        if ($token) {
+            $query->where('access_token', $token);
+        } elseif ($sessionId) {
+            $query->where('session_id', $sessionId)
+                ->where('status', '!=', CustomerEnquiry::STATUS_CLOSED)
+                ->latest('id');
+        } else {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please provide a valid token or session_id.',
+            ], 400);
+        }
+
+        $enquiry = $query->with('messages')->first();
+
+        if (!$enquiry) {
+            return response()->json([
+                'success' => true,
+                'data' => null,
+            ]);
+        }
+
+        // Mark admin and AI messages as read by customer
+        $enquiry->messages()
+            ->whereIn('sender_type', [CustomerEnquiryMessage::SENDER_ADMIN, CustomerEnquiryMessage::SENDER_AI])
+            ->where('is_read_by_customer', false)
+            ->update(['is_read_by_customer' => true]);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'token' => $enquiry->access_token,
+                'reference' => $enquiry->reference,
+                'name' => $enquiry->name,
+                'email' => $enquiry->email,
+                'status' => $enquiry->status,
+                'needs_human_followup' => (bool) $enquiry->needs_human_followup,
+                'is_ai_enabled' => (bool) $enquiry->is_ai_enabled,
+                'created_at' => $enquiry->created_at->toIso8601String(),
+                'messages' => $enquiry->messages()->get(),
+            ],
+        ]);
+    }
+
+    /**
+     * Admin: Toggle AI auto-reply for a specific enquiry.
+     */
+    public function toggleAi(Request $request, int|string $id): JsonResponse
+    {
+        $user = $request->user();
+        if (!$user || !$user->isAdmin()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized. Administrator access required.'], 403);
+        }
+
+        $enquiry = CustomerEnquiry::find($id);
+        if (!$enquiry) {
+            return response()->json(['success' => false, 'message' => 'Enquiry not found.'], 404);
+        }
+
+        $newState = $request->has('is_ai_enabled') ? $request->boolean('is_ai_enabled') : !$enquiry->is_ai_enabled;
+        $enquiry->is_ai_enabled = $newState;
+        $enquiry->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => $newState ? 'AI auto-reply enabled for this conversation.' : 'AI auto-reply paused. Admin takeover active.',
+            'data' => [
+                'is_ai_enabled' => (bool) $enquiry->is_ai_enabled,
+            ],
+        ]);
+    }
+
+    /**
+     * Admin: Mark human follow-up request as resolved.
+     */
+    public function resolveFollowup(Request $request, int|string $id): JsonResponse
+    {
+        $user = $request->user();
+        if (!$user || !$user->isAdmin()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized. Administrator access required.'], 403);
+        }
+
+        $enquiry = CustomerEnquiry::find($id);
+        if (!$enquiry) {
+            return response()->json(['success' => false, 'message' => 'Enquiry not found.'], 404);
+        }
+
+        $enquiry->needs_human_followup = false;
+        $enquiry->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Human follow-up marked as resolved.',
+            'data' => [
+                'needs_human_followup' => false,
+            ],
+        ]);
+    }
 }
+

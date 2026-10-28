@@ -5,6 +5,7 @@ import Header from '@/components/customer/Header';
 import Footer from '@/components/customer/Footer';
 import { EnquiryModal } from '@/components/enquiry/EnquiryModal';
 import { EnquiryFloatingTrigger } from '@/components/enquiry/EnquiryFloatingTrigger';
+import { AiSupportChatWidget } from '@/components/chat/AiSupportChatWidget';
 import { CustomerEnquiryInterceptor } from '@/components/enquiry/CustomerEnquiryInterceptor';
 
 export function ConditionalShell({ children }: { children: React.ReactNode }) {
@@ -16,7 +17,12 @@ export function ConditionalShell({ children }: { children: React.ReactNode }) {
     return (
       <CustomerEnquiryInterceptor>
         {children}
-        {!isAdminPath && <EnquiryModal />}
+        {!isAdminPath && (
+          <>
+            <EnquiryModal />
+            <AiSupportChatWidget />
+          </>
+        )}
       </CustomerEnquiryInterceptor>
     );
   }
@@ -28,7 +34,7 @@ export function ConditionalShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 flex flex-col">{children}</main>
         <Footer />
         <EnquiryModal />
-        <EnquiryFloatingTrigger />
+        <AiSupportChatWidget />
       </div>
     </CustomerEnquiryInterceptor>
   );

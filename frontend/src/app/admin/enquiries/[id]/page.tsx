@@ -31,13 +31,14 @@ import {
   X,
   ChevronRight,
   Info,
+  Bot,
 } from 'lucide-react';
 import { apiClient } from '@/services/api/client';
 
 interface EnquiryMessage {
   id: number;
   customer_enquiry_id: number;
-  sender_type: 'customer' | 'admin';
+  sender_type: 'customer' | 'admin' | 'ai';
   sender_name?: string | null;
   message?: string | null;
   attachment_path?: string | null;
@@ -77,6 +78,9 @@ interface CustomerEnquiryItem {
   attachment_size_bytes?: number | null;
   attachment_url?: string | null;
   status: 'new' | 'contacted' | 'quoted' | 'converted' | 'closed';
+  needs_human_followup?: boolean;
+  is_ai_enabled?: boolean;
+  channel?: string;
   admin_notes?: string | null;
   ip_address?: string | null;
   access_token?: string | null;
@@ -276,10 +280,8 @@ export default function AdminEnquiryDetailPage({ params }: PageProps) {
         setReplyAlert({ type: 'success', text: 'Reply saved to database and email notification sent to customer.' });
         setTimeout(() => setReplyAlert(null), 5000);
 
-        if (res.data.enquiry_status && enquiry.status !== res.data.enquiry_status) {
-          const newStatus = res.data.enquiry_status;
-          setEnquiry((prev) => prev ? { ...prev, status: newStatus } : null);
-        }
+        const newStatus = res.data.enquiry_status || enquiry.status;
+        setEnquiry((prev) => prev ? { ...prev, status: newStatus, needs_human_followup: false } : null);
       } else {
         throw new Error(res.data?.message || 'Failed to send reply.');
       }
@@ -293,6 +295,36 @@ export default function AdminEnquiryDetailPage({ params }: PageProps) {
       }
     } finally {
       setSendingReply(false);
+    }
+  };
+
+  const handleToggleAi = async () => {
+    if (!enquiry) return;
+    const currentAi = enquiry.is_ai_enabled !== false;
+    const nextAi = !currentAi;
+
+    try {
+      const res = await apiClient.post(`/admin/enquiries/${enquiry.id}/toggle-ai`, {
+        is_ai_enabled: nextAi,
+      });
+      if (res.data?.success) {
+        setEnquiry((prev) => prev ? { ...prev, is_ai_enabled: nextAi } : null);
+      }
+    } catch (err) {
+      alert('Failed to update AI auto-reply setting.');
+    }
+  };
+
+  const handleResolveFollowup = async () => {
+    if (!enquiry) return;
+
+    try {
+      const res = await apiClient.post(`/admin/enquiries/${enquiry.id}/resolve-followup`);
+      if (res.data?.success) {
+        setEnquiry((prev) => prev ? { ...prev, needs_human_followup: false } : null);
+      }
+    } catch (err) {
+      alert('Failed to resolve follow-up status.');
     }
   };
 
@@ -493,39 +525,74 @@ export default function AdminEnquiryDetailPage({ params }: PageProps) {
                 </div>
               </div>
 
-              {/* Secure Customer URL Link */}
-              {enquiry.conversation_url && (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleCopyCustomerLink}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-semibold transition cursor-pointer"
-                    title="Copy customer's unguessable link"
-                  >
-                    {copiedLink ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        <span className="text-emerald-300">Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Copy Link</span>
-                      </>
-                    )}
-                  </button>
-                  <a
-                    href={enquiry.conversation_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
-                    title="Open customer view in new tab"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-              )}
+              {/* Action Buttons: AI Toggle & Secure Link */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleToggleAi}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition cursor-pointer shadow-2xs ${
+                    enquiry.is_ai_enabled !== false
+                      ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                      : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                  }`}
+                  title="Toggle automatic AI replies for this conversation"
+                >
+                  <Bot className="w-3.5 h-3.5" />
+                  <span>AI: {enquiry.is_ai_enabled !== false ? 'Active' : 'Paused (Takeover)'}</span>
+                </button>
+
+                {enquiry.conversation_url && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleCopyCustomerLink}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-semibold transition cursor-pointer"
+                      title="Copy customer's unguessable link"
+                    >
+                      {copiedLink ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-300">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy Link</span>
+                        </>
+                      )}
+                    </button>
+                    <a
+                      href={enquiry.conversation_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+                      title="Open customer view in new tab"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                )}
+              </div>
             </div>
+
+            {/* Human Follow-up Alert Banner */}
+            {enquiry.needs_human_followup && (
+              <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="font-semibold">
+                    Customer requested a human agent or inquiry requires prepress quotation review.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResolveFollowup}
+                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition shrink-0 shadow-2xs cursor-pointer"
+                >
+                  Mark Follow-up Resolved
+                </button>
+              </div>
+            )}
 
             {/* Customer Contact Strip */}
             <div className="px-4 py-2.5 bg-sky-50 border-b border-sky-100 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -618,14 +685,33 @@ export default function AdminEnquiryDetailPage({ params }: PageProps) {
               ) : (
                 messages.map((msg) => {
                   const isAdmin = msg.sender_type === 'admin';
+                  const isAi = msg.sender_type === 'ai';
                   return (
                     <div
                       key={msg.id}
                       className={`flex flex-col ${isAdmin ? 'items-end' : 'items-start'}`}
                     >
                       <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-1 px-1">
-                        <span className="font-bold text-slate-700">
-                          {isAdmin ? 'Erry Imprints (Staff)' : enquiry.name}
+                        <span className="font-bold text-slate-700 flex items-center gap-1">
+                          {isAdmin ? (
+                            <>
+                              <Sparkles className="w-3 h-3 text-sky-600" />
+                              <span>Erry Imprints (Staff)</span>
+                            </>
+                          ) : isAi ? (
+                            <>
+                              <Bot className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>Erry AI Support</span>
+                              <span className="px-1.5 py-0.2 rounded text-[9px] bg-indigo-100 text-indigo-800 font-bold border border-indigo-200">
+                                AI Assistant
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <User className="w-3 h-3 text-slate-500" />
+                              <span>{enquiry.name}</span>
+                            </>
+                          )}
                         </span>
                         <span>·</span>
                         <span>{msg.time_ago || msg.formatted_date}</span>
@@ -635,6 +721,8 @@ export default function AdminEnquiryDetailPage({ params }: PageProps) {
                         className={`max-w-[85%] rounded-2xl p-3.5 text-xs shadow-2xs space-y-2 ${
                           isAdmin
                             ? 'bg-slate-900 text-white rounded-br-xs'
+                            : isAi
+                            ? 'bg-gradient-to-br from-indigo-50/90 to-sky-50/70 border border-indigo-200/80 text-slate-900 rounded-bl-xs'
                             : 'bg-white border border-slate-200 text-slate-800 rounded-bl-xs'
                         }`}
                       >

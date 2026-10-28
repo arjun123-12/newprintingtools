@@ -32,4 +32,11 @@ return [
         'client_script_url' => env('BPOINT_CLIENT_SCRIPT_URL', env('PAYMENT_GATEWAY_CLIENT_SCRIPT_URL', 'https://www.bpoint.com.au/rest/clientscripts/api.js')),
     ],
 
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+        'model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
+        'base_url' => env('OPENAI_BASE_URL', 'https://api.openai.com/v1'),
+        'timeout' => env('OPENAI_TIMEOUT', 30),
+    ],
+
 ];

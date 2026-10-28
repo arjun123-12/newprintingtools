@@ -27,6 +27,9 @@ class CustomerEnquiry extends Model
     protected $fillable = [
         'reference',
         'access_token',
+        'session_id',
+        'user_id',
+        'channel',
         'name',
         'email',
         'phone',
@@ -42,6 +45,9 @@ class CustomerEnquiry extends Model
         'attachment_mime_type',
         'attachment_size_bytes',
         'status',
+        'needs_human_followup',
+        'is_ai_enabled',
+        'ai_summary',
         'last_message_at',
         'admin_notes',
         'ip_address',
@@ -52,6 +58,8 @@ class CustomerEnquiry extends Model
         'specifications' => 'array',
         'quantity' => 'integer',
         'attachment_size_bytes' => 'integer',
+        'needs_human_followup' => 'boolean',
+        'is_ai_enabled' => 'boolean',
         'last_message_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -69,6 +77,14 @@ class CustomerEnquiry extends Model
                 $enquiry->access_token = static::generateAccessToken();
             }
         });
+    }
+
+    /**
+     * Relationship: Authenticated customer user who initiated the enquiry, if any.
+     */
+    public function user(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     /**

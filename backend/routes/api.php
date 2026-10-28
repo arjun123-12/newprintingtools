@@ -317,6 +317,19 @@ Route::prefix('enquiries/conversation/{token}')->group(function () {
     ])->middleware('throttle:20,1');
 });
 
+// Live AI Support Chat (Visitor / Customer Session)
+Route::prefix('chat')->group(function () {
+    Route::post('/message', [
+        App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+        'sendChatMessage',
+    ])->middleware('throttle:30,1');
+
+    Route::get('/history', [
+        App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+        'getChatHistory',
+    ])->middleware('throttle:60,1');
+});
+
 // ==========================================
 // GUEST CART
 // ==========================================
@@ -822,6 +835,14 @@ Route::middleware(['auth:sanctum', 'admin.access'])
             Route::post('/enquiries/{id}/messages', [
                 App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
                 'sendAdminMessage',
+            ]);
+            Route::post('/enquiries/{id}/toggle-ai', [
+                App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+                'toggleAi',
+            ]);
+            Route::post('/enquiries/{id}/resolve-followup', [
+                App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+                'resolveFollowup',
             ]);
         });
 

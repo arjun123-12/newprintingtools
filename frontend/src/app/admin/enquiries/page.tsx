@@ -31,13 +31,14 @@ import {
   Eye,
   Clock,
   ShieldCheck,
+  Bot,
 } from 'lucide-react';
 import { apiClient } from '@/services/api/client';
 
 interface EnquiryMessage {
   id: number;
   customer_enquiry_id: number;
-  sender_type: 'customer' | 'admin';
+  sender_type: 'customer' | 'admin' | 'ai';
   sender_name?: string | null;
   message?: string | null;
   attachment_path?: string | null;
@@ -77,6 +78,9 @@ interface CustomerEnquiryItem {
   attachment_size_bytes?: number | null;
   attachment_url?: string | null;
   status: 'new' | 'contacted' | 'quoted' | 'converted' | 'closed';
+  needs_human_followup?: boolean;
+  is_ai_enabled?: boolean;
+  channel?: string;
   admin_notes?: string | null;
   ip_address?: string | null;
   access_token?: string | null;
@@ -329,11 +333,9 @@ export default function AdminEnquiriesPage() {
         setTimeout(() => setReplyAlert(null), 5000);
 
         // Update status in local state if it changed to contacted
-        if (res.data.enquiry_status && selectedEnquiry.status !== res.data.enquiry_status) {
-          const newStatus = res.data.enquiry_status;
-          setSelectedEnquiry((prev) => prev ? { ...prev, status: newStatus } : null);
-          setEnquiries((prev) => prev.map((e) => e.id === selectedEnquiry.id ? { ...e, status: newStatus } : e));
-        }
+        const newStatus = res.data.enquiry_status || selectedEnquiry.status;
+        setSelectedEnquiry((prev) => prev ? { ...prev, status: newStatus, needs_human_followup: false } : null);
+        setEnquiries((prev) => prev.map((e) => e.id === selectedEnquiry.id ? { ...e, status: newStatus as any, needs_human_followup: false } : e));
       } else {
         throw new Error(res.data?.message || 'Failed to send reply.');
       }
@@ -347,6 +349,38 @@ export default function AdminEnquiriesPage() {
       }
     } finally {
       setSendingReply(false);
+    }
+  };
+
+  const handleToggleAi = async () => {
+    if (!selectedEnquiry) return;
+    const currentAi = selectedEnquiry.is_ai_enabled !== false;
+    const nextAi = !currentAi;
+
+    try {
+      const res = await apiClient.post(`/admin/enquiries/${selectedEnquiry.id}/toggle-ai`, {
+        is_ai_enabled: nextAi,
+      });
+      if (res.data?.success) {
+        setSelectedEnquiry((prev) => prev ? { ...prev, is_ai_enabled: nextAi } : null);
+        setEnquiries((prev) => prev.map((e) => e.id === selectedEnquiry.id ? { ...e, is_ai_enabled: nextAi } : e));
+      }
+    } catch (err) {
+      alert('Failed to update AI auto-reply setting.');
+    }
+  };
+
+  const handleResolveFollowup = async () => {
+    if (!selectedEnquiry) return;
+
+    try {
+      const res = await apiClient.post(`/admin/enquiries/${selectedEnquiry.id}/resolve-followup`);
+      if (res.data?.success) {
+        setSelectedEnquiry((prev) => prev ? { ...prev, needs_human_followup: false } : null);
+        setEnquiries((prev) => prev.map((e) => e.id === selectedEnquiry.id ? { ...e, needs_human_followup: false } : e));
+      }
+    } catch (err) {
+      alert('Failed to resolve follow-up status.');
     }
   };
 
@@ -425,6 +459,7 @@ export default function AdminEnquiriesPage() {
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
         {[
           { id: 'all', label: 'All Enquiries', count: stats.all },
+          { id: 'needs_followup', label: 'Needs Follow-up ⚠️', count: stats.needs_followup },
           { id: 'new', label: 'New', count: stats.new },
           { id: 'contacted', label: 'Contacted', count: stats.contacted },
           { id: 'quoted', label: 'Quoted', count: stats.quoted },
@@ -510,13 +545,27 @@ export default function AdminEnquiriesPage() {
                     <tr key={enq.id} className="hover:bg-slate-50/60 transition group">
                       {/* Reference */}
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-900 whitespace-nowrap">
-                        <Link
-                          href={`/admin/enquiries/${enq.id}`}
-                          className="bg-slate-100 hover:bg-sky-50 hover:text-sky-700 hover:border-sky-300 px-2.5 py-1 rounded-lg text-slate-800 border border-slate-200 transition inline-block"
-                          title="Open Enquiry Details"
-                        >
-                          {enq.reference}
-                        </Link>
+                        <div className="flex flex-col gap-1 items-start">
+                          <Link
+                            href={`/admin/enquiries/${enq.id}`}
+                            className="bg-slate-100 hover:bg-sky-50 hover:text-sky-700 hover:border-sky-300 px-2.5 py-1 rounded-lg text-slate-800 border border-slate-200 transition inline-block"
+                            title="Open Enquiry Details"
+                          >
+                            {enq.reference}
+                          </Link>
+                          <div className="flex flex-wrap items-center gap-1">
+                            {enq.needs_human_followup && (
+                              <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-amber-100 text-amber-800 font-bold border border-amber-300 animate-pulse">
+                                Needs Follow-up
+                              </span>
+                            )}
+                            {enq.channel === 'web_chat' && (
+                              <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200">
+                                Live Chat
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </td>
 
                       {/* Customer Details */}
@@ -754,7 +803,22 @@ export default function AdminEnquiriesPage() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      {/* AI Auto-Reply Toggle */}
+                      <button
+                        type="button"
+                        onClick={handleToggleAi}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-2xs cursor-pointer ${
+                          selectedEnquiry.is_ai_enabled !== false
+                            ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                            : 'bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200'
+                        }`}
+                        title="Toggle automatic AI replies for this customer thread"
+                      >
+                        <Bot className="w-3.5 h-3.5" />
+                        <span>AI Auto-Reply: {selectedEnquiry.is_ai_enabled !== false ? 'Active' : 'Paused (Takeover)'}</span>
+                      </button>
+
                       {selectedEnquiry.conversation_url && (
                         <>
                           <button
@@ -789,6 +853,25 @@ export default function AdminEnquiriesPage() {
                     </div>
                   </div>
 
+                  {/* Human Escalation Alert Banner */}
+                  {selectedEnquiry.needs_human_followup && (
+                    <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-2xs">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span className="font-semibold">
+                          Customer requested human follow-up or query requires prepress verification.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleResolveFollowup}
+                        className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition shrink-0 shadow-2xs cursor-pointer"
+                      >
+                        Mark Follow-up Resolved
+                      </button>
+                    </div>
+                  )}
+
                   {/* Messages Thread */}
                   <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 border border-slate-200 min-h-[300px] max-h-[380px] overflow-y-auto space-y-4">
                     {loadingMessages ? (
@@ -807,6 +890,7 @@ export default function AdminEnquiriesPage() {
                     ) : (
                       messages.map((msg) => {
                         const isAdmin = msg.sender_type === 'admin';
+                        const isAi = msg.sender_type === 'ai';
                         const hasAttachment = Boolean(msg.attachment_url);
                         const isImage = isImageMime(msg.attachment_mime_type, msg.attachment_original_name);
 
@@ -830,6 +914,14 @@ export default function AdminEnquiriesPage() {
                                       Staff
                                     </span>
                                   </>
+                                ) : isAi ? (
+                                  <>
+                                    <Bot className="w-3.5 h-3.5 text-indigo-600" />
+                                    <span>{msg.sender_name || 'Erry AI Support'}</span>
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] bg-indigo-100 text-indigo-800 font-bold border border-indigo-200">
+                                      AI Assistant
+                                    </span>
+                                  </>
                                 ) : (
                                   <>
                                     <User className="w-3 h-3 text-emerald-600" />
@@ -851,6 +943,8 @@ export default function AdminEnquiriesPage() {
                               className={`max-w-lg rounded-2xl p-4 text-xs leading-relaxed shadow-2xs ${
                                 isAdmin
                                   ? 'bg-slate-900 text-white rounded-tr-sm'
+                                  : isAi
+                                  ? 'bg-gradient-to-br from-indigo-50/90 to-sky-50/70 text-slate-900 border border-indigo-200/80 rounded-tl-sm'
                                   : 'bg-white text-slate-900 border border-slate-200 rounded-tl-sm'
                               }`}
                             >

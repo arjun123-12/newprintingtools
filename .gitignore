@@ -46,6 +46,7 @@ Thumbs.db
 
 # Laravel Storage & Cache
 backend/storage/*.key
+backend/storage/*.pem
 backend/storage/logs/*
 !backend/storage/logs/.gitkeep
 backend/storage/app/*

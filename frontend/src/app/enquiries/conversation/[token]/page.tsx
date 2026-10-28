@@ -23,13 +23,14 @@ import {
   ExternalLink,
   RefreshCw,
   Eye,
+  Bot,
 } from 'lucide-react';
 import { apiClient } from '@/services/api/client';
 
 interface EnquiryMessage {
   id: number;
   customer_enquiry_id: number;
-  sender_type: 'customer' | 'admin';
+  sender_type: 'customer' | 'admin' | 'ai';
   sender_name?: string | null;
   message?: string | null;
   attachment_path?: string | null;
@@ -471,6 +472,8 @@ export default function CustomerConversationPage({ params }: { params: any }) {
               </div>
             ) : (
               messages.map((msg) => {
+                const isCustomer = msg.sender_type === 'customer';
+                const isAi = msg.sender_type === 'ai';
                 const isAdmin = msg.sender_type === 'admin';
                 const hasAttachment = Boolean(msg.attachment_url);
                 const isImage = isImageMime(msg.attachment_mime_type, msg.attachment_original_name);
@@ -478,27 +481,35 @@ export default function CustomerConversationPage({ params }: { params: any }) {
                 return (
                   <div
                     key={msg.id}
-                    className={`flex flex-col ${isAdmin ? 'items-start' : 'items-end'}`}
+                    className={`flex flex-col ${isCustomer ? 'items-end' : 'items-start'}`}
                   >
                     {/* Sender Label and Timestamp */}
                     <div
                       className={`flex items-center gap-2 mb-1 px-1 text-[11px] text-slate-400 ${
-                        isAdmin ? 'flex-row' : 'flex-row-reverse'
+                        isCustomer ? 'flex-row-reverse' : 'flex-row'
                       }`}
                     >
                       <span className="font-semibold text-xs flex items-center gap-1 text-slate-300">
-                        {isAdmin ? (
+                        {isCustomer ? (
                           <>
-                            <Sparkles className="w-3 h-3 text-sky-400" />
-                            <span>{msg.sender_name || 'Erry Imprints Team'}</span>
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-sky-950 text-sky-300 border border-sky-800">
-                              Official
+                            <User className="w-3 h-3 text-emerald-400" />
+                            <span>{msg.sender_name || 'You'}</span>
+                          </>
+                        ) : isAi ? (
+                          <>
+                            <Bot className="w-3 h-3 text-indigo-400" />
+                            <span>{msg.sender_name || 'Erry AI Support'}</span>
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-800">
+                              AI Assistant
                             </span>
                           </>
                         ) : (
                           <>
-                            <User className="w-3 h-3 text-emerald-400" />
-                            <span>{msg.sender_name || 'You'}</span>
+                            <Sparkles className="w-3 h-3 text-sky-400" />
+                            <span>{msg.sender_name || 'Erry Imprints Team'}</span>
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-sky-950 text-sky-300 border border-sky-800">
+                              Staff
+                            </span>
                           </>
                         )}
                       </span>
@@ -511,9 +522,11 @@ export default function CustomerConversationPage({ params }: { params: any }) {
                     {/* Message Card Bubble */}
                     <div
                       className={`max-w-xl rounded-2xl p-4 text-xs leading-relaxed shadow-sm ${
-                        isAdmin
-                          ? 'bg-slate-800 border border-slate-700/80 text-slate-100 rounded-tl-sm'
-                          : 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white rounded-tr-sm shadow-sky-600/10'
+                        isCustomer
+                          ? 'bg-gradient-to-r from-sky-600 to-indigo-600 text-white rounded-tr-sm shadow-sky-600/10'
+                          : isAi
+                          ? 'bg-indigo-950/60 border border-indigo-800/80 text-slate-100 rounded-tl-sm'
+                          : 'bg-slate-800 border border-slate-700/80 text-slate-100 rounded-tl-sm'
                       }`}
                     >
                       {/* Text */}

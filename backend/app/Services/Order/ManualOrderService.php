@@ -178,22 +178,22 @@ class ManualOrderService
                     'email' => $data['customer_email'] ?? $customer->email,
                     'phone' => $data['customer_phone'] ?? $customer->phone ?? '',
                     'company' => $data['company_name'] ?? $customer->company_name ?? '',
-                    'address_line_1' => $data['delivery_address'] ?? '12 Harper Lane',
-                    'city' => $data['city'] ?? 'Richmond',
-                    'state' => $data['state'] ?? 'VIC',
-                    'postcode' => $data['postcode'] ?? '3121',
-                    'country' => 'AU',
+                    'address_line_1' => $data['delivery_address'] ?? null,
+                    'city' => $data['city'] ?? null,
+                    'state' => $data['state'] ?? null,
+                    'postcode' => $data['postcode'] ?? null,
+                   'country' => $data['country'] ?? null,
                 ],
                 'billing_address' => [
                     'name' => $data['customer_name'] ?? $customer->name,
                     'email' => $data['customer_email'] ?? $customer->email,
                     'phone' => $data['customer_phone'] ?? $customer->phone ?? '',
                     'company' => $data['company_name'] ?? $customer->company_name ?? '',
-                    'address_line_1' => $data['delivery_address'] ?? '12 Harper Lane',
-                    'city' => $data['city'] ?? 'Richmond',
-                    'state' => $data['state'] ?? 'VIC',
-                    'postcode' => $data['postcode'] ?? '3121',
-                    'country' => 'AU',
+                    'address_line_1' => trim($data['delivery_address']) ?? null,
+'city' => $data['city'] ?? null,
+'state' => $data['state'] ?? null,
+'postcode' => $data['postcode'] ?? null,
+                  'country' => $data['country'] ?? null,
                 ],
                 'customer_notes' => $data['customer_notes'] ?? null,
                 'admin_notes' => $data['internal_notes'] ?? null,
@@ -263,9 +263,16 @@ class ManualOrderService
 
         return DB::transaction(function () use ($order, $staffUser, $calculated, $data) {
             $shippingAddress = $order->shipping_address ?? [];
-            if (!empty($data['delivery_address'])) {
-                $shippingAddress['address_line_1'] = $data['delivery_address'];
-            }
+           if (!empty($data['delivery_address'])) {
+    $shippingAddress['address_line_1'] = trim($data['delivery_address']);
+
+    unset(
+        $shippingAddress['city'],
+        $shippingAddress['state'],
+        $shippingAddress['postcode'],
+        $shippingAddress['country']
+    );
+}
             if (!empty($data['customer_email'])) {
                 $shippingAddress['email'] = $data['customer_email'];
             }
