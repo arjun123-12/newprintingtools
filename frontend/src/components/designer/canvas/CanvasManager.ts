@@ -789,7 +789,7 @@ export class CanvasManager {
   }
 
   /** 15 mm of editor-only pasteboard around the bleed-inclusive artwork. */
-  private getWorkspacePaddingPx(): number {
+  public getWorkspacePaddingPx(): number {
     const dpi = Math.max(1, Number(this.dimensions.dpi) || 300);
     return (15 / 25.4) * dpi;
   }

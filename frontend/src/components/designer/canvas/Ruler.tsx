@@ -298,21 +298,22 @@ export const Ruler: React.FC<RulerProps> = ({
    * outer RED bleed edge.
    */
   const dpi = dimensions.dpi || 300;
-  const bleedMm = (bleedPx / dpi) * 25.4;
-  const artworkWidthMm = widthMm + bleedMm * 2;
-  const artworkHeightMm = heightMm + bleedMm * 2;
+  const paddingPx = canvasManager?.getWorkspacePaddingPx?.() ?? ((15 / 25.4) * dpi);
+  const totalCanvasWidthPx = artworkWidthPx + paddingPx * 2;
+  const totalCanvasHeightPx = artworkHeightPx + paddingPx * 2;
 
-  const xPxPerMm =
-    geometry.paperWidth / Math.max(artworkWidthMm, 0.0001);
+  const activeZoom =
+    geometry.paperWidth > 0
+      ? geometry.paperWidth / Math.max(totalCanvasWidthPx, 1)
+      : (canvasManager?.getZoom?.() ?? zoom ?? 1);
 
-  const yPxPerMm =
-    geometry.paperHeight / Math.max(artworkHeightMm, 0.0001);
+  // Exact screen pixels per millimeter, aligned to the product's trim width & height (the BLACK line)
+  const xPxPerMm = (dpi / 25.4) * activeZoom;
+  const yPxPerMm = (dpi / 25.4) * activeZoom;
 
-  const trimOriginX =
-    geometry.originX + bleedMm * xPxPerMm;
-
-  const trimOriginY =
-    geometry.originY + bleedMm * yPxPerMm;
+  // Screen coordinates where the BLACK trim line begins (Ruler 0 mm)
+  const trimOriginX = geometry.originX + (paddingPx + bleedPx) * activeZoom;
+  const trimOriginY = geometry.originY + (paddingPx + bleedPx) * activeZoom;
 
   /**
    * Convert a Fabric/artwork coordinate to the ruler value.
@@ -506,19 +507,15 @@ export const Ruler: React.FC<RulerProps> = ({
         selectedBounds;
 
       if (currentBounds) {
-        const scale =
-          geometry.paperWidth /
-          Math.max(artworkWidthPx, 1);
-
         const start =
           geometry.originX +
-          currentBounds.left *
-          scale;
+          (paddingPx + currentBounds.left) *
+          activeZoom;
 
         const end =
           start +
           currentBounds.width *
-          scale;
+          activeZoom;
 
         if (end > start) {
           ctx.fillStyle =
@@ -825,17 +822,17 @@ export const Ruler: React.FC<RulerProps> = ({
 
       ctx.stroke();
 
-      // Page boundaries
+      // Product trim boundaries (solid BLACK line = original product width)
       ctx.strokeStyle =
         TICK_MAJOR_COLOR;
 
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.5;
 
       ctx.beginPath();
 
       const x0 =
         Math.round(
-          geometry.originX
+          trimOriginX
         ) + 0.5;
 
       ctx.moveTo(
@@ -850,8 +847,8 @@ export const Ruler: React.FC<RulerProps> = ({
 
       const xEnd =
         Math.round(
-          geometry.originX +
-          geometry.paperWidth
+          trimOriginX +
+          widthMm * xPxPerMm
         ) + 0.5;
 
       ctx.moveTo(
@@ -912,13 +909,10 @@ export const Ruler: React.FC<RulerProps> = ({
       // User vertical guidelines on top ruler
       userGuides.forEach((guide) => {
         if (guide.orientation !== 'vertical') return;
-        const scale =
-          geometry.paperWidth /
-          Math.max(artworkWidthPx, 1);
         const x =
           Math.round(
             geometry.originX +
-            guide.posPx * scale
+            (paddingPx + guide.posPx) * activeZoom
           ) + 0.5;
 
         if (
@@ -1055,19 +1049,15 @@ export const Ruler: React.FC<RulerProps> = ({
         selectedBounds;
 
       if (currentBounds) {
-        const scale =
-          geometry.paperHeight /
-          Math.max(artworkHeightPx, 1);
-
         const start =
           geometry.originY +
-          currentBounds.top *
-          scale;
+          (paddingPx + currentBounds.top) *
+          activeZoom;
 
         const end =
           start +
           currentBounds.height *
-          scale;
+          activeZoom;
 
         if (end > start) {
           ctx.fillStyle =
@@ -1368,17 +1358,17 @@ export const Ruler: React.FC<RulerProps> = ({
 
       ctx.stroke();
 
-      // Page boundaries
+      // Product trim boundaries (solid BLACK line = original product height)
       ctx.strokeStyle =
         TICK_MAJOR_COLOR;
 
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.5;
 
       ctx.beginPath();
 
       const y0 =
         Math.round(
-          geometry.originY
+          trimOriginY
         ) + 0.5;
 
       ctx.moveTo(
@@ -1393,8 +1383,8 @@ export const Ruler: React.FC<RulerProps> = ({
 
       const yEnd =
         Math.round(
-          geometry.originY +
-          geometry.paperHeight
+          trimOriginY +
+          heightMm * yPxPerMm
         ) + 0.5;
 
       ctx.moveTo(
@@ -1468,13 +1458,10 @@ export const Ruler: React.FC<RulerProps> = ({
       // User horizontal guidelines on left ruler
       userGuides.forEach((guide) => {
         if (guide.orientation !== 'horizontal') return;
-        const scale =
-          geometry.paperHeight /
-          Math.max(artworkHeightPx, 1);
         const y =
           Math.round(
             geometry.originY +
-            guide.posPx * scale
+            (paddingPx + guide.posPx) * activeZoom
           ) + 0.5;
 
         if (
@@ -1786,14 +1773,8 @@ export const Ruler: React.FC<RulerProps> = ({
           : clientX -
           paperRect.left;
 
-      // Convert the pointer into the exact Fabric/artwork coordinate first,
-      // then use the same ruler conversion used by existing guides.
-      const canvasPosition =
-        orientation === 'horizontal'
-          ? paperPosition *
-          (artworkHeightPx / Math.max(paperRect.height, 1))
-          : paperPosition *
-          (artworkWidthPx / Math.max(paperRect.width, 1));
+      // Convert pointer to Fabric document coordinate taking into account activeZoom & pasteboard padding
+      const canvasPosition = (paperPosition / activeZoom) - paddingPx;
 
       const mm = canvasPxToRulerMm(canvasPosition);
 
@@ -1847,16 +1828,7 @@ export const Ruler: React.FC<RulerProps> = ({
           : upEvent.clientX -
           paperRect.left;
 
-      // FIRST-CREATE FIX:
-      // Convert pointer against the complete bleed-inclusive artwork.
-      // Previously this used trim-only widthPx/heightPx, so the temporary
-      // line looked correct but jumped to a different position on release.
-      const canvasPosition =
-        orientation === 'horizontal'
-          ? screenPosition *
-          (artworkHeightPx / Math.max(paperRect.height, 1))
-          : screenPosition *
-          (artworkWidthPx / Math.max(paperRect.width, 1));
+      const canvasPosition = (screenPosition / activeZoom) - paddingPx;
 
       const maximum =
         orientation === 'horizontal'
@@ -1928,12 +1900,7 @@ export const Ruler: React.FC<RulerProps> = ({
           ? clientY - paperRect.top
           : clientX - paperRect.left;
 
-      latestCanvasPosition =
-        guide.orientation === 'horizontal'
-          ? screenPosition *
-          (artworkHeightPx / Math.max(paperRect.height, 1))
-          : screenPosition *
-          (artworkWidthPx / Math.max(paperRect.width, 1));
+      latestCanvasPosition = (screenPosition / activeZoom) - paddingPx;
 
       const maximum =
         guide.orientation === 'horizontal'
@@ -2038,16 +2005,14 @@ export const Ruler: React.FC<RulerProps> = ({
           <div
             className="pointer-events-none absolute top-6 bottom-0 w-px bg-slate-300/40"
             style={{
-              left:
-                `${geometry.originX}px`,
+              left: `${trimOriginX}px`,
             }}
           />
 
           <div
             className="pointer-events-none absolute top-6 bottom-0 w-px bg-slate-300/40"
             style={{
-              left:
-                `${geometry.originX + geometry.paperWidth}px`,
+              left: `${trimOriginX + widthMm * xPxPerMm}px`,
             }}
           />
         </>
@@ -2058,16 +2023,14 @@ export const Ruler: React.FC<RulerProps> = ({
           <div
             className="pointer-events-none absolute left-6 right-0 h-px bg-slate-300/40"
             style={{
-              top:
-                `${geometry.originY}px`,
+              top: `${trimOriginY}px`,
             }}
           />
 
           <div
             className="pointer-events-none absolute left-6 right-0 h-px bg-slate-300/40"
             style={{
-              top:
-                `${geometry.originY + geometry.paperHeight}px`,
+              top: `${trimOriginY + heightMm * yPxPerMm}px`,
             }}
           />
         </>
@@ -2082,11 +2045,9 @@ export const Ruler: React.FC<RulerProps> = ({
             className="group pointer-events-auto absolute z-30 h-3.5 -translate-y-1/2 touch-none"
             style={{
               cursor: CANVA_GUIDE_HORIZONTAL_CURSOR,
-              left: `${geometry.originX}px`,
-              top: `${geometry.originY +
-                guide.posPx * (geometry.paperHeight / Math.max(artworkHeightPx, 1))
-                }px`,
-              width: `${geometry.paperWidth}px`,
+              left: `${geometry.originX + paddingPx * activeZoom}px`,
+              top: `${geometry.originY + (paddingPx + guide.posPx) * activeZoom}px`,
+              width: `${artworkWidthPx * activeZoom}px`,
             }}
             onPointerDown={(event) => startExistingGuideDrag(guide, event)}
             onDoubleClick={(event) => {
@@ -2106,11 +2067,9 @@ export const Ruler: React.FC<RulerProps> = ({
             className="group pointer-events-auto absolute z-30 w-3.5 -translate-x-1/2 touch-none"
             style={{
               cursor: CANVA_GUIDE_VERTICAL_CURSOR,
-              left: `${geometry.originX +
-                guide.posPx * (geometry.paperWidth / Math.max(artworkWidthPx, 1))
-                }px`,
-              top: `${geometry.originY}px`,
-              height: `${geometry.paperHeight}px`,
+              left: `${geometry.originX + (paddingPx + guide.posPx) * activeZoom}px`,
+              top: `${geometry.originY + paddingPx * activeZoom}px`,
+              height: `${artworkHeightPx * activeZoom}px`,
             }}
             onPointerDown={(event) => startExistingGuideDrag(guide, event)}
             onDoubleClick={(event) => {
