@@ -85,9 +85,29 @@ export function computeTurnaroundState(
   durationValue?: number | null,
   durationUnit?: string | null
 ): TurnaroundComputation {
-  const isCompleted = ['delivered', 'collected', 'completed'].includes(
-    String(orderStatus).toLowerCase()
-  );
+  const rawStatus = String(orderStatus || '').toLowerCase().trim();
+  const normalizedStatus = rawStatus.replace(/[\s-]+/g, '_');
+
+  const isCompleted =
+    [
+      'delivered',
+      'collected',
+      'completed',
+      'ready_for_pickup',
+      'ready_to_pickup',
+      'ready_for_shipping',
+      'ready_for_collection',
+    ].includes(normalizedStatus) ||
+    [
+      'delivered',
+      'collected',
+      'completed',
+      'ready for pickup',
+      'ready to pickup',
+      'ready for shipping',
+      'ready for collection',
+    ].includes(rawStatus) ||
+    (rawStatus.includes('ready') && rawStatus.includes('pickup'));
 
   if (isCompleted) {
     return {

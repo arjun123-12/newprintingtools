@@ -30,6 +30,9 @@ import {
   ChevronDown,
   Plus,
   Edit2,
+  Banknote,
+  Loader2,
+  Pencil,
 } from 'lucide-react';
 import {
   invoiceService,
@@ -45,11 +48,11 @@ const DEFAULT_STORE_INFO: StoreTaxInfo = {
   trading_name: 'Erry Imprints',
   abn: '12 345 678 901',
   email: 'Info@erryimprints.com.au',
-  phone: '1300 000 789',
-  address_line_1: 'Level 1, 100 George Street',
-  city: 'Sydney',
-  state: 'NSW',
-  postcode: '2000',
+  phone: '',
+  address_line_1: '115 Montague Road,  ',
+  city: 'Pooraka',
+  state: ' SA',
+  postcode: '5095',
   country: 'Australia',
   gst_rate: 0.10,
 };
@@ -78,8 +81,75 @@ export default function AdminInvoicesPage() {
     payment: InvoicePayment;
   } | null>(null);
 
+  // Active Payment Modal (Cash / In-store / Manual Update)
+  const [paymentModalOrder, setPaymentModalOrder] = useState<TaxInvoiceOrder | null>(null);
+  const [recordingStatusTarget, setRecordingStatusTarget] = useState<'paid' | 'unpaid'>('paid');
+  const [recordingPaymentMethod, setRecordingPaymentMethod] = useState<'cash' | 'bank_transfer' | 'pos' | 'cheque'>('cash');
+  const [recordingPaymentAmount, setRecordingPaymentAmount] = useState<string>('');
+  const [recordingPaymentRef, setRecordingPaymentRef] = useState<string>('');
+  const [recordingPaymentNotes, setRecordingPaymentNotes] = useState<string>('');
+  const [recordingPaymentDate, setRecordingPaymentDate] = useState<string>('');
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState<boolean>(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
+
   // Clipboard copy state
   const [copiedText, setCopiedText] = useState<string | null>(null);
+
+  const handleOpenPaymentModal = (order: TaxInvoiceOrder) => {
+    setPaymentModalOrder(order);
+    setRecordingStatusTarget(order.payment_status === 'paid' ? 'unpaid' : 'paid');
+    setRecordingPaymentMethod('cash');
+    setRecordingPaymentAmount(order.total_inc_gst ? String(Number(order.total_inc_gst).toFixed(2)) : '0.00');
+    setRecordingPaymentRef(`CASH-${order.order_number}`);
+    setRecordingPaymentNotes('');
+    setRecordingPaymentDate(new Date().toISOString().slice(0, 10));
+    setPaymentError(null);
+    setPaymentSuccess(null);
+  };
+
+  const handleSavePayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!paymentModalOrder) return;
+
+    setIsSubmittingPayment(true);
+    setPaymentError(null);
+    setPaymentSuccess(null);
+
+    try {
+      const res = await invoiceService.recordPayment(paymentModalOrder.id, {
+        payment_status: recordingStatusTarget,
+        payment_method: recordingPaymentMethod,
+        amount: parseFloat(recordingPaymentAmount) || Number(paymentModalOrder.total_inc_gst) || 0,
+        reference: recordingPaymentRef.trim() || undefined,
+        notes: recordingPaymentNotes.trim() || undefined,
+        paid_at: recordingPaymentDate ? `${recordingPaymentDate}T12:00:00` : undefined,
+      });
+
+      if (res.success) {
+        setPaymentSuccess(res.message || 'Payment updated successfully');
+        // Refresh invoices ledger
+        await fetchInvoiceData(true);
+        // If current selected invoice order was this one, update it as well
+        if (selectedInvoiceOrder && selectedInvoiceOrder.id === paymentModalOrder.id) {
+          if (res.data) {
+            setSelectedInvoiceOrder(res.data);
+          }
+        }
+        setTimeout(() => {
+          setPaymentModalOrder(null);
+          setPaymentSuccess(null);
+        }, 800);
+      } else {
+        setPaymentError(res.message || 'Failed to update payment status');
+      }
+    } catch (err: any) {
+      console.error('Failed to update payment:', err);
+      setPaymentError(err?.response?.data?.message || err?.message || 'Error communicating with server');
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
 
   const fetchInvoiceData = async (silent = false) => {
     if (!silent) setIsLoading(true);
@@ -115,6 +185,19 @@ export default function AdminInvoicesPage() {
   useEffect(() => {
     fetchInvoiceData();
   }, [tabFilter, gatewayFilter, sortBy]);
+
+  // Handle escape key to close modals
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (paymentModalOrder) setPaymentModalOrder(null);
+        if (selectedInvoiceOrder) setSelectedInvoiceOrder(null);
+        if (selectedAuditPayment) setSelectedAuditPayment(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [paymentModalOrder, selectedInvoiceOrder, selectedAuditPayment]);
 
   // Client-side quick filter on search query for instant responsiveness
   const filteredOrders = useMemo(() => {
@@ -445,6 +528,7 @@ export default function AdminInvoicesPage() {
               className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs font-medium text-slate-200 focus:outline-none focus:border-sky-500 cursor-pointer"
             >
               <option value="all">All Gateways</option>
+              <option value="cash">Cash (In-Store Payment)</option>
               <option value="bpoint">BPoint (Commonwealth Bank)</option>
               <option value="stripe">Stripe</option>
               <option value="square">Square</option>
@@ -471,8 +555,8 @@ export default function AdminInvoicesPage() {
             <button
               onClick={() => setTabFilter('all')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${tabFilter === 'all'
-                  ? 'bg-sky-600 text-white shadow-sm'
-                  : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
+                ? 'bg-sky-600 text-white shadow-sm'
+                : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
                 }`}
             >
               All Invoices ({orders.length})
@@ -480,8 +564,8 @@ export default function AdminInvoicesPage() {
             <button
               onClick={() => setTabFilter('paid')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${tabFilter === 'paid'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
                 }`}
             >
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
@@ -490,8 +574,8 @@ export default function AdminInvoicesPage() {
             <button
               onClick={() => setTabFilter('unpaid')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${tabFilter === 'unpaid'
-                  ? 'bg-amber-600 text-white shadow-sm'
-                  : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
+                ? 'bg-amber-600 text-white shadow-sm'
+                : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
                 }`}
             >
               <Clock className="w-3.5 h-3.5 text-amber-400" />
@@ -500,8 +584,8 @@ export default function AdminInvoicesPage() {
             <button
               onClick={() => setTabFilter('failed')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${tabFilter === 'failed'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
+                ? 'bg-rose-600 text-white shadow-sm'
+                : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-200'
                 }`}
             >
               <XCircle className="w-3.5 h-3.5 text-rose-400" />
@@ -627,13 +711,20 @@ export default function AdminInvoicesPage() {
                             <div className="flex items-center gap-2">
                               {/* Gateway Badge */}
                               <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${primaryPayment.gateway === 'bpoint'
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${
+                                  primaryPayment.gateway === 'cash'
+                                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                    : primaryPayment.gateway === 'bpoint'
                                     ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20'
                                     : 'bg-slate-800 text-slate-300 border border-slate-700'
-                                  }`}
+                                }`}
                               >
-                                <CreditCard className="w-3 h-3" />
-                                {primaryPayment.gateway}
+                                {primaryPayment.gateway === 'cash' ? (
+                                  <Banknote className="w-3 h-3 text-emerald-400" />
+                                ) : (
+                                  <CreditCard className="w-3 h-3" />
+                                )}
+                                {primaryPayment.gateway === 'cash' ? 'Cash' : primaryPayment.gateway}
                               </span>
 
                               {paymentPayload.card_masked && (
@@ -660,11 +751,26 @@ export default function AdminInvoicesPage() {
                                 </button>
                               )}
                             </div>
+
+                            {paymentPayload.notes && (
+                              <div className="text-[11px] text-slate-400 truncate max-w-[200px]" title={paymentPayload.notes}>
+                                Note: {paymentPayload.notes}
+                              </div>
+                            )}
                           </div>
                         ) : (
-                          <div className="text-xs text-slate-500 flex items-center gap-1.5 py-1">
-                            <Clock className="w-3.5 h-3.5 text-amber-500/70" />
-                            <span>Payment Awaiting</span>
+                          <div className="flex flex-col gap-1 py-1">
+                            <div className="text-xs text-slate-500 flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-amber-500/70" />
+                              <span>Payment Awaiting</span>
+                            </div>
+                            <button
+                              onClick={() => handleOpenPaymentModal(order)}
+                              className="text-[11px] text-emerald-400 hover:underline inline-flex items-center gap-1 self-start"
+                            >
+                              <Banknote className="w-3 h-3" />
+                              <span>Record Cash</span>
+                            </button>
                           </div>
                         )}
                       </td>
@@ -687,29 +793,64 @@ export default function AdminInvoicesPage() {
                       {/* Status */}
                       <td className="py-3.5 px-4 align-top text-center">
                         {isPaid ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <button
+                            onClick={() => handleOpenPaymentModal(order)}
+                            title="Paid (Click to view or edit payment details)"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 hover:border-emerald-500/40 transition cursor-pointer"
+                          >
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             <span>Paid</span>
-                          </span>
+                            <Pencil className="w-3 h-3 text-emerald-400/60 ml-0.5" />
+                          </button>
                         ) : order.payment_status === 'failed' ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                          <button
+                            onClick={() => handleOpenPaymentModal(order)}
+                            title="Failed (Click to update status)"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 hover:border-rose-500/40 transition cursor-pointer"
+                          >
                             <XCircle className="w-3.5 h-3.5" />
                             <span>Failed</span>
-                          </span>
+                            <Pencil className="w-3 h-3 text-rose-400/60 ml-0.5" />
+                          </button>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          <button
+                            onClick={() => handleOpenPaymentModal(order)}
+                            title="Click to update status / record customer cash payment"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 hover:border-amber-500/40 transition cursor-pointer group/status"
+                          >
                             <Clock className="w-3.5 h-3.5" />
                             <span>Unpaid</span>
-                          </span>
+                            <Pencil className="w-3 h-3 text-amber-300 group-hover/status:scale-110 transition ml-0.5" />
+                          </button>
                         )}
                       </td>
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 align-top text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {!isPaid ? (
+                            <button
+                              onClick={() => handleOpenPaymentModal(order)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition"
+                              title="Record Customer Cash Payment & Mark as Paid"
+                            >
+                              <Banknote className="w-3.5 h-3.5" />
+                              <span>Pay in Cash</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleOpenPaymentModal(order)}
+                              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium transition"
+                              title="Edit Payment Record / Revert Status"
+                            >
+                              <Pencil className="w-3 h-3 text-slate-400" />
+                              <span>Payment</span>
+                            </button>
+                          )}
+
                           <Link
                             href={`/admin/invoices/${order.id}/edit`}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 text-xs font-medium transition"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition"
                             title="Edit in Invoice Editor"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
@@ -748,10 +889,15 @@ export default function AdminInvoicesPage() {
 
       {/* ─── MODAL: Official Australian Tax Invoice (ATO Compliant) ──────────── */}
       {selectedInvoiceOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
-          <div className="relative w-full max-w-4xl bg-white text-slate-900 rounded-2xl shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-150">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-sm print:static print:p-0 print:bg-transparent print:block print:overflow-visible"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedInvoiceOrder(null);
+          }}
+        >
+          <div className="relative w-full max-w-4xl bg-white text-slate-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] my-auto animate-in fade-in zoom-in-95 duration-150 print:max-h-none print:overflow-visible print:shadow-none print:w-full print:rounded-none">
             {/* Modal Screen Action Toolbar (Hidden during print) */}
-            <div className="print:hidden flex items-center justify-between px-6 py-4 bg-slate-900 text-white border-b border-slate-800">
+            <div className="print:hidden flex items-center justify-between px-6 py-4 bg-slate-900 text-white border-b border-slate-800 shrink-0">
               <div className="flex items-center gap-2">
                 <Receipt className="w-5 h-5 text-sky-400" />
                 <span className="font-semibold text-sm">
@@ -759,6 +905,15 @@ export default function AdminInvoicesPage() {
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                {selectedInvoiceOrder.payment_status !== 'paid' && (
+                  <button
+                    onClick={() => handleOpenPaymentModal(selectedInvoiceOrder)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition shadow-sm"
+                  >
+                    <Banknote className="w-3.5 h-3.5" />
+                    <span>Pay in Cash</span>
+                  </button>
+                )}
                 <button
                   onClick={handlePrint}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium transition shadow-sm"
@@ -776,7 +931,7 @@ export default function AdminInvoicesPage() {
             </div>
 
             {/* Printable Area - Formatted according to ATO Australian Tax Invoice Standards */}
-            <div id="printable-tax-invoice" className="p-8 sm:p-10 space-y-8 bg-white text-slate-900">
+            <div id="printable-tax-invoice" className="flex-1 overflow-y-auto p-6 sm:p-10 space-y-8 bg-white text-slate-900 print:overflow-visible print:p-0">
               {/* Header section with ATO Title & Seller ABN */}
               <div className="flex flex-col sm:flex-row justify-between items-start gap-6 border-b-2 border-slate-900 pb-6">
                 <div>
@@ -843,46 +998,27 @@ export default function AdminInvoicesPage() {
                 </div>
               </div>
 
-              {/* Recipient Details & Addresses */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
-                <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                    Invoiced To (Buyer)
-                  </div>
-                  <div className="font-bold text-slate-900 text-base">
-                    {selectedInvoiceOrder.user?.name || selectedInvoiceOrder.shipping_address?.name || 'Customer'}
-                  </div>
-                  {(selectedInvoiceOrder.user?.company_name || selectedInvoiceOrder.shipping_address?.company) && (
-                    <div className="font-semibold text-slate-800">
-                      {selectedInvoiceOrder.user?.company_name || selectedInvoiceOrder.shipping_address?.company}
-                    </div>
-                  )}
-                  {selectedInvoiceOrder.user?.abn && (
-                    <div className="mt-1 font-mono font-semibold text-slate-900">
-                      Buyer ABN: {selectedInvoiceOrder.user.abn}
-                    </div>
-                  )}
-                  <div className="mt-1 text-slate-600">
-                    <div>{selectedInvoiceOrder.user?.email || selectedInvoiceOrder.shipping_address?.email}</div>
-                    {selectedInvoiceOrder.user?.phone && <div>Ph: {selectedInvoiceOrder.user.phone}</div>}
-                  </div>
+              {/* Recipient Details (Buyer) */}
+              <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 text-sm max-w-md">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  Invoiced To (Buyer)
                 </div>
-
-                <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                    Delivery Address
+                <div className="font-bold text-slate-900 text-base">
+                  {selectedInvoiceOrder.user?.name || selectedInvoiceOrder.shipping_address?.name || 'Customer'}
+                </div>
+                {(selectedInvoiceOrder.user?.company_name || selectedInvoiceOrder.shipping_address?.company) && (
+                  <div className="font-semibold text-slate-800">
+                    {selectedInvoiceOrder.user?.company_name || selectedInvoiceOrder.shipping_address?.company}
                   </div>
-                  <div className="text-slate-800">
-                    <div>{selectedInvoiceOrder.shipping_address?.address_line_1}</div>
-                    {selectedInvoiceOrder.shipping_address?.address_line_2 && (
-                      <div>{selectedInvoiceOrder.shipping_address.address_line_2}</div>
-                    )}
-                    <div>
-                      {selectedInvoiceOrder.shipping_address?.city}, {selectedInvoiceOrder.shipping_address?.state}{' '}
-                      {selectedInvoiceOrder.shipping_address?.postcode}
-                    </div>
-                    <div>{selectedInvoiceOrder.shipping_address?.country || 'Australia'}</div>
+                )}
+                {selectedInvoiceOrder.user?.abn && (
+                  <div className="mt-1 font-mono font-semibold text-slate-900">
+                    Buyer ABN: {selectedInvoiceOrder.user.abn}
                   </div>
+                )}
+                <div className="mt-1 text-slate-600">
+                  <div>{selectedInvoiceOrder.user?.email || selectedInvoiceOrder.shipping_address?.email}</div>
+                  {selectedInvoiceOrder.user?.phone && <div>Ph: {selectedInvoiceOrder.user.phone}</div>}
                 </div>
               </div>
 
@@ -958,10 +1094,14 @@ export default function AdminInvoicesPage() {
                       <div className="grid grid-cols-2 gap-2 text-slate-700">
                         <div>
                           <span className="text-slate-500">Gateway:</span>{' '}
-                          <strong className="capitalize">{selectedInvoiceOrder.payments[0].gateway}</strong>
+                          <strong className="capitalize">
+                            {selectedInvoiceOrder.payments[0].gateway === 'cash'
+                              ? 'Cash (In-Store Payment)'
+                              : selectedInvoiceOrder.payments[0].gateway}
+                          </strong>
                         </div>
                         <div>
-                          <span className="text-slate-500">Txn ID:</span>{' '}
+                          <span className="text-slate-500">Txn / Ref:</span>{' '}
                           <strong className="font-mono">{selectedInvoiceOrder.payments[0].transaction_id || 'N/A'}</strong>
                         </div>
                         {selectedInvoiceOrder.payments[0].payload?.card_masked && (
@@ -986,6 +1126,12 @@ export default function AdminInvoicesPage() {
                           <span className="text-slate-500">Paid Date:</span>{' '}
                           <strong>{formatDateTimeAU(selectedInvoiceOrder.payments[0].created_at)}</strong>
                         </div>
+                        {selectedInvoiceOrder.payments[0].payload?.notes && (
+                          <div className="col-span-2 pt-1 border-t border-emerald-200/60">
+                            <span className="text-slate-500">Staff Notes:</span>{' '}
+                            <span className="font-medium text-slate-800">{selectedInvoiceOrder.payments[0].payload.notes}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1159,6 +1305,234 @@ export default function AdminInvoicesPage() {
                 Close Audit
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: Record / Update Cash Payment Status ───────────────────────── */}
+      {paymentModalOrder && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isSubmittingPayment) setPaymentModalOrder(null);
+          }}
+        >
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 text-slate-100 rounded-2xl shadow-2xl overflow-hidden p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                  <Banknote className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-white">Record Payment / Update Status</h3>
+                  <p className="text-xs text-slate-400">
+                    Order <span className="font-mono text-slate-300 font-semibold">{paymentModalOrder.order_number}</span> •{' '}
+                    {paymentModalOrder.invoice?.invoice_number || `INV-${paymentModalOrder.order_number}`}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPaymentModalOrder(null)}
+                disabled={isSubmittingPayment}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Customer & Total Snapshot */}
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-xs text-slate-400">Customer</span>
+                <div className="font-medium text-slate-200 text-sm">
+                  {paymentModalOrder.user?.name || paymentModalOrder.shipping_address?.name || 'Guest Customer'}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {paymentModalOrder.user?.email || paymentModalOrder.shipping_address?.email || '—'}
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-slate-400">Total Invoice (Inc-GST)</span>
+                <div className="font-mono font-bold text-lg text-emerald-400">
+                  {formatAUD(paymentModalOrder.total_inc_gst)}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Status: <span className="capitalize font-medium text-slate-300">{paymentModalOrder.payment_status}</span>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleSavePayment} className="space-y-4">
+              {/* Payment Status Switch */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                  Target Payment Status
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRecordingStatusTarget('paid')}
+                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-bold border transition ${
+                      recordingStatusTarget === 'paid'
+                        ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/50 shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>Mark as Paid</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRecordingStatusTarget('unpaid')}
+                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-bold border transition ${
+                      recordingStatusTarget === 'unpaid'
+                        ? 'bg-amber-600/20 text-amber-300 border-amber-500/50 shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Clock className="w-4 h-4 text-amber-400" />
+                    <span>Revert to Unpaid</span>
+                  </button>
+                </div>
+              </div>
+
+              {recordingStatusTarget === 'paid' ? (
+                <>
+                  {/* Payment Method */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      Payment Method
+                    </label>
+                    <select
+                      value={recordingPaymentMethod}
+                      onChange={(e) => setRecordingPaymentMethod(e.target.value as any)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-sky-500"
+                    >
+                      <option value="cash">💵 Cash (In-Store / Counter)</option>
+                      <option value="bank_transfer">🏦 Direct Bank Transfer / EFT</option>
+                      <option value="pos">💳 EFTPOS / Counter POS Terminal</option>
+                      <option value="cheque">📄 Cheque</option>
+                    </select>
+                  </div>
+
+                  {/* Amount & Date */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                        Amount Paid (AUD)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={recordingPaymentAmount}
+                          onChange={(e) => setRecordingPaymentAmount(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-7 pr-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-sky-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                        Payment Date
+                      </label>
+                      <input
+                        type="date"
+                        value={recordingPaymentDate}
+                        onChange={(e) => setRecordingPaymentDate(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-sky-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Reference / Receipt # */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                      Receipt / Reference Number
+                    </label>
+                    <input
+                      type="text"
+                      value={recordingPaymentRef}
+                      onChange={(e) => setRecordingPaymentRef(e.target.value)}
+                      placeholder="e.g. CASH-PO-12345 or Cash Register Docket #"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-300 space-y-1">
+                  <div className="font-semibold flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 text-amber-400" />
+                    <span>Confirm Status Reversal</span>
+                  </div>
+                  <p className="text-amber-200/80">
+                    Setting status to Unpaid will flag the order and its tax invoice as pending payment.
+                  </p>
+                </div>
+              )}
+
+              {/* Staff Notes */}
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Internal Staff Notes (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={recordingPaymentNotes}
+                  onChange={(e) => setRecordingPaymentNotes(e.target.value)}
+                  placeholder="e.g. Paid in cash at Adelaide showroom counter to staff member."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              {/* Alerts */}
+              {paymentError && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{paymentError}</span>
+                </div>
+              )}
+
+              {paymentSuccess && (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{paymentSuccess}</span>
+                </div>
+              )}
+
+              {/* Form Buttons */}
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setPaymentModalOrder(null)}
+                  disabled={isSubmittingPayment}
+                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-medium text-slate-300 hover:text-white transition disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingPayment}
+                  className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-bold text-white transition shadow-sm disabled:opacity-50"
+                >
+                  {isSubmittingPayment ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Saving…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Save & Mark {recordingStatusTarget === 'paid' ? 'Paid' : 'Unpaid'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

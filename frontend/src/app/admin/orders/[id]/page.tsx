@@ -755,7 +755,7 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
                       </span>
                     </div>
 
-                    {order.status === 'delivered' || order.status === 'collected' || order.status === 'completed' ? (
+                    {taState.isCompleted ? (
                       <div className="text-[11px] text-emerald-400/90 pt-1 border-t border-slate-900 flex items-center gap-1.5">
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         <span>Order is completed &mdash; turnaround clock concluded.</span>

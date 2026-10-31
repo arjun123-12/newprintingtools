@@ -754,6 +754,10 @@ Route::middleware(['auth:sanctum', 'admin.access'])
                 App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
                 'update',
             ]);
+            Route::post('/invoices/{id}/record-payment', [
+                App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+                'recordPayment',
+            ]);
             Route::delete('/invoices/{id}', [
                 App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
                 'destroy',

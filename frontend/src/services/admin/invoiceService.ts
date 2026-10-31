@@ -188,6 +188,24 @@ export const invoiceService = {
     return response.data;
   },
 
+  async recordPayment(
+    id: string,
+    payload: {
+      payment_method?: string;
+      payment_status?: 'paid' | 'unpaid';
+      amount?: number;
+      reference?: string;
+      notes?: string;
+      paid_at?: string;
+    }
+  ): Promise<{ success: boolean; data: TaxInvoiceOrder; message?: string }> {
+    const response = await apiClient.post<{ success: boolean; data: TaxInvoiceOrder; message?: string }>(
+      `/admin/invoices/${id}/record-payment`,
+      payload
+    );
+    return response.data;
+  },
+
   async deleteInvoice(id: string): Promise<{ success: boolean; message: string }> {
     const response = await apiClient.delete<{ success: boolean; message: string }>(
       API_ENDPOINTS.ADMIN_INVOICE_DETAIL(id)

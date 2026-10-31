@@ -7,6 +7,7 @@ use App\Enums\PaymentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\OrderActivity;
 use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\Product;
@@ -622,6 +623,124 @@ class AdminInvoiceController extends Controller
                 'message' => 'Invoice updated successfully',
                 'data' => $order,
                 'store_info' => $this->storeInfo,
+            ]);
+        });
+    }
+
+    /**
+     * Record a manual payment (cash, bank transfer, pos, etc.) and update payment status to paid.
+     */
+    public function recordPayment(Request $request, string $id): JsonResponse
+    {
+        $order = Order::with(['invoice', 'items', 'payments'])->where('id', $id)->first();
+        if (!$order) {
+            $invoice = Invoice::where('id', $id)->orWhere('invoice_number', $id)->first();
+            if ($invoice) {
+                $order = Order::with(['invoice', 'items', 'payments'])->find($invoice->order_id);
+            }
+        }
+
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invoice / Order not found',
+            ], 404);
+        }
+
+        $validated = $request->validate([
+            'payment_status' => 'nullable|string|in:paid,unpaid',
+            'payment_method' => 'nullable|string|in:cash,bank_transfer,direct_deposit,pos,cheque,other',
+            'amount' => 'nullable|numeric|min:0.01',
+            'reference' => 'nullable|string|max:100',
+            'notes' => 'nullable|string|max:500',
+            'paid_at' => 'nullable|date',
+        ]);
+
+        $admin = $request->user();
+        $targetStatus = $validated['payment_status'] ?? 'paid';
+        $method = $validated['payment_method'] ?? 'cash';
+        $amount = (float) ($validated['amount'] ?? ($order->total_inc_gst ?: $order->total));
+        $reference = trim($validated['reference'] ?? '');
+        $notes = trim($validated['notes'] ?? '');
+        $paidAt = !empty($validated['paid_at']) ? \Carbon\Carbon::parse($validated['paid_at']) : now();
+
+        return DB::transaction(function () use ($order, $targetStatus, $method, $amount, $reference, $notes, $paidAt, $admin) {
+            if ($targetStatus === 'unpaid') {
+                $order->update([
+                    'payment_status' => PaymentStatus::UNPAID,
+                ]);
+
+                if ($order->invoice) {
+                    $order->invoice->update([
+                        'status' => 'issued',
+                    ]);
+                }
+
+                OrderActivity::record(
+                    $order->id,
+                    'payment_status_reverted',
+                    "Payment status reverted to Unpaid" . ($admin ? " by {$admin->name}" : ""),
+                    $admin ? 'staff' : 'system',
+                    $admin,
+                    ['notes' => $notes]
+                );
+            } else {
+                $txnRef = !empty($reference) ? $reference : (strtoupper($method) . '-' . date('Ymd') . '-' . strtoupper(Str::random(6)));
+
+                Payment::create([
+                    'order_id' => $order->id,
+                    'gateway' => $method,
+                    'transaction_id' => $txnRef,
+                    'amount' => $amount,
+                    'currency' => 'AUD',
+                    'status' => 'succeeded',
+                    'payload' => [
+                        'method' => $method,
+                        'receipt_number' => $txnRef,
+                        'notes' => $notes ?: ("Manual " . ucfirst($method) . " payment recorded by staff"),
+                        'recorded_by' => $admin ? $admin->name : 'Admin',
+                        'recorded_at' => $paidAt->toIso8601String(),
+                    ],
+                    'created_at' => $paidAt,
+                ]);
+
+                $orderUpdate = [
+                    'payment_status' => PaymentStatus::PAID,
+                ];
+
+                if (in_array($order->status, [OrderStatus::PENDING_PAYMENT, OrderStatus::DRAFT])) {
+                    $orderUpdate['status'] = OrderStatus::PROCESSING;
+                }
+
+                $order->update($orderUpdate);
+
+                if ($order->invoice) {
+                    $order->invoice->update([
+                        'status' => 'paid',
+                    ]);
+                }
+
+                OrderActivity::record(
+                    $order->id,
+                    'payment_recorded',
+                    "Payment of $" . number_format($amount, 2) . " AUD recorded via " . ucfirst($method) . ($admin ? " by {$admin->name}" : "") . ($txnRef ? " (Ref: {$txnRef})" : ""),
+                    $admin ? 'staff' : 'system',
+                    $admin,
+                    [
+                        'gateway' => $method,
+                        'amount' => $amount,
+                        'reference' => $txnRef,
+                        'notes' => $notes,
+                    ]
+                );
+            }
+
+            $order->load(['user', 'payments' => function ($q) { $q->latest(); }, 'items.product', 'invoice']);
+
+            return response()->json([
+                'success' => true,
+                'message' => $targetStatus === 'paid' ? 'Cash payment recorded and invoice marked as paid.' : 'Payment status updated to unpaid.',
+                'data' => $order,
             ]);
         });
     }
