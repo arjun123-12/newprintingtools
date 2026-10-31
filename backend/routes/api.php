@@ -828,6 +828,14 @@ Route::middleware(['auth:sanctum', 'admin.access'])
             Route::post('/quotes/{id}/resend', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminResend']);
             Route::get('/enquiries/{id}/quotes', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminIndex']);
             Route::post('/enquiries/{id}/quotes', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminStore']);
+            Route::get('/enquiries/notification-count', [
+                App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+                'getNotificationCount',
+            ]);
+            Route::post('/enquiries/mark-all-read', [
+                App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
+                'markAllAsRead',
+            ]);
             Route::get('/enquiries', [
                 App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
                 'index',

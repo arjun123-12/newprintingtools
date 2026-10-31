@@ -185,6 +185,9 @@ export default function AdminEnquiryDetailPage({ params }: PageProps) {
         if (data.messages) {
           setMessages(data.messages);
         }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('enquiries_read', { detail: { latest_id: data.id } }));
+        }
       } else {
         throw new Error(response.data?.message || 'Enquiry not found.');
       }

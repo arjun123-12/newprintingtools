@@ -187,6 +187,14 @@ export default function AdminEnquiriesPage() {
         if (response.data.stats) {
           setStats(response.data.stats);
         }
+        if (response.data.data && response.data.data.length > 0) {
+          const latestId = response.data.data[0].id;
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('admin_last_seen_enquiry_id', String(latestId));
+            localStorage.setItem('admin_last_seen_enquiry_time', new Date().toISOString());
+            window.dispatchEvent(new CustomEvent('enquiries_read', { detail: { latest_id: latestId } }));
+          }
+        }
       }
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Failed to load customer enquiries.');

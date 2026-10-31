@@ -769,5 +769,78 @@ class CustomerEnquiryController extends Controller
             ],
         ]);
     }
+
+    /**
+     * Admin: Get notification count of new / unread customer enquiries.
+     */
+    public function getNotificationCount(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        if (!$user || !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized.',
+            ], 403);
+        }
+
+        $afterId = $request->query('after_id');
+        $since = $request->query('since');
+
+        $latestEnquiry = CustomerEnquiry::latest('id')->first(['id', 'created_at']);
+
+        // Total count of enquiries with status 'new'
+        $totalNew = CustomerEnquiry::where('status', CustomerEnquiry::STATUS_NEW)->count();
+
+        // Count of unread customer messages across all enquiries
+        $unreadMessagesCount = CustomerEnquiryMessage::where('sender_type', CustomerEnquiryMessage::SENDER_CUSTOMER)
+            ->where('is_read_by_admin', false)
+            ->count();
+
+        // If after_id or since is provided, calculate how many new enquiries arrived after that point
+        if ($afterId !== null && $afterId !== '') {
+            $count = CustomerEnquiry::where('id', '>', (int) $afterId)->count();
+        } elseif ($since !== null && $since !== '') {
+            try {
+                $sinceDate = \Carbon\Carbon::parse($since);
+                $count = CustomerEnquiry::where('created_at', '>', $sinceDate)->count();
+            } catch (\Throwable $e) {
+                $count = $totalNew;
+            }
+        } else {
+            $count = $totalNew;
+        }
+
+        return response()->json([
+            'success' => true,
+            'count' => $count,
+            'total_new' => $totalNew,
+            'unread_messages' => $unreadMessagesCount,
+            'latest_id' => $latestEnquiry ? $latestEnquiry->id : 0,
+            'latest_created_at' => $latestEnquiry ? $latestEnquiry->created_at->toIso8601String() : null,
+        ]);
+    }
+
+    /**
+     * Admin: Mark all customer enquiry messages as read.
+     */
+    public function markAllAsRead(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        if (!$user || !$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized.',
+            ], 403);
+        }
+
+        CustomerEnquiryMessage::where('sender_type', CustomerEnquiryMessage::SENDER_CUSTOMER)
+            ->where('is_read_by_admin', false)
+            ->update(['is_read_by_admin' => true]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'All enquiry messages marked as read.',
+        ]);
+    }
 }
 

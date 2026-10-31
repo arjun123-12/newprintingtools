@@ -1,12 +1,13 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { removeAuthToken } from '@/utils/storageHelper';
 import { canAccessSection, isSuperAdmin } from '@/utils/adminPermissions';
+import { apiClient } from '@/services/api/client';
 
 interface NavItem {
   label: string;
@@ -186,6 +187,87 @@ export default function AdminSidebar() {
   const router = useRouter();
   const { user, logout } = useAuth();
 
+  const [enquiryNotificationCount, setEnquiryNotificationCount] = useState<number>(0);
+  const latestEnquiryIdRef = useRef<number>(0);
+
+  // Check and update enquiry notifications
+  const fetchEnquiryNotificationCount = useCallback(async () => {
+    // Only check if current admin has permission to access enquiries
+    if (!user || (!isSuperAdmin(user) && !canAccessSection(user, 'enquiries'))) {
+      return;
+    }
+
+    // If currently viewing Customer Enquiries, clear badge immediately
+    if (pathname.startsWith('/admin/enquiries')) {
+      setEnquiryNotificationCount(0);
+      return;
+    }
+
+    try {
+      const storedLastSeenId = typeof window !== 'undefined'
+        ? localStorage.getItem('admin_last_seen_enquiry_id')
+        : null;
+
+      const params: Record<string, string> = {};
+      if (storedLastSeenId) {
+        params.after_id = storedLastSeenId;
+      }
+
+      const res = await apiClient.get('/admin/enquiries/notification-count', { params });
+      if (res.data?.success) {
+        const count = Number(res.data.count) || 0;
+        setEnquiryNotificationCount(count);
+        if (res.data.latest_id) {
+          latestEnquiryIdRef.current = res.data.latest_id;
+        }
+      }
+    } catch {
+      // ignore network errors silently in background
+    }
+  }, [user, pathname]);
+
+  // When admin navigates to /admin/enquiries or /admin/enquiries/[id], clear notification
+  useEffect(() => {
+    if (pathname.startsWith('/admin/enquiries')) {
+      setEnquiryNotificationCount(0);
+      if (typeof window !== 'undefined') {
+        if (latestEnquiryIdRef.current > 0) {
+          localStorage.setItem('admin_last_seen_enquiry_id', String(latestEnquiryIdRef.current));
+        }
+        localStorage.setItem('admin_last_seen_enquiry_time', new Date().toISOString());
+      }
+    }
+  }, [pathname]);
+
+  // Initial fetch and polling every 25 seconds
+  useEffect(() => {
+    fetchEnquiryNotificationCount();
+
+    const interval = setInterval(fetchEnquiryNotificationCount, 25000);
+
+    // Listen for custom 'enquiries_read' event when enquiry page or detail marks items as read
+    const handleEnquiriesRead = (e: any) => {
+      setEnquiryNotificationCount(0);
+      if (e?.detail?.latest_id && typeof window !== 'undefined') {
+        latestEnquiryIdRef.current = e.detail.latest_id;
+        localStorage.setItem('admin_last_seen_enquiry_id', String(e.detail.latest_id));
+      }
+    };
+    window.addEventListener('enquiries_read', handleEnquiriesRead);
+
+    // Also refresh on window focus
+    const handleFocus = () => {
+      fetchEnquiryNotificationCount();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('enquiries_read', handleEnquiriesRead);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [fetchEnquiryNotificationCount]);
+
   async function handleLogout() {
     try {
       await logout();
@@ -267,14 +349,20 @@ export default function AdminSidebar() {
                 {item.icon}
               </span>
               <span>{item.label}</span>
-              {item.permissionKey === 'super_admin' && (
+              {item.href === '/admin/enquiries' && enquiryNotificationCount > 0 ? (
+                <span
+                  className="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full bg-rose-500 text-white shadow-xs animate-pulse"
+                  title={`${enquiryNotificationCount} new customer ${enquiryNotificationCount === 1 ? 'enquiry' : 'enquiries'}`}
+                >
+                  {enquiryNotificationCount > 99 ? '99+' : enquiryNotificationCount}
+                </span>
+              ) : item.permissionKey === 'super_admin' ? (
                 <span className="ml-auto text-[9px] font-bold text-amber-700 bg-amber-50 px-1 py-0.5 rounded border border-amber-200">
                   ADMIN
                 </span>
-              )}
-              {isActive && item.permissionKey !== 'super_admin' && (
+              ) : isActive ? (
                 <span className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-600" />
-              )}
+              ) : null}
             </Link>
           );
         })}
