@@ -34,6 +34,7 @@ import {
   Bot,
 } from 'lucide-react';
 import { apiClient } from '@/services/api/client';
+import QuoteManager from './QuoteManager';
 
 interface EnquiryMessage {
   id: number;
@@ -1018,6 +1019,8 @@ export default function AdminEnquiryDetailPage({ params }: PageProps) {
               </div>
             )}
           </div>
+
+          <QuoteManager enquiry={enquiry} />
 
           {/* Card 2: Internal Admin Notes */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">

@@ -304,6 +304,13 @@ Route::post('/enquiries', [
     'store',
 ])->middleware('throttle:30,1');
 
+// Customer quote review, acceptance and artwork upload (unguessable token links)
+Route::prefix('quotes/{token}')->where(['token' => '[A-Za-z0-9]{64}'])->group(function () {
+    Route::get('/', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'show'])->middleware('throttle:60,1');
+    Route::post('/respond', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'respond'])->middleware('throttle:20,1');
+    Route::post('/artwork', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'uploadArtwork'])->middleware('throttle:10,1');
+});
+
 // Secure customer conversation thread (token-based unguessable access)
 Route::prefix('enquiries/conversation/{token}')->group(function () {
     Route::get('/', [
@@ -816,6 +823,11 @@ Route::middleware(['auth:sanctum', 'admin.access'])
 
         // Customer Enquiries Management (permission: enquiries)
         Route::middleware('permission:enquiries')->group(function () {
+            Route::get('/quotes', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminQuotes']);
+            Route::post('/quotes', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminCreate']);
+            Route::post('/quotes/{id}/resend', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminResend']);
+            Route::get('/enquiries/{id}/quotes', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminIndex']);
+            Route::post('/enquiries/{id}/quotes', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminStore']);
             Route::get('/enquiries', [
                 App\Http\Controllers\Api\V1\Enquiries\CustomerEnquiryController::class,
                 'index',
@@ -982,4 +994,3 @@ Route::middleware([
             'update',
         ])->whereNumber('id');
     });
-

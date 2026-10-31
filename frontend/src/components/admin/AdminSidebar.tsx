@@ -47,6 +47,16 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    label: 'Quotes',
+    href: '/admin/quotes',
+    permissionKey: 'enquiries',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h8m-8 4h8m-8 4h5m-8 5h14a2 2 0 002-2V6a2 2 0 00-2-2H7L3 8v10a2 2 0 002 2z" />
+      </svg>
+    ),
+  },
+  {
     label: 'Products',
     href: '/admin/products',
     permissionKey: 'products',
