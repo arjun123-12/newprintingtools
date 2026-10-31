@@ -29,8 +29,19 @@ class CustomerQuoteService
         $subtotal = 0.0;
         foreach ($data['items'] as $item) {
             $quantity = max(1, (int) $item['quantity']);
-            $unitPrice = round((float) $item['unit_price_ex_gst'], 4);
-            $lineEx = round($quantity * $unitPrice, 2);
+            if (isset($item['unit_price_ex_gst']) && $item['unit_price_ex_gst'] !== null && $item['unit_price_ex_gst'] !== '') {
+                $unitPrice = round((float) $item['unit_price_ex_gst'], 4);
+                $lineEx = round($quantity * $unitPrice, 2);
+            } elseif (isset($item['price']) && $item['price'] !== null && $item['price'] !== '') {
+                $lineEx = round((float) $item['price'], 2);
+                $unitPrice = $quantity > 0 ? round($lineEx / $quantity, 4) : $lineEx;
+            } elseif (isset($item['line_total_ex_gst']) && $item['line_total_ex_gst'] !== null && $item['line_total_ex_gst'] !== '') {
+                $lineEx = round((float) $item['line_total_ex_gst'], 2);
+                $unitPrice = $quantity > 0 ? round($lineEx / $quantity, 4) : $lineEx;
+            } else {
+                $unitPrice = 0.0;
+                $lineEx = 0.0;
+            }
             $product = !empty($item['product_id']) ? Product::find($item['product_id']) : null;
             $options = $item['options'] ?? [];
             if (!empty($item['specifications'])) $options['specifications'] = trim($item['specifications']);
@@ -47,20 +58,42 @@ class CustomerQuoteService
             $subtotal += $lineEx;
         }
 
-        $shippingFee = round(max(0, (float) ($data['shipping_fee'] ?? 0)), 2);
+        $deliveryMethod = $data['delivery_method'] ?? 'Standard delivery (Free)';
+        if (isset($data['shipping_fee']) && $data['shipping_fee'] !== null && $data['shipping_fee'] !== '') {
+            $shippingFee = round(max(0, (float) $data['shipping_fee']), 2);
+        } else {
+            $methodLower = strtolower($deliveryMethod);
+            if (str_contains($methodLower, 'express')) {
+                $shippingFee = 15.00;
+            } else {
+                $shippingFee = 0.00;
+            }
+        }
+
         $gst = round(($subtotal + $shippingFee) * 0.10, 2);
         $token = Str::random(64);
+
+        $recipientName = trim($data['recipient_name'] ?? $data['customer_name'] ?? $enquiry?->name ?? '');
+        if (!empty($data['company_name']) && !str_contains($recipientName, $data['company_name'])) {
+            $recipientName = $recipientName ? "{$recipientName} ({$data['company_name']})" : $data['company_name'];
+        }
+
+        $terms = !empty($data['terms']) ? $data['terms'] : ($data['customer_notes'] ?? null);
+        if (!empty($data['customer_phone']) && !str_contains($terms ?? '', $data['customer_phone'])) {
+            $terms = ($terms ? $terms . "\n" : '') . 'Phone: ' . $data['customer_phone'];
+        }
+
         $quote = CustomerQuote::create([
             'customer_enquiry_id' => $enquiry?->id,
             'created_by' => $staff->id,
-            'recipient_name' => trim($data['recipient_name'] ?? $enquiry?->name ?? ''),
-            'recipient_email' => strtolower(trim($data['recipient_email'])),
+            'recipient_name' => $recipientName ?: null,
+            'recipient_email' => strtolower(trim($data['recipient_email'] ?? $data['customer_email'] ?? '')),
             'quote_number' => $this->generateQuoteNumber(),
             'token_hash' => hash('sha256', $token),
             'items' => $items,
-            'delivery_method' => $data['delivery_method'] ?? 'Standard delivery',
+            'delivery_method' => $deliveryMethod,
             'delivery_address' => $data['delivery_address'] ?? $enquiry?->delivery_location,
-            'terms' => $data['terms'] ?? null,
+            'terms' => $terms,
             'currency' => 'AUD',
             'subtotal_ex_gst' => round($subtotal, 2),
             'shipping_fee_inc_gst' => $shippingFee,

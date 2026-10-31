@@ -568,7 +568,7 @@ export default function AdminArtworkQueuePage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-white tracking-tight">Artwork Preflight & Review Queue</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Artwork Preflight & Review Queue</h1>
             {isDesignerView && (
               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-sky-500/10 text-sky-400 border border-sky-500/20">
                 Designer Mode (Assigned Submissions)
@@ -841,13 +841,12 @@ export default function AdminArtworkQueuePage() {
                           <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
                             {/* DPI Pill */}
                             {item.dpi ? (
-                              <span className={`px-1.5 py-0.5 rounded font-mono font-medium ${
-                                item.dpi >= 300
+                              <span className={`px-1.5 py-0.5 rounded font-mono font-medium ${item.dpi >= 300
                                   ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                                   : item.dpi >= 150
-                                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                              }`}>
+                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                    : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                }`}>
                                 {item.dpi} DPI
                               </span>
                             ) : (
@@ -1195,15 +1194,14 @@ export default function AdminArtworkQueuePage() {
                         {livePreflight.checks.map((c, idx) => (
                           <div
                             key={idx}
-                            className={`p-2.5 rounded-lg border text-xs flex items-start gap-2.5 ${
-                              c.status === 'passed'
+                            className={`p-2.5 rounded-lg border text-xs flex items-start gap-2.5 ${c.status === 'passed'
                                 ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-200'
                                 : c.status === 'warning'
-                                ? 'bg-amber-500/5 border-amber-500/20 text-amber-200'
-                                : c.status === 'failed'
-                                ? 'bg-rose-500/5 border-rose-500/20 text-rose-200'
-                                : 'bg-slate-900 border-slate-800 text-slate-300'
-                            }`}
+                                  ? 'bg-amber-500/5 border-amber-500/20 text-amber-200'
+                                  : c.status === 'failed'
+                                    ? 'bg-rose-500/5 border-rose-500/20 text-rose-200'
+                                    : 'bg-slate-900 border-slate-800 text-slate-300'
+                              }`}
                           >
                             <span className="shrink-0 mt-0.5">
                               {c.status === 'passed' && (
@@ -1381,11 +1379,10 @@ export default function AdminArtworkQueuePage() {
                       selectedArtwork.versions.map((ver) => (
                         <div
                           key={ver.id}
-                          className={`p-2.5 rounded-lg border text-xs flex items-center justify-between ${
-                            ver.version_number === selectedArtwork.current_version
+                          className={`p-2.5 rounded-lg border text-xs flex items-center justify-between ${ver.version_number === selectedArtwork.current_version
                               ? 'bg-sky-500/5 border-sky-500/30'
                               : 'bg-slate-900 border-slate-800'
-                          }`}
+                            }`}
                         >
                           <div>
                             <div className="flex items-center gap-2">

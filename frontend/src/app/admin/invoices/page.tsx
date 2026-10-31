@@ -355,7 +355,7 @@ export default function AdminInvoicesPage() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-bold text-white tracking-tight">Tax Invoices (AUD)</h1>
+                <h1 className="text-2xl font-bold tracking-tight">Tax Invoices (AUD)</h1>
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   <ShieldCheck className="w-3.5 h-3.5" /> ATO Compliant
                 </span>
@@ -413,7 +413,7 @@ export default function AdminInvoicesPage() {
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-bold text-white tracking-tight">
+            <div className="text-2xl font-bold tracking-tight">
               {stats ? formatAUD(stats.total_revenue_inc_gst) : '$0.00 AUD'}
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-xs text-slate-400">
@@ -435,7 +435,7 @@ export default function AdminInvoicesPage() {
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-bold text-white tracking-tight">
+            <div className="text-2xl font-bold tracking-tight">
               {stats ? formatAUD(stats.total_subtotal_ex_gst) : '$0.00 AUD'}
             </div>
             <div className="flex items-center gap-1.5 mt-1 text-xs text-slate-400">
@@ -479,7 +479,7 @@ export default function AdminInvoicesPage() {
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-bold text-white tracking-tight">
+            <div className="text-2xl font-bold tracking-tight">
               {stats ? stats.successful_payments_count : 0}{' '}
               <span className="text-sm font-normal text-slate-400">
                 / {stats ? stats.total_orders_count : 0} orders
@@ -711,13 +711,12 @@ export default function AdminInvoicesPage() {
                             <div className="flex items-center gap-2">
                               {/* Gateway Badge */}
                               <span
-                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${
-                                  primaryPayment.gateway === 'cash'
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${primaryPayment.gateway === 'cash'
                                     ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                                     : primaryPayment.gateway === 'bpoint'
-                                    ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20'
-                                    : 'bg-slate-800 text-slate-300 border border-slate-700'
-                                }`}
+                                      ? 'bg-indigo-500/10 text-indigo-300 border border-indigo-500/20'
+                                      : 'bg-slate-800 text-slate-300 border border-slate-700'
+                                  }`}
                               >
                                 {primaryPayment.gateway === 'cash' ? (
                                   <Banknote className="w-3 h-3 text-emerald-400" />
@@ -1373,11 +1372,10 @@ export default function AdminInvoicesPage() {
                   <button
                     type="button"
                     onClick={() => setRecordingStatusTarget('paid')}
-                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-bold border transition ${
-                      recordingStatusTarget === 'paid'
+                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-bold border transition ${recordingStatusTarget === 'paid'
                         ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/50 shadow-sm'
                         : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
+                      }`}
                   >
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                     <span>Mark as Paid</span>
@@ -1385,11 +1383,10 @@ export default function AdminInvoicesPage() {
                   <button
                     type="button"
                     onClick={() => setRecordingStatusTarget('unpaid')}
-                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-bold border transition ${
-                      recordingStatusTarget === 'unpaid'
+                    className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-xs font-bold border transition ${recordingStatusTarget === 'unpaid'
                         ? 'bg-amber-600/20 text-amber-300 border-amber-500/50 shadow-sm'
                         : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
+                      }`}
                   >
                     <Clock className="w-4 h-4 text-amber-400" />
                     <span>Revert to Unpaid</span>

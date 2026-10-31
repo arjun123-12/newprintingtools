@@ -209,8 +209,8 @@ export default function AdminShippingPage() {
       {toastMessage && (
         <div
           className={`fixed top-5 right-5 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border text-sm animate-in fade-in slide-in-from-top-4 duration-200 ${toastMessage.type === 'success'
-              ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-200'
-              : 'bg-rose-950/90 border-rose-500/40 text-rose-200'
+            ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-200'
+            : 'bg-rose-950/90 border-rose-500/40 text-rose-200'
             }`}
         >
           {toastMessage.type === 'success' ? (
@@ -230,7 +230,7 @@ export default function AdminShippingPage() {
               <Truck className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2.5">
+              <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2.5">
                 CouriersPlease Shipping Panel
                 <span className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
                   {carrierConfig?.environment === 'sandbox' ? 'Sandbox Mode' : 'Production'}
@@ -401,8 +401,8 @@ export default function AdminShippingPage() {
           <button
             onClick={() => setFilterTab('all')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${filterTab === 'all'
-                ? 'bg-amber-500 text-slate-950 shadow-xs'
-                : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-amber-500 text-slate-950 shadow-xs'
+              : 'text-slate-400 hover:text-slate-200'
               }`}
           >
             All Orders ({stats.total})
@@ -410,15 +410,15 @@ export default function AdminShippingPage() {
           <button
             onClick={() => setFilterTab('ready_to_ship')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${filterTab === 'ready_to_ship'
-                ? 'bg-amber-500 text-slate-950 shadow-xs'
-                : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-amber-500 text-slate-950 shadow-xs'
+              : 'text-slate-400 hover:text-slate-200'
               }`}
           >
             <span>Ready to Ship</span>
             <span
               className={`px-1.5 py-0.2 rounded-full text-[10px] ${filterTab === 'ready_to_ship'
-                  ? 'bg-slate-950/20 text-slate-950'
-                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                ? 'bg-slate-950/20 text-slate-950'
+                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                 }`}
             >
               {stats.ready}
@@ -427,15 +427,15 @@ export default function AdminShippingPage() {
           <button
             onClick={() => setFilterTab('shipped')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${filterTab === 'shipped'
-                ? 'bg-amber-500 text-slate-950 shadow-xs'
-                : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-amber-500 text-slate-950 shadow-xs'
+              : 'text-slate-400 hover:text-slate-200'
               }`}
           >
             <span>Dispatched</span>
             <span
               className={`px-1.5 py-0.2 rounded-full text-[10px] ${filterTab === 'shipped'
-                  ? 'bg-slate-950/20 text-slate-950'
-                  : 'bg-slate-800 text-slate-300'
+                ? 'bg-slate-950/20 text-slate-950'
+                : 'bg-slate-800 text-slate-300'
                 }`}
             >
               {stats.shipped}
@@ -544,8 +544,8 @@ export default function AdminShippingPage() {
                       <td className="py-3.5 px-4 align-top">
                         <span
                           className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${isPaid
-                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
                             }`}
                         >
                           {isPaid ? (

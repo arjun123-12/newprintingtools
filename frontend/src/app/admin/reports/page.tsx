@@ -245,7 +245,7 @@ export default function AdminReportsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-white tracking-tight">Analytics & Production Reports</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Analytics & Production Reports</h1>
             {reportData && !reportData.can_view_financials && (
               <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
                 Operational View (Financial Figures Masked)
@@ -299,11 +299,10 @@ export default function AdminReportsPage() {
               <button
                 key={p.val}
                 onClick={() => setPeriod(p.val)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  period === p.val
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${period === p.val
                     ? 'bg-sky-600 text-white shadow-md'
                     : 'bg-slate-950 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-                }`}
+                  }`}
               >
                 {p.label}
               </button>
@@ -555,22 +554,20 @@ export default function AdminReportsPage() {
                 {reportData.can_view_financials && (
                   <button
                     onClick={() => setChartMetric('revenue')}
-                    className={`px-3 py-1 rounded text-xs font-semibold transition ${
-                      chartMetric === 'revenue'
+                    className={`px-3 py-1 rounded text-xs font-semibold transition ${chartMetric === 'revenue'
                         ? 'bg-sky-600 text-white shadow'
                         : 'text-slate-400 hover:text-white'
-                    }`}
+                      }`}
                   >
                     Revenue ($ AUD)
                   </button>
                 )}
                 <button
                   onClick={() => setChartMetric('orders')}
-                  className={`px-3 py-1 rounded text-xs font-semibold transition ${
-                    chartMetric === 'orders'
+                  className={`px-3 py-1 rounded text-xs font-semibold transition ${chartMetric === 'orders'
                       ? 'bg-sky-600 text-white shadow'
                       : 'text-slate-400 hover:text-white'
-                  }`}
+                    }`}
                 >
                   Order Volume
                 </button>
