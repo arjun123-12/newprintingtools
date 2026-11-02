@@ -139,6 +139,29 @@ type ArtworkSaveStatus =
 // property changes results in one draft save rather than repeated requests.
 const AUTOSAVE_DELAY_MS = 2500;
 
+function createArtworkPayloadFingerprint(metadata: unknown, pages: unknown[]): string {
+  // Keep only a compact signature in memory; retaining a second full canvas JSON
+  // string is expensive for large banners and multi-page designs.
+  let hashA = 0x811c9dc5;
+  let hashB = 0x9e3779b9;
+  let totalLength = 0;
+  const parts = [JSON.stringify(metadata), ...pages.map((page) => JSON.stringify(page))];
+
+  for (const part of parts) {
+    const value = part || 'null';
+    totalLength += value.length;
+    for (let i = 0; i < value.length; i += 1) {
+      const code = value.charCodeAt(i);
+      hashA = Math.imul(hashA ^ code, 0x01000193);
+      hashB = Math.imul(hashB ^ code, 0x85ebca6b);
+    }
+    hashA = Math.imul(hashA ^ 0xff, 0x01000193);
+    hashB = Math.imul(hashB ^ 0xff, 0x85ebca6b);
+  }
+
+  return `${totalLength}:${hashA >>> 0}:${hashB >>> 0}`;
+}
+
 function extractTemplatePages(
   template: any,
   defaultBackgroundColor: string = '#ffffff',
@@ -327,6 +350,7 @@ export default function Designer({
   const scheduleAutosaveRef = useRef<() => void>(() => { });
   const saveInProgressRef = useRef<boolean>(false);
   const saveQueuedRef = useRef<boolean>(false);
+  const lastSavedPayloadFingerprintRef = useRef<string | null>(null);
   const metadataAutosaveReadyRef = useRef<boolean>(false);
   const canvasImageUploadCacheRef = useRef<Map<string, string>>(new Map());
 
@@ -1235,6 +1259,15 @@ export default function Designer({
         const updatedPages = await uploadBase64ImagesInPages(currentPages);
         const allPagesJson = updatedPages.map(p => p.canvasJson);
 
+        // CanvasManager also reports some UI-only changes (for example zoom or
+        // selection-adjacent updates). Avoid posting an identical artwork again.
+        const payloadFingerprint = createArtworkPayloadFingerprint({
+          name: currentName,
+          dimensions: currentDimensions,
+          document: currentDocument,
+          templateId: designTemplateIdRef.current,
+        }, allPagesJson);
+
         // Keep lightweight temporary recovery metadata in session storage (never heavy canvas JSON)
         designerService.saveDraftLocally(currentProductId || 'default', {
           version: '1.0',
@@ -1251,6 +1284,12 @@ export default function Designer({
           setSaveStatus('local-only');
           setSaveError(null);
           setLastSavedAt(new Date());
+          return;
+        }
+
+        if (payloadFingerprint === lastSavedPayloadFingerprintRef.current) {
+          setSaveStatus('saved');
+          setSaveError(null);
           return;
         }
 
@@ -1278,6 +1317,7 @@ export default function Designer({
           );
 
           artworkIdRef.current = savedArtwork.id;
+          lastSavedPayloadFingerprintRef.current = payloadFingerprint;
           setCurrentArtworkId(savedArtwork.id);
           designerService.rememberArtworkId(
             currentProductId,

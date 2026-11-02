@@ -3,6 +3,7 @@
 import React, { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import QRCode from 'qrcode';
 import { getStatusStyle, formatStatusLabel } from '@/utils/orderStatus';
 import {
   manualOrderService,
@@ -10,6 +11,7 @@ import {
 } from '@/services/admin/manualOrderService';
 import {
   ArrowLeft,
+  QrCode,
   Copy,
   Check,
   RefreshCw,
@@ -80,6 +82,8 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
   const [error, setError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showOrderQr, setShowOrderQr] = useState(false);
+  const [orderQrDataUrl, setOrderQrDataUrl] = useState<string | null>(null);
   const [showTurnaroundModal, setShowTurnaroundModal] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date>(() => new Date());
 
@@ -131,6 +135,34 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
       setCarrier(order.shipping_carrier || '');
       setTrackingNumber(order.tracking_number || '');
     }
+  }, [order]);
+
+  useEffect(() => {
+    if (!order || typeof window === 'undefined') return;
+    const orderAdminUrl = new URL(`/admin/orders/${encodeURIComponent(order.id)}?scan=1`, window.location.origin).toString();
+    let cancelled = false;
+    QRCode.toDataURL(orderAdminUrl, {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 320,
+      color: { dark: '#0f172a', light: '#ffffff' },
+    }).then((dataUrl) => {
+      if (!cancelled) setOrderQrDataUrl(dataUrl);
+    }).catch((qrError) => {
+      console.error('Could not generate order QR code:', qrError);
+      if (!cancelled) setOrderQrDataUrl(null);
+    });
+    return () => { cancelled = true; };
+  }, [order?.id]);
+
+  useEffect(() => {
+    if (!order || typeof window === 'undefined' || !new URLSearchParams(window.location.search).has('scan')) return;
+    const timer = window.setTimeout(() => {
+      const statusControl = document.getElementById('production-status-control');
+      statusControl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      (statusControl as HTMLSelectElement | null)?.focus({ preventScroll: true });
+    }, 250);
+    return () => window.clearTimeout(timer);
   }, [order]);
 
   const handleUpdateStatus = async () => {
@@ -372,6 +404,15 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowOrderQr(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium rounded-lg transition-colors"
+            title="Show and download this order's QR code"
+          >
+            <QrCode className="w-3.5 h-3.5 text-sky-400" />
+            <span>Order QR</span>
+          </button>
           {canAdvanceToProduction && (
             <button
               onClick={handleMoveToProduction}
@@ -402,6 +443,43 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
           </button>
         </div>
       </div>
+
+      {showOrderQr && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setShowOrderQr(false);
+        }}>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="order-qr-title"
+            className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-6 text-center shadow-2xl"
+          >
+            <div className="flex items-center justify-between">
+              <h2 id="order-qr-title" className="text-base font-semibold text-white">Order QR Code</h2>
+              <button type="button" onClick={() => setShowOrderQr(false)} className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white" aria-label="Close QR code">×</button>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">{order.order_number} · Scan to open this order's status page</p>
+            <div className="mx-auto my-5 flex min-h-64 w-64 items-center justify-center rounded-xl bg-white p-3">
+              {orderQrDataUrl ? (
+                // QR is generated locally and only encodes the authenticated admin order URL.
+                <img src={orderQrDataUrl} alt={`Admin order QR code for ${order.order_number}`} className="h-full w-full" />
+              ) : (
+                <span className="text-xs text-slate-500">Generating QR…</span>
+              )}
+            </div>
+            <p className="mb-4 text-[11px] leading-relaxed text-slate-400">Admin sign-in and order permissions are required. Scanning opens the status controls; it does not change the status automatically.</p>
+            {orderQrDataUrl && (
+              <a
+                href={orderQrDataUrl}
+                download={`${order.order_number}-order-qr.png`}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-500"
+              >
+                <Download className="h-3.5 w-3.5" /> Download QR
+              </a>
+            )}
+          </section>
+        </div>
+      )}
 
       {/* Alerts */}
       {error && (
@@ -823,7 +901,8 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
                 const sequenceOptions = getProductionStatusSequence(isPickup);
 
                 return (
-                  <select
+                <select
+                    id="production-status-control"
                     value={selectedStatus}
                     onChange={(e) => {
                       setSelectedStatus(e.target.value);

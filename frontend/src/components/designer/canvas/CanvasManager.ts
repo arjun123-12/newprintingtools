@@ -12636,27 +12636,6 @@ export class CanvasManager {
 
         this.canvas?.requestRenderAll();
         this.notifySelection();
-      } else if (
-        target &&
-        !Boolean(target.get('isLocked' as any)) &&
-        !Boolean((target as any).isLocked) &&
-        (Boolean(target.get('isFrame' as any)) ||
-          Boolean(target.get('isPhotoShapeGroup' as any)) ||
-          Boolean(target.get('isCustomFrame' as any)))
-      ) {
-        this.enterFrameCropMode(target);
-      } else if (
-        target &&
-        !Boolean(target.get('isLocked' as any)) &&
-        !Boolean((target as any).isLocked) &&
-        !this.isNonInteractiveObject(target) &&
-        !(target as any).isEditing
-      ) {
-        // Canva-style: Double-click any element or image to trigger crop
-        this.requestCrop(target);
-      } else if (!target && this.canvas?.backgroundImage) {
-        // Canva-style: Double-click empty canvas background to detach & edit background
-        this.convertBackgroundToLayer();
       }
     });
 
