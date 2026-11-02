@@ -825,6 +825,10 @@ Route::middleware(['auth:sanctum', 'admin.access'])
         Route::middleware('permission:enquiries')->group(function () {
             Route::get('/quotes', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminQuotes']);
             Route::post('/quotes', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminCreate']);
+            Route::get('/quotes/{id}', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminShow']);
+            Route::put('/quotes/{id}', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminUpdate']);
+            Route::patch('/quotes/{id}/status', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminUpdateStatus']);
+            Route::delete('/quotes/{id}', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminDestroy']);
             Route::post('/quotes/{id}/resend', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminResend']);
             Route::get('/enquiries/{id}/quotes', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminIndex']);
             Route::post('/enquiries/{id}/quotes', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'adminStore']);

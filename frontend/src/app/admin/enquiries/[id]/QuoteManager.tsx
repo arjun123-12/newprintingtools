@@ -26,6 +26,20 @@ import {
   RefreshCw,
   Save,
   Check,
+  Search,
+  Filter,
+  X,
+  Mail,
+  Phone,
+  Building2,
+  MapPin,
+  Calendar,
+  DollarSign,
+  ArrowUpRight,
+  Eye,
+  ChevronUp,
+  ReceiptText,
+  User,
 } from 'lucide-react';
 
 interface CustomerOption {
@@ -70,12 +84,23 @@ export interface QuoteRecord {
   recipient_name: string | null;
   recipient_email: string;
   enquiry_name?: string | null;
+  customer_enquiry_id?: number | null;
   status: string;
+  items?: QuoteItemPayload[];
+  delivery_method?: string | null;
+  delivery_address?: string | null;
+  terms?: string | null;
+  subtotal_ex_gst?: number;
+  shipping_fee_inc_gst?: number;
+  gst_amount?: number;
   total_inc_gst: number;
   currency: string;
   expires_at: string | null;
+  accepted_at?: string | null;
+  declined_at?: string | null;
   order_id: string | null;
   created_at?: string;
+  quote_url?: string | null;
 }
 
 export interface EnquiryQuoteContext {
@@ -259,6 +284,19 @@ export default function QuoteManager({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [quoteUrl, setQuoteUrl] = useState('');
   const [copied, setCopied] = useState(false);
+
+  // Edit Quote State
+  const [editingQuoteId, setEditingQuoteId] = useState<number | null>(null);
+  const [editingQuoteNumber, setEditingQuoteNumber] = useState<string | null>(null);
+  const [savingQuote, setSavingQuote] = useState(false);
+  const [updatingStatusId, setUpdatingStatusId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  // Table Search & Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [isFormCollapsed, setIsFormCollapsed] = useState(false);
+  const [copiedQuoteId, setCopiedQuoteId] = useState<number | null>(null);
 
   // Load Customer Directory & Product Catalog
   useEffect(() => {
@@ -710,9 +748,151 @@ export default function QuoteManager({
     setItems((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Submit and send quote
-  const handleSendQuote = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Start editing a quote from the table or recent list
+  const handleStartEditQuote = (quote: QuoteRecord) => {
+    setEditingQuoteId(quote.id);
+    setEditingQuoteNumber(quote.quote_number);
+    setIsFormCollapsed(false);
+    setError(null);
+    setSuccessMsg(null);
+
+    // Populate customer fields
+    setCustomerEmail(quote.recipient_email || '');
+
+    // Extract customer name & company if name has (Company) format
+    let rawName = quote.recipient_name || '';
+    let extractedCompany = '';
+    const match = rawName.match(/^(.*?)\s*\((.*?)\)$/);
+    if (match) {
+      rawName = match[1].trim();
+      extractedCompany = match[2].trim();
+    }
+    setCustomerName(rawName);
+    setCompanyName(extractedCompany);
+
+    // Look up in customers directory if match found by email
+    const matchedCust = customers.find(
+      (c) => c.email.toLowerCase() === (quote.recipient_email || '').toLowerCase()
+    );
+    if (matchedCust) {
+      setSelectedCustomerId(matchedCust.id);
+      if (matchedCust.phone) setCustomerPhone(matchedCust.phone);
+      if (matchedCust.company_name) setCompanyName(matchedCust.company_name);
+    } else {
+      setSelectedCustomerId(null);
+    }
+
+    // Delivery & Notes
+    setDeliveryMethod(quote.delivery_method || 'Standard delivery (Free)');
+    setDeliveryAddress(quote.delivery_address || '');
+    setShippingFee(
+      typeof quote.shipping_fee_inc_gst === 'number'
+        ? quote.shipping_fee_inc_gst
+        : null
+    );
+
+    // Terms & Phone extraction
+    let termsText = quote.terms || '';
+    const phoneMatch = termsText.match(/Phone:\s*([^\n\r]+)/i);
+    if (phoneMatch) {
+      setCustomerPhone(phoneMatch[1].trim());
+      termsText = termsText.replace(/Phone:\s*[^\n\r]+/i, '').trim();
+    }
+    setCustomerNotes(
+      termsText ||
+        'Please check all quote details carefully. Reply or accept online when you are ready to proceed with production.'
+    );
+
+    // Calculate valid days if expires_at present
+    if (quote.expires_at) {
+      const diffDays = Math.max(
+        1,
+        Math.round(
+          (new Date(quote.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+        )
+      );
+      setValidDays(diffDays > 0 && diffDays <= 90 ? diffDays : 14);
+    } else {
+      setValidDays(14);
+    }
+
+    // Load Items
+    if (Array.isArray(quote.items) && quote.items.length > 0) {
+      const loadedItems: QuoteItemPayload[] = quote.items.map((it, idx) => ({
+        client_key: `quote-item-edit-${quote.id}-${idx}-${Date.now()}`,
+        product_id: it.product_id || null,
+        product_name: it.product_name || 'Custom Print Product',
+        quantity: Math.max(1, Number(it.quantity) || 1),
+        unit_price_ex_gst:
+          typeof it.unit_price_ex_gst === 'number'
+            ? it.unit_price_ex_gst
+            : undefined,
+        price:
+          typeof it.price === 'number'
+            ? it.price
+            : typeof it.line_total_ex_gst === 'number'
+            ? it.line_total_ex_gst
+            : undefined,
+        line_total_ex_gst:
+          typeof it.line_total_ex_gst === 'number'
+            ? it.line_total_ex_gst
+            : undefined,
+        specifications: it.specifications || it.options?.specifications || '',
+        options: it.options || {},
+      }));
+      setItems(loadedItems);
+    }
+
+    // Scroll smoothly to form
+    const formElement = document.getElementById('quote-editor-section');
+    if (formElement) {
+      formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  // Cancel editing and revert to new quote form
+  const handleCancelEdit = () => {
+    setEditingQuoteId(null);
+    setEditingQuoteNumber(null);
+    setError(null);
+    setSuccessMsg(null);
+    setSelectedCustomerId(null);
+    setCustomerName(enquiry?.name || '');
+    setCustomerEmail(enquiry?.email || '');
+    setCustomerPhone('');
+    setCompanyName('');
+    setDeliveryMethod('Standard delivery (Free)');
+    setDeliveryAddress(enquiry?.delivery_location || '');
+    setShippingFee(null);
+    setCustomerNotes(
+      'Please check all quote details carefully. Reply or accept online when you are ready to proceed with production.'
+    );
+    setInternalNotes('');
+    setValidDays(14);
+    setItems([
+      {
+        client_key: createQuoteLineKey(),
+        product_name: 'Custom A4 Flyer / Print',
+        quantity: 500,
+        unit_price_ex_gst: 0.24,
+        price: 120.0,
+        specifications:
+          '210 × 297 mm • 350gsm Premium Silk Artboard • Double Sided (Full Colour 4/4)',
+        options: {
+          product_name: 'Custom A4 Flyer / Print',
+          dimensions: '210 × 297 mm',
+          width_mm: '210',
+          height_mm: '297',
+          stock: '350gsm Premium Silk Artboard',
+          sides: 'Double Sided (Full Colour 4/4)',
+          finish: 'None / Uncoated',
+        },
+      },
+    ]);
+  };
+
+  // Save Quote (Create or Update, with optional email resend)
+  const handleSaveQuote = async (resendEmail: boolean = false) => {
     setError(null);
     setSuccessMsg(null);
     setQuoteUrl('');
@@ -728,9 +908,9 @@ export default function QuoteManager({
       return;
     }
 
+    setSavingQuote(true);
     setSending(true);
     try {
-      const url = standalone ? '/admin/quotes' : `/admin/enquiries/${enquiry?.id}/quotes`;
       const payload = {
         recipient_name: customerName.trim(),
         recipient_email: customerEmail.trim().toLowerCase(),
@@ -746,6 +926,7 @@ export default function QuoteManager({
         customer_notes: customerNotes.trim(),
         internal_notes: internalNotes.trim(),
         valid_for_days: validDays,
+        resend_email: resendEmail,
         items: items.map((it) => {
           const qty = Math.max(1, it.quantity);
           const price = typeof it.price === 'number' ? it.price : 0;
@@ -769,22 +950,144 @@ export default function QuoteManager({
         }),
       };
 
-      const response = await apiClient.post(url, payload);
-      const data = response.data?.data;
-      setSuccessMsg(response.data?.message || 'Quote created and sent successfully.');
-      if (data?.quote_url) {
-        setQuoteUrl(data.quote_url);
+      if (editingQuoteId) {
+        // Update existing quote
+        const response = await apiClient.put(`/admin/quotes/${editingQuoteId}`, payload);
+        const data = response.data?.data;
+        setSuccessMsg(
+          response.data?.message ||
+            (resendEmail
+              ? 'Quote updated and resent to customer.'
+              : 'Quote updated successfully.')
+        );
+        if (data?.quote_url) {
+          setQuoteUrl(data.quote_url);
+        }
+      } else {
+        // Create new quote
+        const url = standalone ? '/admin/quotes' : `/admin/enquiries/${enquiry?.id}/quotes`;
+        const response = await apiClient.post(url, payload);
+        const data = response.data?.data;
+        setSuccessMsg(response.data?.message || 'Quote created and sent successfully.');
+        if (data?.quote_url) {
+          setQuoteUrl(data.quote_url);
+        }
       }
+
       await loadQuotes();
     } catch (err: any) {
       setError(
         err.response?.data?.message ||
-          'Unable to send this quote. Please check the details and try again.'
+          'Unable to save quote. Please check the details and try again.'
       );
     } finally {
+      setSavingQuote(false);
       setSending(false);
     }
   };
+
+  // Quick inline status change handler
+  const handleUpdateStatus = async (quoteId: number, newStatus: string) => {
+    setUpdatingStatusId(quoteId);
+    try {
+      await apiClient.patch(`/admin/quotes/${quoteId}/status`, { status: newStatus });
+      setQuotes((prev) =>
+        prev.map((q) => (q.id === quoteId ? { ...q, status: newStatus } : q))
+      );
+      setSuccessMsg(`Quote status updated to "${newStatus}".`);
+      setTimeout(() => setSuccessMsg(null), 3500);
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Could not update quote status.');
+    } finally {
+      setUpdatingStatusId(null);
+    }
+  };
+
+  // Delete quote handler
+  const handleDeleteQuote = async (quoteId: number, quoteNumber: string) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete quote ${quoteNumber}? This action cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setDeletingId(quoteId);
+    try {
+      await apiClient.delete(`/admin/quotes/${quoteId}`);
+      setQuotes((prev) => prev.filter((q) => q.id !== quoteId));
+      if (editingQuoteId === quoteId) {
+        handleCancelEdit();
+      }
+      setSuccessMsg(`Quote ${quoteNumber} deleted.`);
+      setTimeout(() => setSuccessMsg(null), 3500);
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Could not delete quote.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  // Copy quote link from table row
+  const handleCopyQuoteLink = async (q: QuoteRecord) => {
+    try {
+      const res = await apiClient.post(`/admin/quotes/${q.id}/resend`);
+      const link = res.data?.data?.quote_url;
+      if (link) {
+        await navigator.clipboard.writeText(link);
+        setCopiedQuoteId(q.id);
+        setTimeout(() => setCopiedQuoteId(null), 2500);
+      }
+    } catch {
+      // fallback
+    }
+  };
+
+  // KPI Statistics
+  const quoteStats = useMemo(() => {
+    const totalCount = quotes.length;
+    const totalValue = quotes.reduce(
+      (acc, q) => acc + (Number(q.total_inc_gst) || 0),
+      0
+    );
+    const sentCount = quotes.filter((q) => q.status === 'sent').length;
+    const acceptedCount = quotes.filter(
+      (q) => q.status === 'accepted' || q.status === 'converted'
+    ).length;
+    return { totalCount, totalValue, sentCount, acceptedCount };
+  }, [quotes]);
+
+  // Search & Filtered quotes
+  const filteredQuotes = useMemo(() => {
+    return quotes.filter((q) => {
+      // Status filter
+      if (statusFilter !== 'all' && q.status !== statusFilter) {
+        return false;
+      }
+      // Search query
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase().trim();
+        const num = (q.quote_number || '').toLowerCase();
+        const email = (q.recipient_email || '').toLowerCase();
+        const name = (q.recipient_name || '').toLowerCase();
+        const enq = (q.enquiry_name || '').toLowerCase();
+        const itemsText = (q.items || [])
+          .map((i) => i.product_name || '')
+          .join(' ')
+          .toLowerCase();
+        if (
+          !num.includes(query) &&
+          !email.includes(query) &&
+          !name.includes(query) &&
+          !enq.includes(query) &&
+          !itemsText.includes(query)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [quotes, statusFilter, searchQuery]);
 
   // Resend existing quote email
   const handleResendQuote = async (quoteId: number) => {
@@ -854,14 +1157,59 @@ export default function QuoteManager({
         </div>
       )}
 
+      {/* Edit Mode Banner */}
+      {editingQuoteId && (
+        <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-sky-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm animate-in fade-in duration-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30 flex-shrink-0">
+              <Pencil className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                  Editing Quote
+                </span>
+                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                  {editingQuoteNumber}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Customer: <span className="text-white font-medium">{customerName || customerEmail}</span>
+                {companyName ? ` (${companyName})` : ''} • Modify products, pricing, delivery, or terms below, then save or resend.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 hover:text-white transition"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Cancel Editing</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Form Layout */}
-      <form onSubmit={handleSendQuote} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div id="quote-editor-section">
+        <form onSubmit={(e) => { e.preventDefault(); handleSaveQuote(false); }} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Columns: Customer Details, Products Table, Notes */}
         <div className="lg:col-span-2 space-y-6">
           {/* 1. Customer Details Section */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h2 className="text-sm font-semibold text-slate-200">Customer details</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-slate-200">
+                  {editingQuoteId ? 'Edit customer details' : 'Customer details'}
+                </h2>
+                {editingQuoteId && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    {editingQuoteNumber}
+                  </span>
+                )}
+              </div>
               <span className="text-[11px] text-slate-500">Contact & delivery information</span>
             </div>
 
@@ -1172,19 +1520,58 @@ export default function QuoteManager({
               </div>
             </div>
 
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={sending || items.length === 0}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-sky-600/20 disabled:opacity-50 transition"
-              >
-                {sending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                <span>Send quote to {customerEmail ? customerEmail : 'customer'}</span>
-              </button>
+            <div className="pt-2 space-y-2">
+              {editingQuoteId ? (
+                <>
+                  <button
+                    type="submit"
+                    disabled={savingQuote || items.length === 0}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-amber-500/20 disabled:opacity-50 transition"
+                  >
+                    {savingQuote ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    <span>Save Quote Changes</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={savingQuote || items.length === 0}
+                    onClick={() => handleSaveQuote(true)}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 text-xs font-semibold text-sky-400 hover:text-sky-300 disabled:opacity-50 transition"
+                  >
+                    {savingQuote ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5" />
+                    )}
+                    <span>Save & Resend Email</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    className="w-full text-center text-xs text-slate-400 hover:text-slate-200 py-1"
+                  >
+                    Cancel edit & create new quote
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={sending || items.length === 0}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-sky-600/20 disabled:opacity-50 transition"
+                >
+                  {sending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                  <span>Send quote to {customerEmail ? customerEmail : 'customer'}</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1242,21 +1629,32 @@ export default function QuoteManager({
                         <span className="font-mono font-bold text-emerald-400 text-xs">
                           {q.currency} {Number(q.total_inc_gst).toFixed(2)}
                         </span>
-                        {q.status === 'sent' && (
+                        <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            disabled={resendingId === q.id}
-                            onClick={() => handleResendQuote(q.id)}
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-400 hover:text-sky-300 disabled:opacity-50"
+                            onClick={() => handleStartEditQuote(q)}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 hover:text-amber-300"
+                            title="Edit this quote"
                           >
-                            {resendingId === q.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <Send className="w-3 h-3" />
-                            )}
-                            <span>{resendingId === q.id ? 'Sending…' : 'Resend'}</span>
+                            <Pencil className="w-3 h-3" />
+                            <span>Edit</span>
                           </button>
-                        )}
+                          {q.status === 'sent' && (
+                            <button
+                              type="button"
+                              disabled={resendingId === q.id}
+                              onClick={() => handleResendQuote(q.id)}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-400 hover:text-sky-300 disabled:opacity-50"
+                            >
+                              {resendingId === q.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Send className="w-3 h-3" />
+                              )}
+                              <span>{resendingId === q.id ? 'Sending…' : 'Resend'}</span>
+                            </button>
+                          )}
+                        </div>
                         {q.order_id && (
                           <span className="text-[10px] font-semibold text-emerald-400">
                             Order converted
@@ -1271,6 +1669,415 @@ export default function QuoteManager({
           </div>
         </div>
       </form>
+      </div>
+
+      {/* 4. Comprehensive Quotes Table Section */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg space-y-4 p-5 lg:p-6">
+        {/* Table Header & Controls */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400 flex-shrink-0">
+              <ReceiptText className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-white tracking-tight">Quotes Directory</h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  10% GST Compliant
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Review all customer quotes, click <span className="text-amber-400 font-semibold">Edit</span> to modify specifications and pricing, update statuses, or resend emails.
+              </p>
+            </div>
+          </div>
+
+          {/* Search & Actions Bar */}
+          <div className="flex flex-wrap items-center gap-2.5 self-start lg:self-auto">
+            {/* Search Input */}
+            <div className="relative min-w-[220px] sm:min-w-[260px]">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search quotes, customers, items..."
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-8 pr-8 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-2 text-slate-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Refresh Button */}
+            <button
+              type="button"
+              onClick={loadQuotes}
+              disabled={loadingQuotes}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-xs font-medium text-slate-300 hover:text-white transition shadow-sm"
+              title="Refresh quotes list"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingQuotes ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+
+            {/* Create New Quote Button */}
+            <button
+              type="button"
+              onClick={() => {
+                handleCancelEdit();
+                const formElement = document.getElementById('quote-editor-section');
+                if (formElement) {
+                  formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-xs font-bold text-white transition shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Create Quote</span>
+            </button>
+          </div>
+        </div>
+
+        {/* KPI Summary Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-1">
+          <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-3">
+            <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Total Quotes</span>
+            <div className="text-xl font-bold font-mono text-white mt-0.5">{quoteStats.totalCount}</div>
+          </div>
+          <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-3">
+            <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Total Quoted (Gross)</span>
+            <div className="text-xl font-bold font-mono text-emerald-400 mt-0.5">
+              ${quoteStats.totalValue.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          </div>
+          <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-3">
+            <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Awaiting Decision</span>
+            <div className="text-xl font-bold font-mono text-sky-400 mt-0.5">{quoteStats.sentCount}</div>
+          </div>
+          <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-3">
+            <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Converted / Accepted</span>
+            <div className="text-xl font-bold font-mono text-purple-400 mt-0.5">{quoteStats.acceptedCount}</div>
+          </div>
+        </div>
+
+        {/* Status Filter Tabs */}
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-800 pb-3 pt-1">
+          {[
+            { id: 'all', label: 'All Quotes', count: quotes.length },
+            { id: 'sent', label: 'Sent / Pending', count: quotes.filter((q) => q.status === 'sent').length },
+            { id: 'accepted', label: 'Accepted', count: quotes.filter((q) => q.status === 'accepted').length },
+            { id: 'converted', label: 'Converted to Order', count: quotes.filter((q) => q.status === 'converted').length },
+            { id: 'declined', label: 'Declined', count: quotes.filter((q) => q.status === 'declined').length },
+            { id: 'expired', label: 'Expired', count: quotes.filter((q) => q.status === 'expired').length },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setStatusFilter(tab.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                statusFilter === tab.id
+                  ? 'bg-sky-500/15 text-sky-300 border border-sky-500/30 shadow-xs'
+                  : 'bg-slate-800/40 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/40'
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span
+                className={`px-1.5 py-0.2 rounded text-[10px] font-mono ${
+                  statusFilter === tab.id ? 'bg-sky-400/20 text-sky-300' : 'bg-slate-700/60 text-slate-400'
+                }`}
+              >
+                {tab.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Interactive Quotes Table */}
+        <div className="overflow-x-auto rounded-xl border border-slate-800/80">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-slate-800/60 text-slate-400 text-left border-b border-slate-800">
+                <th className="py-3 px-4 font-semibold">Quote # & Date</th>
+                <th className="py-3 px-4 font-semibold">Customer / Destination</th>
+                <th className="py-3 px-4 font-semibold">Products & Specifications</th>
+                <th className="py-3 px-4 font-semibold">Pricing (AUD)</th>
+                <th className="py-3 px-4 font-semibold">Status</th>
+                <th className="py-3 px-4 font-semibold text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 bg-slate-900/60">
+              {loadingQuotes ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-sky-400" />
+                    <span>Loading customer quotes...</span>
+                  </td>
+                </tr>
+              ) : filteredQuotes.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                    <Package className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                    <p className="font-semibold text-slate-300">No quotes match your criteria</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {searchQuery ? `No results for "${searchQuery}".` : 'No quotes found under this status.'}
+                    </p>
+                    {(searchQuery || statusFilter !== 'all') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setStatusFilter('all');
+                        }}
+                        className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-sky-400 transition"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Reset Search & Filters</span>
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                filteredQuotes.map((q) => {
+                  const isCurrentlyEditing = editingQuoteId === q.id;
+                  const isExpired = q.expires_at ? new Date(q.expires_at).getTime() < Date.now() : false;
+                  const createdDateStr = q.created_at
+                    ? new Date(q.created_at).toLocaleDateString('en-AU', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })
+                    : 'Recent';
+
+                  return (
+                    <tr
+                      key={q.id}
+                      className={`hover:bg-slate-800/30 transition-colors ${
+                        isCurrentlyEditing ? 'bg-amber-500/5 border-l-2 border-l-amber-400' : ''
+                      }`}
+                    >
+                      {/* 1. Quote Number & Date */}
+                      <td className="py-3.5 px-4 align-top">
+                        <div className="font-mono font-bold text-white text-xs flex items-center gap-1.5">
+                          <span>{q.quote_number}</span>
+                          {isCurrentlyEditing && (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                              Editing
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-slate-500" />
+                          <span>{createdDateStr}</span>
+                        </div>
+                        {q.enquiry_name && (
+                          <div className="text-[10px] text-sky-400 mt-1 truncate max-w-[140px]" title={q.enquiry_name}>
+                            Enquiry: {q.enquiry_name}
+                          </div>
+                        )}
+                        {q.order_id && (
+                          <div className="text-[10px] font-semibold text-emerald-400 mt-1 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Converted to Order</span>
+                          </div>
+                        )}
+                        {isExpired && q.status === 'sent' && (
+                          <div className="text-[10px] font-semibold text-amber-400 mt-1 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            <span>Expired</span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* 2. Customer / Destination */}
+                      <td className="py-3.5 px-4 align-top max-w-xs">
+                        <div className="font-semibold text-slate-200 text-xs flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                          <span className="truncate">{q.recipient_name || 'Customer'}</span>
+                        </div>
+                        <div className="text-[11px] text-sky-400/90 mt-1 flex items-center gap-1.5 truncate">
+                          <Mail className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                          <a href={`mailto:${q.recipient_email}`} className="hover:underline truncate">
+                            {q.recipient_email}
+                          </a>
+                        </div>
+                        {q.delivery_address && (
+                          <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 truncate" title={q.delivery_address}>
+                            <MapPin className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                            <span className="truncate">{q.delivery_address}</span>
+                          </div>
+                        )}
+                        {q.delivery_method && (
+                          <div className="text-[10px] text-slate-500 mt-0.5">
+                            Method: {q.delivery_method}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* 3. Products & Specifications */}
+                      <td className="py-3.5 px-4 align-top max-w-md">
+                        {Array.isArray(q.items) && q.items.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {q.items.slice(0, 2).map((it, idx) => {
+                              const linePrice = typeof it.price === 'number' ? it.price : 0;
+                              return (
+                                <div key={idx} className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-2 space-y-0.5">
+                                  <div className="flex items-center justify-between text-xs font-semibold text-white">
+                                    <span className="truncate max-w-[200px]">{it.product_name}</span>
+                                    <span className="font-mono text-slate-300">
+                                      {it.quantity}x • ${linePrice.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  {(it.specifications || it.options?.specifications) && (
+                                    <p className="text-[11px] text-slate-400 leading-snug line-clamp-1">
+                                      {it.specifications || it.options?.specifications}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {q.items.length > 2 && (
+                              <div className="text-[10px] font-semibold text-slate-500">
+                                + {q.items.length - 2} more items in this quote
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-500 italic">Custom Quote Specification</span>
+                        )}
+                      </td>
+
+                      {/* 4. Financials (AUD) */}
+                      <td className="py-3.5 px-4 align-top">
+                        <div className="font-mono font-bold text-emerald-400 text-sm">
+                          {q.currency || 'AUD'} {Number(q.total_inc_gst).toFixed(2)}
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-1 space-y-0.5 font-mono">
+                          {typeof q.subtotal_ex_gst === 'number' && (
+                            <div>Sub: ${Number(q.subtotal_ex_gst).toFixed(2)}</div>
+                          )}
+                          {typeof q.gst_amount === 'number' && (
+                            <div className="text-slate-500">GST (10%): ${Number(q.gst_amount).toFixed(2)}</div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* 5. Status with quick interactive selector */}
+                      <td className="py-3.5 px-4 align-top">
+                        <div className="relative inline-block">
+                          <select
+                            value={q.status}
+                            disabled={updatingStatusId === q.id || !!q.order_id}
+                            onChange={(e) => handleUpdateStatus(q.id, e.target.value)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase border appearance-none pr-6 cursor-pointer focus:outline-none transition-colors ${
+                              q.status === 'sent'
+                                ? 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                                : q.status === 'accepted'
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                : q.status === 'converted'
+                                ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+                                : q.status === 'declined'
+                                ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                                : q.status === 'expired'
+                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                : 'bg-slate-800 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            <option value="draft" className="bg-slate-900 text-slate-200">DRAFT</option>
+                            <option value="sent" className="bg-slate-900 text-slate-200">SENT</option>
+                            <option value="accepted" className="bg-slate-900 text-slate-200">ACCEPTED</option>
+                            <option value="declined" className="bg-slate-900 text-slate-200">DECLINED</option>
+                            <option value="expired" className="bg-slate-900 text-slate-200">EXPIRED</option>
+                            {q.status === 'converted' && (
+                              <option value="converted" className="bg-slate-900 text-slate-200">CONVERTED</option>
+                            )}
+                          </select>
+                          <ChevronDown className="w-3 h-3 text-slate-400 absolute right-1.5 top-2 pointer-events-none" />
+                        </div>
+                        {updatingStatusId === q.id && (
+                          <div className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            <span>Updating...</span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* 6. Actions */}
+                      <td className="py-3.5 px-4 align-top text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* EDIT QUOTE BUTTON */}
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditQuote(q)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 text-xs font-semibold transition"
+                            title="Edit quote specifications, customer, & pricing"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+
+                          {/* RESEND EMAIL BUTTON */}
+                          <button
+                            type="button"
+                            disabled={resendingId === q.id}
+                            onClick={() => handleResendQuote(q.id)}
+                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition disabled:opacity-50"
+                            title="Resend quote email to customer"
+                          >
+                            {resendingId === q.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
+                            ) : (
+                              <Send className="w-3.5 h-3.5 text-sky-400" />
+                            )}
+                          </button>
+
+                          {/* COPY QUOTE REVIEW LINK */}
+                          <button
+                            type="button"
+                            onClick={() => handleCopyQuoteLink(q)}
+                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition"
+                            title="Copy customer quote link"
+                          >
+                            {copiedQuoteId === q.id ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+
+                          {/* DELETE QUOTE (if not converted) */}
+                          {!q.order_id && (
+                            <button
+                              type="button"
+                              disabled={deletingId === q.id}
+                              onClick={() => handleDeleteQuote(q.id, q.quote_number)}
+                              className="p-1.5 rounded-lg hover:bg-red-500/10 border border-transparent hover:border-red-500/20 text-slate-500 hover:text-rose-400 transition"
+                              title="Delete quote"
+                            >
+                              {deletingId === q.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {/* Add / Edit Product Configuration Modal */}
       {showAddProductModal && (

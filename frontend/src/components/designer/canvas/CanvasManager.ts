@@ -6062,6 +6062,30 @@ export class CanvasManager {
   ): void {
     if (!this.canvas || this.isProcessingShapeFit || !movingObj) return;
 
+    // Ordinary text, shapes, and groups cannot participate in photo fitting.
+    // Avoid recursively inspecting their children and scanning every canvas
+    // object on each animation frame of a drag.
+    const objectType = String(movingObj.type || '').toLowerCase();
+    const isImage = objectType === 'image' || movingObj instanceof FabricImage;
+    const mayBePhotoFrame =
+      movingObj.get('allowPhotoDrop' as any) === true ||
+      Boolean(
+        movingObj.get('isFrame' as any) ||
+          movingObj.get('isPhotoShapeGroup' as any) ||
+          movingObj.get('isCustomFrame' as any) ||
+          movingObj.get('customShapeUrl' as any) ||
+          movingObj.get('isCanvaPlaceholder' as any) ||
+          (movingObj.get('frameShape' as any) &&
+            movingObj.get('frameShape' as any) !== 'none' &&
+            movingObj.get('allowPhotoDrop' as any) !== false)
+      );
+    if (!isImage && !mayBePhotoFrame) {
+      if (this.currentHoverFitTarget) {
+        this.clearHoverFitHighlight();
+      }
+      return;
+    }
+
     // A frame that already contains a photo must NEVER become translucent or trigger hover-glow on other frames
     if (this.isAnyFrameObject(movingObj)) {
       const isPlaceholder =

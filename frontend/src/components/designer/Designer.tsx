@@ -135,7 +135,9 @@ type ArtworkSaveStatus =
   | 'local-only'
   | 'error';
 
-const AUTOSAVE_DELAY_MS = 1500;
+// Wait for a short idle window after the last edit so a drag or a burst of
+// property changes results in one draft save rather than repeated requests.
+const AUTOSAVE_DELAY_MS = 2500;
 
 function extractTemplatePages(
   template: any,
@@ -1213,8 +1215,6 @@ export default function Designer({
     saveInProgressRef.current = true;
 
     try {
-      do {
-        saveQueuedRef.current = false;
 
         const manager = canvasManagerRef.current;
         const canvas = manager?.getCanvas();
@@ -1251,7 +1251,7 @@ export default function Designer({
           setSaveStatus('local-only');
           setSaveError(null);
           setLastSavedAt(new Date());
-          continue;
+          return;
         }
 
         setSaveStatus('saving');
@@ -1317,9 +1317,14 @@ export default function Designer({
 
           // Stop retrying until the user makes another change or manually presses Save.
           saveQueuedRef.current = false;
-          break;
+          return;
         }
-      } while (saveQueuedRef.current);
+      // Changes made while this request was in flight need a follow-up save,
+      // but let them settle first instead of immediately posting again.
+      if (saveQueuedRef.current) {
+        saveQueuedRef.current = false;
+        scheduleAutosaveRef.current();
+      }
     } finally {
       saveInProgressRef.current = false;
     }
