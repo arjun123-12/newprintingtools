@@ -157,9 +157,12 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
   }, [order?.id]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('scan')) {
-      setIsQrView(true);
-    }
+    if (typeof window === 'undefined' || !new URLSearchParams(window.location.search).has('scan')) return;
+    setIsQrView(true);
+    window.dispatchEvent(new CustomEvent('admin-qr-order-view-change', { detail: { active: true } }));
+    return () => {
+      window.dispatchEvent(new CustomEvent('admin-qr-order-view-change', { detail: { active: false } }));
+    };
   }, []);
 
   const handleUpdateStatus = async () => {
@@ -372,9 +375,9 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
     }).format(Number(amount) || 0);
 
     return (
-      <main className="min-h-screen bg-slate-950 px-3 py-4 text-slate-100 sm:px-5 sm:py-6">
-        <div className="mx-auto max-w-lg space-y-4">
-          <header className="flex items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <main className="min-h-screen w-full overflow-x-hidden bg-slate-950 px-3 py-4 text-slate-100 sm:px-5 sm:py-6">
+        <div className="mx-auto w-full max-w-lg space-y-4">
+          <header className="flex flex-col items-start gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-sky-400">Scanned Order</p>
               <h1 className="mt-1 truncate font-mono text-xl font-bold text-white">{order.order_number}</h1>
@@ -393,13 +396,13 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
             </div>
             <div className="space-y-3">
               {order.items.map((item) => (
-                <div key={item.id} className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3 last:border-0 last:pb-0">
+                <div key={item.id} className="flex min-w-0 items-start justify-between gap-3 border-b border-slate-800 pb-3 last:border-0 last:pb-0">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-100">{item.product_name}</p>
+                    <p className="break-words text-sm font-medium text-slate-100 [overflow-wrap:anywhere]">{item.product_name}</p>
                     <p className="mt-0.5 text-xs text-slate-400">Qty {item.quantity}{item.product_sku ? ` · ${item.product_sku}` : ''}</p>
-                    {item.specifications && <p className="mt-1 text-xs text-slate-500">{item.specifications}</p>}
+                    {item.specifications && <p className="mt-1 break-words text-xs text-slate-500 [overflow-wrap:anywhere]">{item.specifications}</p>}
                   </div>
-                  <span className="shrink-0 text-sm font-medium text-slate-200">{formatMoney(item.total_price_inc_gst)}</span>
+                  <span className="shrink-0 whitespace-nowrap text-sm font-medium text-slate-200">{formatMoney(item.total_price_inc_gst)}</span>
                 </div>
               ))}
             </div>
@@ -460,7 +463,14 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
             </button>
           </section>
 
-          <Link href={`/admin/orders/${encodeURIComponent(order.id)}`} className="block rounded-xl border border-slate-800 px-4 py-3 text-center text-xs font-medium text-slate-400 hover:bg-slate-900 hover:text-white">
+          <Link
+            href={`/admin/orders/${encodeURIComponent(order.id)}`}
+            onClick={() => {
+              setIsQrView(false);
+              window.dispatchEvent(new CustomEvent('admin-qr-order-view-change', { detail: { active: false } }));
+            }}
+            className="block rounded-xl border border-slate-800 px-4 py-3 text-center text-xs font-medium text-slate-400 hover:bg-slate-900 hover:text-white"
+          >
             Open full order page
           </Link>
         </div>
