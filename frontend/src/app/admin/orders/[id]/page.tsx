@@ -84,6 +84,7 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
   const [copied, setCopied] = useState(false);
   const [showOrderQr, setShowOrderQr] = useState(false);
   const [orderQrDataUrl, setOrderQrDataUrl] = useState<string | null>(null);
+  const [isQrView, setIsQrView] = useState(false);
   const [showTurnaroundModal, setShowTurnaroundModal] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date>(() => new Date());
 
@@ -156,14 +157,10 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
   }, [order?.id]);
 
   useEffect(() => {
-    if (!order || typeof window === 'undefined' || !new URLSearchParams(window.location.search).has('scan')) return;
-    const timer = window.setTimeout(() => {
-      const statusControl = document.getElementById('production-status-control');
-      statusControl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      (statusControl as HTMLSelectElement | null)?.focus({ preventScroll: true });
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [order]);
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('scan')) {
+      setIsQrView(true);
+    }
+  }, []);
 
   const handleUpdateStatus = async () => {
     if (!order || !selectedStatus) return;
@@ -364,6 +361,112 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
   const isApproved = Boolean(order.approved_proof_version);
   const isPaid = order.payment_status === 'paid';
   const canAdvanceToProduction = isApproved && isPaid && order.status !== 'in_production';
+
+  if (isQrView) {
+    const isPickup = Boolean(order.delivery_method?.toLowerCase().includes('pickup'));
+    const sequenceOptions = getProductionStatusSequence(isPickup);
+    const needsCourierDetails = ['handed_over_to_courier', 'dispatched'].includes(selectedStatus);
+    const formatMoney = (amount: number) => new Intl.NumberFormat('en-AU', {
+      style: 'currency',
+      currency: order.currency || 'AUD',
+    }).format(Number(amount) || 0);
+
+    return (
+      <main className="min-h-screen bg-slate-950 px-3 py-4 text-slate-100 sm:px-5 sm:py-6">
+        <div className="mx-auto max-w-lg space-y-4">
+          <header className="flex items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-sky-400">Scanned Order</p>
+              <h1 className="mt-1 truncate font-mono text-xl font-bold text-white">{order.order_number}</h1>
+            </div>
+            <span className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ${getStatusStyle(order.status)}`}>
+              {order.status_label || formatStatusLabel(order.status)}
+            </span>
+          </header>
+
+          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-white">Order Details</h2>
+              <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${isPaid ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-300'}`}>
+                {isPaid ? 'Paid' : order.payment_status.replace(/_/g, ' ')}
+              </span>
+            </div>
+            <div className="space-y-3">
+              {order.items.map((item) => (
+                <div key={item.id} className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3 last:border-0 last:pb-0">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-100">{item.product_name}</p>
+                    <p className="mt-0.5 text-xs text-slate-400">Qty {item.quantity}{item.product_sku ? ` · ${item.product_sku}` : ''}</p>
+                    {item.specifications && <p className="mt-1 text-xs text-slate-500">{item.specifications}</p>}
+                  </div>
+                  <span className="shrink-0 text-sm font-medium text-slate-200">{formatMoney(item.total_price_inc_gst)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex justify-between border-t border-slate-800 pt-3 text-sm">
+              <span className="text-slate-400">Order total</span>
+              <strong className="text-white">{formatMoney(order.total_inc_gst)}</strong>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+            <h2 className="mb-3 text-sm font-semibold text-white">Customer & Delivery</h2>
+            <div className="space-y-2 text-sm">
+              <p className="font-medium text-slate-100">{order.customer.name}</p>
+              <p className="break-all text-xs text-slate-400">{order.customer.email}</p>
+              {order.customer.phone && <p className="text-xs text-slate-400">{order.customer.phone}</p>}
+              <div className="rounded-xl bg-slate-950 p-3 text-xs text-slate-300">
+                <p className="font-semibold text-slate-200">{isPickup ? 'Store pickup' : 'Delivery'}</p>
+                {!isPickup && <p className="mt-1 leading-relaxed">{order.delivery_address}</p>}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-sky-500/25 bg-slate-900 p-4">
+            <div className="mb-3">
+              <h2 className="text-sm font-semibold text-white">Update Order Status</h2>
+              <p className="mt-1 text-xs text-slate-400">Customer will be notified after you confirm.</p>
+            </div>
+            {statusActionError && <p role="alert" className="mb-3 rounded-lg bg-rose-500/10 p-3 text-xs text-rose-300">{statusActionError}</p>}
+            {statusActionMessage && <p role="status" className="mb-3 rounded-lg bg-emerald-500/10 p-3 text-xs text-emerald-300">{statusActionMessage}</p>}
+            <label htmlFor="qr-status-select" className="mb-1.5 block text-xs font-medium text-slate-300">New status</label>
+            <select
+              id="qr-status-select"
+              value={selectedStatus}
+              onChange={(event) => { setSelectedStatus(event.target.value); setStatusActionError(null); }}
+              disabled={statusUpdating}
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white outline-none focus:border-sky-500"
+            >
+              {!sequenceOptions.some((option) => option.value === order.status) && <option value={order.status}>Current: {order.status_label || formatStatusLabel(order.status)}</option>}
+              {sequenceOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+            {needsCourierDetails && (
+              <div className="mt-3 space-y-2">
+                <input value={carrier} onChange={(event) => setCarrier(event.target.value)} placeholder="Shipping carrier (required)" aria-label="Shipping carrier" className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-sky-500" />
+                <input value={trackingNumber} onChange={(event) => setTrackingNumber(event.target.value)} placeholder="Tracking number (required)" aria-label="Tracking number" className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-sm text-white placeholder:text-slate-500 outline-none focus:border-sky-500" />
+              </div>
+            )}
+            <button
+              type="button"
+              disabled={statusUpdating || !selectedStatus || selectedStatus === order.status}
+              onClick={() => {
+                const nextLabel = sequenceOptions.find((option) => option.value === selectedStatus)?.label || formatStatusLabel(selectedStatus);
+                if (window.confirm(`Update ${order.order_number} to "${nextLabel}" and notify the customer?`)) void handleUpdateStatus();
+              }}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {statusUpdating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              {statusUpdating ? 'Updating…' : 'Confirm Status Update'}
+            </button>
+          </section>
+
+          <Link href={`/admin/orders/${encodeURIComponent(order.id)}`} className="block rounded-xl border border-slate-800 px-4 py-3 text-center text-xs font-medium text-slate-400 hover:bg-slate-900 hover:text-white">
+            Open full order page
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <div className="flex-1 p-6 lg:p-8 space-y-6 overflow-y-auto max-w-7xl mx-auto">
@@ -902,7 +1005,6 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
 
                 return (
                 <select
-                    id="production-status-control"
                     value={selectedStatus}
                     onChange={(e) => {
                       setSelectedStatus(e.target.value);
