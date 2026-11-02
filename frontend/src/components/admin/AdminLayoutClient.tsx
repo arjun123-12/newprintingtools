@@ -17,9 +17,11 @@ export default function AdminLayoutClient({
 
   useEffect(() => {
     const syncQrViewFromUrl = () => {
+      const path = window.location.pathname;
+      const query = new URLSearchParams(window.location.search);
       setIsQrOrderView(
-        /^\/admin\/orders\/[^/]+$/.test(window.location.pathname) &&
-        new URLSearchParams(window.location.search).has('scan')
+        (/^\/admin\/orders\/[^/]+$/.test(path) && query.has('scan')) ||
+        (path === '/admin/production/stations' && query.has('stage'))
       );
     };
     const handleQrViewChange = (event: Event) => {

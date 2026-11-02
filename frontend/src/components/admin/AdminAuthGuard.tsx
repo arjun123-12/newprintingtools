@@ -19,6 +19,14 @@ interface AdminAuthGuardProps {
 
 type AuthStatus = 'checking' | 'authorized' | 'unauthorized' | 'forbidden';
 
+function rememberAdminReturnPath(): void {
+  if (typeof window === 'undefined') return;
+  const returnPath = `${window.location.pathname}${window.location.search}`;
+  if (returnPath.startsWith('/admin/') && !returnPath.startsWith('/admin/login')) {
+    window.sessionStorage.setItem('admin_login_return_to', returnPath);
+  }
+}
+
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   'http://127.0.0.1:8000/api/v1';
@@ -49,6 +57,7 @@ export default function AdminAuthGuard({
 
     if (!token) {
       setAuthStatus('unauthorized');
+      rememberAdminReturnPath();
       router.replace('/admin/login');
       return;
     }
@@ -70,6 +79,7 @@ export default function AdminAuthGuard({
         if (response.status === 401 || response.status === 403) {
           removeAuthToken();
           setAuthStatus('unauthorized');
+          rememberAdminReturnPath();
           router.replace('/admin/login');
           return;
         }
@@ -89,6 +99,7 @@ export default function AdminAuthGuard({
         if (!isActive || !isAdmin) {
           removeAuthToken();
           setAuthStatus('unauthorized');
+          rememberAdminReturnPath();
           router.replace('/admin/login');
           return;
         }

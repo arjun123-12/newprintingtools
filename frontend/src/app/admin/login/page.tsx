@@ -28,6 +28,15 @@ interface LoginResponse {
   };
 }
 
+function consumeAdminReturnPath(): string {
+  if (typeof window === 'undefined') return '/admin/dashboard';
+  const destination = window.sessionStorage.getItem('admin_login_return_to');
+  window.sessionStorage.removeItem('admin_login_return_to');
+  return destination?.startsWith('/admin/') && !destination.startsWith('/admin/login')
+    ? destination
+    : '/admin/dashboard';
+}
+
 export default function AdminLoginPage() {
   const router = useRouter();
 
@@ -40,7 +49,7 @@ export default function AdminLoginPage() {
   useEffect(() => {
     const existingToken = getAuthToken();
     if (existingToken) {
-      router.replace('/admin/dashboard');
+      router.replace(consumeAdminReturnPath());
     }
   }, [router]);
 
@@ -89,7 +98,7 @@ export default function AdminLoginPage() {
       setAuthToken(token);
 
       // Force full page navigation to ensure AdminAuthGuard and layout initialize cleanly
-      window.location.href = '/admin/dashboard';
+      window.location.href = consumeAdminReturnPath();
     } catch (error: unknown) {
       // Remove any invalid/stale authentication token.
       removeAuthToken();

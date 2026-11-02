@@ -209,6 +209,23 @@ export interface ManualOrderDetail {
 }
 
 export const manualOrderService = {
+  async getProductionStationOrders(stage: string) {
+    const response = await apiClient.get(`/admin/production-stations/${encodeURIComponent(stage)}/orders`);
+    return response.data;
+  },
+
+  async completeProductionStationOrder(
+    stage: string,
+    orderId: string,
+    payload?: { shipping_carrier?: string; tracking_number?: string }
+  ) {
+    const response = await apiClient.post(
+      `/admin/production-stations/${encodeURIComponent(stage)}/orders/${encodeURIComponent(orderId)}/complete`,
+      payload || {}
+    );
+    return response.data;
+  },
+
   /**
    * List all manual orders with filters
    */
