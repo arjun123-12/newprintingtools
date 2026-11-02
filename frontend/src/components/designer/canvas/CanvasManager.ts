@@ -204,6 +204,11 @@ export const ZOOM_PRESETS = [
   0.1, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
 ];
 
+// Keep the interactive editor bitmap inside browser-friendly limits. Print
+// exports use document dimensions separately and are not reduced by this cap.
+const MAX_EDITOR_CANVAS_SIDE = 8192;
+const MAX_EDITOR_CANVAS_AREA = 6_000_000;
+
 const CANVAS_API_URL = (
   process.env.NEXT_PUBLIC_API_URL ||
   'http://127.0.0.1:8000/api/v1'
@@ -697,7 +702,20 @@ export class CanvasManager {
       this.canvas = null;
     }
 
-    this.zoom = this.zoom || 1.0;
+    // Fit before constructing Fabric. Allocating a 100% 300-DPI canvas first
+    // can exceed browser canvas limits for banners and other large formats.
+    const baseSize = this.getEditorCanvasSize(1);
+    const availableWidth = Math.max(containerWidth - 32 * 2 - 48, 80);
+    const availableHeight = Math.max(containerHeight - 32 * 2 - 48, 80);
+    const requestedZoom = this.zoom || 1.0;
+    const maxEditorZoom = this.getMaxEditorZoom();
+    const fittedZoom = Math.min(
+      requestedZoom,
+      availableWidth / Math.max(baseSize.width, 1),
+      availableHeight / Math.max(baseSize.height, 1),
+      maxEditorZoom
+    );
+    this.zoom = Math.max(Math.min(0.01, maxEditorZoom), fittedZoom);
     const editorSize = this.getEditorCanvasSize(this.zoom);
     const targetWidth = editorSize.width;
     const targetHeight = editorSize.height;
@@ -721,7 +739,9 @@ export class CanvasManager {
       // Centered scaling makes left/top appear to drift while resizing.
       centeredScaling: false,
       controlsAboveOverlay: true,
-      skipOffscreen: false,
+      // Do not rasterize objects whose bounds are outside the current canvas
+      // viewport. This keeps editing responsive when a design has many layers.
+      skipOffscreen: true,
     });
     (canvas as any).uniformScaling = true;
     (canvas as any).centeredScaling = false;
@@ -816,6 +836,32 @@ export class CanvasManager {
     };
   }
 
+  private getMaxEditorZoom(): number {
+    const baseSize = this.getEditorCanvasSize(1);
+    const baseArea = baseSize.width * baseSize.height;
+
+    // Keep the existing zoom range for common formats. Apply the tighter
+    // interactive bitmap budget only to unusually large print documents.
+    if (
+      baseSize.width <= MAX_EDITOR_CANVAS_SIDE &&
+      baseSize.height <= MAX_EDITOR_CANVAS_SIDE &&
+      baseArea <= 24_000_000
+    ) {
+      return 8;
+    }
+
+    const maxBySide = Math.min(
+      MAX_EDITOR_CANVAS_SIDE / Math.max(baseSize.width, 1),
+      MAX_EDITOR_CANVAS_SIDE / Math.max(baseSize.height, 1)
+    );
+    const maxByArea = Math.sqrt(
+      MAX_EDITOR_CANVAS_AREA /
+        Math.max(baseArea, 1)
+    );
+
+    return Math.max(0.001, Math.min(8, maxBySide, maxByArea));
+  }
+
   /** Keep document coordinates unchanged while shifting the artboard into the pasteboard. */
   private applyEditorViewportTransform(zoom = this.zoom): void {
     if (!this.canvas) return;
@@ -830,6 +876,8 @@ export class CanvasManager {
     this.smartSpacingManager.updateDimensions(dims);
 
     if (this.canvas) {
+      const previousZoom = this.zoom;
+      this.zoom = Math.min(this.zoom, this.getMaxEditorZoom());
       const editorSize = this.getEditorCanvasSize(this.zoom);
       const targetWidth = editorSize.width;
       const targetHeight = editorSize.height;
@@ -842,6 +890,9 @@ export class CanvasManager {
       this.canvas.setZoom(this.zoom);
       this.applyEditorViewportTransform(this.zoom);
       this.syncArtworkBoundaryLines();
+      if (Math.abs(previousZoom - this.zoom) >= 0.001) {
+        this.notifyZoom();
+      }
       this.canvas.calcOffset();
       this.canvas.forEachObject((obj) => {
         obj.setCoords();
@@ -927,7 +978,9 @@ export class CanvasManager {
     if (docSettings.printLayout) {
       newDims.printLayout = docSettings.printLayout;
     }
+    const previousZoom = this.zoom;
     this.dimensions = newDims;
+    this.zoom = Math.min(this.zoom, this.getMaxEditorZoom());
     this.guides.setPrintLayout(docSettings.printLayout || null);
     this.guides.updateDimensions(newDims);
     this.snapping.updateDimensions(newDims);
@@ -958,6 +1011,9 @@ export class CanvasManager {
       this.canvas.setZoom(this.zoom);
       this.applyEditorViewportTransform(this.zoom);
       this.syncArtworkBoundaryLines();
+      if (Math.abs(previousZoom - this.zoom) >= 0.001) {
+        this.notifyZoom();
+      }
       this.canvas.requestRenderAll();
       this.notifyChange();
     }
@@ -1621,16 +1677,16 @@ export class CanvasManager {
 
   public setZoom(newZoom: number, pivotPoint?: { clientX?: number; clientY?: number }): void {
     if (!this.canvas) return;
-    // Zoom is stored as a ratio: 1% = 0.01, 55% = 0.55, 100% = 1.00.
-    // Quantizing here keeps every input path (wheel, buttons, keyboard and
-    // direct percentage entry) on the same Canva-style one-percent scale.
+    // Keep fractional zoom values. One-percent jumps are very large on wide
+    // banner artwork and make trackpad zoom look like it is snapping.
+    const maxEditorZoom = this.getMaxEditorZoom();
     const clampedZoom = Math.min(
-      Math.max(Math.round(newZoom * 100) / 100, 0.01),
-      8.0
+      Math.max(newZoom, Math.min(0.01, maxEditorZoom)),
+      maxEditorZoom
     );
 
     if (
-      Math.abs(clampedZoom - this.zoom) < 0.001 &&
+      Math.abs(clampedZoom - this.zoom) < 0.00000001 &&
       this.pendingZoom === null &&
       this.zoomAnimationFrame === null
     ) {
@@ -1686,7 +1742,7 @@ export class CanvasManager {
         const mouseViewportX = clientX - viewportRect.left;
         const mouseViewportY = clientY - viewportRect.top;
 
-        const safeOldZoom = Math.max(oldZoom, 0.01);
+        const safeOldZoom = Math.max(oldZoom, 0.001);
         const designX = (clientX - wrapperRect.left) / safeOldZoom;
         const designY = (clientY - wrapperRect.top) / safeOldZoom;
 
@@ -1750,12 +1806,12 @@ export class CanvasManager {
 
   public zoomIn(): void {
     const current = this.pendingZoom !== null ? this.pendingZoom : this.zoom;
-    this.setZoom(Math.min(current + 0.01, 8.0));
+    this.setZoom(current * 1.1);
   }
 
   public zoomOut(): void {
     const current = this.pendingZoom !== null ? this.pendingZoom : this.zoom;
-    this.setZoom(Math.max(current - 0.01, 0.01));
+    this.setZoom(current / 1.1);
   }
 
   public resetZoom(): void {

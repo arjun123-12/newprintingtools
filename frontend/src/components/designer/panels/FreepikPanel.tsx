@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search,
   Loader2,
@@ -170,6 +170,73 @@ const QUICK_SEARCH_CHIPS = [
   'mockup',
 ];
 
+interface FreepikSearchInputProps {
+  value: string;
+  onSearchChange: (value: string) => void;
+}
+
+const FreepikSearchInput = React.memo(function FreepikSearchInput({
+  value,
+  onSearchChange,
+}: FreepikSearchInputProps) {
+  const [draft, setDraft] = useState(value);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setDraft(value);
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }, [value]);
+
+  useEffect(
+    () => () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    },
+    []
+  );
+
+  const handleChange = (nextValue: string) => {
+    setDraft(nextValue);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      debounceTimerRef.current = null;
+      onSearchChange(nextValue);
+    }, 380);
+  };
+
+  const clearSearch = () => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = null;
+    setDraft('');
+    onSearchChange('');
+  };
+
+  return (
+    <div className="relative">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+      <input
+        type="text"
+        value={draft}
+        onChange={(event) => handleChange(event.target.value)}
+        placeholder="Search millions of photos, vectors, icons..."
+        className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-slate-200 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs"
+      />
+      {draft && (
+        <button
+          type="button"
+          onClick={clearSearch}
+          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition"
+          title="Clear search"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
+  );
+});
+
 export const FreepikPanel: React.FC<FreepikPanelProps> = ({
   canvasManager,
 }) => {
@@ -177,7 +244,6 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
    * Default view = nature photos
    */
   const [query, setQuery] = useState('nature');
-  const [debouncedQuery, setDebouncedQuery] = useState('nature');
 
   const [mediaType, setMediaType] =
     useState<FreepikMediaType>('all');
@@ -202,17 +268,6 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
     useState<FreepikAsset | null>(null);
 
   /**
-   * Debounce search input
-   */
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(query);
-    }, 380);
-
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  /**
    * Search Freepik media
    *
    * IMPORTANT:
@@ -232,7 +287,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
          * If query is empty, use nature.
          */
         const searchQuery =
-          debouncedQuery.trim() || 'nature';
+          query.trim() || 'nature';
 
         /**
          * All = nature photos only.
@@ -299,7 +354,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
         setLoading(false);
       }
     },
-    [debouncedQuery, mediaType]
+    [query, mediaType]
   );
 
   /**
@@ -637,33 +692,7 @@ export const FreepikPanel: React.FC<FreepikPanelProps> = ({
         </div>
 
         {/* Search Input */}
-        <div className="relative">
-
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-
-          <input
-            type="text"
-            value={query}
-            onChange={(e) =>
-              setQuery(e.target.value)
-            }
-            placeholder="Search millions of photos, vectors, icons..."
-            className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-slate-200 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition shadow-2xs"
-          />
-
-          {query && (
-            <button
-              type="button"
-              onClick={() =>
-                setQuery('')
-              }
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition"
-              title="Clear search"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+        <FreepikSearchInput value={query} onSearchChange={setQuery} />
 
         {/* =========================================
             MEDIA TYPE FILTER TABS

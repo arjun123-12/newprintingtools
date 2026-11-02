@@ -291,14 +291,24 @@ export function DesignerCanvas({
         if (!manager) return;
 
         const currentZoom = manager.getTargetZoom();
-        const direction = e.deltaY === 0 ? 0 : e.deltaY > 0 ? -1 : 1;
-        const nextZoom = Math.min(
-          Math.max(
-            Math.round((currentZoom + direction * 0.01) * 100) / 100,
-            0.01
-          ),
-          8.0
+        const deltaPixels =
+          e.deltaMode === WheelEvent.DOM_DELTA_LINE
+            ? e.deltaY * 16
+            : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+              ? e.deltaY * viewport.clientHeight
+              : e.deltaY;
+        const boundedDelta = Math.max(-120, Math.min(120, deltaPixels));
+        const dimensions = manager.getDimensions();
+        const artworkWidth = dimensions.totalWidthPx || dimensions.widthPx || 1063;
+        const displayedArtworkWidth = Math.max(artworkWidth * currentZoom, 1);
+        // Keep each wheel notch to roughly a small, consistent screen-space
+        // movement. A fixed percentage causes huge jumps on wide banners.
+        const relativeStep = Math.min(
+          0.04,
+          Math.max(0.005, 16 / displayedArtworkWidth)
         );
+        const zoomFactor = Math.exp(-(boundedDelta / 100) * relativeStep);
+        const nextZoom = currentZoom * zoomFactor;
 
         manager.setZoom(nextZoom, { clientX: e.clientX, clientY: e.clientY });
       }
@@ -727,7 +737,6 @@ export function DesignerCanvas({
         (activeObject as any).getObjects().forEach((o: any) => o.setCoords?.());
       }
       canvas.requestRenderAll();
-      canvasManager.notifySelection();
 
       movedViaKeys = true;
 

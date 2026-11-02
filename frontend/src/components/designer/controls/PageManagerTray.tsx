@@ -54,6 +54,9 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
 
   // Initialize and synchronize thumbnails from incoming `pages` prop
   useEffect(() => {
+    let cancelled = false;
+    const pagesNeedingThumbnails: Array<{ page: PageData; index: number }> = [];
+
     pages.forEach((page, idx) => {
       if (page.thumbnail) {
         setLiveThumbnails((prev) => {
@@ -61,19 +64,47 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
           return { ...prev, [idx]: page.thumbnail! };
         });
       } else if (
+        // The active page is captured from the live canvas below. Rendering it
+        // again from JSON during startup competes with the editor's first paint.
+        idx !== activePageIndex &&
         page.canvasJson &&
         (page.canvasJson.objects?.length > 0 || page.canvasJson.background)
       ) {
-        // Automatically render thumbnail from canvas JSON offscreen
-        void renderCanvasJsonToThumbnail(page.canvasJson, 320, 200).then((thumb) => {
-          if (thumb) {
-            setLiveThumbnails((prev) => ({ ...prev, [idx]: thumb }));
-            onUpdatePageThumbnailRef.current?.(idx, thumb);
-          }
-        });
+        pagesNeedingThumbnails.push({ page, index: idx });
       }
     });
-  }, [pages]);
+
+    // Defer non-active page previews until after the initial editor paint and
+    // render them one at a time so large documents do not create a startup burst.
+    let nextPageTimer: ReturnType<typeof setTimeout> | null = null;
+    const renderNextThumbnail = async (position: number) => {
+      if (cancelled || position >= pagesNeedingThumbnails.length) return;
+
+      const { page, index } = pagesNeedingThumbnails[position];
+      const thumb = await renderCanvasJsonToThumbnail(page.canvasJson, 320, 200);
+      if (!cancelled && thumb) {
+        setLiveThumbnails((prev) => ({ ...prev, [index]: thumb }));
+        onUpdatePageThumbnailRef.current?.(index, thumb);
+      }
+
+      if (!cancelled && position + 1 < pagesNeedingThumbnails.length) {
+        nextPageTimer = setTimeout(() => {
+          void renderNextThumbnail(position + 1);
+        }, 100);
+      }
+    };
+
+    if (pagesNeedingThumbnails.length > 0) {
+      nextPageTimer = setTimeout(() => {
+        void renderNextThumbnail(0);
+      }, 1000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (nextPageTimer) clearTimeout(nextPageTimer);
+    };
+  }, [pages, activePageIndex]);
 
   // Real-time canvas listener: continuously updates active page thumbnail on any canvas modification
   useEffect(() => {
@@ -329,4 +360,3 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
 };
 
 export default PageManagerTray;
-
