@@ -187,7 +187,10 @@ export class CanvasGuides {
   }
 
   public getMarginPx(): number {
-    return Math.max(0, Number(this.dimensions.marginPx ?? 0));
+    return Math.max(
+      0,
+      Number(this.dimensions.marginPx ?? this.dimensions.safeZonePx ?? 0)
+    );
   }
 
   public getMarginMm(): number {
@@ -405,7 +408,10 @@ export class CanvasGuides {
           ctx.stroke();
         }
       } else {
-        const marginPx = Math.max(0, Number(this.dimensions.marginPx ?? 0));
+        const marginPx = Math.max(
+          0,
+          Number(this.dimensions.marginPx ?? this.dimensions.safeZonePx ?? 0)
+        );
         const safeInset = Math.min(
           marginPx,
           Math.max(0, Math.min(trimWidth, trimHeight) / 2 - 1)

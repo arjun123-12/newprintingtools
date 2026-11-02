@@ -320,11 +320,15 @@ export class SmartSpacingManager {
   ): void {
     if (!this.canvas || this.activeMeasurements.length === 0) return;
 
-    const viewportZoom = Math.max(this.canvas.getZoom() || 1, 0.01);
+    const vpt = this.canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
     const displayZoom = this.getDisplayZoom(fallbackZoom);
 
     ctx.save();
-    ctx.scale(viewportZoom, viewportZoom);
+    // Fabric's after:render fires on raw backing-store coordinates after
+    // restoring the canvas context. Apply canvas.viewportTransform so all
+    // document-space measurement coordinates and badge positions properly include
+    // the editor pasteboard offset (vpt[4], vpt[5]) and pan/zoom transform (vpt[0], vpt[3]).
+    ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
 
     for (const m of this.activeMeasurements) {
       const isHoriz = m.type === 'horizontal';

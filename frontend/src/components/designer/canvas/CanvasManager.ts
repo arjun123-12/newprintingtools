@@ -283,6 +283,7 @@ export interface AltDragState {
   clonedPlaced: boolean;
   hasMoved: boolean;
   altKeyDownAtStart: boolean;
+  clonedObject?: FabricObject | null;
 }
 
 export type ImagePlacementOptions = Partial<FabricObject> & {
@@ -542,6 +543,7 @@ export class CanvasManager {
     currentCropState?: FrameCropState;
   } | null = null;
   private altDragState: AltDragState | null = null;
+  private dragStartObjectPos: { left: number; top: number; index: number } | null = null;
 
   // Event Listeners
   private selectionListeners: Set<SelectionEventCallback> = new Set();
@@ -733,11 +735,19 @@ export class CanvasManager {
       (canvas as any)._renderBackground = (ctx: CanvasRenderingContext2D) => {
         origRenderBackground(ctx);
         // Fabric paints its background before applying viewportTransform, so
-        // the guides need the editor pasteboard offset applied explicitly.
-        const guideOffset = this.getWorkspacePaddingPx() * this.zoom;
+        // the guides need the editor pasteboard offset and pan applied explicitly.
+        const fallbackOffset = this.getWorkspacePaddingPx() * this.zoom;
+        const vpt = (canvas as any).viewportTransform || [
+          this.zoom,
+          0,
+          0,
+          this.zoom,
+          fallbackOffset,
+          fallbackOffset,
+        ];
         ctx.save();
-        ctx.translate(guideOffset, guideOffset);
-        this.guides.renderGuides(ctx, this.zoom);
+        ctx.translate(vpt[4], vpt[5]);
+        this.guides.renderGuides(ctx, vpt[0] || this.zoom);
         ctx.restore();
       };
     }
@@ -755,6 +765,7 @@ export class CanvasManager {
     this.ensureUpperCanvasNonDraggable();
     this.guides.attach(canvas);
     this.snapping.attach(canvas);
+    this.snapping.setUserGuidesProvider(() => this.guides.getUserGuides());
     this.smartSpacingManager.attach(canvas);
     this.bindEvents();
     canvas.calcOffset();
@@ -2837,6 +2848,48 @@ export class CanvasManager {
       console.error('Could not duplicate selected object:', error);
       return null;
     }
+  }
+
+  /**
+   * Smoothly inserts a stationary duplicate at the drag start position while Alt-dragging.
+   * Keeps the stationary clone non-evented during the active drag so pointer focus never stutters.
+   */
+  private placeStationaryClone(state: AltDragState, cloned: FabricObject): void {
+    if (state.clonedPlaced || !this.canvas) return;
+    state.clonedPlaced = true;
+
+    this.ensureObjectId(cloned, `${state.target.get('name' as any) || 'Object'} (Original)`, true);
+    cloned.set({
+      left: state.initialLeft,
+      top: state.initialTop,
+      evented: false,
+      selectable: false,
+    });
+
+    if (cloned instanceof ActiveSelection) {
+      cloned.canvas = this.canvas;
+      let idx = state.initialIndex >= 0 ? state.initialIndex : 0;
+      cloned.forEachObject((obj) => {
+        this.ensureObjectId(obj, `${obj.get('name' as any) || 'Object'} (Original)`, true);
+        obj.set({
+          evented: false,
+          selectable: false,
+        });
+        applyCanvaControlsToObject(obj);
+        this.restoreObjectInteractivity(obj);
+        obj.setCoords();
+        this.canvas?.insertAt(idx++, obj);
+      });
+    } else {
+      applyCanvaControlsToObject(cloned);
+      this.restoreObjectInteractivity(cloned);
+      cloned.setCoords();
+      const idx = state.initialIndex >= 0 ? state.initialIndex : 0;
+      this.canvas.insertAt(idx, cloned);
+    }
+
+    this.syncVisualEffectsGeometry(cloned);
+    this.canvas.requestRenderAll();
   }
 
   // --- Canva Grouping & Ungrouping Engine ---
@@ -12009,6 +12062,7 @@ export class CanvasManager {
         const initialLeft = effectiveTarget.left || 0;
         const initialTop = effectiveTarget.top || 0;
         const initialIndex = this.canvas.getObjects().indexOf(effectiveTarget);
+        const clonePromise = this.cloneCanvasObject(effectiveTarget);
 
         this.altDragState = {
           target: effectiveTarget,
@@ -12017,11 +12071,23 @@ export class CanvasManager {
           initialLeft,
           initialTop,
           initialIndex: initialIndex >= 0 ? initialIndex : this.canvas.getObjects().length,
-          clonePromise: this.cloneCanvasObject(effectiveTarget),
+          clonePromise,
           clonedPlaced: false,
           hasMoved: false,
           altKeyDownAtStart: true,
+          clonedObject: null,
         };
+
+        this.canvas.setCursor('copy');
+
+        void clonePromise.then((cloned) => {
+          if (this.altDragState && this.altDragState.target === effectiveTarget) {
+            this.altDragState.clonedObject = cloned;
+            if (this.altDragState.hasMoved && !this.altDragState.clonedPlaced) {
+              this.placeStationaryClone(this.altDragState, cloned);
+            }
+          }
+        });
       }
 
       if (target && typeof target.get === 'function') {
@@ -12045,6 +12111,12 @@ export class CanvasManager {
       const transform = opt?.transform;
       const target = transform?.target;
       if (!target || this.isNonInteractiveObject(target)) return;
+
+      this.dragStartObjectPos = {
+        left: target.left || 0,
+        top: target.top || 0,
+        index: this.canvas ? this.canvas.getObjects().indexOf(target) : 0,
+      };
 
       this.snapping.beginDrag(target);
 
@@ -12183,7 +12255,7 @@ export class CanvasManager {
       }
 
       // Canva-style copy cursor when holding Alt over an interactive canvas object
-      if (opt.e?.altKey && !this.isPanMode && !this.isDrawing) {
+      if (opt.e?.altKey && !this.isPanMode && !this.isDrawing && !this.altDragState && !(this.canvas as any)._currentTransform) {
         const hoverTarget =
           opt.target ||
           (typeof (this.canvas as any).findTarget === 'function'
@@ -12256,22 +12328,73 @@ export class CanvasManager {
         const state = this.altDragState;
         this.altDragState = null;
 
-        if (state.clonedPlaced) {
-          // Alt-drag completed: finalize history and layer updates
-          void state.clonePromise.then(() => {
-            if (!this.canvas) return;
-            this.canvas.requestRenderAll();
-            this.notifyChange();
-            this.notifySelection();
-            this.notifyLayers();
-            this.saveHistoryState();
-          });
-        } else {
-          // Alt-click completed (no drag): duplicate element with +20, +20 offset like Canva
+        // Restore default canvas cursor
+        if (this.canvas) {
+          this.canvas.defaultCursor = BLACK_ARTWORK_CURSOR;
+          this.canvas.setCursor(BLACK_ARTWORK_CURSOR);
+        }
+
+        const currentLeft = state.target.left ?? state.initialLeft;
+        const currentTop = state.target.top ?? state.initialTop;
+        const movedDist = Math.hypot(
+          currentLeft - state.initialLeft,
+          currentTop - state.initialTop
+        );
+        const isDrag = state.hasMoved || movedDist >= 3 || state.clonedPlaced;
+
+        if (isDrag) {
+          // --- ALT-DRAG COMPLETED ---
           void (async () => {
             try {
-              const cloned = await state.clonePromise;
+              const cloned = state.clonedObject || await state.clonePromise;
               if (!this.canvas) return;
+
+              if (!state.clonedPlaced) {
+                this.placeStationaryClone(state, cloned);
+              }
+
+              // Make stationary clone fully interactive now that drag transform is complete
+              if (cloned instanceof ActiveSelection) {
+                cloned.forEachObject((obj) => {
+                  obj.set({ evented: true, selectable: true });
+                  obj.setCoords();
+                });
+              } else {
+                cloned.set({ evented: true, selectable: true });
+                cloned.setCoords();
+              }
+
+              // Name the dragged duplicate and keep it active/selected
+              this.ensureObjectId(state.target, `${state.target.get('name' as any) || 'Object'} (Copy)`, true);
+              this.canvas.setActiveObject(state.target);
+              state.target.setCoords();
+
+              this.syncVisualEffectsGeometry(state.target);
+              this.syncVisualEffectsGeometry(cloned);
+              this.canvas.requestRenderAll();
+
+              this.notifyChange();
+              this.notifySelection();
+              this.notifyLayers();
+              this.saveHistoryState();
+            } catch (err) {
+              console.error('Failed to finalize Alt-drag duplicate:', err);
+            }
+          })();
+        } else {
+          // --- ALT-CLICK COMPLETED (NO DRAG) ---
+          // Reset any minor pointer tremble back to exact initial position
+          state.target.set({
+            left: state.initialLeft,
+            top: state.initialTop,
+          });
+          state.target.setCoords();
+
+          void (async () => {
+            try {
+              const cloned = state.clonedObject || await state.clonePromise;
+              if (!this.canvas) return;
+
               this.canvas.discardActiveObject();
               this.ensureObjectId(cloned, `${state.target.get('name' as any) || 'Object'} (Copy)`, true);
 
@@ -12689,6 +12812,20 @@ export class CanvasManager {
         this.snapping.beginDrag(opt.target);
       }
 
+      // Synchronously mark move distance so fast drags are never misclassified as clicks
+      if (this.altDragState && !this.altDragState.hasMoved) {
+        const movedDist = Math.hypot(
+          (opt.target.left || 0) - this.altDragState.initialLeft,
+          (opt.target.top || 0) - this.altDragState.initialTop
+        );
+        if (movedDist >= 3) {
+          this.altDragState.hasMoved = true;
+          if (this.altDragState.clonedObject && !this.altDragState.clonedPlaced) {
+            this.placeStationaryClone(this.altDragState, this.altDragState.clonedObject);
+          }
+        }
+      }
+
       this.pendingMoveTarget = opt.target;
       this.pendingMoveOpt = opt;
       this.pendingMovePointer =
@@ -12716,40 +12853,17 @@ export class CanvasManager {
             (target.top || 0) - this.altDragState.initialTop
           );
           if (dist >= 3) {
-            this.altDragState.clonedPlaced = true;
             this.altDragState.hasMoved = true;
-            const state = this.altDragState;
-            void state.clonePromise.then((cloned) => {
-              if (!this.canvas) return;
-              this.ensureObjectId(cloned, `${state.target.get('name' as any) || 'Object'} (Original)`, true);
-              cloned.set({
-                left: state.initialLeft,
-                top: state.initialTop,
-                evented: true,
-                selectable: true,
+            if (this.altDragState.clonedObject) {
+              this.placeStationaryClone(this.altDragState, this.altDragState.clonedObject);
+            } else {
+              const state = this.altDragState;
+              void state.clonePromise.then((cloned) => {
+                if (this.altDragState === state && state.hasMoved && !state.clonedPlaced) {
+                  this.placeStationaryClone(state, cloned);
+                }
               });
-
-              if (cloned instanceof ActiveSelection) {
-                cloned.canvas = this.canvas;
-                let idx = state.initialIndex >= 0 ? state.initialIndex : 0;
-                cloned.forEachObject((obj) => {
-                  this.ensureObjectId(obj, `${obj.get('name' as any) || 'Object'} (Original)`, true);
-                  applyCanvaControlsToObject(obj);
-                  this.restoreObjectInteractivity(obj);
-                  obj.setCoords();
-                  this.canvas?.insertAt(idx++, obj);
-                });
-              } else {
-                applyCanvaControlsToObject(cloned);
-                this.restoreObjectInteractivity(cloned);
-                cloned.setCoords();
-                const idx = state.initialIndex >= 0 ? state.initialIndex : this.canvas.getObjects().length;
-                this.canvas.insertAt(idx, cloned);
-              }
-
-              this.syncVisualEffectsGeometry(cloned);
-              this.canvas.requestRenderAll();
-            });
+            }
           }
         } else if (
           !this.altDragState &&
@@ -12765,10 +12879,10 @@ export class CanvasManager {
             !this.isPanMode &&
             !this.isDrawing
           ) {
-            const origTransform = currentOpt?.transform?.original;
-            const initialLeft = origTransform?.left ?? target.left ?? 0;
-            const initialTop = origTransform?.top ?? target.top ?? 0;
-            const initialIndex = this.canvas ? this.canvas.getObjects().indexOf(target) : 0;
+            const initialLeft = this.dragStartObjectPos?.left ?? target.left ?? 0;
+            const initialTop = this.dragStartObjectPos?.top ?? target.top ?? 0;
+            const initialIndex = this.dragStartObjectPos?.index ?? (this.canvas ? this.canvas.getObjects().indexOf(target) : 0);
+            const clonePromise = this.cloneCanvasObject(target);
             this.altDragState = {
               target,
               startX: currentOpt?.e?.clientX || 0,
@@ -12776,40 +12890,20 @@ export class CanvasManager {
               initialLeft,
               initialTop,
               initialIndex: initialIndex >= 0 ? initialIndex : 0,
-              clonePromise: this.cloneCanvasObject(target),
-              clonedPlaced: true,
+              clonePromise,
+              clonedPlaced: false,
               hasMoved: true,
               altKeyDownAtStart: false,
+              clonedObject: null,
             };
             const state = this.altDragState;
-            void state.clonePromise.then((cloned) => {
-              if (!this.canvas) return;
-              this.ensureObjectId(cloned, `${target.get('name' as any) || 'Object'} (Original)`, true);
-              cloned.set({
-                left: state.initialLeft,
-                top: state.initialTop,
-                evented: true,
-                selectable: true,
-              });
-              if (cloned instanceof ActiveSelection) {
-                cloned.canvas = this.canvas;
-                let idx = state.initialIndex >= 0 ? state.initialIndex : 0;
-                cloned.forEachObject((obj) => {
-                  this.ensureObjectId(obj, `${obj.get('name' as any) || 'Object'} (Original)`, true);
-                  applyCanvaControlsToObject(obj);
-                  this.restoreObjectInteractivity(obj);
-                  obj.setCoords();
-                  this.canvas?.insertAt(idx++, obj);
-                });
-              } else {
-                applyCanvaControlsToObject(cloned);
-                this.restoreObjectInteractivity(cloned);
-                cloned.setCoords();
-                const idx = state.initialIndex >= 0 ? state.initialIndex : this.canvas.getObjects().length;
-                this.canvas.insertAt(idx, cloned);
+            void clonePromise.then((cloned) => {
+              if (this.altDragState === state) {
+                state.clonedObject = cloned;
+                if (!state.clonedPlaced) {
+                  this.placeStationaryClone(state, cloned);
+                }
               }
-              this.syncVisualEffectsGeometry(cloned);
-              this.canvas.requestRenderAll();
             });
           }
         }

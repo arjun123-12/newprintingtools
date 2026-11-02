@@ -1,12 +1,13 @@
 import { Canvas, FabricObject } from 'fabric';
 import { CanvasDimensions } from '@/types/designer';
+import { UserRulerGuide } from './CanvasGuides';
 
 export interface AlignmentGuide {
   type: 'vertical' | 'horizontal';
   pos: number; // X for vertical, Y for horizontal
   start: number; // Y1 for vertical, X1 for horizontal
   end: number; // Y2 for vertical, X2 for horizontal
-  category: 'canvas-center' | 'object-edge' | 'object-center' | 'spacing' | 'canvas-edge' | 'safe-area';
+  category: 'canvas-center' | 'object-edge' | 'object-center' | 'spacing' | 'canvas-edge' | 'safe-area' | 'user-guide';
   label?: string;
   spacingDist?: number;
 }
@@ -68,10 +69,15 @@ export class CanvasSnapping {
   private cachedBoundaries: CachedPrintBoundaries | null = null;
   private cachedOtherBounds: StationaryObjectBound[] = [];
   private isDragging: boolean = false;
+  private userGuidesProvider?: () => UserRulerGuide[];
 
   constructor(dimensions: CanvasDimensions) {
     this.dimensions = dimensions;
     this.recomputeBoundaries();
+  }
+
+  public setUserGuidesProvider(provider: () => UserRulerGuide[]): void {
+    this.userGuidesProvider = provider;
   }
 
   public attach(canvas: Canvas): void {
@@ -402,6 +408,73 @@ export class CanvasSnapping {
             }
           }
         }
+
+        // Vertical user ruler guides
+        if (!snappedX && this.userGuidesProvider) {
+          const userGuides = this.userGuidesProvider();
+          if (Array.isArray(userGuides)) {
+            for (const uGuide of userGuides) {
+              if (uGuide.orientation !== 'vertical') continue;
+              const distCenter = Math.abs(targetCenterX - uGuide.posPx);
+              const distLeft = Math.abs(targetLeft - uGuide.posPx);
+              const distRight = Math.abs(targetRight - uGuide.posPx);
+              const limit = this.lastSnapX === uGuide.posPx ? breakoutThreshold : threshold;
+
+              if (distCenter <= limit) {
+                const deltaX = uGuide.posPx - targetCenterX;
+                target.set('left', (target.left || 0) + deltaX);
+                targetLeft += deltaX;
+                targetRight += deltaX;
+                targetCenterX = uGuide.posPx;
+                snappedX = true;
+                this.lastSnapX = uGuide.posPx;
+                this.activeGuides.push({
+                  type: 'vertical',
+                  pos: uGuide.posPx,
+                  start: 0,
+                  end: b.artworkH,
+                  category: 'user-guide',
+                  label: 'Guide',
+                });
+                break;
+              } else if (distLeft <= limit) {
+                const deltaX = uGuide.posPx - targetLeft;
+                target.set('left', (target.left || 0) + deltaX);
+                targetLeft = uGuide.posPx;
+                targetRight = targetLeft + targetW;
+                targetCenterX = targetLeft + targetW / 2;
+                snappedX = true;
+                this.lastSnapX = uGuide.posPx;
+                this.activeGuides.push({
+                  type: 'vertical',
+                  pos: uGuide.posPx,
+                  start: 0,
+                  end: b.artworkH,
+                  category: 'user-guide',
+                  label: 'Guide',
+                });
+                break;
+              } else if (distRight <= limit) {
+                const deltaX = uGuide.posPx - targetRight;
+                target.set('left', (target.left || 0) + deltaX);
+                targetRight = uGuide.posPx;
+                targetLeft = targetRight - targetW;
+                targetCenterX = targetLeft + targetW / 2;
+                snappedX = true;
+                this.lastSnapX = uGuide.posPx;
+                this.activeGuides.push({
+                  type: 'vertical',
+                  pos: uGuide.posPx,
+                  start: 0,
+                  end: b.artworkH,
+                  category: 'user-guide',
+                  label: 'Guide',
+                });
+                break;
+              }
+            }
+          }
+        }
       }
 
       // If X didn't snap to any boundary, clear X snap lock
@@ -535,6 +608,73 @@ export class CanvasSnapping {
                 label: 'Fold',
               });
               break;
+            }
+          }
+        }
+
+        // Horizontal user ruler guides
+        if (!snappedY && this.userGuidesProvider) {
+          const userGuides = this.userGuidesProvider();
+          if (Array.isArray(userGuides)) {
+            for (const uGuide of userGuides) {
+              if (uGuide.orientation !== 'horizontal') continue;
+              const distCenter = Math.abs(targetCenterY - uGuide.posPx);
+              const distTop = Math.abs(targetTop - uGuide.posPx);
+              const distBottom = Math.abs(targetBottom - uGuide.posPx);
+              const limit = this.lastSnapY === uGuide.posPx ? breakoutThreshold : threshold;
+
+              if (distCenter <= limit) {
+                const deltaY = uGuide.posPx - targetCenterY;
+                target.set('top', (target.top || 0) + deltaY);
+                targetTop += deltaY;
+                targetBottom += deltaY;
+                targetCenterY = uGuide.posPx;
+                snappedY = true;
+                this.lastSnapY = uGuide.posPx;
+                this.activeGuides.push({
+                  type: 'horizontal',
+                  pos: uGuide.posPx,
+                  start: 0,
+                  end: b.artworkW,
+                  category: 'user-guide',
+                  label: 'Guide',
+                });
+                break;
+              } else if (distTop <= limit) {
+                const deltaY = uGuide.posPx - targetTop;
+                target.set('top', (target.top || 0) + deltaY);
+                targetTop = uGuide.posPx;
+                targetBottom = targetTop + targetH;
+                targetCenterY = targetTop + targetH / 2;
+                snappedY = true;
+                this.lastSnapY = uGuide.posPx;
+                this.activeGuides.push({
+                  type: 'horizontal',
+                  pos: uGuide.posPx,
+                  start: 0,
+                  end: b.artworkW,
+                  category: 'user-guide',
+                  label: 'Guide',
+                });
+                break;
+              } else if (distBottom <= limit) {
+                const deltaY = uGuide.posPx - targetBottom;
+                target.set('top', (target.top || 0) + deltaY);
+                targetBottom = uGuide.posPx;
+                targetTop = targetBottom - targetH;
+                targetCenterY = targetTop + targetH / 2;
+                snappedY = true;
+                this.lastSnapY = uGuide.posPx;
+                this.activeGuides.push({
+                  type: 'horizontal',
+                  pos: uGuide.posPx,
+                  start: 0,
+                  end: b.artworkW,
+                  category: 'user-guide',
+                  label: 'Guide',
+                });
+                break;
+              }
             }
           }
         }
@@ -837,13 +977,15 @@ export class CanvasSnapping {
       return;
     }
 
-    const viewportZoom = Math.max(this.canvas.getZoom() || 1, 0.01);
+    const vpt = this.canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
     const displayZoom = this.getDisplayZoom(zoom);
 
     ctx.save();
-    // Fabric renders the guide in backing-store coordinates; CSS applies the
-    // remaining display-only scale afterwards.
-    ctx.scale(viewportZoom, viewportZoom);
+    // Fabric's after:render fires on raw backing-store coordinates after
+    // restoring the canvas context. Apply canvas.viewportTransform so all
+    // document-space guide coordinates (pos, start, end, badges) properly include
+    // the editor pasteboard offset (vpt[4], vpt[5]) and pan/zoom transform (vpt[0], vpt[3]).
+    ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
 
     // 1. Draw Alignment Guide Lines
     for (const guide of this.activeGuides) {
@@ -862,6 +1004,10 @@ export class CanvasSnapping {
         // Trim Cut Edge or Fold Guide: Slate or Royal Blue
         ctx.strokeStyle = guide.label === 'Fold' ? '#3b82f6' : '#64748b';
         ctx.setLineDash([3 / displayZoom, 3 / displayZoom]);
+      } else if (guide.category === 'user-guide') {
+        // User Ruler Guide: Purple (#7d2ae8) dashed matching ruler guides
+        ctx.strokeStyle = '#7d2ae8';
+        ctx.setLineDash([4 / displayZoom, 3 / displayZoom]);
       } else {
         // Object Alignment: Vibrant Magenta (#d946ef) solid
         ctx.strokeStyle = '#d946ef';
@@ -884,6 +1030,8 @@ export class CanvasSnapping {
         ctx.fillStyle = '#10b981';
       } else if (guide.category === 'canvas-edge') {
         ctx.fillStyle = guide.label === 'Fold' ? '#3b82f6' : '#64748b';
+      } else if (guide.category === 'user-guide') {
+        ctx.fillStyle = '#7d2ae8';
       } else {
         ctx.fillStyle = '#d946ef';
       }
@@ -904,12 +1052,14 @@ export class CanvasSnapping {
 
     // 2. Draw Equal Spacing Badges
     for (const badge of this.spacingBadges) {
-      if (badge.orientation === 'horizontal') {
+      const isHoriz = badge.orientation === 'horizontal';
+      ctx.beginPath();
+      ctx.strokeStyle = '#ec4899';
+      ctx.lineWidth = 1.5 / displayZoom;
+      ctx.setLineDash([]);
+
+      if (isHoriz) {
         // Draw gap measurement line
-        ctx.beginPath();
-        ctx.strokeStyle = '#ec4899';
-        ctx.lineWidth = 1.5 / displayZoom;
-        ctx.setLineDash([]);
         ctx.moveTo(badge.x, badge.y);
         ctx.lineTo(badge.x + badge.width, badge.y);
         ctx.stroke();
@@ -922,7 +1072,11 @@ export class CanvasSnapping {
 
         ctx.fillStyle = '#ec4899';
         ctx.beginPath();
-        ctx.roundRect(pillX, pillY, pillW, pillH, 4 / displayZoom);
+        if (typeof (ctx as any).roundRect === 'function') {
+          (ctx as any).roundRect(pillX, pillY, pillW, pillH, 4 / displayZoom);
+        } else {
+          ctx.rect(pillX, pillY, pillW, pillH);
+        }
         ctx.fill();
 
         ctx.fillStyle = '#ffffff';
@@ -930,6 +1084,31 @@ export class CanvasSnapping {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(`${badge.dist}px`, badge.x + badge.width / 2, badge.y);
+      } else {
+        // Vertical gap measurement line
+        ctx.moveTo(badge.x, badge.y);
+        ctx.lineTo(badge.x, badge.y + badge.height);
+        ctx.stroke();
+
+        const pillW = 36 / displayZoom;
+        const pillH = 16 / displayZoom;
+        const pillX = badge.x - pillW / 2;
+        const pillY = badge.y + badge.height / 2 - pillH / 2;
+
+        ctx.fillStyle = '#ec4899';
+        ctx.beginPath();
+        if (typeof (ctx as any).roundRect === 'function') {
+          (ctx as any).roundRect(pillX, pillY, pillW, pillH, 4 / displayZoom);
+        } else {
+          ctx.rect(pillX, pillY, pillW, pillH);
+        }
+        ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${9 / displayZoom}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${badge.dist}px`, badge.x, badge.y + badge.height / 2);
       }
     }
 
