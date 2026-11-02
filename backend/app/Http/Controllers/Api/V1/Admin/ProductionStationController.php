@@ -113,15 +113,28 @@ class ProductionStationController extends Controller
 
                 $isEligible = $targetStatus && in_array($currentStatus, $station['from'], true);
                 if ($stage === 'printing' && $currentStatus === 'approved') {
-                    $isEligible = $isEligible && ($order->payment_status->value ?? (string) $order->payment_status) === 'paid';
+                    $isPaid = ($order->payment_status->value ?? (string) $order->payment_status) === 'paid';
+                    if (!$isPaid) {
+                        throw ValidationException::withMessages([
+                            'order' => 'Payment warning: this order is not paid yet, so printing cannot start.',
+                        ]);
+                    }
+                    $isEligible = $isEligible && $isPaid;
                 }
                 if ($stage === 'handed_over_to_courier' && str_contains(strtolower((string) $order->delivery_method), 'pickup')) {
-                    $isEligible = false;
+                    throw ValidationException::withMessages([
+                        'order' => 'Delivery warning: this order is for store pickup. Scan it at the Collected station instead of Courier Handoff.',
+                    ]);
                 }
 
                 if (!$isEligible) {
+                    $currentLabel = OrderStatus::tryFrom($currentStatus)?->label() ?? ucwords(str_replace('_', ' ', $currentStatus));
+                    $requiredLabels = collect($station['from'])
+                        ->map(fn (string $status) => OrderStatus::tryFrom($status)?->label() ?? ucwords(str_replace('_', ' ', $status)))
+                        ->unique()
+                        ->implode(' or ');
                     throw ValidationException::withMessages([
-                        'order' => 'This order is no longer eligible for this station. Refresh the queue and check its current status.',
+                        'order' => "Stage sequence warning: order {$order->order_number} is currently at {$currentLabel}; {$station['label']} expects {$requiredLabels} first. The status was not changed. Scan it at the required previous station or check the order history.",
                     ]);
                 }
 

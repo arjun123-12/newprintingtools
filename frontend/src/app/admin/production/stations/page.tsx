@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import QRCode from 'qrcode';
-import { ArrowLeft, Check, Download, Printer, QrCode, RefreshCw, Search, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, Download, Printer, QrCode, RefreshCw, ScanLine, Search, ShieldCheck, Video, VideoOff } from 'lucide-react';
 import { manualOrderService } from '@/services/admin/manualOrderService';
 
 const STATIONS = [
@@ -42,8 +42,16 @@ export default function ProductionStationsPage() {
   const [trackingNumber, setTrackingNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [scannerActive, setScannerActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const scanBusyRef = useRef(false);
+  const processingOrderRef = useRef(false);
+  const recentScansRef = useRef<Map<string, number>>(new Map());
+  const processedOrderQrRef = useRef<Set<string>>(new Set());
 
   const fetchStationOrders = useCallback(async (stage: string) => {
     setLoading(true);
@@ -99,6 +107,116 @@ export default function ProductionStationsPage() {
 
   const selectedOrder = orders.find((order) => order.id === selectedOrderId) || null;
 
+  const handleScannedOrderQr = useCallback(async (rawValue: string) => {
+    if (!station || processingOrderRef.current) return;
+    if (processedOrderQrRef.current.has(rawValue)) return;
+    const previousValueScanAt = recentScansRef.current.get(rawValue) || 0;
+    if (Date.now() - previousValueScanAt < 5000) return;
+    recentScansRef.current.set(rawValue, Date.now());
+    let orderId: string | null = null;
+    try {
+      const scannedUrl = new URL(rawValue);
+      if (scannedUrl.origin !== window.location.origin) {
+        setError('This QR is not an order label from this store. Scan the QR printed for the order.');
+        return;
+      }
+      const match = scannedUrl.pathname.match(/^\/admin\/orders\/([^/]+)\/?$/);
+      if (match) orderId = decodeURIComponent(match[1]);
+    } catch {
+      // The order label QR currently encodes the authenticated admin order URL.
+    }
+
+    if (!orderId) {
+      setError('Order QR not recognized. Use the Order QR from the order detail page.');
+      return;
+    }
+
+    processingOrderRef.current = true;
+    setUpdating(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await manualOrderService.completeProductionStationOrder(station.key, orderId);
+      const orderNumber = response?.data?.order_number || orderId;
+      const targetLabel = response?.data?.status_label || station.label;
+      processedOrderQrRef.current.add(rawValue);
+      setSuccess(`${orderNumber} scanned successfully · status updated to ${targetLabel}.`);
+      if ('vibrate' in navigator) navigator.vibrate?.(100);
+      await fetchStationOrders(station.key);
+    } catch (requestError: any) {
+      const message = requestError?.response?.data?.errors?.order?.[0]
+        || requestError?.response?.data?.message
+        || 'This order could not be moved at this station.';
+      recentScansRef.current.set(rawValue, Number.MAX_SAFE_INTEGER);
+      setError(message);
+    } finally {
+      processingOrderRef.current = false;
+      setUpdating(false);
+    }
+  }, [fetchStationOrders, station]);
+
+  useEffect(() => {
+    if (!scannerActive || !station) return;
+    let cancelled = false;
+    const startCamera = async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Camera access needs a secure HTTPS connection and a supported browser.');
+        }
+        const BarcodeDetectorConstructor = (window as any).BarcodeDetector;
+        if (!BarcodeDetectorConstructor) {
+          throw new Error('QR camera scanning is not supported by this browser. Use Chrome on Android or scan the order QR with a supported camera scanner.');
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (!videoRef.current) return;
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+
+        const detector = new BarcodeDetectorConstructor({ formats: ['qr_code'] });
+        const scanFrame = async () => {
+          const video = videoRef.current;
+          if (!video || cancelled) return;
+          if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && !scanBusyRef.current) {
+            scanBusyRef.current = true;
+            try {
+              const detected = await detector.detect(video);
+              const value = detected?.[0]?.rawValue;
+              if (value) await handleScannedOrderQr(value);
+            } catch (scanError) {
+              console.warn('Station QR scan frame failed:', scanError);
+            } finally {
+              scanBusyRef.current = false;
+            }
+          }
+          if (!cancelled) animationFrameRef.current = window.requestAnimationFrame(scanFrame);
+        };
+        animationFrameRef.current = window.requestAnimationFrame(scanFrame);
+      } catch (cameraError: any) {
+        setScannerActive(false);
+        setError(cameraError?.message || 'Could not open the camera. Allow camera permission and try again.');
+      }
+    };
+
+    void startCamera();
+    return () => {
+      cancelled = true;
+      if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
+      scanBusyRef.current = false;
+    };
+  }, [handleScannedOrderQr, scannerActive, station]);
+
   const handleComplete = async () => {
     if (!station || !selectedOrder) return;
     if (station.key === 'handed_over_to_courier' && (!carrier.trim() || !trackingNumber.trim())) {
@@ -149,7 +267,35 @@ export default function ProductionStationsPage() {
             <p className="mt-2 text-xs text-slate-400">Eligible orders only · {orders.length} waiting</p>
           </header>
 
-          {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{error}</div>}
+          <section className="rounded-2xl border border-sky-500/25 bg-slate-900 p-4">
+            <div className="flex items-start gap-3">
+              <ScanLine className="mt-0.5 h-5 w-5 shrink-0 text-sky-400" />
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-semibold text-white">Scan order label</h2>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">The machine QR sets this stage. Start the camera and scan the unique Order QR on each job label; eligible orders update automatically.</p>
+              </div>
+            </div>
+            {scannerActive ? (
+              <div className="mt-3 space-y-3">
+                <video ref={videoRef} autoPlay muted playsInline className="aspect-video w-full rounded-xl bg-black object-cover" aria-label="Order QR scanner camera" />
+                <button type="button" onClick={() => setScannerActive(false)} className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 px-4 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800"><VideoOff className="h-4 w-4" /> Stop scanner</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => { recentScansRef.current.clear(); setError(null); setScannerActive(true); }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500"><Video className="h-4 w-4" /> Start camera scanner</button>
+            )}
+            {updating && <p className="mt-2 text-center text-xs font-medium text-sky-300">Verifying order and updating status…</p>}
+          </section>
+
+          {error && (() => {
+            const warning = /^(stage sequence|payment|delivery) warning:/i.test(error);
+            const heading = error.startsWith('Stage sequence warning:') ? 'Stage sequence warning' : 'Order warning';
+            return (
+              <div role="alert" className={`flex items-start gap-2 rounded-xl border p-3 text-xs ${warning ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : 'border-rose-500/30 bg-rose-500/10 text-rose-300'}`}>
+                {warning && <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+                <div className="min-w-0">{warning && <p className="mb-1 font-semibold">{heading}</p>}{error}</div>
+              </div>
+            );
+          })()}
           {success && <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300">{success}</div>}
 
           <label className="relative block">
@@ -216,7 +362,7 @@ export default function ProductionStationsPage() {
         </header>
 
         <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 print:hidden">
-          <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" /><p>Staff must sign in. The machine QR identifies the stage; the admin then selects an eligible order and confirms. The server checks the stage transition, records who changed it, and sends the customer update.</p></div>
+          <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" /><p>Staff sign in and scan the fixed machine QR once. At that station, scan each order&apos;s unique Order QR label; eligible orders update automatically. The server checks the stage transition, records who changed it, and sends the customer update.</p></div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 print:grid-cols-2">
