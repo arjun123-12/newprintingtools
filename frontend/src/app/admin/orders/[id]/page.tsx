@@ -84,6 +84,7 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
   const [copied, setCopied] = useState(false);
   const [showOrderQr, setShowOrderQr] = useState(false);
   const [orderQrDataUrl, setOrderQrDataUrl] = useState<string | null>(null);
+  const [itemQrDataUrls, setItemQrDataUrls] = useState<Record<string, string>>({});
   const [isQrView, setIsQrView] = useState(false);
   const [showTurnaroundModal, setShowTurnaroundModal] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date>(() => new Date());
@@ -155,6 +156,19 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
     });
     return () => { cancelled = true; };
   }, [order?.id]);
+
+  useEffect(() => {
+    if (!order || typeof window === 'undefined') return;
+    let cancelled = false;
+    Promise.all(order.items.map(async (item) => {
+      const itemUrl = new URL(`/admin/orders/${encodeURIComponent(order.id)}?scan=1&itemQr=${encodeURIComponent(item.id)}`, window.location.origin).toString();
+      const dataUrl = await QRCode.toDataURL(itemUrl, { errorCorrectionLevel: 'M', margin: 2, width: 280 });
+      return [item.id, dataUrl] as const;
+    })).then((entries) => {
+      if (!cancelled) setItemQrDataUrls(Object.fromEntries(entries));
+    }).catch((qrError) => console.error('Could not generate product QR codes:', qrError));
+    return () => { cancelled = true; };
+  }, [order?.id, order?.items]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !new URLSearchParams(window.location.search).has('scan')) return;
@@ -750,6 +764,10 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
                       <p className="font-semibold text-slate-200 text-sm">{item.product_name}</p>
                       <p className="text-slate-400 mt-0.5">{item.specifications}</p>
                       <p className="text-slate-500 text-[11px] font-mono mt-1">SKU: {item.product_sku}</p>
+                      <div className="mt-2 flex items-center gap-2">
+                        {itemQrDataUrls[item.id] ? <img src={itemQrDataUrls[item.id]} alt={`${item.product_name} production QR`} className="h-16 w-16 rounded bg-white p-1" /> : <span className="text-[10px] text-slate-500">Generating product QR…</span>}
+                        {itemQrDataUrls[item.id] && <a href={itemQrDataUrls[item.id]} download={`${order.order_number}-${item.product_sku || item.id}-item-qr.png`} className="inline-flex items-center gap-1 rounded bg-slate-800 px-2 py-1.5 text-[10px] font-medium text-sky-300 hover:bg-slate-700"><Download className="h-3 w-3" /> Product QR</a>}
+                      </div>
                     </div>
                   </div>
                   <div className="text-right whitespace-nowrap">

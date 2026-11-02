@@ -158,6 +158,7 @@ export interface ManualOrderDetail {
     specifications: string;
     options: Record<string, any>;
     production_status: string;
+    item_qr_url?: string;
   }>;
   proof: {
     current_version: number;
@@ -217,7 +218,7 @@ export const manualOrderService = {
   async completeProductionStationOrder(
     stage: string,
     orderId: string,
-    payload?: { shipping_carrier?: string; tracking_number?: string }
+    payload?: { item_id?: string; shipping_carrier?: string; tracking_number?: string }
   ) {
     const response = await apiClient.post(
       `/admin/production-stations/${encodeURIComponent(stage)}/orders/${encodeURIComponent(orderId)}/complete`,

@@ -19,6 +19,10 @@ const STATIONS = [
 type Station = (typeof STATIONS)[number];
 type StationOrder = {
   id: string;
+  item_id: string;
+  item_name: string;
+  item_quantity: number;
+  item_status: string;
   order_number: string;
   customer_name: string;
   customer_email?: string | null;
@@ -105,7 +109,7 @@ export default function ProductionStationsPage() {
       .some((value) => String(value || '').toLowerCase().includes(normalizedSearch)));
   }, [orders, search]);
 
-  const selectedOrder = orders.find((order) => order.id === selectedOrderId) || null;
+  const selectedOrder = orders.find((order) => order.item_id === selectedOrderId) || null;
 
   const handleScannedOrderQr = useCallback(async (rawValue: string) => {
     if (!station || processingOrderRef.current) return;
@@ -114,6 +118,7 @@ export default function ProductionStationsPage() {
     if (Date.now() - previousValueScanAt < 5000) return;
     recentScansRef.current.set(rawValue, Date.now());
     let orderId: string | null = null;
+    let itemId: string | null = null;
     try {
       const scannedUrl = new URL(rawValue);
       if (scannedUrl.origin !== window.location.origin) {
@@ -121,13 +126,14 @@ export default function ProductionStationsPage() {
         return;
       }
       const match = scannedUrl.pathname.match(/^\/admin\/orders\/([^/]+)\/?$/);
-      if (match) orderId = decodeURIComponent(match[1]);
+      itemId = scannedUrl.searchParams.get('itemQr');
+      if (match && itemId) orderId = decodeURIComponent(match[1]);
     } catch {
       // The order label QR currently encodes the authenticated admin order URL.
     }
 
     if (!orderId) {
-      setError('Order QR not recognized. Use the Order QR from the order detail page.');
+      setError('Product QR not recognized. Scan this order item’s Product QR from the order detail page.');
       return;
     }
 
@@ -136,11 +142,29 @@ export default function ProductionStationsPage() {
     setError(null);
     setSuccess(null);
     try {
-      const response = await manualOrderService.completeProductionStationOrder(station.key, orderId);
+      let shippingCarrier = carrier.trim();
+      let shippingTracking = trackingNumber.trim();
+      if (station.key === 'handed_over_to_courier' && (!shippingCarrier || !shippingTracking)) {
+        shippingCarrier = window.prompt('Enter courier name for this shipment:')?.trim() || '';
+        shippingTracking = window.prompt('Enter tracking number for this shipment:')?.trim() || '';
+        if (!shippingCarrier || !shippingTracking) {
+          setError('Courier handoff needs both carrier and tracking number. Scan the product QR again after entering them.');
+          return;
+        }
+        setCarrier(shippingCarrier);
+        setTrackingNumber(shippingTracking);
+      }
+      const response = await manualOrderService.completeProductionStationOrder(station.key, orderId, {
+        item_id: itemId!,
+        shipping_carrier: shippingCarrier,
+        tracking_number: shippingTracking,
+      });
       const orderNumber = response?.data?.order_number || orderId;
       const targetLabel = response?.data?.status_label || station.label;
       processedOrderQrRef.current.add(rawValue);
-      setSuccess(`${orderNumber} scanned successfully · status updated to ${targetLabel}.`);
+      const itemName = response?.data?.item_name || 'Product';
+      const orderUpdated = response?.data?.order_status_updated;
+      setSuccess(`${itemName} · ${orderNumber} moved to ${targetLabel}${orderUpdated ? ' (all order items reached this stage)' : ' (other products are still at earlier stages)'}.`);
       if ('vibrate' in navigator) navigator.vibrate?.(100);
       await fetchStationOrders(station.key);
     } catch (requestError: any) {
@@ -230,6 +254,7 @@ export default function ProductionStationsPage() {
     setSuccess(null);
     try {
       const response = await manualOrderService.completeProductionStationOrder(station.key, selectedOrder.id, {
+        item_id: selectedOrder.item_id,
         shipping_carrier: carrier.trim(),
         tracking_number: trackingNumber.trim(),
       });
@@ -310,14 +335,14 @@ export default function ProductionStationsPage() {
           ) : (
             <div className="space-y-2">
               {visibleOrders.map((order) => {
-                const selected = selectedOrderId === order.id;
+                const selected = selectedOrderId === order.item_id;
                 return (
-                  <button key={order.id} type="button" onClick={() => { setSelectedOrderId(order.id); setError(null); }} className={`w-full rounded-xl border p-4 text-left transition ${selected ? 'border-sky-500 bg-sky-500/10' : 'border-slate-800 bg-slate-900 hover:border-slate-700'}`}>
+                  <button key={order.item_id} type="button" onClick={() => { setSelectedOrderId(order.item_id); setError(null); }} className={`w-full rounded-xl border p-4 text-left transition ${selected ? 'border-sky-500 bg-sky-500/10' : 'border-slate-800 bg-slate-900 hover:border-slate-700'}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-mono text-sm font-bold text-white">{order.order_number}</p>
                         <p className="mt-1 text-xs text-slate-300">{order.customer_name}</p>
-                        <p className="mt-1 break-words text-xs text-slate-500 [overflow-wrap:anywhere]">{order.product_summary || 'Order items'}</p>
+                        <p className="mt-1 break-words text-xs font-medium text-slate-200 [overflow-wrap:anywhere]">{order.item_name} × {order.item_quantity}</p>
                       </div>
                       <span className="shrink-0 rounded-full bg-slate-800 px-2 py-1 text-[10px] font-semibold text-slate-300">{statusLabel(order.status)}</span>
                     </div>
