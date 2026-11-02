@@ -34,7 +34,6 @@ import {
   ShoppingBag,
   ExternalLink,
   ChevronRight,
-  Download,
   FileText,
 } from 'lucide-react';
 import { orderReviewService, CustomerReviewData } from '@/services/orderReviewService';
@@ -2373,29 +2372,6 @@ export default function OrderReviewPage({ params }: PageProps) {
 
                       {/* Right: PDF actions / Zoom controls (for flat view) and Fullscreen */}
                       <div className="flex items-center gap-2">
-                        {isCurrentPdf && activePdfUrl && (
-                          <div className="flex items-center gap-1.5">
-                            <a
-                              href={activePdfUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs transition"
-                              title="Open vector PDF in new tab"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
-                              <span className="hidden sm:inline">Open PDF</span>
-                            </a>
-                            <a
-                              href={activePdfUrl}
-                              download={activeSideFile?.file_name || `${orderData.order_number}_proof.pdf`}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs transition"
-                              title="Download PDF"
-                            >
-                              <Download className="w-3.5 h-3.5 text-slate-500" />
-                              <span className="hidden sm:inline">Download</span>
-                            </a>
-                          </div>
-                        )}
 
                         {proofView === 'flat' && !isCurrentPdf && (
                           <div className="flex items-center border border-slate-200 rounded-xl px-2 py-1 bg-slate-50 text-xs font-semibold text-slate-700">
@@ -2527,7 +2503,7 @@ export default function OrderReviewPage({ params }: PageProps) {
                         >
                           <div className="flex-1 w-full relative">
                             <iframe
-                              src={`${activePdfUrl}#toolbar=1&navpanes=0&view=FitH`}
+                              src={`${activePdfUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
                               className="w-full h-full min-h-[520px] sm:min-h-[640px] border-0 block"
                               title="Artwork Proof PDF"
                             />
