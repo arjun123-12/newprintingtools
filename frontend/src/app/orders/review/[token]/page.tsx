@@ -43,10 +43,10 @@ import SpinAndWinWheel from '@/components/rewards/SpinAndWinWheel';
 import { formatImageUrl } from '@/utils/imageUrl';
 import type { CanvasDimensions, DocumentSettings, UnitType } from '@/types/designer';
 
-export const isPdfUrl = (url?: string | null): boolean =>
+const isPdfUrl = (url?: string | null): boolean =>
   Boolean(url && /\.pdf(?:$|[?#])/i.test(url));
 
-export const isPdfFile = (
+const isPdfFile = (
   file: { url?: string | null; mime_type?: string | null; preview_url?: string | null } | null | undefined
 ): boolean =>
   Boolean(
