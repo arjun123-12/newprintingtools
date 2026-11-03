@@ -107,6 +107,9 @@ class User extends Authenticatable
         'permissions',
         'role_preset',
         'must_change_password',
+        'marketing_consent',
+        'marketing_consent_at',
+        'marketing_unsubscribed_at',
     ];
 
     protected $attributes = [
@@ -129,6 +132,9 @@ class User extends Authenticatable
             'is_active' => 'boolean',
             'permissions' => 'array',
             'must_change_password' => 'boolean',
+            'marketing_consent' => 'boolean',
+            'marketing_consent_at' => 'datetime',
+            'marketing_unsubscribed_at' => 'datetime',
         ];
     }
 

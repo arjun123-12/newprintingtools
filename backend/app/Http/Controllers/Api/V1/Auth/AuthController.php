@@ -152,6 +152,7 @@ class AuthController extends Controller
             'company_name' => ['nullable', 'string', 'max:255'],
             'abn' => ['nullable', 'string', 'max:50'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'marketing_consent' => ['nullable', 'boolean'],
         ]);
 
         $user = User::create([
@@ -165,6 +166,8 @@ class AuthController extends Controller
             'is_active' => true,
             'must_change_password' => false,
             'password' => Hash::make($validated['password']),
+            'marketing_consent' => (bool) ($validated['marketing_consent'] ?? false),
+            'marketing_consent_at' => !empty($validated['marketing_consent']) ? now() : null,
         ]);
 
         $abilities = [

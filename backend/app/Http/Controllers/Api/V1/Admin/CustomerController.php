@@ -138,6 +138,7 @@ class CustomerController extends Controller
             'notes' => 'nullable|string',
             'primary_payment_method' => 'nullable|string|max:100',
             'terms' => 'nullable|string|max:100',
+            'marketing_consent' => 'nullable|boolean',
         ]);
 
         $displayName = $validated['customer_display_name'] 
@@ -168,6 +169,8 @@ class CustomerController extends Controller
             'abn' => $validated['abn'] ?? null,
             'role' => User::ROLE_CUSTOMER,
             'password' => \Illuminate\Support\Facades\Hash::make(\Illuminate\Support\Str::random(16)),
+            'marketing_consent' => (bool) ($validated['marketing_consent'] ?? false),
+            'marketing_consent_at' => !empty($validated['marketing_consent']) ? now() : null,
         ]);
 
         // Save Billing Address if provided
@@ -504,4 +507,3 @@ class CustomerController extends Controller
         ]);
     }
 }
-

@@ -49,6 +49,7 @@ interface AuthContextType {
     password_confirmation: string;
     phone?: string;
     company_name?: string;
+    marketing_consent?: boolean;
   }) => Promise<CustomerUser>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -160,6 +161,7 @@ export function AuthProvider({
     password_confirmation: string;
     phone?: string;
     company_name?: string;
+    marketing_consent?: boolean;
   }): Promise<CustomerUser> => {
     setIsLoading(true);
 

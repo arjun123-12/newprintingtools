@@ -77,6 +77,9 @@ class OrderController extends Controller
             'billing_address.country' => ['nullable', 'string'],
 
             'shipping_method_id' => ['required', 'string'],
+            'offer_code' => ['nullable', 'string', 'max:40'],
+            'reward_code' => ['nullable', 'string', 'max:80'],
+            'voucher_code' => ['nullable', 'string', 'max:80'],
             'customer_notes' => ['nullable', 'string', 'max:1000'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'save_address' => ['nullable', 'boolean'],

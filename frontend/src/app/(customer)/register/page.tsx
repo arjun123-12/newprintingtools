@@ -20,6 +20,7 @@ function RegisterForm() {
   const [companyName, setCompanyName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [marketingConsent, setMarketingConsent] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
@@ -64,6 +65,7 @@ function RegisterForm() {
         password_confirmation: confirmPassword,
         phone: phone.trim() || undefined,
         company_name: companyName.trim() || undefined,
+        marketing_consent: marketingConsent,
       });
 
       setSuccess(true);
@@ -121,6 +123,7 @@ function RegisterForm() {
         )}
 
         <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
+          <label className="flex items-start gap-2 text-xs leading-5 text-slate-600"><input type="checkbox" checked={marketingConsent} onChange={(e) => setMarketingConsent(e.target.checked)} className="mt-1" />Email me offers and promotions. I can unsubscribe at any time.</label>
           {/* Full Name */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">

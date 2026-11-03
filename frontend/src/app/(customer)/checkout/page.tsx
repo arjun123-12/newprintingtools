@@ -40,6 +40,7 @@ import {
   CheckoutValidationResponse,
 } from '@/services/checkoutService';
 import { spinWinService } from '@/services/spinWinService';
+import { apiClient } from '@/services/api/client';
 import { formatImageUrl } from '@/utils/imageUrl';
 
 const AU_STATES = [
@@ -350,18 +351,30 @@ export default function CheckoutPage() {
     if (!code) return;
     setValidatingVoucher(true);
     setVoucherError(null);
+    let rewardResult: any = null;
     try {
-      const res = await spinWinService.validateVoucher(code, subtotalExGst + gstAmount);
-      if (res?.valid) {
+      rewardResult = await spinWinService.validateVoucher(code, subtotalExGst + gstAmount);
+    } catch {
+      // Promo codes are checked next; a non-reward code may be rejected by this endpoint.
+    }
+    try {
+      if (rewardResult?.valid) {
         setAppliedReward({
-          code: res.reward_code,
-          title: res.title,
-          discount_amount: Number(res.discount_amount),
-          reward_type: res.reward_type,
+          code: rewardResult.reward_code,
+          title: rewardResult.title,
+          discount_amount: Number(rewardResult.discount_amount),
+          reward_type: rewardResult.reward_type,
         });
         setVoucherCodeInput('');
       } else {
-        setVoucherError(res?.message || 'Invalid or expired reward voucher code.');
+        const offerResponse = await apiClient.post('/offers/validate', { code, subtotal: subtotalExGst + gstAmount });
+        const offer = offerResponse.data?.data;
+        if (offer?.valid) {
+          setAppliedReward({ code: offer.code, title: offer.name, discount_amount: Number(offer.discount_amount), reward_type: 'offer' });
+          setVoucherCodeInput('');
+        } else {
+          setVoucherError(offer?.message || rewardResult?.message || 'Invalid or expired offer code.');
+        }
       }
     } catch (err: any) {
       setVoucherError(err.response?.data?.message || 'Unable to apply voucher code.');
@@ -416,8 +429,9 @@ export default function CheckoutPage() {
       customer_notes: customerNotes.trim() || undefined,
       notes: customerNotes.trim() || undefined,
       save_address: saveAddress,
-      reward_code: appliedReward?.code || undefined,
-      voucher_code: appliedReward?.code || undefined,
+      reward_code: appliedReward?.reward_type !== 'offer' ? appliedReward?.code || undefined : undefined,
+      voucher_code: appliedReward?.reward_type !== 'offer' ? appliedReward?.code || undefined : undefined,
+      offer_code: appliedReward?.reward_type === 'offer' ? appliedReward.code : undefined,
     };
 
     try {
@@ -1232,7 +1246,7 @@ export default function CheckoutPage() {
                     <div>
                       <div className="flex items-center gap-1 font-bold">
                         <Gift className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Reward: {appliedReward.title}</span>
+                        <span>{appliedReward.reward_type === 'offer' ? 'Offer' : 'Reward'}: {appliedReward.title}</span>
                       </div>
                       <span className="text-[10px] font-mono text-emerald-800 font-medium">{appliedReward.code}</span>
                     </div>

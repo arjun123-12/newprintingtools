@@ -176,12 +176,27 @@ class CheckoutService
         // Validate optional Spin & Win reward voucher for future orders
         $discount = 0.00;
         $rewardCode = !empty($data['reward_code']) ? $data['reward_code'] : ($data['voucher_code'] ?? null);
+        $offerCode = !empty($data['offer_code']) ? strtoupper(trim($data['offer_code'])) : null;
+        if ($offerCode && $rewardCode) {
+            throw ValidationException::withMessages(['offer_code' => ['Use one discount code per order. Remove the reward voucher before applying an offer.']]);
+        }
         if (!empty($rewardCode)) {
             $spinService = app(\App\Services\Rewards\SpinRewardService::class);
             $rewardValidation = $spinService->validateRewardForCheckout($rewardCode, (float) $recalculated['subtotal_inc_gst'], $user);
             if ($rewardValidation['valid'] ?? false) {
                 $discount = (float) ($rewardValidation['discount_amount'] ?? 0.00);
             }
+        }
+        if ($offerCode) {
+            $offer = \App\Models\Offer::where('code', $offerCode)->where('status', 'active')->first();
+            $subtotal = (float) $recalculated['subtotal_inc_gst'];
+            if (!$offer || ($offer->starts_at && $offer->starts_at->isFuture()) || ($offer->ends_at && $offer->ends_at->isPast())
+                || ($offer->usage_limit && $offer->usage_count >= $offer->usage_limit) || $subtotal < (float) $offer->minimum_subtotal) {
+                throw ValidationException::withMessages(['offer_code' => ['This offer code is invalid, expired, or does not meet the minimum spend.']]);
+            }
+            $discount = $offer->discount_type === 'percentage' ? $subtotal * (float) $offer->discount_value / 100 : (float) $offer->discount_value;
+            if ($offer->maximum_discount) $discount = min($discount, (float) $offer->maximum_discount);
+            $discount = round(min($subtotal, $discount), 2);
         }
 
         $grandTotal = max(0.00, round($recalculated['subtotal_inc_gst'] + $shippingAmount - $discount, 2));
@@ -210,6 +225,7 @@ class CheckoutService
             'shipping_method' => $selectedRate,
             'discount' => $discount,
             'reward_code' => $rewardCode,
+            'offer_code' => $offerCode,
             'total' => $grandTotal,
             'currency' => 'AUD',
             'shipping_address' => [

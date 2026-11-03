@@ -311,6 +311,11 @@ Route::prefix('quotes/{token}')->where(['token' => '[A-Za-z0-9]{64}'])->group(fu
     Route::post('/artwork', [App\Http\Controllers\Api\V1\CustomerQuoteController::class, 'uploadArtwork'])->middleware('throttle:10,1');
 });
 
+Route::get('/offers/unsubscribe/{token}', [App\Http\Controllers\Api\V1\Admin\OfferController::class, 'unsubscribePage'])
+    ->where('token', '[A-Za-z0-9]{64}')->name('offers.unsubscribe.page');
+Route::post('/offers/unsubscribe/{token}', [App\Http\Controllers\Api\V1\Admin\OfferController::class, 'unsubscribe'])
+    ->where('token', '[A-Za-z0-9]{64}')->name('offers.unsubscribe');
+
 // Secure customer conversation thread (token-based unguessable access)
 Route::prefix('enquiries/conversation/{token}')->group(function () {
     Route::get('/', [
@@ -373,6 +378,7 @@ Route::prefix('cart')->group(function () {
 // ==========================================
 
 Route::middleware(['auth:sanctum'])->group(function () {
+    Route::post('/offers/validate', [App\Http\Controllers\Api\V1\Admin\OfferController::class, 'validateCode'])->middleware('throttle:20,1');
     Route::prefix('auth')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
 
@@ -476,6 +482,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
 Route::middleware(['auth:sanctum', 'admin.access'])
     ->prefix('admin')
     ->group(function () {
+
+        Route::middleware('permission:pricing')->prefix('offers')->group(function () {
+            Route::get('/', [App\Http\Controllers\Api\V1\Admin\OfferController::class, 'index']);
+            Route::get('/customers', [App\Http\Controllers\Api\V1\Admin\OfferController::class, 'customers']);
+            Route::get('/contacts', [App\Http\Controllers\Api\V1\Admin\OfferController::class, 'contacts']);
+            Route::post('/contacts', [App\Http\Controllers\Api\V1\Admin\OfferController::class, 'storeContact']);
+            Route::post('/', [App\Http\Controllers\Api\V1\Admin\OfferController::class, 'store']);
+            Route::post('/{offer}/campaign', [App\Http\Controllers\Api\V1\Admin\OfferController::class, 'campaign']);
+        });
 
         // Categories (permission: categories)
         Route::middleware('permission:categories')->group(function () {

@@ -96,6 +96,14 @@ class OrderService
             $data
         ) {
             // Create Order record with pending status
+            $offerCode = $validationResult['offer_code'] ?? null;
+            if ($offerCode) {
+                $offer = \App\Models\Offer::where('code', $offerCode)->lockForUpdate()->first();
+                if (!$offer || $offer->status !== 'active' || ($offer->starts_at && $offer->starts_at->isFuture()) || ($offer->ends_at && $offer->ends_at->isPast()) || ($offer->usage_limit && $offer->usage_count >= $offer->usage_limit)) {
+                    throw ValidationException::withMessages(['offer_code' => ['This offer has just expired or reached its usage limit.']]);
+                }
+                $offer->increment('usage_count');
+            }
             $order = Order::create([
                 'order_number' => $orderNumber,
                 'user_id' => $user->id,
