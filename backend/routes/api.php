@@ -657,6 +657,10 @@ Route::middleware(['auth:sanctum', 'admin.access'])
 
         // Orders (permission: orders)
         Route::middleware('permission:orders')->group(function () {
+            Route::post('/assistant/interpret', [
+                App\Http\Controllers\Api\V1\Admin\AdminAssistantController::class,
+                'interpret',
+            ]);
             Route::get('/production-stations/{stage}/orders', [
                 App\Http\Controllers\Api\V1\Admin\ProductionStationController::class,
                 'index',

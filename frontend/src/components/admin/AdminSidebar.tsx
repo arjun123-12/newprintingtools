@@ -48,6 +48,16 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    label: 'Voice Assistant',
+    href: '/admin/assistant',
+    permissionKey: 'orders',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v3m-4 0h8M12 14a4 4 0 004-4V6a4 4 0 10-8 0v4a4 4 0 004 4zm7-4a7 7 0 01-14 0" />
+      </svg>
+    ),
+  },
+  {
     label: 'Customer Enquiries',
     href: '/admin/enquiries',
     permissionKey: 'enquiries',
@@ -289,6 +299,9 @@ export default function AdminSidebar() {
 
   // Filter navigation items strictly based on user permissions
   const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (item.href === '/admin/assistant') {
+      return canAccessSection(user, 'orders') && canAccessSection(user, 'enquiries');
+    }
     if (item.permissionKey === 'super_admin') {
       return isSuperAdmin(user);
     }

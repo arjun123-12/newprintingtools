@@ -115,7 +115,13 @@ export default function AdminAuthGuard({
         // Check granular section permission
         const requiredPermission = getRequiredPermissionForPath(pathname);
 
-        if (requiredPermission === 'super_admin') {
+        if (requiredPermission === 'assistant') {
+          if (!canAccessSection(user, 'orders') || !canAccessSection(user, 'enquiries')) {
+            setDeniedSection('Orders and Customer Enquiries');
+            setAuthStatus('forbidden');
+            return;
+          }
+        } else if (requiredPermission === 'super_admin') {
           if (!isSuperAdmin(user)) {
             setDeniedSection('Staff & System Permissions (Super Administrator only)');
             setAuthStatus('forbidden');

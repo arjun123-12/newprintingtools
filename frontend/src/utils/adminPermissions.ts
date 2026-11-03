@@ -181,6 +181,9 @@ export function getRequiredPermissionForPath(pathname: string): string | 'super_
   if (pathname === '/admin/production/stations') {
     return 'orders';
   }
+  if (pathname === '/admin/assistant' || pathname.startsWith('/admin/assistant/')) {
+    return 'assistant';
+  }
   if (pathname === '/admin/enquiries' || pathname.startsWith('/admin/enquiries/')) {
     return 'enquiries';
   }

@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import AdminSidebar from '@/components/admin/AdminSidebar';
 import AdminAuthGuard from '@/components/admin/AdminAuthGuard';
+import AdminAssistantLauncher from '@/components/admin/AdminAssistantLauncher';
 
 interface AdminLayoutClientProps {
   children: ReactNode;
@@ -50,6 +51,7 @@ export default function AdminLayoutClient({
         <div className={`flex min-w-0 flex-1 flex-col min-h-screen ${isQrOrderView ? 'w-full' : 'pl-60'}`}>
           {children}
         </div>
+        {!isQrOrderView && <AdminAssistantLauncher />}
       </div>
     </AdminAuthGuard>
   );
