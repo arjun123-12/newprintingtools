@@ -109,6 +109,8 @@ class ProductionStationController extends Controller
                 $targetStatus = $this->targetStatus($stage, $order);
 
                 $item = $order->items()->whereKey($validated['item_id'])->lockForUpdate()->firstOrFail();
+                $previousItemStatus = (string) $item->production_status;
+                $previousOrderStatus = $currentStatus;
                 $itemFrom = $this->itemFromStatuses($stage);
                 $warnings = [];
                 if (!in_array((string) $item->production_status, $itemFrom, true)) {
@@ -132,7 +134,7 @@ class ProductionStationController extends Controller
                 $item->save();
                 $otherItemsRemain = $order->items()->where('id', '!=', $item->id)->where('production_status', '!=', $itemTarget)->exists();
                 if ($otherItemsRemain) {
-                    return ['order' => $order, 'item' => $item, 'order_updated' => false, 'status_label' => ucwords(str_replace('_', ' ', $itemTarget)), 'warnings' => $warnings];
+                    return ['order' => $order, 'item' => $item, 'order_updated' => false, 'status_label' => ucwords(str_replace('_', ' ', $itemTarget)), 'warnings' => $warnings, 'previous_item_status' => $previousItemStatus, 'previous_order_status' => $previousOrderStatus];
                 }
 
                 $updatedOrder = $manualOrderService->updateProductionStatus(
@@ -142,7 +144,7 @@ class ProductionStationController extends Controller
                     $validated['shipping_carrier'] ?? null,
                     $validated['tracking_number'] ?? null
                 );
-                return ['order' => $updatedOrder, 'item' => $item, 'order_updated' => true, 'status_label' => $this->targetLabel($stage, $updatedOrder), 'warnings' => $warnings];
+                return ['order' => $updatedOrder, 'item' => $item, 'order_updated' => true, 'status_label' => $this->targetLabel($stage, $updatedOrder), 'warnings' => $warnings, 'previous_item_status' => $previousItemStatus, 'previous_order_status' => $previousOrderStatus];
             });
 
             $order = $result['order'];
@@ -157,6 +159,9 @@ class ProductionStationController extends Controller
                     'item_name' => $result['item']->product_name,
                     'status' => $result['item']->production_status,
                     'status_label' => $result['status_label'],
+                    'previous_item_status' => $result['previous_item_status'],
+                    'order_status' => $order->status->value ?? (string) $order->status,
+                    'previous_order_status' => $result['previous_order_status'],
                     'order_status_updated' => $result['order_updated'],
                     'warning' => implode(' ', $result['warnings']),
                 ],

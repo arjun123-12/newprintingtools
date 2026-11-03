@@ -34,6 +34,16 @@ type StationOrder = {
   target_label: string;
 };
 
+type LatestScan = {
+  orderNumber: string;
+  itemName: string;
+  previousItemStatus: string;
+  itemStatus: string;
+  previousOrderStatus: string;
+  orderStatus: string;
+  orderUpdated: boolean;
+};
+
 const statusLabel = (status: string) => status.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default function ProductionStationsPage() {
@@ -49,6 +59,7 @@ export default function ProductionStationsPage() {
   const [scannerActive, setScannerActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [latestScan, setLatestScan] = useState<LatestScan | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -164,6 +175,15 @@ export default function ProductionStationsPage() {
       processedOrderQrRef.current.add(rawValue);
       const itemName = response?.data?.item_name || 'Product';
       const orderUpdated = response?.data?.order_status_updated;
+      setLatestScan({
+        orderNumber,
+        itemName,
+        previousItemStatus: response?.data?.previous_item_status || 'unknown',
+        itemStatus: response?.data?.status || '',
+        previousOrderStatus: response?.data?.previous_order_status || '',
+        orderStatus: response?.data?.order_status || '',
+        orderUpdated: Boolean(orderUpdated),
+      });
       setSuccess(`${itemName} · ${orderNumber} moved to ${targetLabel}${orderUpdated ? ' (all order items reached this stage)' : ' (other products are still at earlier stages)'}.`);
       if ('vibrate' in navigator) navigator.vibrate?.(100);
       await fetchStationOrders(station.key);
@@ -299,7 +319,7 @@ export default function ProductionStationsPage() {
               <ScanLine className="mt-0.5 h-5 w-5 shrink-0 text-sky-400" />
               <div className="min-w-0 flex-1">
                 <h2 className="text-sm font-semibold text-white">Scan order label</h2>
-                <p className="mt-1 text-xs leading-relaxed text-slate-400">The machine QR sets this stage. Start the camera and scan the unique Order QR on each job label; eligible orders update automatically.</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">The machine QR sets this stage. Start the camera and scan the Product QR on the job label; that product&apos;s status updates automatically.</p>
               </div>
             </div>
             {scannerActive ? (
@@ -324,6 +344,14 @@ export default function ProductionStationsPage() {
             );
           })()}
           {success && <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300">{success}</div>}
+          {latestScan && <section aria-live="polite" className="rounded-xl border border-emerald-500/30 bg-slate-900 p-4">
+            <div className="flex items-center gap-2"><Check className="h-4 w-4 text-emerald-400" /><h2 className="text-sm font-semibold text-white">Latest scan status update</h2></div>
+            <p className="mt-2 text-xs text-slate-400">Order <span className="font-mono font-semibold text-slate-200">{latestScan.orderNumber}</span> · {latestScan.itemName}</p>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="rounded-lg bg-slate-950 p-3"><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Product status</p><p className="mt-1 text-xs text-slate-300">{statusLabel(latestScan.previousItemStatus)} <span className="px-1 text-slate-600">→</span> <strong className="text-emerald-300">{statusLabel(latestScan.itemStatus)}</strong></p></div>
+              <div className="rounded-lg bg-slate-950 p-3"><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Order status</p><p className="mt-1 text-xs text-slate-300">{latestScan.orderUpdated ? <>{statusLabel(latestScan.previousOrderStatus)} <span className="px-1 text-slate-600">→</span> <strong className="text-emerald-300">{statusLabel(latestScan.orderStatus)}</strong></> : <><strong className="text-amber-300">{statusLabel(latestScan.orderStatus)}</strong> · waiting for remaining products</>}</p></div>
+            </div>
+          </section>}
 
           <label className="relative block">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
