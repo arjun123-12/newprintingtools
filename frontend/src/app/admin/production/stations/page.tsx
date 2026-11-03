@@ -167,6 +167,7 @@ export default function ProductionStationsPage() {
       setSuccess(`${itemName} · ${orderNumber} moved to ${targetLabel}${orderUpdated ? ' (all order items reached this stage)' : ' (other products are still at earlier stages)'}.`);
       if ('vibrate' in navigator) navigator.vibrate?.(100);
       await fetchStationOrders(station.key);
+      if (response?.data?.warning) setError(response.data.warning);
     } catch (requestError: any) {
       const message = requestError?.response?.data?.errors?.order?.[0]
         || requestError?.response?.data?.message
@@ -262,6 +263,7 @@ export default function ProductionStationsPage() {
       setCarrier('');
       setTrackingNumber('');
       await fetchStationOrders(station.key);
+      if (response?.data?.warning) setError(response.data.warning);
     } catch (requestError: any) {
       setError(requestError?.response?.data?.message || requestError?.response?.data?.errors?.order?.[0] || 'Could not update this order. Refresh the queue and try again.');
     } finally {

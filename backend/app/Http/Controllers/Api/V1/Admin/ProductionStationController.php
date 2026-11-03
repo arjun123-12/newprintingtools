@@ -110,28 +110,29 @@ class ProductionStationController extends Controller
 
                 $item = $order->items()->whereKey($validated['item_id'])->lockForUpdate()->firstOrFail();
                 $itemFrom = $this->itemFromStatuses($stage);
+                $warnings = [];
                 if (!in_array((string) $item->production_status, $itemFrom, true)) {
                     $expected = collect($itemFrom)->map(fn ($status) => ucwords(str_replace('_', ' ', $status)))->implode(' or ');
-                    throw ValidationException::withMessages(['order' => "Stage sequence warning: {$item->product_name} in order {$order->order_number} is currently at " . ucwords(str_replace('_', ' ', (string) $item->production_status)) . "; {$station['label']} expects {$expected} first. No status was changed."]);
+                    $warnings[] = "Stage sequence warning: {$item->product_name} is currently at " . ucwords(str_replace('_', ' ', (string) $item->production_status)) . "; {$station['label']} normally expects {$expected}. The scan was applied anyway.";
                 }
                 if ($stage === 'printing' && ($order->payment_status->value ?? (string) $order->payment_status) !== 'paid') {
-                    throw ValidationException::withMessages(['order' => 'Payment warning: this order is not paid yet, so printing cannot start.']);
+                    $warnings[] = 'Payment warning: this order is not marked paid. The scan was applied anyway.';
                 }
                 if ($stage === 'handed_over_to_courier' && str_contains(strtolower((string) $order->delivery_method), 'pickup')) {
-                    throw ValidationException::withMessages(['order' => 'Delivery warning: this order is for store pickup. Scan it at the Collected station instead of Courier Handoff.']);
+                    $warnings[] = 'Delivery warning: this order is marked for store pickup. The Courier Handoff scan was applied anyway.';
                 }
                 $isEligible = $targetStatus && in_array($currentStatus, $station['from'], true);
                 if (!$isEligible) {
                     $currentLabel = OrderStatus::tryFrom($currentStatus)?->label() ?? ucwords(str_replace('_', ' ', $currentStatus));
                     $requiredLabels = collect($station['from'])->map(fn (string $status) => OrderStatus::tryFrom($status)?->label() ?? ucwords(str_replace('_', ' ', $status)))->unique()->implode(' or ');
-                    throw ValidationException::withMessages(['order' => "Stage sequence warning: order {$order->order_number} is currently at {$currentLabel}; {$station['label']} expects {$requiredLabels} first. The status was not changed."]);
+                    $warnings[] = "Stage sequence warning: order {$order->order_number} is currently at {$currentLabel}; {$station['label']} normally expects {$requiredLabels}. The scan was applied anyway.";
                 }
                 $itemTarget = $this->itemTargetStatus($stage, $order);
                 $item->production_status = $itemTarget;
                 $item->save();
                 $otherItemsRemain = $order->items()->where('id', '!=', $item->id)->where('production_status', '!=', $itemTarget)->exists();
                 if ($otherItemsRemain) {
-                    return ['order' => $order, 'item' => $item, 'order_updated' => false, 'status_label' => ucwords(str_replace('_', ' ', $itemTarget))];
+                    return ['order' => $order, 'item' => $item, 'order_updated' => false, 'status_label' => ucwords(str_replace('_', ' ', $itemTarget)), 'warnings' => $warnings];
                 }
 
                 $updatedOrder = $manualOrderService->updateProductionStatus(
@@ -141,7 +142,7 @@ class ProductionStationController extends Controller
                     $validated['shipping_carrier'] ?? null,
                     $validated['tracking_number'] ?? null
                 );
-                return ['order' => $updatedOrder, 'item' => $item, 'order_updated' => true, 'status_label' => $this->targetLabel($stage, $updatedOrder)];
+                return ['order' => $updatedOrder, 'item' => $item, 'order_updated' => true, 'status_label' => $this->targetLabel($stage, $updatedOrder), 'warnings' => $warnings];
             });
 
             $order = $result['order'];
@@ -157,6 +158,7 @@ class ProductionStationController extends Controller
                     'status' => $result['item']->production_status,
                     'status_label' => $result['status_label'],
                     'order_status_updated' => $result['order_updated'],
+                    'warning' => implode(' ', $result['warnings']),
                 ],
             ]);
         } catch (ValidationException $exception) {
