@@ -205,7 +205,7 @@ export function getRequiredPermissionForPath(pathname: string): string | 'super_
   if (pathname === '/admin/customers' || pathname.startsWith('/admin/customers/')) {
     return 'customers';
   }
-  if (pathname === '/admin/pricing' || pathname.startsWith('/admin/pricing/') || pathname.startsWith('/admin/coupons')) {
+  if (pathname === '/admin/pricing' || pathname.startsWith('/admin/pricing/') || pathname.startsWith('/admin/coupons') || pathname.startsWith('/admin/spin-wheel')) {
     return 'pricing';
   }
   if (pathname === '/admin/invoices' || pathname.startsWith('/admin/invoices/') || pathname.startsWith('/admin/payments')) {

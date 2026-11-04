@@ -39,3 +39,4 @@ class SpinWheelInvitationMail extends Mailable
             ]);
     }
 }
+
