@@ -6,6 +6,7 @@ use App\Enums\OrderStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderActivity;
 use App\Services\Order\ManualOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -173,6 +174,126 @@ class ProductionStationController extends Controller
                 'errors' => $exception->errors(),
             ], 422);
         }
+    }
+
+    public function updateItemStatus(Request $request, string $itemId, ManualOrderService $manualOrderService): JsonResponse
+    {
+        $allowedItemStatuses = [
+            'queued', 'prepress', 'approved', 'printing', 'in_production', 'production_started',
+            'cutting_and_finishing', 'cutting_in_progress', 'quality_check_and_packaging',
+            'production_completed', 'ready_for_pickup', 'ready_for_shipping', 'dispatched',
+            'handed_over_to_courier', 'delivered', 'collected', 'cancelled',
+        ];
+        $validated = $request->validate([
+            'status' => ['required', 'string', 'in:' . implode(',', $allowedItemStatuses)],
+            'shipping_carrier' => ['nullable', 'string', 'max:150'],
+            'tracking_number' => ['nullable', 'string', 'max:150'],
+        ]);
+
+        try {
+            $result = DB::transaction(function () use ($itemId, $validated, $request, $manualOrderService) {
+                $item = OrderItem::query()->whereKey($itemId)->firstOrFail();
+                $order = Order::query()->whereKey($item->order_id)->lockForUpdate()->firstOrFail();
+                $item = $order->items()->whereKey($itemId)->lockForUpdate()->firstOrFail();
+                $previousItemStatus = (string) $item->production_status;
+                $previousOrderStatus = $order->status->value ?? (string) $order->status;
+                $newItemStatus = $validated['status'];
+
+                if ($previousItemStatus === $newItemStatus) {
+                    return ['order' => $order, 'item' => $item, 'previous_item_status' => $previousItemStatus, 'previous_order_status' => $previousOrderStatus, 'order_updated' => false, 'warning' => null, 'unchanged' => true];
+                }
+
+                $item->production_status = $newItemStatus;
+                $item->save();
+
+                $orderStatus = $this->orderStatusForItemStatus($newItemStatus);
+                $allItemsAtThisStatus = !$order->items()->where('production_status', '!=', $newItemStatus)->exists();
+                $orderUpdated = false;
+
+                if ($orderStatus && $allItemsAtThisStatus) {
+                    $manualOrderService->updateProductionStatus(
+                        $order,
+                        $orderStatus,
+                        $request->user(),
+                        $validated['shipping_carrier'] ?? null,
+                        $validated['tracking_number'] ?? null
+                    );
+                    $orderUpdated = $previousOrderStatus !== $orderStatus;
+                }
+
+                OrderActivity::record(
+                    $order->id,
+                    'production_item_status_updated',
+                    "{$item->product_name} status changed from " . ucwords(str_replace('_', ' ', $previousItemStatus)) . ' to ' . ucwords(str_replace('_', ' ', $newItemStatus)) . ' by ' . $request->user()->name . '.',
+                    'staff',
+                    $request->user(),
+                    [
+                        'item_id' => $item->id,
+                        'product_name' => $item->product_name,
+                        'old_status' => $previousItemStatus,
+                        'new_status' => $newItemStatus,
+                        'updated_by_id' => $request->user()->id,
+                        'updated_by_name' => $request->user()->name,
+                        'updated_at' => now()->toIso8601String(),
+                    ]
+                );
+
+                return [
+                    'order' => $order->fresh(['items']), 'item' => $item->fresh(),
+                    'previous_item_status' => $previousItemStatus, 'previous_order_status' => $previousOrderStatus,
+                    'order_updated' => $orderUpdated, 'warning' => null, 'unchanged' => false,
+                ];
+            });
+
+            $newOrderStatus = $result['order']->status->value ?? (string) $result['order']->status;
+            $label = OrderStatus::tryFrom($result['item']->production_status)?->label() ?? ucwords(str_replace('_', ' ', $result['item']->production_status));
+            return response()->json([
+                'success' => true,
+                'message' => $result['unchanged']
+                    ? 'This product already has that status.'
+                    : ($result['order_updated']
+                        ? "Product and order moved to {$label}; the customer was notified."
+                        : "Product moved to {$label}. The order status and customer notification update when every product reaches the same stage."),
+                'data' => [
+                    'id' => $result['order']->id,
+                    'order_number' => $result['order']->order_number,
+                    'item_id' => $result['item']->id,
+                    'item_name' => $result['item']->product_name,
+                    'status' => $result['item']->production_status,
+                    'status_label' => $label,
+                    'previous_item_status' => $result['previous_item_status'],
+                    'order_status' => $newOrderStatus,
+                    'previous_order_status' => $result['previous_order_status'],
+                    'order_status_updated' => $result['order_updated'],
+                    'warning' => $result['warning'],
+                ],
+            ]);
+        } catch (ValidationException $exception) {
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage() ?: 'Could not update product status.',
+                'errors' => $exception->errors(),
+            ], 422);
+        }
+    }
+
+    private function orderStatusForItemStatus(string $itemStatus): ?string
+    {
+        return match ($itemStatus) {
+            'prepress' => 'artwork_review',
+            'approved' => 'approved',
+            'printing', 'in_production', 'production_started' => 'printing',
+            'cutting_and_finishing', 'cutting_in_progress' => 'cutting_and_finishing',
+            'quality_check_and_packaging', 'production_completed' => 'quality_check_and_packaging',
+            'ready_for_pickup' => 'ready_for_pickup',
+            'ready_for_shipping' => 'ready_for_shipping',
+            'dispatched' => 'dispatched',
+            'handed_over_to_courier' => 'handed_over_to_courier',
+            'delivered' => 'delivered',
+            'collected' => 'collected',
+            'cancelled' => 'cancelled',
+            default => null,
+        };
     }
 
     private function station(string $stage): array

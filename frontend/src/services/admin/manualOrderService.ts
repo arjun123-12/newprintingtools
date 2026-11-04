@@ -227,6 +227,17 @@ export const manualOrderService = {
     return response.data;
   },
 
+  async updateProductionItemStatus(
+    itemId: string,
+    payload: { status: string; shipping_carrier?: string; tracking_number?: string }
+  ) {
+    const response = await apiClient.patch(
+      `/admin/production-station-items/${encodeURIComponent(itemId)}/status`,
+      payload
+    );
+    return response.data;
+  },
+
   /**
    * List all manual orders with filters
    */

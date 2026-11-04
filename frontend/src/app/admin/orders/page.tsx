@@ -7,17 +7,6 @@ import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle, Trash2, Pencil
 import TurnaroundCell from '@/components/admin/orders/TurnaroundCell';
 import TurnaroundModal from '@/components/admin/orders/TurnaroundModal';
 
-type FilterTab =
-  | 'all'
-  | 'draft'
-  | 'pending_payment'
-  | 'artwork_review'
-  | 'changes_requested'
-  | 'in_production'
-  | 'ready_for_pickup'
-  | 'dispatched'
-  | 'delivered';
-
 import {
   STATUS_STYLES,
   STATUS_LABELS,
@@ -25,17 +14,33 @@ import {
   formatStatusLabel,
 } from '@/utils/orderStatus';
 
-const FILTER_TABS: { label: string; value: FilterTab }[] = [
+const FILTER_TABS = [
   { label: 'All', value: 'all' },
   { label: 'Draft', value: 'draft' },
   { label: 'Pending Payment', value: 'pending_payment' },
+  { label: 'Processing', value: 'processing' },
+  { label: 'Artwork Required', value: 'artwork_required' },
   { label: 'Artwork Review', value: 'artwork_review' },
   { label: 'Changes Requested', value: 'changes_requested' },
-  { label: 'Printing', value: 'in_production' },
+  { label: 'Approved', value: 'approved' },
+  { label: 'Printing', value: 'printing' },
+  { label: 'In Production', value: 'in_production' },
+  { label: 'Production Started', value: 'production_started' },
+  { label: 'Cutting & Finishing', value: 'cutting_and_finishing' },
+  { label: 'Cutting in Progress', value: 'cutting_in_progress' },
+  { label: 'Quality Check & Packaging', value: 'quality_check_and_packaging' },
+  { label: 'Production Completed', value: 'production_completed' },
   { label: 'Ready for Pickup', value: 'ready_for_pickup' },
+  { label: 'Ready for Shipping', value: 'ready_for_shipping' },
   { label: 'Dispatched', value: 'dispatched' },
+  { label: 'Handed over to courier', value: 'handed_over_to_courier' },
   { label: 'Delivered', value: 'delivered' },
-];
+  { label: 'Collected', value: 'collected' },
+  { label: 'Cancelled', value: 'cancelled' },
+  { label: 'Refunded', value: 'refunded' },
+] as const;
+
+type FilterTab = (typeof FILTER_TABS)[number]['value'];
 
 export default function AdminOrdersPage() {
   const [filter, setFilter] = useState<FilterTab>('all');

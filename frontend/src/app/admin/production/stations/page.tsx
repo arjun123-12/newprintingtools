@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import QRCode from 'qrcode';
-import { AlertTriangle, ArrowLeft, Check, Download, Printer, QrCode, RefreshCw, ScanLine, Search, ShieldCheck, Video, VideoOff } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, Download, Pencil, Printer, QrCode, RefreshCw, ScanLine, Search, ShieldCheck, Video, VideoOff } from 'lucide-react';
 import { manualOrderService } from '@/services/admin/manualOrderService';
 
 const STATIONS = [
@@ -14,6 +14,20 @@ const STATIONS = [
   { key: 'handed_over_to_courier', label: 'Handed Over to Courier', description: 'Record courier handoff.' },
   { key: 'delivered', label: 'Delivered', description: 'Confirm delivery to the customer.' },
   { key: 'collected', label: 'Collected', description: 'Confirm customer pickup.' },
+] as const;
+
+const MANUAL_ITEM_STATUSES = [
+  { value: 'queued', label: 'Queued' },
+  { value: 'prepress', label: 'Prepress / Artwork Review' },
+  { value: 'approved', label: 'Approved for Printing' },
+  { value: 'printing', label: 'Printing' },
+  { value: 'cutting_and_finishing', label: 'Cutting & Finishing' },
+  { value: 'quality_check_and_packaging', label: 'Quality Check & Packaging' },
+  { value: 'ready_for_pickup', label: 'Ready for Pickup' },
+  { value: 'ready_for_shipping', label: 'Ready for Shipping' },
+  { value: 'handed_over_to_courier', label: 'Handed Over to Courier' },
+  { value: 'delivered', label: 'Delivered' },
+  { value: 'collected', label: 'Collected' },
 ] as const;
 
 type Station = (typeof STATIONS)[number];
@@ -54,6 +68,9 @@ export default function ProductionStationsPage() {
   const [search, setSearch] = useState('');
   const [carrier, setCarrier] = useState('');
   const [trackingNumber, setTrackingNumber] = useState('');
+  const [manualStatus, setManualStatus] = useState('queued');
+  const [manualCarrier, setManualCarrier] = useState('');
+  const [manualTrackingNumber, setManualTrackingNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [scannerActive, setScannerActive] = useState(false);
@@ -291,6 +308,50 @@ export default function ProductionStationsPage() {
     }
   };
 
+  const handleManualProductStatus = async () => {
+    if (!station || !selectedOrder) return;
+    if (manualStatus === selectedOrder.item_status) {
+      setError('This product already has that status.');
+      return;
+    }
+    if (['handed_over_to_courier', 'dispatched'].includes(manualStatus) && (!manualCarrier.trim() || !manualTrackingNumber.trim())) {
+      setError('Carrier and tracking number are required for courier handoff.');
+      return;
+    }
+    const nextLabel = MANUAL_ITEM_STATUSES.find((status) => status.value === manualStatus)?.label || statusLabel(manualStatus);
+    if (!window.confirm(`Change ${selectedOrder.item_name} on ${selectedOrder.order_number} from ${statusLabel(selectedOrder.item_status)} to ${nextLabel}? The customer will be notified when the whole order reaches this stage.`)) return;
+
+    setUpdating(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await manualOrderService.updateProductionItemStatus(selectedOrder.item_id, {
+        status: manualStatus,
+        shipping_carrier: manualCarrier.trim() || undefined,
+        tracking_number: manualTrackingNumber.trim() || undefined,
+      });
+      const result = response?.data;
+      setLatestScan({
+        orderNumber: result?.order_number || selectedOrder.order_number,
+        itemName: result?.item_name || selectedOrder.item_name,
+        previousItemStatus: result?.previous_item_status || selectedOrder.item_status,
+        itemStatus: result?.status || manualStatus,
+        previousOrderStatus: result?.previous_order_status || selectedOrder.status,
+        orderStatus: result?.order_status || selectedOrder.status,
+        orderUpdated: Boolean(result?.order_status_updated),
+      });
+      setSuccess(response?.message || `${selectedOrder.item_name} moved to ${nextLabel}.`);
+      setManualCarrier('');
+      setManualTrackingNumber('');
+      await fetchStationOrders(station.key);
+      if (result?.warning) setError(result.warning);
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.message || requestError?.response?.data?.errors?.status?.[0] || 'Could not update this product status. Refresh the queue and try again.');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   if (station) {
     return (
       <main className="min-h-screen w-full overflow-x-hidden bg-slate-950 px-3 py-4 text-slate-100 sm:px-5 sm:py-6">
@@ -367,17 +428,35 @@ export default function ProductionStationsPage() {
               {visibleOrders.map((order) => {
                 const selected = selectedOrderId === order.item_id;
                 return (
-                  <button key={order.item_id} type="button" onClick={() => { setSelectedOrderId(order.item_id); setError(null); }} className={`w-full rounded-xl border p-4 text-left transition ${selected ? 'border-sky-500 bg-sky-500/10' : 'border-slate-800 bg-slate-900 hover:border-slate-700'}`}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-mono text-sm font-bold text-white">{order.order_number}</p>
-                        <p className="mt-1 text-xs text-slate-300">{order.customer_name}</p>
-                        <p className="mt-1 break-words text-xs font-medium text-slate-200 [overflow-wrap:anywhere]">{order.item_name} × {order.item_quantity}</p>
+                  <div key={order.item_id} className={`w-full rounded-xl border p-4 transition ${selected ? 'border-sky-500 bg-sky-500/10' : 'border-slate-800 bg-slate-900 hover:border-slate-700'}`}>
+                    <button type="button" onClick={() => { setSelectedOrderId(order.item_id); setManualStatus(order.item_status); setError(null); }} className="w-full text-left">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-mono text-sm font-bold text-white">{order.order_number}</p>
+                          <p className="mt-1 text-xs text-slate-300">{order.customer_name}</p>
+                          <p className="mt-1 break-words text-xs font-medium text-slate-200 [overflow-wrap:anywhere]">{order.item_name} × {order.item_quantity}</p>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-slate-800 px-2 py-1 text-[10px] font-semibold text-slate-300">{statusLabel(order.status)}</span>
                       </div>
-                      <span className="shrink-0 rounded-full bg-slate-800 px-2 py-1 text-[10px] font-semibold text-slate-300">{statusLabel(order.status)}</span>
-                    </div>
-                    <p className="mt-3 text-[11px] font-semibold text-sky-300">On confirm → {order.target_label}</p>
-                  </button>
+                      <p className="mt-3 text-[11px] font-semibold text-sky-300">On confirm → {order.target_label}</p>
+                    </button>
+                    {selected && <div className="mt-4 border-t border-slate-800 pt-4" onClick={(event) => event.stopPropagation()}>
+                      <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Pencil className="h-4 w-4 text-amber-300"/>Custom product status</h3>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-400">The order status and customer email update when every product in the order reaches the chosen stage.</p>
+                      <label className="mt-3 block text-xs font-medium text-slate-300" htmlFor={`manual-product-status-${order.item_id}`}>Product status</label>
+                      <select id={`manual-product-status-${order.item_id}`} value={manualStatus} onChange={(event) => setManualStatus(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400">
+                        {MANUAL_ITEM_STATUSES.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+                      </select>
+                      {['handed_over_to_courier', 'dispatched'].includes(manualStatus) && <div className="mt-2 space-y-2">
+                        <input value={manualCarrier} onChange={(event) => setManualCarrier(event.target.value)} placeholder="Courier name" aria-label="Manual update courier name" className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-amber-400" />
+                        <input value={manualTrackingNumber} onChange={(event) => setManualTrackingNumber(event.target.value)} placeholder="Tracking number" aria-label="Manual update tracking number" className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-amber-400" />
+                      </div>}
+                      <button type="button" onClick={() => void handleManualProductStatus()} disabled={updating || manualStatus === order.item_status} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-200 hover:bg-amber-500/20 disabled:opacity-40">
+                        {updating ? <RefreshCw className="h-4 w-4 animate-spin"/> : <Check className="h-4 w-4"/>}
+                        {updating ? 'Updating product…' : 'Save product status'}
+                      </button>
+                    </div>}
+                  </div>
                 );
               })}
             </div>

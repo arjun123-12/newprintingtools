@@ -672,6 +672,10 @@ Route::middleware(['auth:sanctum', 'admin.access'])
 
         // Orders (permission: orders)
         Route::middleware('permission:orders')->group(function () {
+            Route::patch('/production-station-items/{itemId}/status', [
+                App\Http\Controllers\Api\V1\Admin\ProductionStationController::class,
+                'updateItemStatus',
+            ]);
             Route::post('/assistant/interpret', [
                 App\Http\Controllers\Api\V1\Admin\AdminAssistantController::class,
                 'interpret',
