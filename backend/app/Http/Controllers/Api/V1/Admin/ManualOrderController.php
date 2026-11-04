@@ -62,6 +62,17 @@ class ManualOrderController extends Controller
                     'handed_over_to_courier',
                     'ready_for_shipping',
                 ]);
+            } elseif ($status === 'artwork_review') {
+                $query->whereIn('status', [
+                    'artwork_review',
+                    'artwork_required',
+                    'approved',
+                ]);
+            } elseif ($status === 'cancelled') {
+                $query->whereIn('status', [
+                    'cancelled',
+                    'refunded',
+                ]);
             } else {
                 $query->where('status', $status);
             }
