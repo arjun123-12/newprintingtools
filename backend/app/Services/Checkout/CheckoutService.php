@@ -190,9 +190,12 @@ class CheckoutService
         if ($offerCode) {
             $offer = \App\Models\Offer::where('code', $offerCode)->where('status', 'active')->first();
             $subtotal = (float) $recalculated['subtotal_inc_gst'];
+            $totalQuantity = collect($recalculated['items'] ?? [])->sum('quantity');
             if (!$offer || ($offer->starts_at && $offer->starts_at->isFuture()) || ($offer->ends_at && $offer->ends_at->isPast())
-                || ($offer->usage_limit && $offer->usage_count >= $offer->usage_limit) || $subtotal < (float) $offer->minimum_subtotal) {
-                throw ValidationException::withMessages(['offer_code' => ['This offer code is invalid, expired, or does not meet the minimum spend.']]);
+                || ($offer->usage_limit && $offer->usage_count >= $offer->usage_limit)
+                || $subtotal < (float) $offer->minimum_subtotal
+                || ($offer->quantity && $totalQuantity < (int) $offer->quantity)) {
+                throw ValidationException::withMessages(['offer_code' => ['This offer code is invalid, expired, or does not meet the minimum spend or quantity.']]);
             }
             $discount = $offer->discount_type === 'percentage' ? $subtotal * (float) $offer->discount_value / 100 : (float) $offer->discount_value;
             if ($offer->maximum_discount) $discount = min($discount, (float) $offer->maximum_discount);

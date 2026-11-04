@@ -19,12 +19,19 @@ class OfferController extends Controller
 {
     public function validateCode(Request $request): JsonResponse
     {
-        $data = $request->validate(['code' => ['required', 'string', 'max:40'], 'subtotal' => ['required', 'numeric', 'min:0']]);
+        $data = $request->validate([
+            'code' => ['required', 'string', 'max:40'],
+            'subtotal' => ['required', 'numeric', 'min:0'],
+            'quantity' => ['nullable', 'integer', 'min:0'],
+        ]);
         $offer = Offer::whereRaw('UPPER(code) = ?', [Str::upper(trim($data['code']))])->where('status', 'active')->first();
         $subtotal = (float) $data['subtotal'];
+        $qty = isset($data['quantity']) ? (int) $data['quantity'] : null;
         $valid = $offer && (!$offer->starts_at || $offer->starts_at->isPast()) && (!$offer->ends_at || $offer->ends_at->isFuture())
-            && (!$offer->usage_limit || $offer->usage_count < $offer->usage_limit) && $subtotal >= (float) $offer->minimum_subtotal;
-        if (!$valid) return response()->json(['success' => true, 'data' => ['valid' => false, 'message' => 'This offer code is invalid, expired, or does not meet the minimum spend.']]);
+            && (!$offer->usage_limit || $offer->usage_count < $offer->usage_limit)
+            && $subtotal >= (float) $offer->minimum_subtotal
+            && (!$offer->quantity || $qty === null || $qty >= (int) $offer->quantity);
+        if (!$valid) return response()->json(['success' => true, 'data' => ['valid' => false, 'message' => 'This offer code is invalid, expired, or does not meet the requirements.']]);
         $discount = $offer->discount_type === 'percentage' ? $subtotal * (float) $offer->discount_value / 100 : (float) $offer->discount_value;
         if ($offer->maximum_discount) $discount = min($discount, (float) $offer->maximum_discount);
         $discount = round(min($subtotal, $discount), 2);
@@ -74,6 +81,7 @@ class OfferController extends Controller
             'name' => ['required', 'string', 'max:120'], 'code' => ['required', 'alpha_dash', 'max:40', 'unique:offers,code'],
             'discount_type' => ['required', 'in:percentage,fixed'], 'discount_value' => ['required', 'numeric', 'gt:0'],
             'minimum_subtotal' => ['nullable', 'numeric', 'min:0'], 'maximum_discount' => ['nullable', 'numeric', 'gt:0'],
+            'quantity' => ['nullable', 'integer', 'min:1'], 'product_details' => ['nullable', 'string', 'max:1000'],
             'usage_limit' => ['nullable', 'integer', 'min:1'], 'starts_at' => ['nullable', 'date'], 'ends_at' => ['nullable', 'date', 'after:starts_at'],
         ]);
         if ($data['discount_type'] === 'percentage' && $data['discount_value'] > 100) {
