@@ -221,7 +221,7 @@ export default function AdminCouponsPage() {
               ) : null}
             </label>
           </div>
-          <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-lg bg-violet-600 py-2.5 font-semibold text-white hover:bg-violet-700 disabled:opacity-50"><Plus size={17} />Create offer</button>
+          <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-lg bg-violet-600 py-2.5 font-semibold text-white hover:bg-violet-700 disabled:opacity-50"><Plus size={17} />Design offer</button>
         </form>
 
         <section className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm">
