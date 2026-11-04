@@ -21,15 +21,20 @@ class SpinRewardController extends Controller
     public function checkEligibility(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'order_number' => ['required_without:review_token', 'nullable', 'string', 'max:64'],
+            'order_number' => ['nullable', 'string', 'max:64'],
             'review_token' => ['nullable', 'string', 'max:128'],
+            'token' => ['nullable', 'string', 'max:128'],
+            'spin_token' => ['nullable', 'string', 'max:128'],
         ]);
+
+        $spinToken = $validated['spin_token'] ?? $validated['token'] ?? null;
 
         try {
             $result = $this->spinRewardService->getEligibility(
                 $validated['order_number'] ?? null,
                 $request->user(),
-                $validated['review_token'] ?? null
+                $validated['review_token'] ?? null,
+                $spinToken
             );
 
             return response()->json([
@@ -62,8 +67,8 @@ class SpinRewardController extends Controller
     public function spin(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'order_number' => ['required_without:review_token', 'nullable', 'string', 'max:64'],
-            'spin_token' => ['required', 'string', 'max:64'],
+            'order_number' => ['nullable', 'string', 'max:64'],
+            'spin_token' => ['required', 'string', 'max:128'],
             'review_token' => ['nullable', 'string', 'max:128'],
         ]);
 

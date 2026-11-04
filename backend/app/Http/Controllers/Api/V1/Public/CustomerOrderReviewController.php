@@ -837,6 +837,16 @@ class CustomerOrderReviewController extends Controller
                     $result['receipt_number'] ?? null
                 );
 
+                // Send Spin & Win invitation if auto-send is enabled
+                try {
+                    $autoSendSpin = (bool) \App\Models\SpinWinSetting::get('auto_send_on_payment', true);
+                    if ($autoSendSpin) {
+                        app(\App\Services\Rewards\SpinRewardService::class)->sendSpinInvitationForOrder($order);
+                    }
+                } catch (\Throwable $e) {
+                    // Non-blocking log
+                }
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Payment approved successfully. Your order is now in production!',

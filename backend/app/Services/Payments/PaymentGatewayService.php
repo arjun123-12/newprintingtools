@@ -284,6 +284,16 @@ class PaymentGatewayService
                     // Non-blocking log
                 }
 
+                // Send Spin & Win invitation if auto-send is enabled
+                try {
+                    $autoSendSpin = (bool) \App\Models\SpinWinSetting::get('auto_send_on_payment', true);
+                    if ($autoSendSpin) {
+                        app(\App\Services\Rewards\SpinRewardService::class)->sendSpinInvitationForOrder($order);
+                    }
+                } catch (\Throwable $e) {
+                    // Non-blocking log
+                }
+
                 return [
                     'success' => true,
                     'paid' => true,

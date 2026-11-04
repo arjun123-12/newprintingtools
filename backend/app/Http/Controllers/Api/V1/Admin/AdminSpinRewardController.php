@@ -2,12 +2,17 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Enums\PaymentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\CustomerRewardLedger;
+use App\Models\MarketingContact;
+use App\Models\Order;
 use App\Models\OrderSpinEntitlement;
 use App\Models\SpinReward;
 use App\Models\SpinRewardCategory;
 use App\Models\SpinWinSetting;
+use App\Models\User;
+use App\Services\Rewards\SpinRewardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -28,6 +33,10 @@ class AdminSpinRewardController extends Controller
             'proof_watermark_opacity' => (int) SpinWinSetting::get('proof_watermark_opacity', 40),
             'order_cutoff_time' => (string) SpinWinSetting::get('order_cutoff_time', '10:00'),
             'order_cutoff_timezone' => (string) SpinWinSetting::get('order_cutoff_timezone', 'Australia/Adelaide'),
+            'auto_send_on_payment' => (bool) SpinWinSetting::get('auto_send_on_payment', true),
+            'invitation_subject' => (string) SpinWinSetting::get('invitation_subject', '🎁 Spin to Win Your Exclusive Print Reward! | Erry Imprints'),
+            'invitation_headline' => (string) SpinWinSetting::get('invitation_headline', "You've Unlocked a Free Spin!"),
+            'invitation_message' => (string) SpinWinSetting::get('invitation_message', "Thank you for completing your payment! As a special reward, you are invited to spin our prize wheel to unlock exclusive discounts, print credits, and free delivery upgrades on your next order."),
         ];
 
         $categories = SpinRewardCategory::query()
@@ -70,6 +79,10 @@ class AdminSpinRewardController extends Controller
         $validated = $request->validate([
             'enabled' => ['required', 'boolean'],
             'min_order_spend' => ['required', 'numeric', 'min:0'],
+            'auto_send_on_payment' => ['nullable', 'boolean'],
+            'invitation_subject' => ['nullable', 'string', 'max:180'],
+            'invitation_headline' => ['nullable', 'string', 'max:180'],
+            'invitation_message' => ['nullable', 'string', 'max:5000'],
             'banner_title' => ['nullable', 'string', 'max:100'],
             'banner_subtitle' => ['nullable', 'string', 'max:150'],
             'banner_tagline' => ['nullable', 'string', 'max:255'],
@@ -99,6 +112,18 @@ class AdminSpinRewardController extends Controller
 
         SpinWinSetting::set('enabled', $validated['enabled']);
         SpinWinSetting::set('min_order_spend', (float) $validated['min_order_spend']);
+        if (array_key_exists('auto_send_on_payment', $validated)) {
+            SpinWinSetting::set('auto_send_on_payment', (bool) $validated['auto_send_on_payment']);
+        }
+        if (isset($validated['invitation_subject'])) {
+            SpinWinSetting::set('invitation_subject', $validated['invitation_subject']);
+        }
+        if (isset($validated['invitation_headline'])) {
+            SpinWinSetting::set('invitation_headline', $validated['invitation_headline']);
+        }
+        if (isset($validated['invitation_message'])) {
+            SpinWinSetting::set('invitation_message', $validated['invitation_message']);
+        }
         if (isset($validated['banner_title'])) {
             SpinWinSetting::set('banner_title', $validated['banner_title']);
         }
@@ -367,6 +392,87 @@ class AdminSpinRewardController extends Controller
         return response()->json([
             'success' => true,
             'data' => $ledger,
+        ]);
+    }
+
+    /**
+     * Get customers with paid orders and marketing contacts for sending spin invitations.
+     */
+    public function getCampaignRecipients(): JsonResponse
+    {
+        $paidOrders = Order::query()
+            ->where(function ($q) {
+                $q->where('payment_status', PaymentStatus::PAID)
+                  ->orWhere('payment_status', 'paid');
+            })
+            ->with(['user:id,name,email,company_name', 'spinEntitlement:id,order_id,status,spun_at'])
+            ->latest('created_at')
+            ->take(50)
+            ->get()
+            ->map(fn ($o) => [
+                'order_id' => $o->id,
+                'order_number' => $o->order_number,
+                'customer_id' => $o->user_id,
+                'name' => $o->shipping_address['name'] ?? $o->user?->name ?? 'Customer',
+                'email' => $o->shipping_address['email'] ?? $o->user?->email,
+                'total' => $o->total_inc_gst ?? $o->total,
+                'has_spun' => $o->spinEntitlement?->status === 'spun',
+                'spun_at' => $o->spinEntitlement?->spun_at?->toIso8601String(),
+                'created_at' => $o->created_at->toIso8601String(),
+            ]);
+
+        $customers = User::query()
+            ->where('marketing_consent', true)
+            ->orderBy('name')
+            ->take(50)
+            ->get(['id', 'name', 'email', 'marketing_consent']);
+
+        $contacts = MarketingContact::query()
+            ->where('marketing_consent', true)
+            ->whereNull('unsubscribed_at')
+            ->orderBy('name')
+            ->take(50)
+            ->get(['id', 'name', 'email']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'paid_orders' => $paidOrders,
+                'customers' => $customers,
+                'contacts' => $contacts,
+            ],
+        ]);
+    }
+
+    /**
+     * Send Spin Wheel promotional invitation email campaign.
+     */
+    public function sendInvitation(Request $request, SpinRewardService $spinRewardService): JsonResponse
+    {
+        $validated = $request->validate([
+            'customer_ids' => ['nullable', 'array'],
+            'order_ids' => ['nullable', 'array'],
+            'contact_ids' => ['nullable', 'array'],
+            'all_paid' => ['nullable', 'boolean'],
+            'subject' => ['nullable', 'string', 'max:180'],
+            'headline' => ['nullable', 'string', 'max:180'],
+            'message' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        $result = $spinRewardService->sendPromotionalSpinInvitations(
+            customerIds: $validated['customer_ids'] ?? [],
+            orderIds: $validated['order_ids'] ?? [],
+            contactIds: $validated['contact_ids'] ?? [],
+            allPaid: (bool) ($validated['all_paid'] ?? false),
+            subject: $validated['subject'] ?? null,
+            headline: $validated['headline'] ?? null,
+            message: $validated['message'] ?? null
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => $result['message'],
+            'data' => $result,
         ]);
     }
 }

@@ -177,3 +177,38 @@ input[type="number"]::-webkit-inner-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
 }
+
+/* ==========================================================================
+ * 3. Spin Wheel Premium Animations & Keyframes
+ * ========================================================================== */
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+@keyframes pop { from { opacity: 0; transform: scale(.85) translateY(12px) } to { opacity: 1; transform: none } }
+@keyframes bulb { 0%, 100% { opacity: 1 } 50% { opacity: .25 } }
+@keyframes tick { 0% { transform: rotate(0) } 35% { transform: rotate(-24deg) } 100% { transform: rotate(0) } }
+@keyframes ring { 0% { transform: scale(1); opacity: .7 } 100% { transform: scale(1.9); opacity: 0 } }
+@keyframes breathe { 0%, 100% { opacity: .55; transform: scale(1) } 50% { opacity: 1; transform: scale(1.06) } }
+@keyframes twinkle { 0%, 100% { opacity: 0; transform: scale(.3) } 50% { opacity: 1; transform: scale(1) } }
+@keyframes confetti {
+  0% { transform: translate(0, 0) rotate(0); opacity: 1 }
+  80% { opacity: 1 }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: 0 }
+}
+@keyframes winpulse { 0%, 100% { filter: brightness(1) } 50% { filter: brightness(1.7) } }
+
+.bulb { animation: bulb 2.4s ease-in-out infinite; }
+.hub-ring { animation: ring 2.2s ease-out infinite; }
+.glow { animation: breathe 4s ease-in-out infinite; }
+.spark {
+  position: absolute; width: 5px; height: 5px; border-radius: 50%;
+  background: #FFF3C4; box-shadow: 0 0 10px 2px rgba(245, 196, 81, .8);
+  animation: twinkle 3s ease-in-out infinite;
+}
+
+/* while the wheel is spinning */
+.fast .bulb { animation-duration: .5s; }
+.fast .glow { animation-duration: .8s; }
+.fast .hub-ring { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bulb, .spark, .hub-ring, .glow { animation: none; }
+}

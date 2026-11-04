@@ -979,6 +979,8 @@ Route::middleware(['auth:sanctum', 'admin.access'])
             Route::put('/categories/{id}', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'updateCategory'])->whereNumber('id');
             Route::delete('/categories/{id}', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'deleteCategory'])->whereNumber('id');
             Route::delete('/rewards/{id}', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'deleteReward'])->whereNumber('id');
+            Route::get('/campaign-recipients', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'getCampaignRecipients']);
+            Route::post('/send-invitation', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'sendInvitation']);
         });
     });
 Route::prefix('client-brief-auth')->group(function () {

@@ -3,6 +3,7 @@
 namespace App\Services\Rewards;
 
 use App\Enums\PaymentStatus;
+use App\Mail\SpinWheelInvitationMail;
 use App\Models\CustomerRewardLedger;
 use App\Models\Order;
 use App\Models\OrderActivity;
@@ -16,6 +17,7 @@ use App\Models\User;
 use App\Services\Notification\OrderNotificationService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use RuntimeException;
@@ -166,8 +168,23 @@ class SpinRewardService
      *    - Requires authenticated user owning the order or admin access.
      *    - Disallows unauthenticated access using only an order number (prevents guessing).
      */
-    public function resolveOrderFromRequest(?string $orderNumber, ?string $reviewToken = null, ?User $user = null): Order
+    public function resolveOrderFromRequest(?string $orderNumber, ?string $reviewToken = null, ?User $user = null, ?string $spinToken = null): Order
     {
+        if (! empty($spinToken)) {
+            $entitlement = OrderSpinEntitlement::where('spin_token', $spinToken)->first();
+
+            if (! $entitlement) {
+                throw new AccessDeniedHttpException('This spin reward link is invalid or has expired.');
+            }
+
+            $order = $entitlement->order;
+            if (! $order) {
+                throw new InvalidArgumentException('Order referenced by spin reward token does not exist.');
+            }
+
+            return $order;
+        }
+
         if (! empty($reviewToken)) {
             $link = OrderReviewLink::where('token', $reviewToken)->first();
 
@@ -225,7 +242,7 @@ class SpinRewardService
      * Check if a specific order qualifies for a spin and return entitlement state + category segments.
      * Supports both authenticated cart checkout orders and tokenized manual-order review links.
      */
-    public function getEligibility(?string $orderNumber, ?User $user = null, ?string $reviewToken = null): array
+    public function getEligibility(?string $orderNumber, ?User $user = null, ?string $reviewToken = null, ?string $spinToken = null): array
     {
         $enabled = (bool) SpinWinSetting::get('enabled', true);
         if (! $enabled) {
@@ -235,7 +252,7 @@ class SpinRewardService
             ];
         }
 
-        $order = $this->resolveOrderFromRequest($orderNumber, $reviewToken, $user);
+        $order = $this->resolveOrderFromRequest($orderNumber, $reviewToken, $user, $spinToken);
 
         // Strict security requirement: Backend verification of payment status via genuine succeeded transaction
         if (! $this->isPaymentGenuinelyVerified($order)) {
@@ -341,7 +358,7 @@ class SpinRewardService
             throw new RuntimeException('Spin & Win is currently unavailable.');
         }
 
-        $order = $this->resolveOrderFromRequest($orderNumber, $reviewToken, $user);
+        $order = $this->resolveOrderFromRequest($orderNumber, $reviewToken, $user, $spinToken);
 
         // Strict backend payment check: genuine succeeded payment required
         if (! $this->isPaymentGenuinelyVerified($order)) {
@@ -719,6 +736,168 @@ class SpinRewardService
             'discount_amount' => round($discountAmount, 2),
             'terms' => $ledger->terms,
             'how_to_use' => $ledger->how_to_use,
+        ];
+    }
+
+    /**
+     * Send Spin Wheel promotional invitation email for a specific qualifying paid order.
+     */
+    public function sendSpinInvitationForOrder(
+        Order $order,
+        ?string $customSubject = null,
+        ?string $customHeadline = null,
+        ?string $customMessage = null
+    ): bool {
+        // Find or create atomic entitlement with unique spin_token
+        $entitlement = OrderSpinEntitlement::firstOrCreate(
+            ['order_id' => $order->id],
+            [
+                'user_id' => $order->user_id,
+                'spin_token' => Str::random(48),
+                'status' => 'eligible',
+            ]
+        );
+
+        $targetEmail = $order->shipping_address['email']
+            ?? $order->user?->email;
+
+        if (empty($targetEmail)) {
+            return false;
+        }
+
+        $customerName = $order->shipping_address['name']
+            ?? $order->user?->name
+            ?? 'Valued Customer';
+
+        $frontendUrl = rtrim(config('app.frontend_url', config('app.url', 'http://localhost:3000')), '/');
+        $spinUrl = "{$frontendUrl}/rewards/spin?token={$entitlement->spin_token}&order={$order->order_number}";
+
+        Mail::to($targetEmail)->send(new SpinWheelInvitationMail(
+            customerName: $customerName,
+            spinUrl: $spinUrl,
+            orderNumber: $order->order_number,
+            customSubject: $customSubject,
+            customHeadline: $customHeadline,
+            customMessage: $customMessage
+        ));
+
+        // Audit log in order activities
+        OrderActivity::record(
+            $order->id,
+            'spin_wheel_invitation_sent',
+            "Spin Wheel VIP promotional invitation email sent to {$targetEmail}.",
+            'system'
+        );
+
+        return true;
+    }
+
+    /**
+     * Admin bulk promotional sender: send Spin Wheel invitation to selected paid customers or contacts.
+     */
+    public function sendPromotionalSpinInvitations(
+        array $customerIds = [],
+        array $orderIds = [],
+        array $contactIds = [],
+        bool $allPaid = false,
+        ?string $subject = null,
+        ?string $headline = null,
+        ?string $message = null
+    ): array {
+        $sentCount = 0;
+        $processedEmails = [];
+
+        // 1. Process specific order IDs if provided
+        if (! empty($orderIds)) {
+            $orders = Order::whereIn('id', $orderIds)->get();
+            foreach ($orders as $order) {
+                if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message)) {
+                    $sentCount++;
+                }
+            }
+        }
+
+        // 2. Process customer IDs or all paid customers
+        if ($allPaid) {
+            $paidOrders = Order::query()
+                ->where(function ($q) {
+                    $q->where('payment_status', PaymentStatus::PAID)
+                      ->orWhere('payment_status', 'paid');
+                })
+                ->whereDoesntHave('spinEntitlement', function ($q) {
+                    $q->where('status', 'spun');
+                })
+                ->latest()
+                ->take(100)
+                ->get();
+
+            foreach ($paidOrders as $order) {
+                $targetEmail = $order->shipping_address['email'] ?? $order->user?->email;
+                if ($targetEmail && ! in_array(strtolower($targetEmail), $processedEmails, true)) {
+                    $processedEmails[] = strtolower($targetEmail);
+                    if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message)) {
+                        $sentCount++;
+                    }
+                }
+            }
+        } elseif (! empty($customerIds)) {
+            $customers = User::whereIn('id', $customerIds)->get();
+            foreach ($customers as $cust) {
+                // Find latest qualifying paid order for customer
+                $order = Order::where('user_id', $cust->id)
+                    ->where(function ($q) {
+                        $q->where('payment_status', PaymentStatus::PAID)
+                          ->orWhere('payment_status', 'paid');
+                    })
+                    ->latest()
+                    ->first();
+
+                if ($order) {
+                    if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message)) {
+                        $sentCount++;
+                    }
+                } else {
+                    // Create standalone or virtual promotional order entitlement
+                    $frontendUrl = rtrim(config('app.frontend_url', config('app.url', 'http://localhost:3000')), '/');
+                    $tempToken = Str::random(48);
+                    $spinUrl = "{$frontendUrl}/rewards/spin?token={$tempToken}";
+
+                    Mail::to($cust->email)->send(new SpinWheelInvitationMail(
+                        customerName: $cust->name,
+                        spinUrl: $spinUrl,
+                        orderNumber: null,
+                        customSubject: $subject,
+                        customHeadline: $headline,
+                        customMessage: $message
+                    ));
+                    $sentCount++;
+                }
+            }
+        }
+
+        // 3. Process marketing contact IDs if provided
+        if (! empty($contactIds)) {
+            $contacts = \App\Models\MarketingContact::whereIn('id', $contactIds)->get();
+            foreach ($contacts as $contact) {
+                $frontendUrl = rtrim(config('app.frontend_url', config('app.url', 'http://localhost:3000')), '/');
+                $tempToken = Str::random(48);
+                $spinUrl = "{$frontendUrl}/rewards/spin?token={$tempToken}";
+
+                Mail::to($contact->email)->send(new SpinWheelInvitationMail(
+                    customerName: $contact->name,
+                    spinUrl: $spinUrl,
+                    orderNumber: null,
+                    customSubject: $subject,
+                    customHeadline: $headline,
+                    customMessage: $message
+                ));
+                $sentCount++;
+            }
+        }
+
+        return [
+            'sent_count' => $sentCount,
+            'message' => "Spin & Win invitation sent to {$sentCount} recipient(s) successfully.",
         ];
     }
 }

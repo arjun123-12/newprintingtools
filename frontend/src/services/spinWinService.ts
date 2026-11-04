@@ -98,10 +98,11 @@ export const spinWinService = {
    * Check eligibility for a paid order and fetch the active category wheel layout.
    * Supports both cart orders (orderNumber) and manual-order review links (reviewToken).
    */
-  async checkEligibility(orderNumber?: string, reviewToken?: string): Promise<SpinEligibilityResponse> {
+  async checkEligibility(orderNumber?: string, reviewToken?: string, token?: string): Promise<SpinEligibilityResponse> {
     const params: Record<string, string> = {};
     if (orderNumber) params.order_number = orderNumber;
     if (reviewToken) params.review_token = reviewToken;
+    if (token) params.token = token;
     const res = await apiClient.get('/spin-win/eligibility', { params });
     return res.data?.data;
   },
@@ -225,5 +226,29 @@ export const spinWinService = {
   async getAdminLedger(params?: { page?: number; search?: string; status?: string; category_id?: number }) {
     const res = await apiClient.get('/admin/spin-win/ledger', { params });
     return res.data?.data;
+  },
+
+  /**
+   * Admin: Get paid customer recipients and contacts for spin wheel campaign invitations.
+   */
+  async getAdminSpinRecipients() {
+    const res = await apiClient.get('/admin/spin-win/campaign-recipients');
+    return res.data?.data;
+  },
+
+  /**
+   * Admin: Send Spin Wheel invitation email campaign to selected customers.
+   */
+  async sendAdminSpinInvitation(payload: {
+    customer_ids?: number[];
+    order_ids?: string[];
+    contact_ids?: number[];
+    all_paid?: boolean;
+    subject?: string;
+    headline?: string;
+    message?: string;
+  }) {
+    const res = await apiClient.post('/admin/spin-win/send-invitation', payload);
+    return res.data;
   },
 };
