@@ -51,23 +51,34 @@ class ProductionStationController extends Controller
             'from' => ['ready_for_pickup'],
             'to' => 'collected',
         ],
+        'delivery_collection' => [
+            'label' => 'Delivered / Collected',
+            'from' => ['delivered', 'collected'],
+            'to' => null,
+        ],
     ];
 
     public function index(string $stage): JsonResponse
     {
+        // Keep already printed Delivered and Collected QR labels working.
+        if (in_array($stage, ['delivered', 'collected'], true)) {
+            $stage = 'delivery_collection';
+        }
         $allProducts = $stage === 'all-products';
         $station = $allProducts ? ['label' => 'All Products'] : $this->station($stage);
         $orders = OrderItem::query()->with(['artwork', 'product'])
             ->whereHas('order', function ($query) use ($stage, $allProducts) {
                 if ($allProducts) {
-                    $query->whereNotIn('status', ['cancelled', 'completed', 'delivered', 'collected']);
+                    $query->whereNotIn('status', ['cancelled', 'refunded', 'completed', 'delivered', 'collected']);
+                } elseif ($stage === 'delivery_collection') {
+                    // A multi-product order can still have an earlier order status
+                    // while one item has already been marked delivered/collected.
+                    $query->whereNotIn('status', ['cancelled', 'refunded']);
                 } else {
-                    $query->whereIn('status', ['approved', 'in_production', 'production_started', 'printing', 'cutting_and_finishing', 'cutting_in_progress', 'quality_check_and_packaging', 'production_completed', 'ready_for_pickup', 'ready_for_shipping', 'dispatched', 'handed_over_to_courier']);
+                    $query->whereNotIn('status', ['cancelled', 'refunded']);
                 }
-                if ($stage === 'printing') $query->where('payment_status', 'paid');
-                if ($stage === 'handed_over_to_courier') $query->where('delivery_method', 'not like', '%pickup%');
             })
-            ->when($allProducts, fn ($query) => $query->whereNotIn('production_status', ['delivered', 'collected', 'cancelled']), fn ($query) => $query->whereIn('production_status', $this->itemFromStatuses($stage)))
+            ->when($allProducts, fn ($query) => $query->whereNotIn('production_status', ['delivered', 'collected', 'cancelled']), fn ($query) => $query->whereIn('production_status', $this->itemQueueStatuses($stage)))
             ->latest('created_at')->limit(500)->get()->map(function (OrderItem $item) use ($stage, $allProducts) {
             $order = $item->order;
             return [
@@ -98,6 +109,7 @@ class ProductionStationController extends Controller
 
     public function complete(Request $request, string $stage, string $id, ManualOrderService $manualOrderService): JsonResponse
     {
+        abort_unless(!in_array($stage, ['delivery_collection', 'delivered', 'collected'], true), 422, 'Delivered / Collected is a final status station.');
         $station = $this->station($stage);
         $validated = $request->validate([
             'item_id' => ['required', 'uuid'],
@@ -330,6 +342,19 @@ class ProductionStationController extends Controller
             'handed_over_to_courier' => ['ready_for_shipping', 'dispatched'],
             'delivered' => ['handed_over_to_courier', 'dispatched'],
             'collected' => ['ready_for_pickup'],
+            default => [],
+        };
+    }
+
+    private function itemQueueStatuses(string $stage): array
+    {
+        return match ($stage) {
+            'printing' => [...$this->itemFromStatuses($stage), 'printing'],
+            'cutting_and_finishing' => [...$this->itemFromStatuses($stage), 'cutting_and_finishing'],
+            'quality_check_and_packaging' => [...$this->itemFromStatuses($stage), 'quality_check_and_packaging'],
+            'ready_for_dispatch' => [...$this->itemFromStatuses($stage), 'ready_for_pickup', 'ready_for_shipping'],
+            'handed_over_to_courier' => [...$this->itemFromStatuses($stage), 'handed_over_to_courier'],
+            'delivery_collection' => ['delivered', 'collected'],
             default => [],
         };
     }

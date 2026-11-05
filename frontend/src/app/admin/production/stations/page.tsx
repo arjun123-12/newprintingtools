@@ -14,8 +14,7 @@ const STATIONS = [
   { key: 'quality_check_and_packaging', label: 'Quality Check & Packaging', description: 'Complete quality checks and packaging.' },
   { key: 'ready_for_dispatch', label: 'Ready for Pickup / Dispatch', description: 'Mark production complete and ready to leave.' },
   { key: 'handed_over_to_courier', label: 'Handed Over to Courier', description: 'Record courier handoff.' },
-  { key: 'delivered', label: 'Delivered', description: 'Confirm delivery to the customer.' },
-  { key: 'collected', label: 'Collected', description: 'Confirm customer pickup.' },
+  { key: 'delivery_collection', label: 'Delivered / Collected', description: 'View products marked delivered or collected.' },
 ] as const;
 
 const MANUAL_ITEM_STATUSES = [
@@ -34,6 +33,7 @@ const MANUAL_ITEM_STATUSES = [
 
 type Station = (typeof STATIONS)[number];
 const ALL_PRODUCTS_STATION = { key: 'all_products', label: 'All Products', description: 'View every active order product across all production stages.' } as const;
+const FINAL_STATION = STATIONS[STATIONS.length - 1];
 type ProductionView = Station | typeof ALL_PRODUCTS_STATION;
 const apiStageForView = (view: ProductionView) => view.key === 'all_products' ? 'all-products' : view.key;
 type StationOrder = {
@@ -46,8 +46,8 @@ type StationOrder = {
   image_url?: string | null;
   status: string;
   product_summary: string;
-  target_status: string;
-  target_label: string;
+  target_status: string | null;
+  target_label: string | null;
 };
 
 type LatestScan = {
@@ -85,23 +85,29 @@ export default function ProductionStationsPage() {
   const recentScansRef = useRef<Map<string, number>>(new Map());
   const processedOrderQrRef = useRef<Set<string>>(new Set());
 
-  const fetchStationOrders = useCallback(async (stage: string) => {
-    setLoading(true);
-    setError(null);
+  const fetchStationOrders = useCallback(async (stage: string, background = false) => {
+    if (!background) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const response = await manualOrderService.getProductionStationOrders(stage);
       setOrders(response?.data?.orders || []);
-      setSelectedOrderId(null);
+      if (!background) setSelectedOrderId(null);
     } catch (requestError: any) {
       setError(requestError?.response?.data?.message || 'Could not load this station queue.');
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     const stageKey = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('stage');
-    const activeStation = stageKey === 'all-products' ? ALL_PRODUCTS_STATION : STATIONS.find((item) => item.key === stageKey) || null;
+    const activeStation = stageKey === 'all-products'
+      ? ALL_PRODUCTS_STATION
+      : ['delivered', 'collected'].includes(stageKey || '')
+        ? FINAL_STATION
+        : STATIONS.find((item) => item.key === stageKey) || null;
     setStation(activeStation);
     if (!activeStation) return;
     window.dispatchEvent(new CustomEvent('admin-qr-order-view-change', { detail: { active: true } }));
@@ -110,6 +116,14 @@ export default function ProductionStationsPage() {
       window.dispatchEvent(new CustomEvent('admin-qr-order-view-change', { detail: { active: false } }));
     };
   }, [fetchStationOrders]);
+
+  useEffect(() => {
+    if (!station) return;
+    const interval = window.setInterval(() => {
+      void fetchStationOrders(apiStageForView(station), true);
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [fetchStationOrders, station]);
 
   useEffect(() => {
     if (station || typeof window === 'undefined') return;
@@ -141,6 +155,7 @@ export default function ProductionStationsPage() {
   }, [orders, search]);
 
   const selectedOrder = orders.find((order) => order.item_id === selectedOrderId) || null;
+  const selectedAlreadyAtStation = selectedOrder?.target_status === selectedOrder?.item_status;
 
   const handleScannedOrderQr = useCallback(async (rawValue: string) => {
     if (!station || processingOrderRef.current) return;
@@ -168,14 +183,22 @@ export default function ProductionStationsPage() {
       return;
     }
 
-    if (station.key === 'all_products') {
-      const matchingItem = orders.find((order) => order.id === orderId && order.item_id === itemId);
+    const matchingItem = orders.find((order) => order.id === orderId && order.item_id === itemId);
+    if (station.key === 'all_products' || station.key === 'delivery_collection') {
       if (!matchingItem) {
-        setError('This product is not in the active all-products queue. Refresh the list and scan again.');
+        setError('This product is not in this station queue. Refresh the list and scan again.');
         return;
       }
+      setError(null);
       setSelectedOrderId(matchingItem.item_id);
-      setSuccess(`${matchingItem.item_name} selected. Choose its next product status below.`);
+      setSuccess(`${matchingItem.item_name} selected. Current status: ${statusLabel(matchingItem.item_status)}.`);
+      return;
+    }
+
+    if (matchingItem && matchingItem.target_status === matchingItem.item_status) {
+      setError(null);
+      setSelectedOrderId(matchingItem.item_id);
+      setSuccess(`${matchingItem.item_name} is already at ${station.label}.`);
       return;
     }
 
@@ -358,7 +381,7 @@ export default function ProductionStationsPage() {
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
             </div>
-            <p className="mt-2 text-xs text-slate-400">{station.key === 'all_products' ? 'Active order products' : 'Eligible orders only'} · {orders.length} {station.key === 'all_products' ? 'listed' : 'waiting'}</p>
+            <p className="mt-2 text-xs text-slate-400">{station.key === 'all_products' ? 'Active order products' : station.key === 'delivery_collection' ? 'Final delivery / collection statuses' : 'Eligible and in-progress products'} · {orders.length} {station.key === 'all_products' ? 'listed' : 'shown'} · refreshes every 5 sec</p>
           </header>
 
           <section className="rounded-2xl border border-sky-500/25 bg-slate-900 p-4">
@@ -366,7 +389,7 @@ export default function ProductionStationsPage() {
               <ScanLine className="mt-0.5 h-5 w-5 shrink-0 text-sky-400" />
               <div className="min-w-0 flex-1">
                 <h2 className="text-sm font-semibold text-white">Scan order label</h2>
-                <p className="mt-1 text-xs leading-relaxed text-slate-400">{station.key === 'all_products' ? 'Scan a Product QR to select it, then choose a product status below.' : 'The machine QR sets this stage. Start the camera and scan the Product QR on the job label; that product&apos;s status updates automatically.'}</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">{station.key === 'all_products' || station.key === 'delivery_collection' ? 'Scan a Product QR to select it. Its current status appears below.' : 'The machine QR sets this stage. Start the camera and scan the Product QR on the job label; eligible products move to this stage.'}</p>
               </div>
             </div>
             {scannerActive ? (
@@ -424,7 +447,7 @@ export default function ProductionStationsPage() {
                         </div>
                         <span className="shrink-0 rounded-full bg-slate-800 px-2 py-1 text-[10px] font-semibold text-slate-300">{statusLabel(order.status)}</span>
                       </div>
-                      {station.key !== 'all_products' && <p className="mt-3 text-[11px] font-semibold text-sky-300">On confirm → {order.target_label}</p>}
+                      {station.key !== 'all_products' && station.key !== 'delivery_collection' && <p className="mt-3 text-[11px] font-semibold text-sky-300">On confirm → {order.target_label}</p>}
                     </button>
                     <div className="mt-3 flex items-center gap-3">
                       {order.image_url ? <img src={formatImageUrl(order.image_url)} alt={`${order.item_name} artwork preview`} className="h-20 w-20 shrink-0 rounded-lg border border-slate-700 bg-white object-contain" loading="lazy" /> : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-950 px-2 text-center text-[10px] text-slate-500">No product image</div>}
@@ -452,7 +475,7 @@ export default function ProductionStationsPage() {
             </div>
           )}
 
-          {selectedOrder && station.key !== 'all_products' && (
+          {selectedOrder && station.key !== 'all_products' && station.key !== 'delivery_collection' && (
             <section className="sticky bottom-3 rounded-2xl border border-sky-500/30 bg-slate-900 p-4 shadow-2xl">
               <p className="text-xs text-slate-400">Selected order</p>
               <h2 className="mt-1 text-base font-bold text-white">{selectedOrder.order_number}</h2>
@@ -462,9 +485,9 @@ export default function ProductionStationsPage() {
                   <input value={trackingNumber} onChange={(event) => setTrackingNumber(event.target.value)} placeholder="Tracking number" aria-label="Tracking number" className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-500" />
                 </div>
               )}
-              <button type="button" onClick={() => void handleComplete()} disabled={updating} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50">
+              <button type="button" onClick={() => void handleComplete()} disabled={updating || selectedAlreadyAtStation} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50">
                 {updating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                {updating ? 'Updating order…' : `Confirm ${selectedOrder.target_label}`}
+                {updating ? 'Updating order…' : selectedAlreadyAtStation ? `Already at ${selectedOrder.target_label}` : `Confirm ${selectedOrder.target_label}`}
               </button>
             </section>
           )}

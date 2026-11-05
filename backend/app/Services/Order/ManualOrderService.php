@@ -1013,6 +1013,30 @@ class ManualOrderService
 
         $order->save();
 
+        // Keep each product's production status aligned when staff change an
+        // order-level workflow status from the order table/detail screen.
+        if ($statusChanged) {
+            $itemProductionStatus = match ($newStatus) {
+                'approved' => 'approved',
+                'in_production', 'production_started', 'printing' => 'printing',
+                'cutting_in_progress' => 'cutting_in_progress',
+                'cutting_and_finishing' => 'cutting_and_finishing',
+                'production_completed', 'quality_check_and_packaging' => 'quality_check_and_packaging',
+                'ready_for_pickup' => 'ready_for_pickup',
+                'ready_for_shipping' => 'ready_for_shipping',
+                'dispatched' => 'dispatched',
+                'handed_over_to_courier' => 'handed_over_to_courier',
+                'delivered' => 'delivered',
+                'collected' => 'collected',
+                'cancelled' => 'cancelled',
+                default => null,
+            };
+
+            if ($itemProductionStatus !== null) {
+                $order->items()->update(['production_status' => $itemProductionStatus]);
+            }
+        }
+
         $statusLabel = OrderStatus::WORKFLOW_SEQUENCE[$newStatus]
             ?? ($statusEnum ? $statusEnum->label() : ucwords(str_replace('_', ' ', $newStatus)));
 
