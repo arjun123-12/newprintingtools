@@ -95,7 +95,6 @@ class SpinRewardService
 
         $rewards = $query->orderBy('sort_order', 'asc')
             ->orderBy('id', 'asc')
-            ->limit(6)
             ->get();
 
         // If the specified category had no rewards, fallback to Default category
@@ -108,7 +107,6 @@ class SpinRewardService
                     ->where('is_active', true)
                     ->orderBy('sort_order', 'asc')
                     ->orderBy('id', 'asc')
-                    ->limit(6)
                     ->get();
             }
         }
@@ -869,12 +867,13 @@ class SpinRewardService
 
         if ($assignedRewardId && $entitlement->status !== 'spun') {
             $assignedReward = SpinReward::with('category')->whereKey($assignedRewardId)->where('is_active', true)->first();
-            if ($assignedReward) {
-                if ($assignedReward->inventory !== null && $assignedReward->inventory < 1) {
-                    throw new InvalidArgumentException('The selected reward is out of stock.');
-                }
-                $entitlement->update(['assigned_reward_id' => $assignedRewardId]);
+            if (! $assignedReward) {
+                throw new InvalidArgumentException('Selected reward is not active.');
             }
+            if ($assignedReward->inventory !== null && $assignedReward->inventory < 1) {
+                throw new InvalidArgumentException('The selected reward is out of stock.');
+            }
+            $entitlement->update(['assigned_reward_id' => $assignedRewardId]);
         }
 
         $shipping = is_array($order->shipping_address) ? $order->shipping_address : (json_decode($order->shipping_address ?? '[]', true) ?: []);
@@ -935,7 +934,8 @@ class SpinRewardService
         ?string $subject = null,
         ?string $headline = null,
         ?string $message = null,
-        ?int $assignedRewardId = null
+        ?int $assignedRewardId = null,
+        array $rewardAssignments = []
     ): array {
         $sentCount = 0;
         $processedEmails = [];
@@ -950,7 +950,8 @@ class SpinRewardService
                 if ($email) {
                     $processedEmails[] = $email;
                 }
-                if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message, $assignedRewardId)) {
+                $rewardId = $rewardAssignments['orders'][$order->id] ?? $assignedRewardId;
+                if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message, $rewardId ? (int) $rewardId : null)) {
                     $sentCount++;
                 }
             }
@@ -977,7 +978,8 @@ class SpinRewardService
 
                 if ($targetEmail && ! in_array(strtolower($targetEmail), $processedEmails, true)) {
                     $processedEmails[] = strtolower($targetEmail);
-                    if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message, $assignedRewardId)) {
+                    $rewardId = $rewardAssignments['orders'][$order->id] ?? $assignedRewardId;
+                    if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message, $rewardId ? (int) $rewardId : null)) {
                         $sentCount++;
                     }
                 }
@@ -1003,11 +1005,15 @@ class SpinRewardService
                     ->first();
 
                 if ($order) {
-                    if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message, $assignedRewardId)) {
+                    $rewardId = $rewardAssignments['customers'][$cust->id]
+                        ?? $rewardAssignments['orders'][$order->id]
+                        ?? $assignedRewardId;
+                    if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message, $rewardId ? (int) $rewardId : null)) {
                         $sentCount++;
                     }
                 } else {
-                    if ($this->sendStandaloneSpinInvitation($cust->email, $cust->name, $cust->id, $assignedRewardId, $subject, $headline, $message)) {
+                    $rewardId = $rewardAssignments['customers'][$cust->id] ?? $assignedRewardId;
+                    if ($this->sendStandaloneSpinInvitation($cust->email, $cust->name, $cust->id, $rewardId ? (int) $rewardId : null, $subject, $headline, $message)) {
                         $sentCount++;
                     }
                 }
@@ -1022,7 +1028,8 @@ class SpinRewardService
                     continue;
                 }
                 $processedEmails[] = strtolower($contact->email);
-                if ($this->sendStandaloneSpinInvitation($contact->email, $contact->name, null, $assignedRewardId, $subject, $headline, $message)) {
+                $rewardId = $rewardAssignments['contacts'][$contact->id] ?? $assignedRewardId;
+                if ($this->sendStandaloneSpinInvitation($contact->email, $contact->name, null, $rewardId ? (int) $rewardId : null, $subject, $headline, $message)) {
                     $sentCount++;
                 }
             }

@@ -144,9 +144,9 @@ class AdminSpinRewardController extends Controller
                 ->filter(fn (array $segment) => (bool) ($segment['is_active'] ?? false))
                 ->groupBy(fn (array $segment) => $segment['category_id'] ?? $defaultCategoryId ?? 'default');
             foreach ($activeSegmentsByCategory as $categorySegments) {
-                if ($categorySegments->count() !== 6) {
+                if ($categorySegments->count() < 2) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
-                        'segments' => ['Each configured reward category must have exactly 6 active wheel rewards.'],
+                        'segments' => ['Each category with active rewards must have at least 2 active wheel rewards.'],
                     ]);
                 }
             }
@@ -380,14 +380,14 @@ class AdminSpinRewardController extends Controller
     {
         $reward = SpinReward::findOrFail($id);
 
-        // Keep each configured category at six active wheel slots.
+        // Keep at least two outcomes so the wheel remains meaningful.
         $activeInCategory = SpinReward::where('category_id', $reward->category_id)
             ->where('is_active', true)
             ->count();
-        if ($reward->is_active && $activeInCategory <= 6) {
+        if ($reward->is_active && $activeInCategory <= 2) {
             return response()->json([
                 'success' => false,
-                'message' => 'Each reward category must keep exactly 6 active wheel rewards. Edit the reward or deactivate an extra reward first.',
+                'message' => 'Each category must keep at least 2 active wheel rewards. Deactivate this reward or add another reward first.',
             ], 422);
         }
 
@@ -520,7 +520,14 @@ class AdminSpinRewardController extends Controller
             'subject' => ['nullable', 'string', 'max:180'],
             'headline' => ['nullable', 'string', 'max:180'],
             'message' => ['nullable', 'string', 'max:5000'],
-            'reward_id' => ['nullable'],
+            'reward_id' => ['nullable', 'integer', 'exists:spin_rewards,id'],
+            'reward_assignments' => ['nullable', 'array'],
+            'reward_assignments.orders' => ['nullable', 'array'],
+            'reward_assignments.orders.*' => ['nullable', 'integer', 'exists:spin_rewards,id'],
+            'reward_assignments.customers' => ['nullable', 'array'],
+            'reward_assignments.customers.*' => ['nullable', 'integer', 'exists:spin_rewards,id'],
+            'reward_assignments.contacts' => ['nullable', 'array'],
+            'reward_assignments.contacts.*' => ['nullable', 'integer', 'exists:spin_rewards,id'],
         ]);
 
         $assignedRewardId = (!empty($validated['reward_id']) && is_numeric($validated['reward_id']))
@@ -536,7 +543,8 @@ class AdminSpinRewardController extends Controller
                 subject: $validated['subject'] ?? null,
                 headline: $validated['headline'] ?? null,
                 message: $validated['message'] ?? null,
-                assignedRewardId: $assignedRewardId
+                assignedRewardId: $assignedRewardId,
+                rewardAssignments: $validated['reward_assignments'] ?? []
             );
         } catch (\InvalidArgumentException $exception) {
             return response()->json(['success' => false, 'message' => $exception->getMessage()], 422);

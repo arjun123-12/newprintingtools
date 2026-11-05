@@ -55,15 +55,20 @@ class ProductionStationController extends Controller
 
     public function index(string $stage): JsonResponse
     {
-        $station = $this->station($stage);
-        $orders = OrderItem::query()->with(['order.user'])
-            ->whereHas('order', function ($query) use ($stage, $station) {
-                $query->whereIn('status', ['approved', 'in_production', 'production_started', 'printing', 'cutting_and_finishing', 'cutting_in_progress', 'quality_check_and_packaging', 'production_completed', 'ready_for_pickup', 'ready_for_shipping', 'dispatched', 'handed_over_to_courier']);
+        $allProducts = $stage === 'all-products';
+        $station = $allProducts ? ['label' => 'All Products'] : $this->station($stage);
+        $orders = OrderItem::query()->with(['artwork', 'product'])
+            ->whereHas('order', function ($query) use ($stage, $allProducts) {
+                if ($allProducts) {
+                    $query->whereNotIn('status', ['cancelled', 'completed', 'delivered', 'collected']);
+                } else {
+                    $query->whereIn('status', ['approved', 'in_production', 'production_started', 'printing', 'cutting_and_finishing', 'cutting_in_progress', 'quality_check_and_packaging', 'production_completed', 'ready_for_pickup', 'ready_for_shipping', 'dispatched', 'handed_over_to_courier']);
+                }
                 if ($stage === 'printing') $query->where('payment_status', 'paid');
                 if ($stage === 'handed_over_to_courier') $query->where('delivery_method', 'not like', '%pickup%');
             })
-            ->whereIn('production_status', $this->itemFromStatuses($stage))
-            ->latest('created_at')->limit(500)->get()->map(function (OrderItem $item) use ($stage) {
+            ->when($allProducts, fn ($query) => $query->whereNotIn('production_status', ['delivered', 'collected', 'cancelled']), fn ($query) => $query->whereIn('production_status', $this->itemFromStatuses($stage)))
+            ->latest('created_at')->limit(500)->get()->map(function (OrderItem $item) use ($stage, $allProducts) {
             $order = $item->order;
             return [
                 'id' => $order->id,
@@ -72,14 +77,11 @@ class ProductionStationController extends Controller
                 'item_quantity' => $item->quantity,
                 'item_status' => $item->production_status,
                 'order_number' => $order->order_number,
-                'customer_name' => $order->user?->name ?? ($order->shipping_address['name'] ?? 'Guest Customer'),
-                'customer_email' => $order->shipping_address['email'] ?? $order->user?->email,
                 'status' => $item->production_status,
-                'payment_status' => $order->payment_status->value ?? (string) $order->payment_status,
-                'delivery_method' => $order->delivery_method,
                 'product_summary' => $item->product_name . ' × ' . $item->quantity,
-                'target_status' => $this->targetStatus($stage, $order),
-                'target_label' => $this->targetLabel($stage, $order),
+                'image_url' => $item->artwork?->thumbnail_url ?: $item->product?->featured_image_url,
+                'target_status' => $allProducts ? null : $this->targetStatus($stage, $order),
+                'target_label' => $allProducts ? null : $this->targetLabel($stage, $order),
                 'created_at' => $order->created_at?->toIso8601String(),
             ];
         });

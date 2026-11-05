@@ -78,6 +78,7 @@ export default function AdminCouponsPage() {
     starts_at: '',
     hours: '',
   });
+  const [previewPrice, setPreviewPrice] = useState('100');
   const [campaign, setCampaign] = useState({ offer_id: '', subject: '', headline: '', message: '' });
   const [selected, setSelected] = useState<number[]>([]);
   const [selectedContactIds, setSelectedContactIds] = useState<number[]>([]);
@@ -85,6 +86,19 @@ export default function AdminCouponsPage() {
   const [newContactConsent, setNewContactConsent] = useState(false);
   const [allConsented, setAllConsented] = useState(false);
   const [confirmConsent, setConfirmConsent] = useState(false);
+
+  const previewSubtotal = Number(previewPrice);
+  const previewDiscountValue = Number(offer.discount_value);
+  const previewEligible = Number.isFinite(previewSubtotal) && previewSubtotal > 0 &&
+    previewSubtotal >= Number(offer.minimum_subtotal || 0);
+  const previewDiscount = previewEligible && Number.isFinite(previewDiscountValue)
+    ? Math.min(
+        previewSubtotal,
+        offer.discount_type === 'percentage'
+          ? (previewSubtotal * previewDiscountValue) / 100
+          : previewDiscountValue
+      )
+    : 0;
 
   // Spin & Win Wheel Promotion State
   const [spinSettings, setSpinSettings] = useState({
@@ -606,6 +620,40 @@ export default function AdminCouponsPage() {
                       placeholder="e.g. 500"
                     />
                   </label>
+                </div>
+                <div className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-4">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-violet-950">
+                    <Sparkles size={16} className="text-violet-600" />
+                    Discount example preview
+                  </div>
+                  <label className="mt-3 block text-xs font-medium text-slate-600">
+                    Example order amount (AUD)
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={previewPrice}
+                      onChange={(e) => setPreviewPrice(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-violet-200 bg-white p-2.5 text-sm text-slate-900"
+                      placeholder="e.g. 100"
+                    />
+                  </label>
+                  {previewEligible ? (
+                    <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg bg-white/80 p-3 text-center">
+                      <div><div className="text-[11px] text-slate-500">Order</div><div className="mt-1 text-sm font-semibold text-slate-800">${previewSubtotal.toFixed(2)}</div></div>
+                      <div><div className="text-[11px] text-slate-500">You save</div><div className="mt-1 text-sm font-bold text-emerald-700">-${previewDiscount.toFixed(2)}</div></div>
+                      <div><div className="text-[11px] text-slate-500">After discount</div><div className="mt-1 text-sm font-bold text-violet-800">${(previewSubtotal - previewDiscount).toFixed(2)}</div></div>
+                    </div>
+                  ) : (
+                    <p className="mt-3 rounded-lg bg-white/80 p-3 text-xs text-slate-600">
+                      {previewSubtotal > 0 && Number(offer.minimum_subtotal) > previewSubtotal
+                        ? `This example is below the $${Number(offer.minimum_subtotal).toFixed(2)} minimum spend.`
+                        : 'Enter an order amount to see the estimated discount.'}
+                    </p>
+                  )}
+                  <p className="mt-2 text-[11px] leading-4 text-slate-500">
+                    Estimate only. {offer.discount_type === 'percentage' ? `${previewDiscountValue || 0}%` : `$${previewDiscountValue || 0}`} off is calculated from this example order amount.
+                  </p>
                 </div>
                 <label className="block text-sm">
                   Product details (optional)

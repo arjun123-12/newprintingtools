@@ -3,8 +3,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import QRCode from 'qrcode';
+import { BrowserQRCodeReader } from '@zxing/browser';
 import { AlertTriangle, ArrowLeft, Check, Download, Pencil, Printer, QrCode, RefreshCw, ScanLine, Search, ShieldCheck, Video, VideoOff } from 'lucide-react';
 import { manualOrderService } from '@/services/admin/manualOrderService';
+import { formatImageUrl } from '@/utils/imageUrl';
 
 const STATIONS = [
   { key: 'printing', label: 'Printing', description: 'Start printing for approved orders.' },
@@ -31,6 +33,9 @@ const MANUAL_ITEM_STATUSES = [
 ] as const;
 
 type Station = (typeof STATIONS)[number];
+const ALL_PRODUCTS_STATION = { key: 'all_products', label: 'All Products', description: 'View every active order product across all production stages.' } as const;
+type ProductionView = Station | typeof ALL_PRODUCTS_STATION;
+const apiStageForView = (view: ProductionView) => view.key === 'all_products' ? 'all-products' : view.key;
 type StationOrder = {
   id: string;
   item_id: string;
@@ -38,11 +43,8 @@ type StationOrder = {
   item_quantity: number;
   item_status: string;
   order_number: string;
-  customer_name: string;
-  customer_email?: string | null;
+  image_url?: string | null;
   status: string;
-  payment_status: string;
-  delivery_method: string;
   product_summary: string;
   target_status: string;
   target_label: string;
@@ -61,7 +63,7 @@ type LatestScan = {
 const statusLabel = (status: string) => status.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default function ProductionStationsPage() {
-  const [station, setStation] = useState<Station | null>(null);
+  const [station, setStation] = useState<ProductionView | null>(null);
   const [qrCodes, setQrCodes] = useState<Record<string, string>>({});
   const [orders, setOrders] = useState<StationOrder[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -78,8 +80,6 @@ export default function ProductionStationsPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [latestScan, setLatestScan] = useState<LatestScan | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
   const scanBusyRef = useRef(false);
   const processingOrderRef = useRef(false);
   const recentScansRef = useRef<Map<string, number>>(new Map());
@@ -101,11 +101,11 @@ export default function ProductionStationsPage() {
 
   useEffect(() => {
     const stageKey = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('stage');
-    const activeStation = STATIONS.find((item) => item.key === stageKey) || null;
+    const activeStation = stageKey === 'all-products' ? ALL_PRODUCTS_STATION : STATIONS.find((item) => item.key === stageKey) || null;
     setStation(activeStation);
     if (!activeStation) return;
     window.dispatchEvent(new CustomEvent('admin-qr-order-view-change', { detail: { active: true } }));
-    void fetchStationOrders(activeStation.key);
+    void fetchStationOrders(apiStageForView(activeStation));
     return () => {
       window.dispatchEvent(new CustomEvent('admin-qr-order-view-change', { detail: { active: false } }));
     };
@@ -121,8 +121,11 @@ export default function ProductionStationsPage() {
         color: { dark: '#0f172a', light: '#ffffff' },
       });
       return [item.key, dataUrl] as const;
-    })).then((entries) => {
-      if (!cancelled) setQrCodes(Object.fromEntries(entries));
+    })).then(async (entries) => {
+      const allProductsUrl = new URL('/admin/production/stations?stage=all-products', window.location.origin).toString();
+      const allProductsQr = await QRCode.toDataURL(allProductsUrl, { errorCorrectionLevel: 'M', margin: 2, width: 320, color: { dark: '#0f172a', light: '#ffffff' } });
+      const allEntries: Array<readonly [string, string]> = [...entries, ['all_products', allProductsQr]];
+      if (!cancelled) setQrCodes(Object.fromEntries(allEntries));
     }).catch((qrError) => {
       console.error('Could not generate station QR codes:', qrError);
       if (!cancelled) setError('Could not generate station QR codes.');
@@ -133,7 +136,7 @@ export default function ProductionStationsPage() {
   const visibleOrders = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     if (!normalizedSearch) return orders;
-    return orders.filter((order) => [order.order_number, order.customer_name, order.customer_email, order.product_summary]
+    return orders.filter((order) => [order.order_number, order.product_summary, order.item_status]
       .some((value) => String(value || '').toLowerCase().includes(normalizedSearch)));
   }, [orders, search]);
 
@@ -162,6 +165,17 @@ export default function ProductionStationsPage() {
 
     if (!orderId) {
       setError('Product QR not recognized. Scan this order item’s Product QR from the order detail page.');
+      return;
+    }
+
+    if (station.key === 'all_products') {
+      const matchingItem = orders.find((order) => order.id === orderId && order.item_id === itemId);
+      if (!matchingItem) {
+        setError('This product is not in the active all-products queue. Refresh the list and scan again.');
+        return;
+      }
+      setSelectedOrderId(matchingItem.item_id);
+      setSuccess(`${matchingItem.item_name} selected. Choose its next product status below.`);
       return;
     }
 
@@ -203,7 +217,7 @@ export default function ProductionStationsPage() {
       });
       setSuccess(`${itemName} · ${orderNumber} moved to ${targetLabel}${orderUpdated ? ' (all order items reached this stage)' : ' (other products are still at earlier stages)'}.`);
       if ('vibrate' in navigator) navigator.vibrate?.(100);
-      await fetchStationOrders(station.key);
+      await fetchStationOrders(apiStageForView(station));
       if (response?.data?.warning) setError(response.data.warning);
     } catch (requestError: any) {
       const message = requestError?.response?.data?.errors?.order?.[0]
@@ -220,47 +234,22 @@ export default function ProductionStationsPage() {
   useEffect(() => {
     if (!scannerActive || !station) return;
     let cancelled = false;
+    let scannerControls: { stop: () => void } | null = null;
     const startCamera = async () => {
       try {
         if (!navigator.mediaDevices?.getUserMedia) {
           throw new Error('Camera access needs a secure HTTPS connection and a supported browser.');
         }
-        const BarcodeDetectorConstructor = (window as any).BarcodeDetector;
-        if (!BarcodeDetectorConstructor) {
-          throw new Error('QR camera scanning is not supported by this browser. Use Chrome on Android or scan the order QR with a supported camera scanner.');
-        }
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
-          audio: false,
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        streamRef.current = stream;
         if (!videoRef.current) return;
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-
-        const detector = new BarcodeDetectorConstructor({ formats: ['qr_code'] });
-        const scanFrame = async () => {
-          const video = videoRef.current;
-          if (!video || cancelled) return;
-          if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && !scanBusyRef.current) {
-            scanBusyRef.current = true;
-            try {
-              const detected = await detector.detect(video);
-              const value = detected?.[0]?.rawValue;
-              if (value) await handleScannedOrderQr(value);
-            } catch (scanError) {
-              console.warn('Station QR scan frame failed:', scanError);
-            } finally {
-              scanBusyRef.current = false;
-            }
-          }
-          if (!cancelled) animationFrameRef.current = window.requestAnimationFrame(scanFrame);
-        };
-        animationFrameRef.current = window.requestAnimationFrame(scanFrame);
+        const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 250, delayBetweenScanSuccess: 500 });
+        scannerControls = await reader.decodeFromVideoDevice(undefined, videoRef.current, (result, scanError, controls) => {
+          scannerControls = controls;
+          if (cancelled || !result || scanBusyRef.current) return;
+          scanBusyRef.current = true;
+          void handleScannedOrderQr(result.getText()).finally(() => { scanBusyRef.current = false; });
+          if (scanError && scanError.name !== 'NotFoundException') console.warn('Station QR scan frame failed:', scanError);
+        });
+        if (cancelled) scannerControls.stop();
       } catch (cameraError: any) {
         setScannerActive(false);
         setError(cameraError?.message || 'Could not open the camera. Allow camera permission and try again.');
@@ -270,10 +259,7 @@ export default function ProductionStationsPage() {
     void startCamera();
     return () => {
       cancelled = true;
-      if (animationFrameRef.current !== null) window.cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
+      scannerControls?.stop();
       if (videoRef.current) videoRef.current.srcObject = null;
       scanBusyRef.current = false;
     };
@@ -299,7 +285,7 @@ export default function ProductionStationsPage() {
       setSuccess(`${selectedOrder.order_number} moved to ${response?.data?.status_label || selectedOrder.target_label}.`);
       setCarrier('');
       setTrackingNumber('');
-      await fetchStationOrders(station.key);
+      await fetchStationOrders(apiStageForView(station));
       if (response?.data?.warning) setError(response.data.warning);
     } catch (requestError: any) {
       setError(requestError?.response?.data?.message || requestError?.response?.data?.errors?.order?.[0] || 'Could not update this order. Refresh the queue and try again.');
@@ -343,7 +329,7 @@ export default function ProductionStationsPage() {
       setSuccess(response?.message || `${selectedOrder.item_name} moved to ${nextLabel}.`);
       setManualCarrier('');
       setManualTrackingNumber('');
-      await fetchStationOrders(station.key);
+      await fetchStationOrders(apiStageForView(station));
       if (result?.warning) setError(result.warning);
     } catch (requestError: any) {
       setError(requestError?.response?.data?.message || requestError?.response?.data?.errors?.status?.[0] || 'Could not update this product status. Refresh the queue and try again.');
@@ -368,11 +354,11 @@ export default function ProductionStationsPage() {
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-400">Production Station</p>
                 <h1 className="mt-1 text-xl font-bold text-white">{station.label}</h1>
               </div>
-              <button type="button" onClick={() => void fetchStationOrders(station.key)} disabled={loading} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:bg-slate-800" aria-label="Refresh station orders">
+              <button type="button" onClick={() => void fetchStationOrders(apiStageForView(station))} disabled={loading} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:bg-slate-800" aria-label="Refresh station orders">
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
             </div>
-            <p className="mt-2 text-xs text-slate-400">Eligible orders only · {orders.length} waiting</p>
+            <p className="mt-2 text-xs text-slate-400">{station.key === 'all_products' ? 'Active order products' : 'Eligible orders only'} · {orders.length} {station.key === 'all_products' ? 'listed' : 'waiting'}</p>
           </header>
 
           <section className="rounded-2xl border border-sky-500/25 bg-slate-900 p-4">
@@ -380,7 +366,7 @@ export default function ProductionStationsPage() {
               <ScanLine className="mt-0.5 h-5 w-5 shrink-0 text-sky-400" />
               <div className="min-w-0 flex-1">
                 <h2 className="text-sm font-semibold text-white">Scan order label</h2>
-                <p className="mt-1 text-xs leading-relaxed text-slate-400">The machine QR sets this stage. Start the camera and scan the Product QR on the job label; that product&apos;s status updates automatically.</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-400">{station.key === 'all_products' ? 'Scan a Product QR to select it, then choose a product status below.' : 'The machine QR sets this stage. Start the camera and scan the Product QR on the job label; that product&apos;s status updates automatically.'}</p>
               </div>
             </div>
             {scannerActive ? (
@@ -391,6 +377,7 @@ export default function ProductionStationsPage() {
             ) : (
               <button type="button" onClick={() => { recentScansRef.current.clear(); setError(null); setScannerActive(true); }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500"><Video className="h-4 w-4" /> Start camera scanner</button>
             )}
+            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">Camera scanning needs HTTPS and permission. iPhone/iPad Safari can scan station labels with the Camera app to open this queue.</p>
             {updating && <p className="mt-2 text-center text-xs font-medium text-sky-300">Verifying order and updating status…</p>}
           </section>
 
@@ -416,7 +403,7 @@ export default function ProductionStationsPage() {
 
           <label className="relative block">
             <Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find order, customer, or product" className="w-full rounded-xl border border-slate-800 bg-slate-900 py-3 pl-10 pr-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-500" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find order or product" className="w-full rounded-xl border border-slate-800 bg-slate-900 py-3 pl-10 pr-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-500" />
           </label>
 
           {loading && orders.length === 0 ? (
@@ -433,13 +420,16 @@ export default function ProductionStationsPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-mono text-sm font-bold text-white">{order.order_number}</p>
-                          <p className="mt-1 text-xs text-slate-300">{order.customer_name}</p>
                           <p className="mt-1 break-words text-xs font-medium text-slate-200 [overflow-wrap:anywhere]">{order.item_name} × {order.item_quantity}</p>
                         </div>
                         <span className="shrink-0 rounded-full bg-slate-800 px-2 py-1 text-[10px] font-semibold text-slate-300">{statusLabel(order.status)}</span>
                       </div>
-                      <p className="mt-3 text-[11px] font-semibold text-sky-300">On confirm → {order.target_label}</p>
+                      {station.key !== 'all_products' && <p className="mt-3 text-[11px] font-semibold text-sky-300">On confirm → {order.target_label}</p>}
                     </button>
+                    <div className="mt-3 flex items-center gap-3">
+                      {order.image_url ? <img src={formatImageUrl(order.image_url)} alt={`${order.item_name} artwork preview`} className="h-20 w-20 shrink-0 rounded-lg border border-slate-700 bg-white object-contain" loading="lazy" /> : <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-700 bg-slate-950 px-2 text-center text-[10px] text-slate-500">No product image</div>}
+                      <div className="min-w-0"><p className="text-[11px] text-slate-400">Product artwork / image</p><p className="mt-1 text-xs font-semibold text-slate-200">{statusLabel(order.item_status)}</p></div>
+                    </div>
                     {selected && <div className="mt-4 border-t border-slate-800 pt-4" onClick={(event) => event.stopPropagation()}>
                       <h3 className="flex items-center gap-2 text-sm font-semibold text-white"><Pencil className="h-4 w-4 text-amber-300"/>Custom product status</h3>
                       <p className="mt-1 text-[11px] leading-relaxed text-slate-400">The order status and customer email update when every product in the order reaches the chosen stage.</p>
@@ -462,7 +452,7 @@ export default function ProductionStationsPage() {
             </div>
           )}
 
-          {selectedOrder && (
+          {selectedOrder && station.key !== 'all_products' && (
             <section className="sticky bottom-3 rounded-2xl border border-sky-500/30 bg-slate-900 p-4 shadow-2xl">
               <p className="text-xs text-slate-400">Selected order</p>
               <h2 className="mt-1 text-base font-bold text-white">{selectedOrder.order_number}</h2>
@@ -490,7 +480,7 @@ export default function ProductionStationsPage() {
           <div>
             <Link href="/admin/orders" className="mb-3 inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900 print:hidden"><ArrowLeft className="h-3.5 w-3.5" /> Orders</Link>
             <h1 className="text-2xl font-bold tracking-tight">Production Station QR Codes</h1>
-            <p className="mt-1 text-sm text-slate-500">Print one fixed QR for each machine. Scanning opens that stage&apos;s eligible order queue.</p>
+            <p className="mt-1 text-sm text-slate-500">Print a fixed QR for each machine, or use the all-products QR to view active products across every stage.</p>
           </div>
           <button type="button" onClick={() => window.print()} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 print:hidden"><Printer className="h-4 w-4" /> Print all labels</button>
         </header>
@@ -500,18 +490,20 @@ export default function ProductionStationsPage() {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 print:grid-cols-2">
-          {STATIONS.map((item) => (
+          {[...STATIONS, ALL_PRODUCTS_STATION].map((item) => {
+            const routeStage = item.key === 'all_products' ? 'all-products' : item.key;
+            return (
             <article key={item.key} className="station-qr-card flex break-inside-avoid flex-col items-center rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-sm print:rounded-none print:shadow-none">
-              <div className="mb-3 flex items-center gap-2 text-slate-500"><QrCode className="h-4 w-4" /><span className="text-[10px] font-bold uppercase tracking-widest">Production Station</span></div>
+              <div className="mb-3 flex items-center gap-2 text-slate-500"><QrCode className="h-4 w-4" /><span className="text-[10px] font-bold uppercase tracking-widest">{item.key === 'all_products' ? 'Product Overview' : 'Production Station'}</span></div>
               <h2 className="text-base font-bold text-slate-900">{item.label}</h2>
               <p className="mt-1 min-h-9 text-xs text-slate-500">{item.description}</p>
               <div className="my-3 flex h-48 w-48 items-center justify-center rounded-xl bg-white p-2">
                 {qrCodes[item.key] ? <img src={qrCodes[item.key]} alt={`${item.label} station QR code`} className="h-full w-full" /> : <span className="text-xs text-slate-400">Generating…</span>}
               </div>
               <a href={qrCodes[item.key] || undefined} download={`${item.key}-station-qr.png`} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 print:hidden"><Download className="h-3.5 w-3.5" /> Download QR</a>
-              <a href={`/admin/production/stations?stage=${encodeURIComponent(item.key)}`} className="mt-2 text-xs font-medium text-sky-700 hover:text-sky-900 print:hidden">Open station queue</a>
+              <a href={`/admin/production/stations?stage=${encodeURIComponent(routeStage)}`} className="mt-2 text-xs font-medium text-sky-700 hover:text-sky-900 print:hidden">Open {item.key === 'all_products' ? 'all products' : 'station'} queue</a>
             </article>
-          ))}
+          );})}
         </div>
       </div>
       <style jsx global>{`@media print { body { background: #fff !important; } .station-qr-card { border: 1px solid #cbd5e1 !important; } }`}</style>

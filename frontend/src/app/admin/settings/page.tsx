@@ -196,12 +196,8 @@ export default function AdminSettingsPage() {
     const current = segments[index];
     if (field === 'is_active' && current && Boolean(value) !== Boolean(current.is_active)) {
       const activeInCategory = segments.filter((segment) => segment.is_active && Number(segment.category_id) === Number(current.category_id)).length;
-      if (value && activeInCategory >= 6) {
-        alert('Each category has 6 active wheel slots. Deactivate an extra reward only if this category currently has more than 6.');
-        return;
-      }
-      if (!value && activeInCategory <= 6) {
-        alert('Keep 6 active rewards in each category. Edit this reward instead, or add another reward before changing its active state.');
+      if (!value && activeInCategory <= 2) {
+        alert('Keep at least 2 active rewards in each category so the wheel has multiple outcomes.');
         return;
       }
     }
@@ -215,12 +211,6 @@ export default function AdminSettingsPage() {
   const handleAddSegment = () => {
     const defaultCat = categories.find((c) => c.is_default) || categories[0];
     const initialCatId = selectedCategoryFilter !== 'all' ? selectedCategoryFilter : defaultCat?.id;
-    const activeInCategory = segments.filter((segment) => segment.is_active && Number(segment.category_id) === Number(initialCatId)).length;
-    if (activeInCategory >= 6) {
-      alert('This category already has 6 active rewards. Edit the existing rewards or deactivate one before adding another.');
-      return;
-    }
-
     const newSeg: SegmentConfig = {
       category_id: initialCatId,
       code: `custom_reward_${Date.now()}`,
@@ -246,8 +236,8 @@ export default function AdminSettingsPage() {
   const handleDeleteSegment = async (index: number, segId?: number) => {
     const segment = segments[index];
     const activeInCategory = segments.filter((item) => item.is_active && Number(item.category_id) === Number(segment?.category_id)).length;
-    if (segment?.is_active && activeInCategory <= 6) {
-      alert('Each category must keep 6 active wheel rewards. Edit this reward or delete an inactive extra reward.');
+    if (segment?.is_active && activeInCategory <= 2) {
+      alert('Keep at least 2 active rewards in each category so the wheel has multiple outcomes.');
       return;
     }
 
@@ -578,7 +568,7 @@ export default function AdminSettingsPage() {
                   <span>Configured Wheel Reward Segments ({segments.length})</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Keep exactly 6 active rewards in each category. Edit each prize here; the wheel and verified prize selection use the same six.
+                  Add as many rewards as you need. Every active reward appears on the customer wheel and in prize selection; keep at least 2 active rewards per category.
                 </p>
               </div>
 

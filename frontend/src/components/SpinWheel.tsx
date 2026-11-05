@@ -24,6 +24,14 @@ export const DEFAULT_SEGMENTS: SpinSegment[] = [
   { label: '5% Off', color: '#10B981', darkColor: '#047857', textColor: '#ffffff' },
 ];
 
+// Keep the customer wheel's approved look stable when live reward data loads.
+// Admin-configured text and rewards change; the wheel's six visual slices do not.
+const CUSTOMER_WHEEL_PALETTE = DEFAULT_SEGMENTS.map(({ color, darkColor, textColor }) => ({
+  color,
+  darkColor,
+  textColor,
+}));
+
 const NO_CONFETTI_LABELS = ['TRY AGAIN', 'NO LUCK', 'BETTER LUCK'];
 
 interface SpinWheelProps {
@@ -34,6 +42,7 @@ interface SpinWheelProps {
   onRewardWon?: (prize: WonPrize | { label: string; code: string }) => void;
   className?: string;
   isPreview?: boolean;
+  canSpin?: boolean;
 }
 
 interface ConfettiParticle {
@@ -44,6 +53,7 @@ interface ConfettiParticle {
   rot: string;
   size: number;
   shape: 'rect' | 'circle';
+  delay: string;
 }
 
 export default function SpinWheel({
@@ -54,6 +64,7 @@ export default function SpinWheel({
   onRewardWon,
   className = '',
   isPreview = false,
+  canSpin = true,
 }: SpinWheelProps) {
   const [fetchedSegments, setFetchedSegments] = useState<SpinSegment[] | null>(null);
   // Normalize segments
@@ -82,6 +93,9 @@ export default function SpinWheel({
   const [confettiList, setConfettiList] = useState<ConfettiParticle[]>([]);
   const [serverSpinToken, setServerSpinToken] = useState<string | null>(token || null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [eligibilityState, setEligibilityState] = useState<'loading' | 'ready' | 'unavailable'>(
+    token || orderNumber || reviewToken ? 'loading' : isPreview ? 'ready' : 'unavailable'
+  );
 
   // Sparkles in the background (8 randomized twinkling points)
   const sparkles = useMemo(() => {
@@ -98,8 +112,14 @@ export default function SpinWheel({
   useEffect(() => {
     if (isPreview) return;
     const fetchEligibility = async () => {
+      if (!token && !orderNumber && !reviewToken) {
+        setEligibilityState('unavailable');
+        setErrorMessage('Open your personal Spin Wheel invitation link to use this wheel.');
+        return;
+      }
+      setEligibilityState('loading');
+      setErrorMessage(null);
       try {
-        if (!token && !orderNumber && !reviewToken) return;
         const data = await spinWinService.checkEligibility(
           orderNumber,
           reviewToken,
@@ -108,17 +128,24 @@ export default function SpinWheel({
         if (data.spin_token) {
           setServerSpinToken(data.spin_token);
         }
+        if (!data.eligible || !data.spin_token) {
+          setEligibilityState('unavailable');
+          setErrorMessage(data.reason || 'This Spin Wheel invitation is not available. Please contact us for help.');
+          return;
+        }
         if (data.wheel_segments && data.wheel_segments.length >= 2) {
-          setFetchedSegments(data.wheel_segments.slice(0, 6).map((segment: any) => ({
-            label: segment.title || segment.badge_text || segment.code,
-            sub: segment.badge_text || undefined,
+          setFetchedSegments(data.wheel_segments.map((segment: any, index: number) => ({
+            // Prefer the short customer-facing badge so text stays clean on the slice.
+            label: segment.badge_text || segment.title || segment.code,
             code: segment.code,
-            color: segment.color_bg || '#7c3aed',
-            darkColor: segment.color_bg || '#4c1d95',
-            textColor: segment.color_text || '#ffffff',
+            ...CUSTOMER_WHEEL_PALETTE[index % CUSTOMER_WHEEL_PALETTE.length],
             value: Number(segment.value || 0),
             type: segment.reward_type,
           })));
+        } else {
+          setEligibilityState('unavailable');
+          setErrorMessage('The prize wheel is temporarily unavailable. Please try again later.');
+          return;
         }
         if (data.has_spun && data.prize) {
           setWonPrize({
@@ -133,8 +160,10 @@ export default function SpinWheel({
           const targetAngle = 360 * 3 + (360 - (segIdx * sliceAngle + sliceAngle / 2));
           setRotationDegrees(targetAngle);
         }
+        setEligibilityState('ready');
       } catch (err: any) {
-        // Fallback silently to client mode if offline or preview
+        setEligibilityState('unavailable');
+        setErrorMessage(err.response?.data?.message || 'Could not load your Spin Wheel. Check your connection and reopen the invitation link.');
       }
     };
     void fetchEligibility();
@@ -151,6 +180,10 @@ export default function SpinWheel({
   // Handle Spin Launch
   const handleSpin = async () => {
     if (isSpinning) return;
+    if (!isPreview && (!canSpin || eligibilityState !== 'ready' || !(serverSpinToken || token))) {
+      setErrorMessage('Your personal Spin Wheel link is still loading or is unavailable.');
+      return;
+    }
     setErrorMessage(null);
     setShowResultModal(false);
 
@@ -232,8 +265,8 @@ export default function SpinWheel({
 
         if (!isNoConfetti) {
           const colors = ['#f59e0b', '#ec4899', '#38bdf8', '#10b981', '#a855f7', '#fbbf24'];
-          const particles: ConfettiParticle[] = Array.from({ length: 42 }).map((_, i) => {
-            const angle = (i * (360 / 42)) * (Math.PI / 180);
+          const particles: ConfettiParticle[] = Array.from({ length: 68 }).map((_, i) => {
+            const angle = (i * (360 / 68)) * (Math.PI / 180);
             const dist = 110 + Math.random() * 140;
             return {
               id: i,
@@ -243,9 +276,11 @@ export default function SpinWheel({
               rot: `${Math.floor(Math.random() * 720) - 360}deg`,
               size: 7 + Math.random() * 5,
               shape: i % 3 === 0 ? 'circle' : 'rect',
+              delay: `${Math.floor(Math.random() * 180)}ms`,
             };
           });
           setConfettiList(particles);
+          window.setTimeout(() => setConfettiList([]), 2400);
         }
 
         // Show modal with pop-in
@@ -296,11 +331,10 @@ export default function SpinWheel({
 
       {/* Confetti Container */}
       {confettiList.length > 0 && (
-        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center overflow-visible">
+        <div className="pointer-events-none absolute inset-0 z-[60] flex items-center justify-center overflow-visible">
           {confettiList.map(c => (
             <span
               key={c.id}
-              className="absolute"
               style={{
                 width: `${c.size}px`,
                 height: c.shape === 'rect' ? `${c.size * 1.5}px` : `${c.size}px`,
@@ -309,8 +343,9 @@ export default function SpinWheel({
                 ['--dx' as string]: c.dx,
                 ['--dy' as string]: c.dy,
                 ['--rot' as string]: c.rot,
-                animation: 'confetti 1.8s cubic-bezier(0.18, 0.89, 0.32, 1) forwards',
+                animationDelay: c.delay,
               }}
+              className="celebration-confetti absolute"
             />
           ))}
         </div>
@@ -322,6 +357,26 @@ export default function SpinWheel({
           isSpinning ? 'fast' : ''
         }`}
       >
+        {isSpinning && (
+          <div aria-hidden="true" className="spin-celebration pointer-events-none absolute -inset-5 z-20 overflow-visible">
+            <span className="spin-firework spin-firework-one">🎉</span>
+            <span className="spin-firework spin-firework-two">🎊</span>
+            <span className="spin-firework spin-firework-three">✨</span>
+            {Array.from({ length: 12 }).map((_, index) => (
+              <span
+                key={index}
+                className="spin-star"
+                style={{
+                  left: `${8 + ((index * 37) % 84)}%`,
+                  top: `${7 + ((index * 53) % 86)}%`,
+                  animationDelay: `${(index % 6) * 160}ms`,
+                }}
+              >
+                {index % 3 === 0 ? '✦' : '✧'}
+              </span>
+            ))}
+          </div>
+        )}
         {/* Outer Gold Metallic Rim */}
         <div className="absolute inset-0 rounded-full border-[10px] border-amber-400 bg-gradient-to-b from-amber-300 via-amber-500 to-amber-700 p-2 shadow-[0_0_45px_rgba(245,158,11,0.55),0_12px_32px_rgba(0,0,0,0.6)]">
           {/* Glowing Bulbs Ring (20 bulbs along the circumference) */}
@@ -486,14 +541,14 @@ export default function SpinWheel({
           <button
             type="button"
             onClick={() => void handleSpin()}
-            disabled={isSpinning}
+            disabled={isSpinning || (!isPreview && (!canSpin || eligibilityState !== 'ready'))}
             aria-label="Spin the wheel"
             className="group relative flex h-20 w-20 sm:h-24 sm:w-24 items-center justify-center rounded-full border-4 border-amber-300 bg-gradient-to-tr from-amber-700 via-amber-500 to-yellow-300 font-black tracking-widest text-slate-950 uppercase shadow-[0_6px_20px_rgba(0,0,0,0.5),inset_0_2px_4px_rgba(255,255,255,0.7)] transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-90"
           >
             {/* Inner Ring with Metallic Sheen */}
             <div className="flex h-16 w-16 sm:h-18 sm:w-18 items-center justify-center rounded-full border border-amber-200/60 bg-gradient-to-br from-amber-400 via-yellow-200 to-amber-600 shadow-inner">
               <span className="text-sm sm:text-base font-black text-amber-950 drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
-                {isSpinning ? 'SPINNING' : 'SPIN'}
+                {isSpinning ? 'SPINNING' : eligibilityState === 'loading' && !isPreview ? 'LOADING' : eligibilityState === 'unavailable' && !isPreview ? 'LOCKED' : 'SPIN'}
               </span>
             </div>
           </button>
@@ -537,11 +592,32 @@ export default function SpinWheel({
       {/* Winning Reward Result Modal */}
       {showResultModal && wonPrize && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-md"
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-[radial-gradient(ellipse_at_50%_35%,rgba(124,58,237,0.38),transparent_55%),radial-gradient(ellipse_at_50%_100%,rgba(245,158,11,0.2),transparent_50%),rgba(2,6,23,0.86)] p-4 backdrop-blur-lg"
           style={{ animation: 'fadeIn 0.25s ease-out' }}
         >
+          {!NO_CONFETTI_LABELS.some((text) => wonPrize.title.toUpperCase().includes(text)) && (
+            <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-[60] overflow-hidden">
+              {[
+                { emoji: '🎉', left: '9%', top: '22%', delay: '0ms' },
+                { emoji: '✨', left: '19%', top: '72%', delay: '100ms' },
+                { emoji: '🎊', left: '83%', top: '20%', delay: '180ms' },
+                { emoji: '🥳', left: '89%', top: '69%', delay: '60ms' },
+                { emoji: '💫', left: '50%', top: '10%', delay: '220ms' },
+                { emoji: '✨', left: '5%', top: '50%', delay: '280ms' },
+                { emoji: '🎉', left: '92%', top: '47%', delay: '140ms' },
+              ].map((item, index) => (
+                <span
+                  key={`${item.emoji}-${index}`}
+                  className="celebration-emoji absolute text-3xl drop-shadow-[0_4px_16px_rgba(251,191,36,0.55)] sm:text-4xl"
+                  style={{ left: item.left, top: item.top, animationDelay: item.delay }}
+                >
+                  {item.emoji}
+                </span>
+              ))}
+            </div>
+          )}
           <div
-            className="relative w-full max-w-sm rounded-3xl border border-amber-400/40 bg-gradient-to-b from-slate-900 via-indigo-950 to-slate-900 p-6 text-center text-white shadow-2xl"
+            className="celebration-card relative z-[55] w-full max-w-sm rounded-[2rem] border border-amber-300/40 bg-gradient-to-b from-slate-900/95 via-indigo-950/95 to-slate-950/95 p-6 text-center text-white shadow-[0_24px_100px_rgba(0,0,0,0.65),0_0_55px_rgba(245,158,11,0.18)] backdrop-blur-xl sm:p-7"
             style={{ animation: 'pop 0.35s cubic-bezier(0.18, 0.89, 0.32, 1)' }}
           >
             {/* Close Button */}
@@ -555,15 +631,16 @@ export default function SpinWheel({
             </button>
 
             {/* Trophy Icon */}
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-amber-400 to-yellow-200 text-amber-950 shadow-lg shadow-amber-500/30">
+            <div className="celebration-medallion mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-[1.35rem] border border-white/50 bg-gradient-to-tr from-amber-300 via-yellow-200 to-amber-500 text-amber-950 shadow-[0_0_34px_rgba(251,191,36,0.38)]">
               <Trophy size={28} />
             </div>
 
             {/* Congratulations Headline */}
-            <span className="inline-block rounded-full bg-amber-400/15 px-3 py-1 text-[11px] font-bold text-amber-300">
-              CONGRATULATIONS!
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-300/10 px-3.5 py-1.5 text-[11px] font-extrabold tracking-[0.12em] text-amber-200 shadow-[0_0_24px_rgba(251,191,36,0.12)]">
+              <span aria-hidden="true">🎉</span> YOU DID IT! <span aria-hidden="true">🎉</span>
             </span>
-            <h3 className="mt-2 text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-white to-amber-300">
+            <p className="mt-3 text-[10px] font-bold uppercase tracking-[0.24em] text-violet-200/80">Your wheel reward</p>
+            <h3 className="mt-1 text-2xl font-black leading-tight text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-white to-amber-300 sm:text-3xl">
               {wonPrize.title}
             </h3>
             <p className="mt-1 text-xs text-slate-300">{wonPrize.subtitle}</p>
