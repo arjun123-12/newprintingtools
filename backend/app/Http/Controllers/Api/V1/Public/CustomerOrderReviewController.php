@@ -844,7 +844,7 @@ class CustomerOrderReviewController extends Controller
                         app(\App\Services\Rewards\SpinRewardService::class)->sendSpinInvitationForOrder($order);
                     }
                 } catch (\Throwable $e) {
-                    // Non-blocking log
+                    \Illuminate\Support\Facades\Log::error("Automatic spin wheel invitation failed on review payment for order {$order->order_number}: " . $e->getMessage());
                 }
 
                 return response()->json([

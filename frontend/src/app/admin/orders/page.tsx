@@ -16,14 +16,11 @@ import {
 
 const FILTER_TABS = [
   { label: 'All', value: 'all' },
-  { label: 'Draft', value: 'draft' },
-  { label: 'Pending Payment', value: 'pending_payment' },
+  { label: 'Pending', value: 'pending' },
   { label: 'Artwork Review', value: 'artwork_review' },
-  { label: 'Changes Requested', value: 'changes_requested' },
   { label: 'In Production', value: 'in_production' },
-  { label: 'Ready for Pickup', value: 'ready_for_pickup' },
-  { label: 'Dispatched', value: 'dispatched' },
-  { label: 'Delivered', value: 'delivered' },
+  { label: 'Ready / Shipping', value: 'dispatched' },
+  { label: 'Completed', value: 'delivered' },
   { label: 'Cancelled', value: 'cancelled' },
 ] as const;
 

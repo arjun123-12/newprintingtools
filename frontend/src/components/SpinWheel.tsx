@@ -16,14 +16,12 @@ export interface SpinSegment {
 }
 
 export const DEFAULT_SEGMENTS: SpinSegment[] = [
-  { label: '10% OFF', sub: 'Entire Order', color: '#be123c', darkColor: '#881337', textColor: '#ffffff' },
-  { label: '$20 CREDIT', sub: 'Print Voucher', color: '#1d4ed8', darkColor: '#1e3a8a', textColor: '#ffffff' },
-  { label: 'FREE SHIPPING', sub: 'Standard Delivery', color: '#047857', darkColor: '#064e3b', textColor: '#ffffff' },
-  { label: '15% OFF', sub: 'Next Print Job', color: '#7e22ce', darkColor: '#581c87', textColor: '#ffffff' },
-  { label: 'FREE EXPRESS', sub: 'Delivery Upgrade', color: '#b45309', darkColor: '#78350f', textColor: '#ffffff' },
-  { label: '5% OFF', sub: 'Instant Discount', color: '#be185d', darkColor: '#831843', textColor: '#ffffff' },
-  { label: 'FREE UPGRADE', sub: 'Premium Artboard', color: '#0f766e', darkColor: '#134e4a', textColor: '#ffffff' },
-  { label: '$10 VOUCHER', sub: 'Bonus Credit', color: '#4338ca', darkColor: '#312e81', textColor: '#ffffff' },
+  { label: '10% Off', color: '#7C3AED', darkColor: '#5B21B6', textColor: '#ffffff' },
+  { label: 'Free Gift', color: '#EC4899', darkColor: '#BE185D', textColor: '#ffffff' },
+  { label: 'Try Again', color: '#334155', darkColor: '#1E293B', textColor: '#ffffff' },
+  { label: '25% Off', color: '#F59E0B', darkColor: '#B45309', textColor: '#ffffff' },
+  { label: 'Free Ship', color: '#06B6D4', darkColor: '#0E7490', textColor: '#ffffff' },
+  { label: '5% Off', color: '#10B981', darkColor: '#047857', textColor: '#ffffff' },
 ];
 
 const NO_CONFETTI_LABELS = ['TRY AGAIN', 'NO LUCK', 'BETTER LUCK'];
@@ -57,11 +55,13 @@ export default function SpinWheel({
   className = '',
   isPreview = false,
 }: SpinWheelProps) {
+  const [fetchedSegments, setFetchedSegments] = useState<SpinSegment[] | null>(null);
   // Normalize segments
   const segments = useMemo(() => {
     if (propSegments && propSegments.length >= 2) return propSegments;
+    if (fetchedSegments && fetchedSegments.length >= 2) return fetchedSegments;
     return DEFAULT_SEGMENTS;
-  }, [propSegments]);
+  }, [propSegments, fetchedSegments]);
 
   const totalSlices = segments.length;
   const sliceAngle = 360 / totalSlices;
@@ -108,6 +108,18 @@ export default function SpinWheel({
         if (data.spin_token) {
           setServerSpinToken(data.spin_token);
         }
+        if (data.wheel_segments && data.wheel_segments.length >= 2) {
+          setFetchedSegments(data.wheel_segments.slice(0, 6).map((segment: any) => ({
+            label: segment.title || segment.badge_text || segment.code,
+            sub: segment.badge_text || undefined,
+            code: segment.code,
+            color: segment.color_bg || '#7c3aed',
+            darkColor: segment.color_bg || '#4c1d95',
+            textColor: segment.color_text || '#ffffff',
+            value: Number(segment.value || 0),
+            type: segment.reward_type,
+          })));
+        }
         if (data.has_spun && data.prize) {
           setWonPrize({
             title: data.prize.title,
@@ -118,7 +130,7 @@ export default function SpinWheel({
           const segIdx = data.prize.segment_index ?? 0;
           setWinningIndex(segIdx);
           // Calculate angle so slice is positioned under pointer at top
-          const targetAngle = 360 * 3 + (360 - (segIdx * sliceAngle));
+          const targetAngle = 360 * 3 + (360 - (segIdx * sliceAngle + sliceAngle / 2));
           setRotationDegrees(targetAngle);
         }
       } catch (err: any) {
@@ -195,7 +207,7 @@ export default function SpinWheel({
       // Pointer is at the top (0deg / -90deg SVG coordinates).
       // Target slice center offset = 360 - (targetIndex * sliceAngle)
       const fullSpins = 360 * 6; // 6 full rotations
-      const targetOffset = 360 - (targetIndex * sliceAngle);
+      const targetOffset = 360 - (targetIndex * sliceAngle + sliceAngle / 2);
       const finalRotation = currentBase + fullSpins + targetOffset;
 
       setRotationDegrees(finalRotation);
@@ -254,17 +266,15 @@ export default function SpinWheel({
   };
 
   // SVG Geometry Constants
-  const size = 420;
+  const size = 500;
   const center = size / 2;
-  const radius = center - 24; // inner radius inside rim
+  const radius = 214;
 
   return (
-    <div className={`relative flex flex-col items-center justify-center select-none ${className}`}>
+    <div className={`relative flex w-full max-w-[30rem] flex-col items-center justify-center select-none ${className}`}>
       {/* Background Breathing Glow Aura */}
       <div
-        className={`glow pointer-events-none absolute h-[440px] w-[440px] rounded-full bg-gradient-to-tr from-amber-500/25 via-violet-600/30 to-pink-500/25 blur-3xl ${
-          isSpinning ? 'fast' : ''
-        }`}
+        className="pointer-events-none absolute h-[440px] w-[440px] rounded-full bg-gradient-to-tr from-amber-500/15 via-violet-600/20 to-pink-500/15 blur-xl opacity-50"
       />
 
       {/* Twinkling Gold Sparkles */}
@@ -308,15 +318,15 @@ export default function SpinWheel({
 
       {/* Main Wheel Container */}
       <div
-        className={`relative aspect-square w-full max-w-[340px] sm:max-w-[400px] md:max-w-[420px] ${
+        className={`relative aspect-square w-full max-w-[420px] ${
           isSpinning ? 'fast' : ''
         }`}
       >
         {/* Outer Gold Metallic Rim */}
         <div className="absolute inset-0 rounded-full border-[10px] border-amber-400 bg-gradient-to-b from-amber-300 via-amber-500 to-amber-700 p-2 shadow-[0_0_45px_rgba(245,158,11,0.55),0_12px_32px_rgba(0,0,0,0.6)]">
           {/* Glowing Bulbs Ring (20 bulbs along the circumference) */}
-          {Array.from({ length: 20 }).map((_, i) => {
-            const bulbAngle = (i * 360) / 20;
+          {Array.from({ length: 24 }).map((_, i) => {
+            const bulbAngle = (i * 360) / 24;
             const rad = (bulbAngle * Math.PI) / 180;
             const x = 50 + 47.8 * Math.sin(rad);
             const y = 50 - 47.8 * Math.cos(rad);
@@ -351,6 +361,7 @@ export default function SpinWheel({
             <svg
               viewBox={`0 0 ${size} ${size}`}
               className="h-full w-full"
+              shapeRendering="geometricPrecision"
               style={{ overflow: 'visible' }}
             >
               <defs>
@@ -389,7 +400,7 @@ export default function SpinWheel({
               {/* Slices */}
               {segments.map((seg, idx) => {
                 // Slice arc geometry: slice 0 centered at top pointer (-90deg)
-                const startDeg = -90 - sliceAngle / 2 + idx * sliceAngle;
+                const startDeg = -90 + idx * sliceAngle;
                 const endDeg = startDeg + sliceAngle;
                 const startRad = (startDeg * Math.PI) / 180;
                 const endRad = (endDeg * Math.PI) / 180;
@@ -420,18 +431,16 @@ export default function SpinWheel({
 
                     {/* Slice Text Content */}
                     <g
-                      transform={`translate(${center}, ${center}) rotate(${textAngle}) translate(${
-                        radius * 0.64
-                      }, 0) rotate(90)`}
+                      transform={`translate(${center}, ${center}) rotate(${textAngle}) translate(${radius - 20}, 0)`}
                     >
                       <text
-                        textAnchor="middle"
+                        textAnchor="end"
                         dominantBaseline="central"
                         fill={seg.textColor || '#ffffff'}
                         className="font-extrabold tracking-wider"
                         style={{
-                          fontSize: totalSlices > 8 ? '11px' : '13px',
-                          filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.7))',
+                          fontSize: totalSlices > 8 ? '18px' : '23px',
+                          filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.55))',
                         }}
                       >
                         {seg.label}
@@ -445,7 +454,7 @@ export default function SpinWheel({
                           className="font-semibold uppercase tracking-wider"
                           style={{
                             fontSize: '8.5px',
-                            filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.8))',
+                            filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.55))',
                           }}
                         >
                           {seg.sub}
@@ -611,4 +620,3 @@ export default function SpinWheel({
     </div>
   );
 }
-

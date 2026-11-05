@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\Notification\OrderNotificationService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -80,10 +81,7 @@ class SpinRewardService
     {
         $query = SpinReward::query()
             ->with('category')
-            ->where('is_active', true)
-            ->where(function ($q) {
-                $q->whereNull('inventory')->orWhere('inventory', '>', 0);
-            });
+            ->where('is_active', true);
 
         if ($category) {
             $query->where('category_id', $category->id);
@@ -97,6 +95,7 @@ class SpinRewardService
 
         $rewards = $query->orderBy('sort_order', 'asc')
             ->orderBy('id', 'asc')
+            ->limit(6)
             ->get();
 
         // If the specified category had no rewards, fallback to Default category
@@ -107,11 +106,9 @@ class SpinRewardService
                     ->with('category')
                     ->where('category_id', $defaultCat->id)
                     ->where('is_active', true)
-                    ->where(function ($q) {
-                        $q->whereNull('inventory')->orWhere('inventory', '>', 0);
-                    })
                     ->orderBy('sort_order', 'asc')
                     ->orderBy('id', 'asc')
+                    ->limit(6)
                     ->get();
             }
         }
@@ -252,6 +249,38 @@ class SpinRewardService
             ];
         }
 
+        $standalone = $spinToken ? OrderSpinEntitlement::where('spin_token', $spinToken)->whereNull('order_id')->first() : null;
+        if ($standalone) {
+            $assignedReward = $standalone->assigned_reward_id ? SpinReward::with('category')->find($standalone->assigned_reward_id) : null;
+            $category = $assignedReward?->category;
+            $segments = $this->getActiveSegments($category);
+            if ($standalone->assigned_reward_id && ! $segments->contains('id', $standalone->assigned_reward_id)) {
+                $segments = collect();
+            }
+            if ($segments->count() < 2) {
+                return ['eligible' => false, 'reason' => 'The selected wheel rewards are not available.'];
+            }
+            $ledger = $standalone->status === 'spun'
+                ? CustomerRewardLedger::with(['category', 'spinReward.category'])->where('entitlement_id', $standalone->id)->first()
+                : null;
+            return [
+                'eligible' => true,
+                'has_spun' => (bool) $ledger,
+                'order_number' => null,
+                'spin_token' => $standalone->spin_token,
+                'category' => $segments->first() ? ['id' => $segments->first()['category_id'], 'code' => $segments->first()['category_code'], 'name' => $segments->first()['category_name']] : null,
+                'wheel_segments' => $segments,
+                'prize' => $ledger ? [
+                    'id' => $ledger->id, 'category_id' => $ledger->category_id, 'category_name' => $ledger->category_name,
+                    'reward_code' => $ledger->reward_code, 'title' => $ledger->title, 'badge_text' => $ledger->badge_text,
+                    'reward_type' => $ledger->reward_type, 'value' => (float) $ledger->value,
+                    'segment_index' => $segments->firstWhere('id', $ledger->spin_reward_id)['index'] ?? 0,
+                    'terms_text' => $ledger->terms, 'how_to_use' => $ledger->how_to_use,
+                    'expires_at' => $ledger->expires_at?->toIso8601String(), 'status' => $ledger->status, 'claim_token' => $ledger->claim_token,
+                ] : null,
+            ];
+        }
+
         $order = $this->resolveOrderFromRequest($orderNumber, $reviewToken, $user, $spinToken);
 
         // Strict security requirement: Backend verification of payment status via genuine succeeded transaction
@@ -287,6 +316,12 @@ class SpinRewardService
                 ]
             );
         });
+
+        if ($entitlement->assigned_reward_id) {
+            $assignedReward = SpinReward::with('category')->find($entitlement->assigned_reward_id);
+            $category = $assignedReward?->category ?? $category;
+            $segments = $this->getActiveSegments($category);
+        }
 
         $categoryPayload = $category ? [
             'id' => $category->id,
@@ -358,6 +393,10 @@ class SpinRewardService
             throw new RuntimeException('Spin & Win is currently unavailable.');
         }
 
+        $standalone = OrderSpinEntitlement::where('spin_token', $spinToken)->whereNull('order_id')->exists();
+        if ($standalone) {
+            return $this->executeStandaloneSpin($spinToken, $clientIp);
+        }
         $order = $this->resolveOrderFromRequest($orderNumber, $reviewToken, $user, $spinToken);
 
         // Strict backend payment check: genuine succeeded payment required
@@ -421,14 +460,18 @@ class SpinRewardService
 
             // Re-resolve category at spin time
             $category = $this->resolveCategoryForOrder($order, $user);
+            if ($entitlement->assigned_reward_id) {
+                $category = SpinReward::with('category')->find($entitlement->assigned_reward_id)?->category ?? $category;
+            }
             $segments = $this->getActiveSegments($category);
+            $wheelRewardIds = collect($segments)->pluck('id')->all();
 
             if ($segments->isEmpty()) {
                 throw new RuntimeException('No active rewards available for this category.');
             }
 
             // Snapshot category onto order if not set
-            if (empty($order->business_category) && $category) {
+            if (empty($order->business_category) && $category && ! $entitlement->assigned_reward_id) {
                 $order->update(['business_category' => $category->code]);
             }
 
@@ -440,6 +483,7 @@ class SpinRewardService
                 ->where(function ($q) {
                     $q->whereNull('inventory')->orWhere('inventory', '>', 0);
                 })
+                ->whereIn('id', $wheelRewardIds)
                 ->when($category, fn ($q) => $q->where('category_id', $category->id))
                 ->where('min_order_spend', '<=', $orderTotal)
                 ->orderBy('sort_order', 'asc')
@@ -451,6 +495,7 @@ class SpinRewardService
                     ->where(function ($q) {
                         $q->whereNull('inventory')->orWhere('inventory', '>', 0);
                     })
+                    ->whereIn('id', $wheelRewardIds)
                     ->when($category, fn ($q) => $q->where('category_id', $category->id))
                     ->orderBy('sort_order', 'asc')
                     ->get();
@@ -462,15 +507,24 @@ class SpinRewardService
                 if ($defaultCat && ($category === null || $category->id !== $defaultCat->id)) {
                     $category = $defaultCat;
                     $segments = $this->getActiveSegments($category);
+                    $wheelRewardIds = collect($segments)->pluck('id')->all();
                     $eligibleRewards = SpinReward::query()
                         ->where('category_id', $defaultCat->id)
                         ->where('is_active', true)
+                        ->whereIn('id', $wheelRewardIds)
                         ->where(function ($q) {
                             $q->whereNull('inventory')->orWhere('inventory', '>', 0);
                         })
                         ->orderBy('sort_order', 'asc')
                         ->get();
                 }
+            }
+
+            if ($entitlement->assigned_reward_id) {
+                if (! in_array($entitlement->assigned_reward_id, $wheelRewardIds, false)) {
+                    throw new RuntimeException('The reward selected for this invitation is not on this order’s wheel.');
+                }
+                $eligibleRewards = $eligibleRewards->where('id', $entitlement->assigned_reward_id)->values();
             }
 
             if ($eligibleRewards->isEmpty()) {
@@ -613,6 +667,60 @@ class SpinRewardService
         return $result;
     }
 
+    private function executeStandaloneSpin(string $spinToken, ?string $clientIp): array
+    {
+        return DB::transaction(function () use ($spinToken, $clientIp) {
+            $entitlement = OrderSpinEntitlement::where('spin_token', $spinToken)->whereNull('order_id')->lockForUpdate()->first();
+            if (! $entitlement) {
+                throw new AccessDeniedHttpException('This spin reward link is invalid or has expired.');
+            }
+            $assigned = $entitlement->assigned_reward_id ? SpinReward::with('category')->find($entitlement->assigned_reward_id) : null;
+            $segments = $this->getActiveSegments($assigned?->category);
+            if ($entitlement->status === 'spun') {
+                $ledger = CustomerRewardLedger::where('entitlement_id', $entitlement->id)->first();
+                if ($ledger) {
+                    return ['success' => true, 'already_spun' => true, 'category' => null, 'prize' => [
+                        'id' => $ledger->id, 'reward_code' => $ledger->reward_code, 'title' => $ledger->title,
+                        'badge_text' => $ledger->badge_text, 'reward_type' => $ledger->reward_type, 'value' => (float) $ledger->value,
+                        'segment_index' => $segments->firstWhere('id', $ledger->spin_reward_id)['index'] ?? 0,
+                        'terms_text' => $ledger->terms, 'how_to_use' => $ledger->how_to_use,
+                        'expires_at' => $ledger->expires_at?->toIso8601String(), 'claim_token' => $ledger->claim_token,
+                    ]];
+                }
+            }
+            if ($segments->count() < 2) throw new RuntimeException('At least two active rewards are required to spin.');
+            $target = $entitlement->assigned_reward_id
+                ? $segments->firstWhere('id', $entitlement->assigned_reward_id)
+                : null;
+            if (! $target) $target = $segments[random_int(0, $segments->count() - 1)];
+            $reward = SpinReward::where('id', $target['id'])->where('is_active', true)->lockForUpdate()->first();
+            if (! $reward || ($reward->inventory !== null && $reward->inventory < 1)) {
+                throw new RuntimeException('The reward selected for this invitation is no longer available.');
+            }
+            if ($reward->inventory !== null) $reward->decrement('inventory');
+            $reward->increment('inventory_consumed');
+            $ledger = CustomerRewardLedger::create([
+                'entitlement_id' => $entitlement->id, 'order_id' => null, 'user_id' => $entitlement->user_id,
+                'spin_reward_id' => $reward->id, 'category_id' => $reward->category_id,
+                'category_name' => $reward->category?->name ?? 'Default / General',
+                'reward_code' => 'SPIN-' . strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4)),
+                'reward_type' => $reward->reward_type, 'title' => $reward->title, 'badge_text' => $reward->badge_text,
+                'value' => $reward->value, 'terms' => $reward->terms_text, 'how_to_use' => $reward->how_to_use,
+                'expires_at' => now()->addDays(max(1, $reward->expiry_days)), 'status' => 'active', 'claim_token' => Str::random(48),
+            ]);
+            $entitlement->update(['status' => 'spun', 'spun_at' => now(), 'client_ip' => $clientIp]);
+            return ['success' => true, 'already_spun' => false, 'category' => [
+                'id' => $reward->category_id, 'code' => $reward->category?->code, 'name' => $reward->category?->name,
+            ], 'prize' => [
+                'id' => $ledger->id, 'category_id' => $ledger->category_id, 'category_name' => $ledger->category_name,
+                'reward_code' => $ledger->reward_code, 'title' => $ledger->title, 'badge_text' => $ledger->badge_text,
+                'reward_type' => $ledger->reward_type, 'value' => (float) $ledger->value,
+                'segment_index' => $target['index'], 'terms_text' => $ledger->terms, 'how_to_use' => $ledger->how_to_use,
+                'expires_at' => $ledger->expires_at->toIso8601String(), 'claim_token' => $ledger->claim_token,
+            ]];
+        });
+    }
+
     /**
      * Retrieve all active business categories available for customer profiles or admin selection.
      */
@@ -746,7 +854,8 @@ class SpinRewardService
         Order $order,
         ?string $customSubject = null,
         ?string $customHeadline = null,
-        ?string $customMessage = null
+        ?string $customMessage = null,
+        ?int $assignedRewardId = null
     ): bool {
         // Find or create atomic entitlement with unique spin_token
         $entitlement = OrderSpinEntitlement::firstOrCreate(
@@ -758,19 +867,38 @@ class SpinRewardService
             ]
         );
 
-        $targetEmail = $order->shipping_address['email']
-            ?? $order->user?->email;
+        if ($assignedRewardId && $entitlement->status !== 'spun') {
+            $assignedReward = SpinReward::with('category')->whereKey($assignedRewardId)->where('is_active', true)->first();
+            if ($assignedReward) {
+                if ($assignedReward->inventory !== null && $assignedReward->inventory < 1) {
+                    throw new InvalidArgumentException('The selected reward is out of stock.');
+                }
+                $entitlement->update(['assigned_reward_id' => $assignedRewardId]);
+            }
+        }
+
+        $shipping = is_array($order->shipping_address) ? $order->shipping_address : (json_decode($order->shipping_address ?? '[]', true) ?: []);
+        $billing = is_array($order->billing_address) ? $order->billing_address : (json_decode($order->billing_address ?? '[]', true) ?: []);
+
+        $targetEmail = $shipping['email']
+            ?? $billing['email']
+            ?? $order->user?->email
+            ?? null;
 
         if (empty($targetEmail)) {
+            Log::warning("Spin wheel invitation skipped for order {$order->order_number}: recipient email not found.");
             return false;
         }
 
-        $customerName = $order->shipping_address['name']
+        $customerName = $shipping['name']
+            ?? $billing['name']
             ?? $order->user?->name
             ?? 'Valued Customer';
 
         $frontendUrl = rtrim(config('app.frontend_url', config('app.url', 'http://localhost:3000')), '/');
         $spinUrl = "{$frontendUrl}/rewards/spin?token={$entitlement->spin_token}&order={$order->order_number}";
+
+        Log::info("Sending spin wheel invitation email to {$targetEmail} for order #{$order->order_number}");
 
         Mail::to($targetEmail)->send(new SpinWheelInvitationMail(
             customerName: $customerName,
@@ -781,13 +909,17 @@ class SpinRewardService
             customMessage: $customMessage
         ));
 
-        // Audit log in order activities
-        OrderActivity::record(
-            $order->id,
-            'spin_wheel_invitation_sent',
-            "Spin Wheel VIP promotional invitation email sent to {$targetEmail}.",
-            'system'
-        );
+        // Audit log in order activities (non-blocking)
+        try {
+            OrderActivity::record(
+                $order->id,
+                'spin_wheel_invitation_sent',
+                "Spin Wheel VIP promotional invitation email sent to {$targetEmail}.",
+                'system'
+            );
+        } catch (\Throwable $e) {
+            Log::warning("OrderActivity record failed for order {$order->order_number}: " . $e->getMessage());
+        }
 
         return true;
     }
@@ -802,22 +934,29 @@ class SpinRewardService
         bool $allPaid = false,
         ?string $subject = null,
         ?string $headline = null,
-        ?string $message = null
+        ?string $message = null,
+        ?int $assignedRewardId = null
     ): array {
         $sentCount = 0;
         $processedEmails = [];
 
         // 1. Process specific order IDs if provided
         if (! empty($orderIds)) {
-            $orders = Order::whereIn('id', $orderIds)->get();
+            $orders = Order::with('user')->whereIn('id', $orderIds)->get();
             foreach ($orders as $order) {
-                if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message)) {
+                $shipping = is_array($order->shipping_address) ? $order->shipping_address : (json_decode($order->shipping_address ?? '[]', true) ?: []);
+                $billing = is_array($order->billing_address) ? $order->billing_address : (json_decode($order->billing_address ?? '[]', true) ?: []);
+                $email = strtolower($shipping['email'] ?? $billing['email'] ?? $order->user?->email ?? '');
+                if ($email) {
+                    $processedEmails[] = $email;
+                }
+                if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message, $assignedRewardId)) {
                     $sentCount++;
                 }
             }
         }
 
-        // 2. Process customer IDs or all paid customers
+        // 2. Process all paid customers if selected
         if ($allPaid) {
             $paidOrders = Order::query()
                 ->where(function ($q) {
@@ -832,17 +971,28 @@ class SpinRewardService
                 ->get();
 
             foreach ($paidOrders as $order) {
-                $targetEmail = $order->shipping_address['email'] ?? $order->user?->email;
+                $shipping = is_array($order->shipping_address) ? $order->shipping_address : (json_decode($order->shipping_address ?? '[]', true) ?: []);
+                $billing = is_array($order->billing_address) ? $order->billing_address : (json_decode($order->billing_address ?? '[]', true) ?: []);
+                $targetEmail = $shipping['email'] ?? $billing['email'] ?? $order->user?->email ?? null;
+
                 if ($targetEmail && ! in_array(strtolower($targetEmail), $processedEmails, true)) {
                     $processedEmails[] = strtolower($targetEmail);
-                    if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message)) {
+                    if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message, $assignedRewardId)) {
                         $sentCount++;
                     }
                 }
             }
-        } elseif (! empty($customerIds)) {
+        }
+
+        // 3. Process specific customer IDs
+        if (! empty($customerIds)) {
             $customers = User::whereIn('id', $customerIds)->get();
             foreach ($customers as $cust) {
+                if (! $cust->email || in_array(strtolower($cust->email), $processedEmails, true)) {
+                    continue;
+                }
+                $processedEmails[] = strtolower($cust->email);
+
                 // Find latest qualifying paid order for customer
                 $order = Order::where('user_id', $cust->id)
                     ->where(function ($q) {
@@ -853,45 +1003,28 @@ class SpinRewardService
                     ->first();
 
                 if ($order) {
-                    if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message)) {
+                    if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message, $assignedRewardId)) {
                         $sentCount++;
                     }
                 } else {
-                    // Create standalone or virtual promotional order entitlement
-                    $frontendUrl = rtrim(config('app.frontend_url', config('app.url', 'http://localhost:3000')), '/');
-                    $tempToken = Str::random(48);
-                    $spinUrl = "{$frontendUrl}/rewards/spin?token={$tempToken}";
-
-                    Mail::to($cust->email)->send(new SpinWheelInvitationMail(
-                        customerName: $cust->name,
-                        spinUrl: $spinUrl,
-                        orderNumber: null,
-                        customSubject: $subject,
-                        customHeadline: $headline,
-                        customMessage: $message
-                    ));
-                    $sentCount++;
+                    if ($this->sendStandaloneSpinInvitation($cust->email, $cust->name, $cust->id, $assignedRewardId, $subject, $headline, $message)) {
+                        $sentCount++;
+                    }
                 }
             }
         }
 
-        // 3. Process marketing contact IDs if provided
+        // 4. Process marketing contact IDs if provided
         if (! empty($contactIds)) {
             $contacts = \App\Models\MarketingContact::whereIn('id', $contactIds)->get();
             foreach ($contacts as $contact) {
-                $frontendUrl = rtrim(config('app.frontend_url', config('app.url', 'http://localhost:3000')), '/');
-                $tempToken = Str::random(48);
-                $spinUrl = "{$frontendUrl}/rewards/spin?token={$tempToken}";
-
-                Mail::to($contact->email)->send(new SpinWheelInvitationMail(
-                    customerName: $contact->name,
-                    spinUrl: $spinUrl,
-                    orderNumber: null,
-                    customSubject: $subject,
-                    customHeadline: $headline,
-                    customMessage: $message
-                ));
-                $sentCount++;
+                if (! $contact->email || in_array(strtolower($contact->email), $processedEmails, true)) {
+                    continue;
+                }
+                $processedEmails[] = strtolower($contact->email);
+                if ($this->sendStandaloneSpinInvitation($contact->email, $contact->name, null, $assignedRewardId, $subject, $headline, $message)) {
+                    $sentCount++;
+                }
             }
         }
 
@@ -899,5 +1032,53 @@ class SpinRewardService
             'sent_count' => $sentCount,
             'message' => "Spin & Win invitation sent to {$sentCount} recipient(s) successfully.",
         ];
+    }
+
+    private function sendStandaloneSpinInvitation(string $email, string $name, ?int $userId, ?int $rewardId, ?string $subject, ?string $headline, ?string $message): bool
+    {
+        $reward = $rewardId ? SpinReward::with('category')->whereKey($rewardId)->where('is_active', true)->first() : null;
+        $segments = $this->getActiveSegments($reward?->category);
+        if ($segments->count() < 2) {
+            throw new RuntimeException('Configure at least two active rewards before sending invitations.');
+        }
+        if ($rewardId && ! $segments->contains('id', $rewardId)) {
+            if (! $reward) {
+                throw new InvalidArgumentException('Selected reward is not active.');
+            }
+        }
+        if ($rewardId) {
+            if (! $reward || ($reward->inventory !== null && $reward->inventory < 1)) {
+                throw new InvalidArgumentException('The selected reward is out of stock.');
+            }
+        }
+        $entitlement = OrderSpinEntitlement::create([
+            'order_id' => null,
+            'user_id' => $userId,
+            'email' => $email,
+            'name' => $name,
+            'assigned_reward_id' => $rewardId,
+            'spin_token' => Str::random(48),
+            'status' => 'eligible',
+        ]);
+        $frontendUrl = rtrim(config('app.frontend_url', config('app.url', 'http://localhost:3000')), '/');
+        $spinUrl = "{$frontendUrl}/rewards/spin?token={$entitlement->spin_token}";
+
+        Log::info("Sending standalone spin wheel invitation to {$email}");
+
+        try {
+            Mail::to($email)->send(new SpinWheelInvitationMail(
+                customerName: $name ?: 'Valued Customer',
+                spinUrl: $spinUrl,
+                orderNumber: null,
+                customSubject: $subject,
+                customHeadline: $headline,
+                customMessage: $message
+            ));
+        } catch (\Throwable $exception) {
+            $entitlement->delete();
+            Log::error("Failed to send standalone spin wheel invitation to {$email}: " . $exception->getMessage());
+            throw $exception;
+        }
+        return true;
     }
 }

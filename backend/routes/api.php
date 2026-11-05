@@ -980,6 +980,7 @@ Route::middleware(['auth:sanctum', 'admin.access'])
             Route::delete('/categories/{id}', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'deleteCategory'])->whereNumber('id');
             Route::delete('/rewards/{id}', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'deleteReward'])->whereNumber('id');
             Route::get('/campaign-recipients', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'getCampaignRecipients']);
+            Route::post('/campaign-recipients', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'storeCampaignRecipient']);
             Route::post('/send-invitation', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'sendInvitation']);
         });
     });

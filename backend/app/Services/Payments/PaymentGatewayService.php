@@ -291,7 +291,7 @@ class PaymentGatewayService
                         app(\App\Services\Rewards\SpinRewardService::class)->sendSpinInvitationForOrder($order);
                     }
                 } catch (\Throwable $e) {
-                    // Non-blocking log
+                    \Illuminate\Support\Facades\Log::error("Automatic spin wheel invitation failed on payment for order {$order->order_number}: " . $e->getMessage());
                 }
 
                 return [

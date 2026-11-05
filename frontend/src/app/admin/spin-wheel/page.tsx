@@ -35,6 +35,8 @@ type PaidOrderRecipient = {
   created_at: string;
 };
 
+type CampaignContact = { id: number; name: string; email: string };
+
 export default function AdminSpinWheelPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -56,9 +58,30 @@ export default function AdminSpinWheelPage() {
 
   const [stats, setStats] = useState<any>(null);
   const [paidOrders, setPaidOrders] = useState<PaidOrderRecipient[]>([]);
+  const [contacts, setContacts] = useState<CampaignContact[]>([]);
+  const [selectedContactIds, setSelectedContactIds] = useState<number[]>([]);
+  const [newRecipient, setNewRecipient] = useState({ name: '', email: '', consent: false });
   const [ledger, setLedger] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [segments, setSegments] = useState<any[]>([]);
+
+  const previewSegments = useMemo(() => {
+    const defaultCategory = categories.find((category) => category.is_default);
+    const categorySegments = segments.filter((segment) => segment.is_active && (
+      !defaultCategory || Number(segment.category_id) === Number(defaultCategory.id)
+    ));
+    return categorySegments.slice(0, 6)
+    .map((segment) => ({
+      label: segment.title || segment.badge_text || segment.code,
+      sub: segment.badge_text || segment.description || '',
+      code: segment.code,
+      color: segment.color_bg || '#7c3aed',
+      darkColor: segment.color_bg || '#4c1d95',
+      textColor: segment.color_text || '#ffffff',
+      value: Number(segment.value || 0),
+      type: segment.reward_type,
+    }));
+  }, [segments, categories]);
 
   // Campaign Form State
   const [campaign, setCampaign] = useState({
@@ -69,6 +92,9 @@ export default function AdminSpinWheelPage() {
   });
 
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<number[]>([]);
+  const [rewardId, setRewardId] = useState('');
   const [allPaidSelected, setAllPaidSelected] = useState(false);
 
   const headers = useMemo(() => {
@@ -103,11 +129,18 @@ export default function AdminSpinWheelPage() {
         if (sj.data?.stats) setStats(sj.data.stats);
         if (sj.data?.categories) setCategories(sj.data.categories);
         if (sj.data?.segments) setSegments(sj.data.segments);
+        if (!rewardId && sj.data?.segments?.length) {
+          const defaultCategory = sj.data.categories?.find((category: any) => category.is_default);
+          const initialReward = sj.data.segments.find((segment: any) => segment.is_active && (!defaultCategory || Number(segment.category_id) === Number(defaultCategory.id)));
+          if (initialReward) setRewardId(String(initialReward.id));
+        }
       }
 
       if (recipRes.ok) {
         const rj = await recipRes.json();
         setPaidOrders(rj.data?.paid_orders || []);
+        setContacts(rj.data?.contacts || []);
+        setCustomers(rj.data?.customers || []);
       }
 
       if (ledgerRes.ok) {
@@ -118,6 +151,31 @@ export default function AdminSpinWheelPage() {
       setMessage({ good: false, text: e.message || 'Could not load spin wheel data.' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const addCampaignRecipient = async () => {
+    if (!newRecipient.name.trim() || !newRecipient.email.trim() || !newRecipient.consent) {
+      setMessage({ good: false, text: 'Enter recipient name and email, then confirm they agreed to receive promotional email.' });
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch(`${API_URL}/admin/spin-win/campaign-recipients`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ name: newRecipient.name, email: newRecipient.email, confirm_consent: true }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || result.errors?.email?.[0] || 'Could not add recipient.');
+      const contact = result.data as CampaignContact;
+      setContacts((prev) => [contact, ...prev.filter((item) => item.id !== contact.id)]);
+      setSelectedContactIds((prev) => prev.includes(contact.id) ? prev : [...prev, contact.id]);
+      setNewRecipient({ name: '', email: '', consent: false });
+      setMessage({ good: true, text: 'Recipient added and selected. Choose the reward, then send the invitation.' });
+    } catch (error: any) {
+      setMessage({ good: false, text: error.message || 'Could not add recipient.' });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -154,14 +212,19 @@ export default function AdminSpinWheelPage() {
   };
 
   const sendInvitationCampaign = async () => {
-    if (!allPaidSelected && selectedOrderIds.length === 0) {
+    if (
+      !allPaidSelected &&
+      selectedOrderIds.length === 0 &&
+      selectedCustomerIds.length === 0 &&
+      selectedContactIds.length === 0
+    ) {
       alert('Please select at least one recipient to send the spin wheel invitation.');
       return;
     }
 
     const countText = allPaidSelected
       ? 'all qualifying customers with completed payments'
-      : `${selectedOrderIds.length} selected recipients`;
+      : `${selectedOrderIds.length + selectedCustomerIds.length + selectedContactIds.length} selected recipients`;
 
     if (!window.confirm(`Send Spin & Win Wheel VIP invitation email to ${countText}?`)) return;
 
@@ -173,6 +236,9 @@ export default function AdminSpinWheelPage() {
         headers,
         body: JSON.stringify({
           order_ids: allPaidSelected ? [] : selectedOrderIds,
+          customer_ids: allPaidSelected ? [] : selectedCustomerIds,
+          contact_ids: allPaidSelected ? [] : selectedContactIds,
+          reward_id: rewardId ? Number(rewardId) : null,
           all_paid: allPaidSelected,
           subject: campaign.subject,
           headline: campaign.headline,
@@ -180,6 +246,13 @@ export default function AdminSpinWheelPage() {
         }),
       });
       const result = await response.json();
+      if (response.status === 202) {
+        setMessage({
+          good: false,
+          text: 'Server accepted the request, but it did not confirm that the email was sent. The recipients are still selected; check the backend deployment and mail transport before retrying.',
+        });
+        return;
+      }
       if (!response.ok)
         throw new Error(result.message || 'Failed to send spin invitations.');
       setMessage({
@@ -187,6 +260,8 @@ export default function AdminSpinWheelPage() {
         text: result.message || 'Spin Wheel invitations sent successfully!',
       });
       setSelectedOrderIds([]);
+      setSelectedCustomerIds([]);
+      setSelectedContactIds([]);
       setAllPaidSelected(false);
       await loadData();
     } catch (e: any) {
@@ -312,7 +387,7 @@ export default function AdminSpinWheelPage() {
 
             {/* The Live Interactive Wheel Component */}
             <div className="my-3 w-full flex justify-center">
-              <SpinWheel isPreview={true} />
+              <SpinWheel segments={previewSegments} isPreview={true} />
             </div>
 
             <p className="mt-3 text-center text-[11px] text-slate-400 max-w-xs">
@@ -363,6 +438,17 @@ export default function AdminSpinWheelPage() {
             </label>
 
             <label className="block text-sm">
+              <span className="font-semibold text-slate-700">Guaranteed reward (optional)</span>
+              <select value={rewardId} onChange={(e) => setRewardId(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs focus:border-amber-400 focus:outline-none">
+                <option value="">Standard / Random prize wheel (weighted probabilities)</option>
+                {segments.filter((segment) => segment.is_active).map((segment) => (
+                  <option key={segment.id} value={segment.id}>{segment.title || segment.badge_text || segment.code} · {categories.find((category) => Number(category.id) === Number(segment.category_id))?.name || 'Default'}</option>
+                ))}
+              </select>
+              <span className="mt-1 block text-[11px] text-slate-500">Leave unselected for normal random prize spinning, or select a reward to guarantee what the user lands on.</span>
+            </label>
+
+            <label className="block text-sm">
               <span className="font-semibold text-slate-700">Headline</span>
               <input
                 maxLength={180}
@@ -392,7 +478,7 @@ export default function AdminSpinWheelPage() {
                 <span className="text-slate-500">
                   {allPaidSelected
                     ? 'All customers who completed payment'
-                    : `${selectedOrderIds.length} selected`}
+                    : `${selectedOrderIds.length + selectedCustomerIds.length + selectedContactIds.length} selected`}
                 </span>
               </div>
 
@@ -403,6 +489,8 @@ export default function AdminSpinWheelPage() {
                   onChange={(e) => {
                     setAllPaidSelected(e.target.checked);
                     setSelectedOrderIds([]);
+                    setSelectedCustomerIds([]);
+                    setSelectedContactIds([]);
                   }}
                   className="rounded"
                 />
@@ -410,58 +498,104 @@ export default function AdminSpinWheelPage() {
               </label>
 
               {!allPaidSelected && (
-                <div className="max-h-56 overflow-auto rounded-xl border bg-white divide-y text-xs">
-                  {paidOrders.length === 0 ? (
-                    <div className="p-3 text-slate-500">No paid orders found yet.</div>
-                  ) : (
-                    paidOrders.map((po) => {
-                      const isSelected = selectedOrderIds.includes(po.order_id);
-                      return (
-                        <label
-                          key={po.order_id}
-                          className="flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={(e) => {
-                              setSelectedOrderIds((prev) =>
-                                e.target.checked
-                                  ? [...prev, po.order_id]
-                                  : prev.filter((id) => id !== po.order_id)
-                              );
-                            }}
-                            className="rounded"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-slate-900">
-                                #{po.order_number}
-                              </span>
-                              <span className="text-slate-700 truncate">{po.name}</span>
-                            </div>
-                            <span className="text-[11px] text-slate-400">{po.email}</span>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <span className="block font-semibold text-slate-800">
-                              AUD ${Number(po.total).toFixed(2)}
-                            </span>
-                            <span
-                              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                po.has_spun
-                                  ? 'bg-slate-100 text-slate-500'
-                                  : 'bg-emerald-100 text-emerald-700'
-                              }`}
-                            >
-                              {po.has_spun ? 'Already spun' : 'Paid · Ready to spin'}
-                            </span>
-                          </div>
-                        </label>
-                      );
-                    })
+                <div className="max-h-64 overflow-auto rounded-xl border bg-white divide-y text-xs">
+                  {paidOrders.length > 0 && (
+                    <div className="bg-slate-100/70 px-3 py-1.5 text-[11px] font-bold text-slate-600 uppercase tracking-wider sticky top-0 z-10">
+                      Paid Orders ({paidOrders.length})
+                    </div>
                   )}
+                  {paidOrders.map((po) => {
+                    const isSelected = selectedOrderIds.includes(po.order_id);
+                    return (
+                      <label
+                        key={po.order_id}
+                        className="flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            setSelectedOrderIds((prev) =>
+                              e.target.checked
+                                ? [...prev, po.order_id]
+                                : prev.filter((id) => id !== po.order_id)
+                            );
+                          }}
+                          className="rounded"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-slate-900">
+                              #{po.order_number}
+                            </span>
+                            <span className="text-slate-700 truncate">{po.name}</span>
+                          </div>
+                          <span className="text-[11px] text-slate-400">{po.email}</span>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="block font-semibold text-slate-800">
+                            AUD ${Number(po.total).toFixed(2)}
+                          </span>
+                          <span
+                            className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              po.has_spun
+                                ? 'bg-slate-100 text-slate-500'
+                                : 'bg-emerald-100 text-emerald-700'
+                            }`}
+                          >
+                            {po.has_spun ? 'Already spun' : 'Paid · Ready to spin'}
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                  {customers.length > 0 && (
+                    <div className="bg-slate-100/70 px-3 py-1.5 text-[11px] font-bold text-slate-600 uppercase tracking-wider sticky top-0 z-10">
+                      Registered Customers ({customers.length})
+                    </div>
+                  )}
+                  {customers.map((c) => {
+                    const isSelected = selectedCustomerIds.includes(c.id);
+                    return (
+                      <label key={`customer-${c.id}`} className="flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) =>
+                            setSelectedCustomerIds((prev) =>
+                              e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)
+                            )
+                          }
+                          className="rounded"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <span className="block font-semibold text-slate-800">{c.name}</span>
+                          <span className="text-[11px] text-slate-400">{c.email} {c.company_name ? `· ${c.company_name}` : ''}</span>
+                        </div>
+                        <span className="text-[10px] font-semibold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-200">Customer Account</span>
+                      </label>
+                    );
+                  })}
+                  {contacts.length > 0 && (
+                    <div className="bg-slate-100/70 px-3 py-1.5 text-[11px] font-bold text-slate-600 uppercase tracking-wider sticky top-0 z-10">
+                      Marketing Contacts ({contacts.length})
+                    </div>
+                  )}
+                  {contacts.map((contact) => {
+                    const isSelected = selectedContactIds.includes(contact.id);
+                    return <label key={`contact-${contact.id}`} className="flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 cursor-pointer">
+                      <input type="checkbox" checked={isSelected} onChange={(e) => setSelectedContactIds((prev) => e.target.checked ? [...prev, contact.id] : prev.filter((id) => id !== contact.id))} className="rounded" />
+                      <div className="min-w-0 flex-1"><span className="block font-semibold text-slate-800">{contact.name}</span><span className="text-[11px] text-slate-400">{contact.email} · Added recipient</span></div>
+                    </label>;
+                  })}
                 </div>
               )}
+              {!allPaidSelected && <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-[1fr_1fr_auto]">
+                <input value={newRecipient.name} onChange={(e) => setNewRecipient((prev) => ({ ...prev, name: e.target.value }))} placeholder="New recipient name" className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs" />
+                <input type="email" value={newRecipient.email} onChange={(e) => setNewRecipient((prev) => ({ ...prev, email: e.target.value }))} placeholder="Email address" className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs" />
+                <button type="button" onClick={() => void addCampaignRecipient()} disabled={busy} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Add recipient</button>
+                <label className="sm:col-span-3 flex items-start gap-2 text-[11px] text-slate-600"><input type="checkbox" checked={newRecipient.consent} onChange={(e) => setNewRecipient((prev) => ({ ...prev, consent: e.target.checked }))} className="mt-0.5 rounded" /><span>I confirm this person agreed to receive promotional Spin Wheel emails.</span></label>
+              </div>}
             </div>
 
             {/* Email Preview Snippet */}
@@ -482,7 +616,7 @@ export default function AdminSpinWheelPage() {
             <button
               type="button"
               onClick={sendInvitationCampaign}
-              disabled={busy || (!allPaidSelected && selectedOrderIds.length === 0)}
+              disabled={busy || !rewardId || (!allPaidSelected && selectedOrderIds.length === 0 && selectedContactIds.length === 0)}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-500 py-3 font-bold text-slate-950 hover:brightness-105 disabled:opacity-40 shadow-md shadow-amber-500/20"
             >
               {busy ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}

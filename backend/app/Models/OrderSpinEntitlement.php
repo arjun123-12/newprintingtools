@@ -15,6 +15,9 @@ class OrderSpinEntitlement extends Model
     protected $fillable = [
         'order_id',
         'user_id',
+        'email',
+        'name',
+        'assigned_reward_id',
         'spin_token',
         'status',
         'spun_at',

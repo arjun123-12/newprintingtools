@@ -16,9 +16,37 @@ use App\Services\Rewards\SpinRewardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 class AdminSpinRewardController extends Controller
 {
+    public function storeCampaignRecipient(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'email' => ['required', 'email', 'max:255'],
+            'confirm_consent' => ['required', 'accepted'],
+        ]);
+        $email = Str::lower(trim($data['email']));
+        $existingUser = User::whereRaw('LOWER(email) = ?', [$email])->first();
+        if ($existingUser) {
+            $existingUser->update(['marketing_consent' => true]);
+        }
+        $recipient = MarketingContact::updateOrCreate(['email' => $email], [
+            'name' => trim($data['name']) ?: ($existingUser?->name ?? 'Valued Customer'),
+            'marketing_consent' => true,
+            'marketing_consent_at' => now(),
+            'unsubscribed_at' => null,
+            'created_by' => $request->user()->id,
+        ]);
+        return response()->json([
+            'success' => true,
+            'message' => $existingUser ? 'Recipient verified as registered customer account.' : 'Contact added successfully.',
+            'data' => $recipient,
+        ], $recipient->wasRecentlyCreated ? 201 : 200);
+    }
+
     /**
      * Get platform settings, all reward categories, and configured wheel segments.
      */
@@ -109,6 +137,20 @@ class AdminSpinRewardController extends Controller
             'segments.*.is_active' => ['required', 'boolean'],
             'segments.*.sort_order' => ['nullable', 'integer'],
         ]);
+
+        if (array_key_exists('segments', $validated)) {
+            $defaultCategoryId = SpinRewardCategory::where('is_default', true)->value('id');
+            $activeSegmentsByCategory = collect($validated['segments'] ?? [])
+                ->filter(fn (array $segment) => (bool) ($segment['is_active'] ?? false))
+                ->groupBy(fn (array $segment) => $segment['category_id'] ?? $defaultCategoryId ?? 'default');
+            foreach ($activeSegmentsByCategory as $categorySegments) {
+                if ($categorySegments->count() !== 6) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'segments' => ['Each configured reward category must have exactly 6 active wheel rewards.'],
+                    ]);
+                }
+            }
+        }
 
         SpinWinSetting::set('enabled', $validated['enabled']);
         SpinWinSetting::set('min_order_spend', (float) $validated['min_order_spend']);
@@ -338,12 +380,14 @@ class AdminSpinRewardController extends Controller
     {
         $reward = SpinReward::findOrFail($id);
 
-        // Check active wheel segment balance
-        $remainingCount = SpinReward::where('is_active', true)->where('id', '!=', $id)->count();
-        if ($remainingCount < 3) {
+        // Keep each configured category at six active wheel slots.
+        $activeInCategory = SpinReward::where('category_id', $reward->category_id)
+            ->where('is_active', true)
+            ->count();
+        if ($reward->is_active && $activeInCategory <= 6) {
             return response()->json([
                 'success' => false,
-                'message' => 'The wheel requires at least 4 active segments for circular visual balance.',
+                'message' => 'Each reward category must keep exactly 6 active wheel rewards. Edit the reward or deactivate an extra reward first.',
             ], 422);
         }
 
@@ -396,7 +440,7 @@ class AdminSpinRewardController extends Controller
     }
 
     /**
-     * Get customers with paid orders and marketing contacts for sending spin invitations.
+     * Get customers with paid orders, registered customer accounts, and marketing contacts for sending spin invitations.
      */
     public function getCampaignRecipients(): JsonResponse
     {
@@ -409,29 +453,40 @@ class AdminSpinRewardController extends Controller
             ->latest('created_at')
             ->take(50)
             ->get()
-            ->map(fn ($o) => [
-                'order_id' => $o->id,
-                'order_number' => $o->order_number,
-                'customer_id' => $o->user_id,
-                'name' => $o->shipping_address['name'] ?? $o->user?->name ?? 'Customer',
-                'email' => $o->shipping_address['email'] ?? $o->user?->email,
-                'total' => $o->total_inc_gst ?? $o->total,
-                'has_spun' => $o->spinEntitlement?->status === 'spun',
-                'spun_at' => $o->spinEntitlement?->spun_at?->toIso8601String(),
-                'created_at' => $o->created_at->toIso8601String(),
-            ]);
+            ->map(function ($o) {
+                $shipping = is_array($o->shipping_address) ? $o->shipping_address : (json_decode($o->shipping_address ?? '[]', true) ?: []);
+                $billing = is_array($o->billing_address) ? $o->billing_address : (json_decode($o->billing_address ?? '[]', true) ?: []);
+                $name = $shipping['name'] ?? $billing['name'] ?? $o->user?->name ?? 'Customer';
+                $email = $shipping['email'] ?? $billing['email'] ?? $o->user?->email;
+
+                return [
+                    'order_id' => $o->id,
+                    'order_number' => $o->order_number,
+                    'customer_id' => $o->user_id,
+                    'name' => $name,
+                    'email' => $email,
+                    'total' => $o->total_inc_gst ?? $o->total,
+                    'has_spun' => $o->spinEntitlement?->status === 'spun',
+                    'spun_at' => $o->spinEntitlement?->spun_at?->toIso8601String(),
+                    'created_at' => $o->created_at->toIso8601String(),
+                ];
+            });
 
         $customers = User::query()
-            ->where('marketing_consent', true)
+            ->where(function ($q) {
+                $q->where('role', 'customer')
+                  ->orWhereNull('role');
+            })
+            ->whereNotNull('email')
+            ->whereNull('marketing_unsubscribed_at')
             ->orderBy('name')
-            ->take(50)
-            ->get(['id', 'name', 'email', 'marketing_consent']);
+            ->take(100)
+            ->get(['id', 'name', 'email', 'company_name', 'marketing_consent']);
 
         $contacts = MarketingContact::query()
-            ->where('marketing_consent', true)
             ->whereNull('unsubscribed_at')
             ->orderBy('name')
-            ->take(50)
+            ->take(100)
             ->get(['id', 'name', 'email']);
 
         return response()->json([
@@ -449,6 +504,14 @@ class AdminSpinRewardController extends Controller
      */
     public function sendInvitation(Request $request, SpinRewardService $spinRewardService): JsonResponse
     {
+        $mailer = config('mail.default');
+        if (! $mailer || in_array($mailer, ['log', 'array'], true) || ! config("mail.mailers.{$mailer}")) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Email delivery is not configured. Set a real backend mail transport (MAIL_MAILER=smtp) before sending invitations.',
+            ], 503);
+        }
+
         $validated = $request->validate([
             'customer_ids' => ['nullable', 'array'],
             'order_ids' => ['nullable', 'array'],
@@ -457,17 +520,47 @@ class AdminSpinRewardController extends Controller
             'subject' => ['nullable', 'string', 'max:180'],
             'headline' => ['nullable', 'string', 'max:180'],
             'message' => ['nullable', 'string', 'max:5000'],
+            'reward_id' => ['nullable'],
         ]);
 
-        $result = $spinRewardService->sendPromotionalSpinInvitations(
-            customerIds: $validated['customer_ids'] ?? [],
-            orderIds: $validated['order_ids'] ?? [],
-            contactIds: $validated['contact_ids'] ?? [],
-            allPaid: (bool) ($validated['all_paid'] ?? false),
-            subject: $validated['subject'] ?? null,
-            headline: $validated['headline'] ?? null,
-            message: $validated['message'] ?? null
-        );
+        $assignedRewardId = (!empty($validated['reward_id']) && is_numeric($validated['reward_id']))
+            ? (int) $validated['reward_id']
+            : null;
+
+        try {
+            $result = $spinRewardService->sendPromotionalSpinInvitations(
+                customerIds: $validated['customer_ids'] ?? [],
+                orderIds: $validated['order_ids'] ?? [],
+                contactIds: $validated['contact_ids'] ?? [],
+                allPaid: (bool) ($validated['all_paid'] ?? false),
+                subject: $validated['subject'] ?? null,
+                headline: $validated['headline'] ?? null,
+                message: $validated['message'] ?? null,
+                assignedRewardId: $assignedRewardId
+            );
+        } catch (\InvalidArgumentException $exception) {
+            return response()->json(['success' => false, 'message' => $exception->getMessage()], 422);
+        } catch (TransportExceptionInterface $exception) {
+            report($exception);
+            return response()->json([
+                'success' => false,
+                'message' => 'SMTP did not accept the email. Check the backend mail transport settings and try again.',
+            ], 502);
+        } catch (\Throwable $exception) {
+            report($exception);
+            return response()->json([
+                'success' => false,
+                'message' => 'The invitation could not be processed: ' . $exception->getMessage(),
+            ], 500);
+        }
+
+        if (($result['sent_count'] ?? 0) < 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No emails were sent. Select at least one eligible recipient with an email address.',
+                'data' => $result,
+            ], 422);
+        }
 
         return response()->json([
             'success' => true,

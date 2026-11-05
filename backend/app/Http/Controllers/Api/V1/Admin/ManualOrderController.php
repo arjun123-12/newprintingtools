@@ -44,7 +44,9 @@ class ManualOrderController extends Controller
 
         // Status filter
         if (!empty($status) && $status !== 'all') {
-            if ($status === 'delivered' || $status === 'completed') {
+            if ($status === 'pending') {
+                $query->whereIn('status', ['draft', 'pending_payment', 'processing']);
+            } elseif ($status === 'delivered' || $status === 'completed') {
                 $query->whereIn('status', ['delivered', 'collected', 'completed']);
             } elseif ($status === 'in_production') {
                 $query->whereIn('status', [
@@ -61,11 +63,13 @@ class ManualOrderController extends Controller
                     'dispatched',
                     'handed_over_to_courier',
                     'ready_for_shipping',
+                    'ready_for_pickup',
                 ]);
             } elseif ($status === 'artwork_review') {
                 $query->whereIn('status', [
                     'artwork_review',
                     'artwork_required',
+                    'changes_requested',
                     'approved',
                 ]);
             } elseif ($status === 'cancelled') {
@@ -918,5 +922,3 @@ class ManualOrderController extends Controller
         }
     }
 }
-
-
