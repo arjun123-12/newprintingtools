@@ -3,6 +3,7 @@
 namespace App\Services\Notification;
 
 use App\Models\CustomerEnquiry;
+use App\Models\ClientBrief;
 use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\CustomerRewardLedger;
@@ -22,6 +23,73 @@ class OrderNotificationService
      * Linked recipient for store orders, admin notifications, and enquiries.
      */
     public const LINKED_ADMIN_EMAIL = 'erryimprints@gmail.com';
+
+    /** Notify the admin inbox for every new customer message on a design query. */
+    public function sendClientBriefMessageAlert(ClientBrief $brief, string $messageText): bool
+    {
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $recipient = env('ADMIN_ORDER_NOTIFICATION_EMAIL', env('ADMIN_NOTIFICATION_EMAIL', self::LINKED_ADMIN_EMAIL));
+        $reference = 'DQ-' . str_pad((string) $brief->id, 4, '0', STR_PAD_LEFT);
+        $frontendUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'https://www.erryimprints.com.au')), '/');
+        $adminUrl = $frontendUrl . '/admin/design-queries';
+        $body = "A customer sent a new message on design query {$reference}.\n\n"
+            . "Product: " . ($brief->product ?: 'Design request') . "\n"
+            . "Current status: " . str_replace('_', ' ', (string) $brief->status) . "\n"
+            . "Message:\n{$messageText}\n\n"
+            . "Open the Design Queries section in the admin panel:\n{$adminUrl}\n\n"
+            . "This email does not include customer contact details or pricing.";
+
+        try {
+            Mail::raw($body, function ($mail) use ($recipient, $reference, $fromEmail, $fromName) {
+                $mail->to($recipient)
+                    ->from($fromEmail, $fromName)
+                    ->subject("New customer message: {$reference} | Erry Imprints");
+            });
+            return true;
+        } catch (Throwable $e) {
+            Log::warning("Could not notify admin about design query {$reference}: {$e->getMessage()}");
+            return false;
+        }
+    }
+
+    /** Email the customer whenever the design team replies or uploads a proof. */
+    public function sendClientBriefCustomerUpdate(ClientBrief $brief, string $messageText, bool $designUploaded = false): bool
+    {
+        $recipient = strtolower(trim((string) $brief->email));
+        if (!filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+            Log::warning("Cannot notify customer about design query {$brief->id}: no valid customer email is saved.");
+            return false;
+        }
+
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $reference = 'DQ-' . str_pad((string) $brief->id, 4, '0', STR_PAD_LEFT);
+        $frontendUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'https://www.erryimprints.com.au')), '/');
+        $portalUrl = $frontendUrl . '/client-brief/' . $brief->token;
+        $subject = $designUploaded
+            ? "Your design preview is ready: {$reference} | Erry Imprints"
+            : "New message about your design: {$reference} | Erry Imprints";
+        $body = "Hello " . ($brief->client_name ?: 'there') . ",\n\n"
+            . ($designUploaded ? "Our design team uploaded a new preview for your request." : "Our design team sent you a message about your request.")
+            . "\n\nDesign query: {$reference}\nProduct: " . ($brief->product ?: 'Design request')
+            . "\n\nMessage from the design team:\n{$messageText}\n\n"
+            . "Open your private design portal to view the preview, reply, or request a change:\n{$portalUrl}\n\n"
+            . "Warm regards,\nErry Imprints Design Team";
+
+        try {
+            Mail::raw($body, function ($mail) use ($recipient, $subject, $fromEmail, $fromName) {
+                $mail->to($recipient)
+                    ->from($fromEmail, $fromName)
+                    ->replyTo($fromEmail, $fromName)
+                    ->subject($subject);
+            });
+            return true;
+        } catch (Throwable $e) {
+            Log::warning("Could not email customer about design query {$reference}: {$e->getMessage()}");
+            return false;
+        }
+    }
 
     /**
      * Send order confirmation to customer and send notification copy to linked email.

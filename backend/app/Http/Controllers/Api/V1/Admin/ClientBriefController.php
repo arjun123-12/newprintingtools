@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ClientBrief;
+use App\Services\Notification\OrderNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -220,7 +221,7 @@ class ClientBriefController extends Controller
         ]);
     }
 
-    public function uploadDesign(Request $request, int $id): JsonResponse
+    public function uploadDesign(Request $request, int $id, OrderNotificationService $notifications): JsonResponse
     {
         $brief = ClientBrief::findOrFail($id);
         $data = $request->validate([
@@ -237,14 +238,20 @@ class ClientBriefController extends Controller
         ]);
         if (!empty($data['message'])) $brief->messages()->create(['author' => 'employee', 'message' => $data['message']]);
         $brief->update(['status' => 'proof_sent']);
+        $notifications->sendClientBriefCustomerUpdate(
+            $brief->fresh(),
+            $data['message'] ?? 'A new design preview is ready for your review.',
+            true
+        );
         return response()->json(['success' => true, 'message' => 'Design uploaded for customer review.']);
     }
 
-    public function message(Request $request, int $id): JsonResponse
+    public function message(Request $request, int $id, OrderNotificationService $notifications): JsonResponse
     {
         $brief = ClientBrief::findOrFail($id);
         $data = $request->validate(['message' => ['required','string','max:5000']]);
         $brief->messages()->create(['author' => 'employee', 'message' => $data['message']]);
+        $notifications->sendClientBriefCustomerUpdate($brief, $data['message']);
         return response()->json(['success' => true]);
     }
 }

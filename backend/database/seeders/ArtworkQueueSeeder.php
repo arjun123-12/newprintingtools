@@ -28,7 +28,7 @@ class ArtworkQueueSeeder extends Seeder
                 'phone' => '0412 345 678',
                 'role' => 'staff',
                 'role_preset' => 'designer',
-                'permissions' => ['artwork', 'templates', 'design_assets'],
+                'permissions' => ['artwork', 'templates', 'design_assets', 'design_queries'],
                 'password' => Hash::make('Designer2026!'),
                 'is_active' => true,
                 'is_super_admin' => false,

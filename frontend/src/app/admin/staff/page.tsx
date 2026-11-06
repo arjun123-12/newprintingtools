@@ -214,7 +214,7 @@ export default function StaffManagementPage() {
 
     const designerPreset = presets.find((p) => p.slug === 'designer');
     setFormSelectedPermissions(
-      designerPreset ? [...designerPreset.permissions] : ['templates', 'design_assets', 'artwork']
+      designerPreset ? [...designerPreset.permissions] : ['templates', 'design_assets', 'artwork', 'design_queries']
     );
 
     setIsModalOpen(true);

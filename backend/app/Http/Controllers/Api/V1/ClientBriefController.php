@@ -10,6 +10,7 @@ use App\Models\ArtworkVersion;
 use App\Models\OrderActivity;
 use App\Models\Product;
 use App\Services\Order\ManualOrderService;
+use App\Services\Notification\OrderNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -494,13 +495,14 @@ class ClientBriefController extends Controller
         }
     }
 
-    public function message(Request $request, string $token): JsonResponse
+    public function message(Request $request, string $token, OrderNotificationService $notifications): JsonResponse
     {
         $brief = $this->findSubmitted($token);
         if ($brief instanceof JsonResponse) return $brief;
         $data = $request->validate(['message' => ['required', 'string', 'max:5000']]);
         $brief->messages()->create(['author' => 'customer', 'message' => $data['message']]);
         if (in_array($brief->status, ['proof_sent', 'in_progress'], true)) $brief->update(['status' => 'revision']);
+        $notifications->sendClientBriefMessageAlert($brief->fresh(), $data['message']);
         return response()->json(['success' => true]);
     }
 

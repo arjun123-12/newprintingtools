@@ -52,6 +52,7 @@ return new class extends Migration
                     'templates',
                     'design_assets',
                     'artwork',
+                    'design_queries',
                 ]),
                 'is_system' => true,
                 'created_at' => now(),
