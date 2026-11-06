@@ -17,6 +17,7 @@ class Order extends Model
 
     protected $fillable = [
         'order_number',
+        'client_brief_id',
         'user_id',
         'business_category',
         'status',
@@ -119,6 +120,11 @@ class Order extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function clientBrief(): BelongsTo
+    {
+        return $this->belongsTo(ClientBrief::class);
     }
 
     public function items(): HasMany

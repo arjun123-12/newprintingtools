@@ -15,6 +15,7 @@ class ClientBriefController extends Controller
     ): JsonResponse {
         $briefs = ClientBrief::query()
             ->withCount('files')
+            ->select(['id','uuid','request_type','product','quantity','status','is_active','expires_at','submitted_at','created_at','updated_at'])
             ->latest()
             ->paginate(
                 $request->integer(
@@ -32,26 +33,7 @@ class ClientBriefController extends Controller
     public function store(
         Request $request
     ): JsonResponse {
-        $validated =
-            $request->validate([
-                'client_name' => [
-                    'nullable',
-                    'string',
-                    'max:150',
-                ],
-
-                'company_name' => [
-                    'nullable',
-                    'string',
-                    'max:150',
-                ],
-
-                'email' => [
-                    'nullable',
-                    'email',
-                    'max:255',
-                ],
-
+        $validated = $request->validate([
                 'expires_in_days' => [
                     'nullable',
                     'integer',
@@ -71,29 +53,6 @@ class ClientBriefController extends Controller
 
                 'token' =>
                     $token,
-
-                'client_name' =>
-                    $validated[
-                        'client_name'
-                    ] ?? null,
-
-                'company_name' =>
-                    $validated[
-                        'company_name'
-                    ] ?? null,
-
-                'email' =>
-                    isset(
-                        $validated[
-                            'email'
-                        ]
-                    )
-                        ? strtolower(
-                            $validated[
-                                'email'
-                            ]
-                        )
-                        : null,
 
                 'status' =>
                     'draft',
@@ -139,12 +98,6 @@ class ClientBriefController extends Controller
                 'uuid' =>
                     $brief->uuid,
 
-                'client_name' =>
-                    $brief->client_name,
-
-                'email' =>
-                    $brief->email,
-
                 'status' =>
                     $brief->status,
 
@@ -164,14 +117,21 @@ class ClientBriefController extends Controller
     ): JsonResponse {
         $brief =
             ClientBrief::query()
-                ->with('files')
+                ->with(['files', 'messages'])
                 ->findOrFail($id);
+
+        $payload = $brief->only([
+            'id','uuid','request_type','reorder_reference','project_name','product','quantity',
+            'width','height','unit','print_sides','colours','description',
+            'additional_notes','requested_date','status','is_active','expires_at','submitted_at',
+            'created_at','updated_at',
+        ]);
 
         return response()->json([
             'success' => true,
 
             'data' => [
-                ...$brief->toArray(),
+                ...$payload,
 
                 'files' =>
                     $brief->files
@@ -188,6 +148,8 @@ class ClientBriefController extends Controller
                                     $file
                                         ->mime_type,
 
+                                'file_type' => $file->file_type,
+
                                 'size_bytes' =>
                                     $file
                                         ->size_bytes,
@@ -203,6 +165,11 @@ class ClientBriefController extends Controller
                                     ),
                             ]
                         ),
+                'messages' => $brief->messages->map(fn ($message) => [
+                    'id' => $message->id, 'author' => $message->author,
+                    'message' => $message->message, 'created_at' => $message->created_at,
+                ]),
+                'linked_order' => $brief->order()->first(['id', 'order_number', 'status', 'payment_status']),
             ],
         ]);
     }
@@ -220,7 +187,7 @@ class ClientBriefController extends Controller
             $request->validate([
                 'status' => [
                     'sometimes',
-                    'in:draft,new,reviewed,needs_info,in_progress,proof_sent,approved,completed,cancelled',
+                    'in:draft,new,reviewed,needs_info,in_progress,proof_sent,revision,completed,cancelled',
                 ],
 
                 'is_active' => [
@@ -235,6 +202,10 @@ class ClientBriefController extends Controller
                 ],
             ]);
 
+        if (($validated['status'] ?? null) === 'completed' && $brief->status !== 'approved') {
+            return response()->json(['success' => false, 'message' => 'The customer must approve the design before production completion.'], 422);
+        }
+
         $brief->update(
             $validated
         );
@@ -243,8 +214,37 @@ class ClientBriefController extends Controller
             'success' => true,
             'message' =>
                 'Client brief updated.',
-            'data' =>
-                $brief->fresh(),
+            'data' => $brief->fresh()->only([
+                'id','uuid','status','is_active','expires_at','submitted_at','updated_at',
+            ]),
         ]);
+    }
+
+    public function uploadDesign(Request $request, int $id): JsonResponse
+    {
+        $brief = ClientBrief::findOrFail($id);
+        $data = $request->validate([
+            'file' => ['required','file','max:51200','mimes:pdf,png,jpg,jpeg,webp,svg,ai,eps,psd,tif,tiff'],
+            'message' => ['nullable','string','max:5000'],
+        ]);
+        $file = $data['file'];
+        $extension = strtolower($file->getClientOriginalExtension());
+        $path = $file->storeAs('client-briefs/'.$brief->uuid, \Illuminate\Support\Str::uuid().($extension ? '.'.$extension : ''), 'public');
+        if (!$path) return response()->json(['success' => false, 'message' => 'Could not store design file.'], 500);
+        $brief->files()->create([
+            'file_type' => 'design', 'original_name' => $file->getClientOriginalName(),
+            'file_path' => $path, 'mime_type' => $file->getMimeType(), 'size_bytes' => $file->getSize(),
+        ]);
+        if (!empty($data['message'])) $brief->messages()->create(['author' => 'employee', 'message' => $data['message']]);
+        $brief->update(['status' => 'proof_sent']);
+        return response()->json(['success' => true, 'message' => 'Design uploaded for customer review.']);
+    }
+
+    public function message(Request $request, int $id): JsonResponse
+    {
+        $brief = ClientBrief::findOrFail($id);
+        $data = $request->validate(['message' => ['required','string','max:5000']]);
+        $brief->messages()->create(['author' => 'employee', 'message' => $data['message']]);
+        return response()->json(['success' => true]);
     }
 }

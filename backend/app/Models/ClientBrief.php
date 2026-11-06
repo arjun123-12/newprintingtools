@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class ClientBrief extends Model
 {
@@ -64,5 +65,15 @@ class ClientBrief extends Model
     public function files(): HasMany
     {
         return $this->hasMany(ClientBriefFile::class);
+    }
+
+    public function messages(): HasMany
+    {
+        return $this->hasMany(ClientBriefMessage::class);
+    }
+
+    public function order(): HasOne
+    {
+        return $this->hasOne(Order::class);
     }
 }

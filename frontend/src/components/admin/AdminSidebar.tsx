@@ -128,6 +128,16 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    label: 'Design Queries',
+    href: '/admin/design-queries',
+    permissionKey: 'design_queries',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 20h4l10.5-10.5a2.12 2.12 0 00-4-4L4 16v4zm9-13l4 4" />
+      </svg>
+    ),
+  },
+  {
     label: 'Customers',
     href: '/admin/customers',
     permissionKey: 'customers',

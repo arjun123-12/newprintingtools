@@ -5,6 +5,11 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\ClientBrief;
 use App\Models\ClientBriefFile;
+use App\Models\Artwork;
+use App\Models\ArtworkVersion;
+use App\Models\OrderActivity;
+use App\Models\Product;
+use App\Services\Order\ManualOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -41,28 +46,33 @@ class ClientBriefController extends Controller
             ], 410);
         }
 
+        $submitted = !is_null($brief->submitted_at);
         return response()->json([
             'success' => true,
 
             'data' => [
                 'uuid' => $brief->uuid,
 
-                'client_name' =>
-                    $brief->client_name,
-
-                'company_name' =>
-                    $brief->company_name,
-
-                'email' =>
-                    $brief->email,
-
                 'status' =>
                     $brief->status,
 
-                'submitted' =>
-                    !is_null(
-                        $brief->submitted_at
-                    ),
+                'submitted' => $submitted,
+                'product' => $submitted ? $brief->product : null,
+                'quantity' => $submitted ? $brief->quantity : null,
+                'width' => $submitted ? $brief->width : null,
+                'height' => $submitted ? $brief->height : null,
+                'unit' => $submitted ? $brief->unit : null,
+                'print_sides' => $submitted ? $brief->print_sides : null,
+                'colours' => $submitted ? $brief->colours : null,
+                'description' => $submitted ? $brief->description : null,
+                'additional_notes' => $submitted ? $brief->additional_notes : null,
+                'files' => $submitted ? $brief->files()->where('file_type', 'design')->get()->map(fn ($file) => [
+                    'id' => $file->id, 'name' => $file->original_name,
+                    'mime_type' => $file->mime_type, 'url' => $file->file_url,
+                ]) : [],
+                'messages' => $submitted ? $brief->messages()->orderBy('created_at')->get(['id', 'author', 'message', 'created_at']) : [],
+                'approved' => $brief->status === 'approved' || $brief->status === 'completed',
+                'order_created' => $brief->order()->exists(),
 
                 'expires_at' =>
                     $brief->expires_at
@@ -360,6 +370,7 @@ class ClientBriefController extends Controller
                 'status' => 'new',
 
                 'submitted_at' => now(),
+                'expires_at' => now()->addDays(90),
             ]);
 
             foreach (
@@ -481,5 +492,149 @@ class ClientBriefController extends Controller
                         : null,
             ], 500);
         }
+    }
+
+    public function message(Request $request, string $token): JsonResponse
+    {
+        $brief = $this->findSubmitted($token);
+        if ($brief instanceof JsonResponse) return $brief;
+        $data = $request->validate(['message' => ['required', 'string', 'max:5000']]);
+        $brief->messages()->create(['author' => 'customer', 'message' => $data['message']]);
+        if (in_array($brief->status, ['proof_sent', 'in_progress'], true)) $brief->update(['status' => 'revision']);
+        return response()->json(['success' => true]);
+    }
+
+    public function approve(string $token, ManualOrderService $manualOrderService): JsonResponse
+    {
+        $brief = $this->findSubmitted($token);
+        if ($brief instanceof JsonResponse) return $brief;
+        if (!$brief->files()->where('file_type', 'design')->exists()) return response()->json(['success' => false, 'message' => 'There is no design to approve yet.'], 422);
+
+        $order = $brief->order;
+        $designFiles = $brief->files()->where('file_type', 'design')->get();
+        if (!$order) {
+            $product = Product::query()
+                ->whereRaw('LOWER(name) = ?', [strtolower(trim((string) $brief->product))])
+                ->first()
+                ?? Product::query()->where('is_active', true)->where('name', 'like', '%custom%')->first()
+                ?? Product::query()->where('is_active', true)->first();
+
+            if (!$product) {
+                return response()->json(['success' => false, 'message' => 'No active product is available to create the order. Please contact the print team.'], 422);
+            }
+
+            $previewLinks = $designFiles->map(fn ($file) => $file->file_url)->implode("\n");
+            $specifications = trim(implode("\n", array_filter([
+                'Requested product: ' . $brief->product,
+                $brief->width && $brief->height ? "Size: {$brief->width} × {$brief->height} {$brief->unit}" : null,
+                'Print sides: ' . $brief->print_sides,
+                $brief->colours ? 'Colours: ' . $brief->colours : null,
+                $brief->description,
+                $brief->additional_notes,
+                'Customer approved design preview(s):' . "\n" . $previewLinks,
+            ])));
+
+            $order = $manualOrderService->createManualOrder(null, [
+                'client_brief_id' => $brief->id,
+                'customer_name' => $brief->client_name,
+                'customer_email' => $brief->email,
+                'customer_phone' => $brief->phone,
+                'company_name' => $brief->company_name,
+                'delivery_method' => $brief->fulfilment === 'pickup' ? 'Pickup' : 'Standard delivery (Free)',
+                'delivery_address' => $brief->delivery_address ?: 'To be confirmed',
+                'customer_notes' => 'Design request DQ-' . str_pad((string) $brief->id, 4, '0', STR_PAD_LEFT) . ' approved. Price is not set; confirm the quote before sending a payment link.',
+                'internal_notes' => 'Created from approved design query #' . $brief->id . '. Set the correct price before sending any payment request.',
+                'items' => [[
+                    'product_id' => $product->id,
+                    'product_name' => $brief->product ?: $product->name,
+                    'quantity' => max(1, (int) ($brief->quantity ?: 1)),
+                    'price' => 0,
+                    'specifications' => $specifications,
+                    'options' => ['specifications' => $specifications, 'approved_design_urls' => $designFiles->map(fn ($file) => $file->file_url)->values()->all()],
+                ]],
+            ]);
+
+        }
+
+        if (!$order->artworks()->exists()) {
+            $lineItem = $order->items()->firstOrFail();
+            $firstDesign = $designFiles->first();
+            $artwork = Artwork::create([
+                'user_id' => $order->user_id,
+                'product_id' => $lineItem->product_id,
+                'name' => 'Customer-approved design for ' . $order->order_number,
+                'source_type' => 'upload',
+                'file_name' => $firstDesign->original_name,
+                'file_size_bytes' => $firstDesign->size_bytes,
+                'mime_type' => $firstDesign->mime_type ?: 'application/octet-stream',
+                'storage_disk' => 'public',
+                'storage_path' => $firstDesign->file_path,
+                'public_url' => $firstDesign->file_url,
+                'thumbnail_url' => $firstDesign->file_url,
+                'proof_pdf_url' => $firstDesign->file_url,
+                'status' => 'customer_approved',
+                'proof_status' => 'ready',
+                'review_status' => 'approved',
+                'approved_by' => $order->user_id,
+                'approved_at' => now(),
+                'current_version' => 1,
+                'order_id' => $order->id,
+            ]);
+            $proofFiles = $designFiles->values()->map(fn ($file, $index) => [
+                'label' => $index === 0 ? 'Front' : 'Design ' . ($index + 1),
+                'file_name' => $file->original_name,
+                'storage_path' => $file->file_path,
+                'url' => $file->file_url,
+                'file_size_bytes' => $file->size_bytes,
+                'mime_type' => $file->mime_type,
+            ])->all();
+            ArtworkVersion::create([
+                'artwork_id' => $artwork->id,
+                'version_number' => 1,
+                'file_name' => $firstDesign->original_name,
+                'file_size_bytes' => $firstDesign->size_bytes,
+                'mime_type' => $firstDesign->mime_type ?: 'application/octet-stream',
+                'storage_disk' => 'public',
+                'storage_path' => $firstDesign->file_path,
+                'thumbnail_url' => $firstDesign->file_url,
+                'proof_pdf_url' => $firstDesign->file_url,
+                'proof_files' => $proofFiles,
+                'is_approved' => true,
+                'change_summary' => 'Customer-approved final design transferred from design query.',
+            ]);
+            $lineItem->update(['artwork_id' => $artwork->id]);
+            OrderActivity::record(
+                $order->id,
+                'proof_approved',
+                'Customer-approved design transferred from design query #' . $brief->id . '.',
+                'customer',
+                null,
+                ['client_brief_id' => $brief->id, 'approved_version' => 1]
+            );
+        }
+
+        $order->update([
+            'current_proof_version' => 1,
+            'approved_proof_version' => 1,
+            'proof_approved_at' => $order->proof_approved_at ?: now(),
+            'proof_approved_by' => $order->proof_approved_by ?: ($brief->client_name ?: 'Customer'),
+            'status' => 'pending_payment',
+        ]);
+        if (!$order->activeReviewLink) $manualOrderService->generateReviewLink($order, null);
+
+        $brief->update(['status' => 'approved']);
+        return response()->json([
+            'success' => true,
+            'message' => 'Design approved and a draft order is ready for pricing.',
+            'data' => ['order_id' => $order->id, 'order_number' => $order->order_number],
+        ]);
+    }
+
+    private function findSubmitted(string $token): ClientBrief|JsonResponse
+    {
+        $brief = ClientBrief::where('token', $token)->where('is_active', true)->first();
+        if (!$brief || ($brief->expires_at && $brief->expires_at->isPast())) return response()->json(['success' => false, 'message' => 'This design link is invalid or expired.'], 404);
+        if (!$brief->submitted_at) return response()->json(['success' => false, 'message' => 'Design request has not been submitted.'], 409);
+        return $brief;
     }
 }

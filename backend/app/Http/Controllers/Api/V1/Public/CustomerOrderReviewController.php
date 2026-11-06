@@ -720,6 +720,13 @@ class CustomerOrderReviewController extends Controller
 
         $order = Order::findOrFail($link->order_id);
 
+        if ((float) $order->total_inc_gst <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The team is finalizing your order price. Please use the payment link after the quote is ready.',
+            ], 422);
+        }
+
         if ($order->payment_status === PaymentStatus::PAID) {
             return response()->json([
                 'success' => false,

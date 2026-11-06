@@ -70,6 +70,13 @@ export const ADMIN_PERMISSIONS: AdminPermissionDef[] = [
     routePath: '/admin/artwork',
   },
   {
+    key: 'design_queries',
+    name: 'Design Queries',
+    description: 'Create anonymized design requests and review customer feedback',
+    category: 'Design',
+    routePath: '/admin/design-queries',
+  },
+  {
     key: 'customers',
     name: 'Customers',
     description: 'Customer directory and ABN trade accounts',
@@ -201,6 +208,9 @@ export function getRequiredPermissionForPath(pathname: string): string | 'super_
   }
   if (pathname === '/admin/artwork' || pathname.startsWith('/admin/artwork/')) {
     return 'artwork';
+  }
+  if (pathname === '/admin/design-queries' || pathname.startsWith('/admin/design-queries/')) {
+    return 'design_queries';
   }
   if (pathname === '/admin/customers' || pathname.startsWith('/admin/customers/')) {
     return 'customers';

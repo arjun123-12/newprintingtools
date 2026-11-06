@@ -56,15 +56,6 @@ export default function ClientBriefsPage() {
     const [error, setError] =
         useState<string | null>(null);
 
-    const [clientName, setClientName] =
-        useState('');
-
-    const [companyName, setCompanyName] =
-        useState('');
-
-    const [email, setEmail] =
-        useState('');
-
     const [expiresInDays, setExpiresInDays] =
         useState('7');
 
@@ -202,18 +193,6 @@ export default function ClientBriefsPage() {
             const result =
                 await clientBriefService.createBrief(
                     {
-                        client_name:
-                            clientName.trim() ||
-                            undefined,
-
-                        company_name:
-                            companyName.trim() ||
-                            undefined,
-
-                        email:
-                            email.trim() ||
-                            undefined,
-
                         expires_in_days:
                             Number(
                                 expiresInDays
@@ -223,9 +202,6 @@ export default function ClientBriefsPage() {
 
             setCreatedBrief(result);
 
-            setClientName('');
-            setCompanyName('');
-            setEmail('');
             setExpiresInDays('7');
 
             await loadBriefs();
@@ -403,61 +379,6 @@ export default function ClientBriefsPage() {
                                 }
                                 className="mt-6 space-y-4"
                             >
-                                <Field label="Client name">
-                                    <input
-                                        value={
-                                            clientName
-                                        }
-                                        onChange={(e) =>
-                                            setClientName(
-                                                e.target
-                                                    .value
-                                            )
-                                        }
-                                        className={
-                                            inputClass
-                                        }
-                                        placeholder="Client name"
-                                    />
-                                </Field>
-
-                                <Field label="Company">
-                                    <input
-                                        value={
-                                            companyName
-                                        }
-                                        onChange={(e) =>
-                                            setCompanyName(
-                                                e.target
-                                                    .value
-                                            )
-                                        }
-                                        className={
-                                            inputClass
-                                        }
-                                        placeholder="Optional"
-                                    />
-                                </Field>
-
-                                <Field label="Email">
-                                    <input
-                                        type="email"
-                                        value={
-                                            email
-                                        }
-                                        onChange={(e) =>
-                                            setEmail(
-                                                e.target
-                                                    .value
-                                            )
-                                        }
-                                        className={
-                                            inputClass
-                                        }
-                                        placeholder="client@example.com"
-                                    />
-                                </Field>
-
                                 <Field label="Link expiry">
                                     <select
                                         value={
@@ -667,14 +588,11 @@ export default function ClientBriefsPage() {
 
                                                             <div>
                                                                 <p className="text-sm font-semibold">
-                                                                    {brief.client_name ||
-                                                                        'Unnamed Client'}
+                                                                    {brief.product || `Design Query #${brief.id}`}
                                                                 </p>
 
                                                                 <p className="text-xs text-slate-500">
-                                                                    {brief.company_name ||
-                                                                        brief.email ||
-                                                                        `Brief #${brief.id}`}
+                                                                    `Anonymous request · ${brief.request_type ?? 'design'}`
                                                                 </p>
                                                             </div>
                                                         </div>

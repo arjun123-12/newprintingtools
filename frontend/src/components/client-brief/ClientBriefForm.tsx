@@ -155,6 +155,9 @@ export default function ClientBriefForm({
 
     const [linkError, setLinkError] =
         useState<string | null>(null);
+    const [portal, setPortal] = useState<any>(null);
+    const [portalMessage, setPortalMessage] = useState('');
+    const [portalBusy, setPortalBusy] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -194,9 +197,7 @@ export default function ClientBriefForm({
                 const brief = result?.data;
 
                 if (brief?.submitted) {
-                    setLinkError(
-                        'This client brief has already been submitted.'
-                    );
+                    setPortal(brief);
                     return;
                 }
 
@@ -531,7 +532,9 @@ export default function ClientBriefForm({
                     ?.reference ??
                 null
             );
-
+            const portalResponse = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}`, { headers: { Accept: 'application/json' } });
+            const portalResult = await portalResponse.json().catch(() => null);
+            setPortal(portalResult?.data ?? null);
             setSuccess(true);
         } catch (submitError) {
             setError(
@@ -557,6 +560,34 @@ export default function ClientBriefForm({
                 </div>
             </main>
         );
+    }
+
+    if (portal) {
+        const sendMessage = async () => {
+            if (!portalMessage.trim()) return;
+            setPortalBusy(true);
+            try {
+                const sent = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}/messages`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: portalMessage.trim() }) });
+                const sentResult = await sent.json().catch(() => null);
+                if (!sent.ok) throw new Error(sentResult?.message ?? 'Could not send feedback.');
+                setPortalMessage('');
+                const response = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}`);
+                const result = await response.json(); setPortal(result.data);
+            } catch (e) { setError(e instanceof Error ? e.message : 'Could not send feedback.'); }
+            finally { setPortalBusy(false); }
+        };
+        const approveDesign = async () => {
+            setPortalBusy(true);
+            try {
+                const response = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}/approve`, { method: 'POST', headers: { Accept: 'application/json' } });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result?.message ?? 'Could not approve this design.');
+                const refreshed = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}`);
+                setPortal((await refreshed.json()).data);
+            } catch (e) { setError(e instanceof Error ? e.message : 'Could not approve this design.'); }
+            finally { setPortalBusy(false); }
+        };
+        return <main className="min-h-screen bg-[#f5f8f5] px-4 py-10 text-[#172e32]"><div className="mx-auto max-w-4xl space-y-5"><header className="rounded-2xl bg-white p-6 shadow-sm"><p className="text-xs font-bold uppercase tracking-widest text-[#154e45]">Design review</p><h1 className="mt-2 text-2xl font-bold">{portal.product || 'Your design request'}</h1><p className="mt-2 text-sm capitalize text-slate-600">Status: {String(portal.status).replaceAll('_', ' ')}</p>{portal.description && <p className="mt-4 whitespace-pre-wrap text-sm">{portal.description}</p>}</header><section className="rounded-2xl bg-white p-6 shadow-sm"><h2 className="font-bold">Design previews</h2><div className="mt-4 grid gap-4 sm:grid-cols-2">{(portal.files ?? []).map((file: any) => <div key={file.id} className="rounded-xl border p-3">{file.mime_type?.startsWith('image/') && <img src={file.url} alt={file.name} className="max-h-80 w-full rounded-lg object-contain" />}<a href={file.url} target="_blank" rel="noreferrer" className="mt-2 block text-sm font-semibold text-emerald-800">{file.name} · View/download</a></div>)}</div>{!(portal.files ?? []).length && <p className="mt-3 text-sm text-slate-500">Your designer is preparing the first preview.</p>}</section><section className="rounded-2xl bg-white p-6 shadow-sm"><h2 className="font-bold">Messages and change requests</h2><div className="mt-4 space-y-3">{(portal.messages ?? []).map((m: any) => <div key={m.id} className={`rounded-xl p-3 text-sm ${m.author === 'customer' ? 'bg-emerald-50' : 'bg-slate-100'}`}><b>{m.author === 'customer' ? 'You' : 'Design team'}</b><p className="mt-1 whitespace-pre-wrap">{m.message}</p></div>)}</div><textarea value={portalMessage} onChange={e => setPortalMessage(e.target.value)} placeholder="Tell us what you would like changed" className="mt-4 min-h-24 w-full rounded-xl border p-3 text-sm"/><div className="mt-3 flex flex-wrap gap-2"><button disabled={portalBusy || !portalMessage.trim()} onClick={() => void sendMessage()} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white">Send feedback</button>{(portal.files ?? []).length > 0 && !portal.approved && <button disabled={portalBusy} onClick={() => void approveDesign()} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white">Approve final design</button>}{portal.approved && <span className="self-center text-sm font-bold text-emerald-700">Design approved. Our team will confirm the order price and send your payment link.</span>}</div>{error && <p className="mt-3 text-sm text-red-600">{error}</p>}</section></div></main>;
     }
 
     if (linkError) {

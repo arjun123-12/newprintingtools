@@ -61,6 +61,11 @@ class User extends Authenticatable
             'description' => 'Review preflight queues and customer artwork files',
             'category' => 'Design',
         ],
+        'design_queries' => [
+            'name' => 'Design Queries',
+            'description' => 'Create anonymized design requests and review customer feedback',
+            'category' => 'Design',
+        ],
         'customers' => [
             'name' => 'Customers',
             'description' => 'View registered customers and business accounts',

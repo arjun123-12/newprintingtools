@@ -148,7 +148,7 @@ class ManualOrderService
     /**
      * Create a new manual order as a draft.
      */
-    public function createManualOrder(User $staffUser, array $data): Order
+    public function createManualOrder(?User $staffUser, array $data): Order
     {
         // 1. Resolve customer
         $customer = $this->resolveCustomer($data);
@@ -163,6 +163,7 @@ class ManualOrderService
         return DB::transaction(function () use ($staffUser, $customer, $calculated, $orderNumber, $data) {
             $order = Order::create([
                 'order_number' => $orderNumber,
+                'client_brief_id' => $data['client_brief_id'] ?? null,
                 'user_id' => $customer->id,
                 'status' => OrderStatus::DRAFT,
                 'payment_status' => PaymentStatus::UNPAID,
@@ -235,8 +236,8 @@ class ManualOrderService
             OrderActivity::record(
                 $order->id,
                 'draft_created',
-                'Draft created by ' . ($staffUser->name ?: 'Staff'),
-                'staff',
+                'Draft created by ' . ($staffUser?->name ?: 'System'),
+                $staffUser ? 'staff' : 'system',
                 $staffUser
             );
 
@@ -695,6 +696,11 @@ class ManualOrderService
 
 
         $type = $order->status === OrderStatus::PENDING_PAYMENT || $order->status === OrderStatus::APPROVED ? 'payment' : 'approval';
+        if ($type === 'payment' && (float) $order->total_inc_gst <= 0) {
+            throw ValidationException::withMessages([
+                'payment' => ['Set a price greater than zero before sending a payment link.'],
+            ]);
+        }
         $sent = $this->notificationService->sendProofReminder($order, $reviewUrl, $customerEmail, $type);
 
         $order->update([

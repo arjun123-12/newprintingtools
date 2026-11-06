@@ -39,16 +39,12 @@ interface BriefFile {
     mime_type?: string | null;
     size_bytes?: number;
     url?: string | null;
+    file_type?: string;
 }
 
 interface ClientBriefDetail {
     id: number;
     uuid: string;
-
-    client_name?: string | null;
-    company_name?: string | null;
-    email?: string | null;
-    phone?: string | null;
 
     request_type?: string | null;
     reorder_reference?: string | null;
@@ -82,6 +78,7 @@ interface ClientBriefDetail {
     updated_at?: string | null;
 
     files?: BriefFile[];
+    messages?: { id: number; author: string; message: string; created_at: string }[];
 }
 
 const STATUS_OPTIONS = [
@@ -110,8 +107,8 @@ const STATUS_OPTIONS = [
         label: 'Proof Sent',
     },
     {
-        value: 'approved',
-        label: 'Approved',
+        value: 'revision',
+        label: 'Revision Requested',
     },
     {
         value: 'completed',
@@ -155,6 +152,8 @@ export default function ClientBriefDetailPage() {
         useState<string | null>(
             null
         );
+    const [designFile, setDesignFile] = useState<File | null>(null);
+    const [employeeMessage, setEmployeeMessage] = useState('');
 
     // =========================================
     // VERIFY CLIENT BRIEF ADMIN SESSION
@@ -413,6 +412,29 @@ export default function ClientBriefDetailPage() {
             }
         };
 
+    const uploadDesign = async () => {
+        if (!brief || !designFile) return;
+        try {
+            setUpdating(true); setError(null);
+            await clientBriefService.uploadDesign(brief.id, designFile, employeeMessage || undefined);
+            setDesignFile(null); setEmployeeMessage('');
+            await loadBrief();
+        } catch (uploadError: any) {
+            setError(uploadError?.response?.data?.message ?? 'Could not upload design.');
+        } finally { setUpdating(false); }
+    };
+
+    const sendEmployeeMessage = async () => {
+        if (!brief || !employeeMessage.trim()) return;
+        try {
+            setUpdating(true); setError(null);
+            await clientBriefService.sendEmployeeMessage(brief.id, employeeMessage.trim());
+            setEmployeeMessage(''); await loadBrief();
+        } catch (messageError: any) {
+            setError(messageError?.response?.data?.message ?? 'Could not send message.');
+        } finally { setUpdating(false); }
+    };
+
     if (
         checkingAuth ||
         loading
@@ -481,16 +503,11 @@ export default function ClientBriefDetailPage() {
                         </p>
 
                         <h1 className="mt-1 text-2xl font-bold text-slate-900">
-                            {brief.client_name ||
-                                `Brief #${brief.id}`}
+                            {brief.product || 'Design Query'}
                         </h1>
 
                         <p className="mt-1 text-sm text-slate-500">
-                            Brief #{brief.id}
-
-                            {brief.company_name
-                                ? ` · ${brief.company_name}`
-                                : ''}
+                            Design Query #{brief.id} · Customer details and pricing are hidden
                         </p>
                     </div>
 
@@ -595,58 +612,30 @@ export default function ClientBriefDetailPage() {
                     </div>
                 </section>
 
+                <section className="rounded-2xl border border-purple-200 bg-white p-6 shadow-sm">
+                    <h2 className="text-base font-bold text-slate-900">Design preview & customer conversation</h2>
+                    <div className="mt-4 space-y-3">
+                        {(brief.files ?? []).filter((file: any) => file.file_type === 'design').map(file => (
+                            <div key={file.id} className="rounded-xl border border-slate-200 p-3">
+                                {file.mime_type?.startsWith('image/') && file.url && <img src={file.url} alt={file.name} className="mb-3 max-h-96 rounded-lg object-contain" />}
+                                <a href={file.url ?? '#'} target="_blank" rel="noreferrer" className="text-sm font-semibold text-purple-700">{file.name} · Open preview/download</a>
+                            </div>
+                        ))}
+                        {(brief.messages ?? []).map(item => <div key={item.id} className={`max-w-3xl rounded-xl p-3 text-sm ${item.author === 'employee' ? 'ml-auto bg-purple-50' : 'bg-slate-100'}`}><b>{item.author === 'employee' ? 'Design team' : 'Customer'}</b><p className="mt-1 whitespace-pre-wrap">{item.message}</p><time className="mt-1 block text-xs text-slate-500">{formatDateTime(item.created_at)}</time></div>)}
+                    </div>
+                    <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
+                        <textarea value={employeeMessage} onChange={e => setEmployeeMessage(e.target.value)} placeholder="Write a note or attach it to this design upload" className="min-h-20 rounded-xl border border-slate-200 p-3 text-sm" />
+                        <div className="flex flex-col gap-2">
+                            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.svg,.ai,.eps,.psd,.tif,.tiff" onChange={e => setDesignFile(e.target.files?.[0] ?? null)} className="max-w-xs text-xs" />
+                            {designFile && <button disabled={updating} onClick={() => void uploadDesign()} className="rounded-xl bg-purple-700 px-4 py-2 text-xs font-bold text-white">Upload & send design</button>}
+                            {!designFile && <button disabled={updating || !employeeMessage.trim()} onClick={() => void sendEmployeeMessage()} className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white">Send message</button>}
+                        </div>
+                    </div>
+                </section>
+
                 <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.8fr)_320px]">
 
                     <div className="space-y-6">
-
-                        {/* CLIENT DETAILS */}
-
-                        <Section title="Client Details">
-
-                            <div className="grid gap-5 sm:grid-cols-2">
-
-                                <Info
-                                    icon={
-                                        UserRound
-                                    }
-                                    label="Client name"
-                                    value={
-                                        brief.client_name
-                                    }
-                                />
-
-                                <Info
-                                    icon={
-                                        Package
-                                    }
-                                    label="Company"
-                                    value={
-                                        brief.company_name
-                                    }
-                                />
-
-                                <Info
-                                    icon={
-                                        Mail
-                                    }
-                                    label="Email"
-                                    value={
-                                        brief.email
-                                    }
-                                />
-
-                                <Info
-                                    icon={
-                                        Phone
-                                    }
-                                    label="Phone"
-                                    value={
-                                        brief.phone
-                                    }
-                                />
-
-                            </div>
-                        </Section>
 
                         {/* PROJECT */}
 

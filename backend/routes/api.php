@@ -107,6 +107,8 @@ Route::prefix('client-brief')
         ])
             ->where('token', '[A-Za-z0-9]+')
             ->middleware('throttle:20,1');
+        Route::post('/{token}/messages', [ClientBriefController::class, 'message'])->where('token', '[A-Za-z0-9]+')->middleware('throttle:20,1');
+        Route::post('/{token}/approve', [ClientBriefController::class, 'approve'])->where('token', '[A-Za-z0-9]+')->middleware('throttle:10,1');
     });
 
 // Customer Proof Review & Approval Portal (unguessable token link)
@@ -482,6 +484,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
 Route::middleware(['auth:sanctum', 'admin.access'])
     ->prefix('admin')
     ->group(function () {
+
+        Route::middleware('permission:design_queries')->prefix('design-queries')->group(function () {
+            Route::get('/', [AdminClientBriefController::class, 'index']);
+            Route::post('/', [AdminClientBriefController::class, 'store']);
+            Route::get('/{id}', [AdminClientBriefController::class, 'show'])->whereNumber('id');
+            Route::patch('/{id}', [AdminClientBriefController::class, 'update'])->whereNumber('id');
+            Route::post('/{id}/design', [AdminClientBriefController::class, 'uploadDesign'])->whereNumber('id');
+            Route::post('/{id}/messages', [AdminClientBriefController::class, 'message'])->whereNumber('id');
+        });
 
         Route::middleware('permission:pricing')->prefix('offers')->group(function () {
             Route::get('/', [App\Http\Controllers\Api\V1\Admin\OfferController::class, 'index']);
@@ -1040,4 +1051,6 @@ Route::middleware([
             AdminClientBriefController::class,
             'update',
         ])->whereNumber('id');
+        Route::post('/{id}/design', [AdminClientBriefController::class, 'uploadDesign'])->whereNumber('id');
+        Route::post('/{id}/messages', [AdminClientBriefController::class, 'message'])->whereNumber('id');
     });

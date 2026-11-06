@@ -17,6 +17,8 @@ export interface ClientBrief {
     submitted_at?: string | null;
 
     files_count?: number;
+    product?: string | null;
+    request_type?: string | null;
 
     created_at?: string;
     updated_at?: string;
@@ -101,6 +103,17 @@ export const clientBriefService = {
             );
 
         return response.data.data;
+    },
+
+    async uploadDesign(id: number, file: File, message?: string) {
+        const data = new FormData();
+        data.append('file', file);
+        if (message) data.append('message', message);
+        return briefApiClient.post(`/admin/client-briefs/${id}/design`, data);
+    },
+
+    async sendEmployeeMessage(id: number, message: string) {
+        return briefApiClient.post(`/admin/client-briefs/${id}/messages`, { message });
     },
 
     // ==========================================
