@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import {
   customerService,
@@ -48,6 +50,8 @@ import CreateCustomerModal from '@/components/admin/customers/CreateCustomerModa
 import EditCustomerModal from '@/components/admin/customers/EditCustomerModal';
 
 export default function AdminCustomersPage() {
+  const queryClient = useQueryClient();
+  const { user, isLoading: authLoading } = useAuth();
   const [customers, setCustomers] = useState<CustomerItem[]>([]);
   const [stats, setStats] = useState<CustomerStats | null>(null);
   const [guestArtworks, setGuestArtworks] = useState<ArtworkDetail[]>([]);
@@ -94,21 +98,22 @@ export default function AdminCustomersPage() {
       setError(null);
 
       const [resCustomers, resGuests] = await Promise.all([
-        customerService.getCustomers(),
-        customerService.getGuestArtworks(),
+        queryClient.fetchQuery({
+          queryKey: ['admin-customers', user?.id],
+          queryFn: () => customerService.getCustomers({ summary: true, include_artworks: true }),
+          staleTime: isManualRefresh ? 0 : 30 * 1000,
+        }),
+        queryClient.fetchQuery({
+          queryKey: ['admin-guest-artworks', user?.id],
+          queryFn: () => customerService.getGuestArtworks(),
+          staleTime: isManualRefresh ? 0 : 30 * 1000,
+        }),
       ]);
 
       if (resCustomers && resCustomers.success) {
         setCustomers(resCustomers.data || []);
         setStats(resCustomers.stats || null);
-
-        // Auto-expand customers with artworks on initial load if few
-        if (!isManualRefresh) {
-          const withArts = resCustomers.data
-            .filter((c) => c.artworks && c.artworks.length > 0)
-            .map((c) => c.id);
-          setExpandedCustomerIds(new Set(withArts));
-        }
+        if (!isManualRefresh) setExpandedCustomerIds(new Set());
       } else {
         setError('Unexpected response format from the server.');
       }
@@ -130,20 +135,46 @@ export default function AdminCustomersPage() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (!authLoading && user?.id) void loadData();
+  }, [authLoading, user?.id]);
 
   // Toggle expand / collapse customer artwork panel
   const toggleExpandCustomer = (customerId: number) => {
+    const isCurrentlyExpanded = expandedCustomerIds.has(customerId);
     setExpandedCustomerIds((prev) => {
       const next = new Set(prev);
-      if (next.has(customerId)) {
+      if (isCurrentlyExpanded) {
         next.delete(customerId);
       } else {
         next.add(customerId);
       }
       return next;
     });
+
+    if (!isCurrentlyExpanded) {
+      void queryClient.fetchQuery({
+        queryKey: ['admin-customer-detail', user?.id, customerId],
+        queryFn: () => customerService.getCustomerById(customerId),
+        staleTime: 30 * 1000,
+      }).then((detail) => {
+        setCustomers((prev) => prev.map((customer) => customer.id === customerId ? detail : customer));
+      }).catch((err) => console.warn('Could not load customer artwork details:', err));
+    }
+  };
+
+  const openCustomerProfile = async (customer: CustomerItem) => {
+    setActiveCustomerDetail(customer);
+    try {
+      const detail = await queryClient.fetchQuery({
+        queryKey: ['admin-customer-detail', user?.id, customer.id],
+        queryFn: () => customerService.getCustomerById(customer.id),
+        staleTime: 30 * 1000,
+      });
+      setActiveCustomerDetail(detail);
+      setCustomers((prev) => prev.map((item) => item.id === customer.id ? detail : item));
+    } catch (err) {
+      console.warn('Could not load customer profile details:', err);
+    }
   };
 
   const expandAll = () => {
@@ -161,7 +192,7 @@ export default function AdminCustomersPage() {
 
     // Filter by Tab
     if (activeTab === 'with_artworks') {
-      result = result.filter((c) => c.artworks && c.artworks.length > 0);
+      result = result.filter((c) => (c.artworks_count || c.artworks?.length || 0) > 0);
     } else if (activeTab === 'trade') {
       result = result.filter(
         (c) => (c.company_name && c.company_name.trim() !== '') || (c.abn && c.abn.trim() !== '')
@@ -716,7 +747,8 @@ export default function AdminCustomersPage() {
             {paginatedCustomers.map((customer) => {
               const isExpanded = expandedCustomerIds.has(customer.id);
               const artworkList = customer.artworks || [];
-              const hasArtworks = artworkList.length > 0;
+              const artworkCount = customer.artworks_count ?? artworkList.length;
+              const hasArtworks = artworkCount > 0;
 
               return (
                 <div
@@ -809,7 +841,7 @@ export default function AdminCustomersPage() {
                         title={hasArtworks ? 'Toggle artworks view' : 'No artworks yet'}
                       >
                         <Palette className="w-3.5 h-3.5" />
-                        <span>{artworkList.length} Artwork{artworkList.length !== 1 ? 's' : ''}</span>
+                        <span>{artworkCount} Artwork{artworkCount !== 1 ? 's' : ''}</span>
                         {isExpanded ? (
                           <ChevronUp className="w-3.5 h-3.5 ml-0.5 text-slate-400" />
                         ) : (
@@ -828,7 +860,7 @@ export default function AdminCustomersPage() {
                       {/* Details Drawer Button */}
                       <button
                         type="button"
-                        onClick={() => setActiveCustomerDetail(customer)}
+                        onClick={() => void openCustomerProfile(customer)}
                         className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition inline-flex items-center gap-1 cursor-pointer"
                         title="View customer profile details"
                       >
@@ -855,7 +887,7 @@ export default function AdminCustomersPage() {
                       <div className="flex items-center justify-between mb-3.5">
                         <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
                           <Palette className="w-3.5 h-3.5 text-sky-400" />
-                          Saved Artworks by {customer.name} ({artworkList.length})
+                          Saved Artworks by {customer.name} ({artworkList.length} shown of {artworkCount})
                         </h4>
 
                         {hasArtworks && (
@@ -1331,6 +1363,7 @@ function ArtworkCardItem({ artwork, onOpenLightbox }: ArtworkCardProps) {
             alt={artwork.name}
             className="w-full h-full object-contain p-2 transition-transform duration-200 group-hover:scale-105"
             loading="lazy"
+            decoding="async"
           />
         ) : (
           <div className="flex flex-col items-center justify-center text-slate-600 gap-1.5">

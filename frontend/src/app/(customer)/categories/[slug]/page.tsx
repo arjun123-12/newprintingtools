@@ -1,7 +1,8 @@
 'use client';
 
-import React, { use, useEffect, useState } from 'react';
+import React, { use } from 'react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import {
   Layers,
   Palette,
@@ -52,62 +53,33 @@ interface CategoryDetailPageProps {
 export default function CategoryDetailPage({ params }: CategoryDetailPageProps) {
   const { slug } = use(params);
 
-  const [category, setCategory] = useState<CategoryItem | null>(null);
-  const [products, setProducts] = useState<ProductItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!slug) return;
-
-    const fetchCategoryAndProducts = async () => {
-      setLoading(true);
-      setError(null);
-
-      try {
-        // 1. Fetch category info
-        try {
-          const catRes = await apiClient.get(`/categories/${slug}`);
-          if (catRes.data?.success && catRes.data?.data) {
-            setCategory(catRes.data.data);
-          }
-        } catch {
-          // If category endpoint fails or slug is custom, format title from slug
-          const formattedName = slug
-            .split('-')
-            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(' ');
-          setCategory({
-            id: slug,
-            name: formattedName,
-            slug: slug,
-            description: `Explore premium commercial print options for ${formattedName}.`,
-          });
-        }
-
-        // 2. Fetch products for this category
-        const prodRes = await apiClient.get(`/products?category=${slug}`);
-        if (prodRes.data?.success && Array.isArray(prodRes.data?.data)) {
-          // Also filter on client side in case backend returns all products
-          const matched = prodRes.data.data.filter((p: ProductItem) => {
-            const catSlug = p.category?.slug?.toLowerCase();
-            const catName = (p.category?.name || p.category_name || '').toLowerCase().replace(/\s+/g, '-');
-            const cleanSlug = slug.toLowerCase();
-            return catSlug === cleanSlug || catName.includes(cleanSlug) || cleanSlug.includes(catName);
-          });
-          setProducts(matched.length > 0 ? matched : prodRes.data.data);
-        } else {
-          setProducts([]);
-        }
-      } catch (err: any) {
-        setError('Could not load category products. Please try again.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void fetchCategoryAndProducts();
-  }, [slug]);
+  const { data, isLoading: loading, isError } = useQuery({
+    queryKey: ['public-category', slug],
+    queryFn: async () => {
+      const [catRes, prodRes] = await Promise.all([
+        apiClient.get(`/categories/${slug}`).catch(() => null),
+        apiClient.get('/products', { params: { category: slug, summary: 1 } }),
+      ]);
+      const formattedName = slug.split('-').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+      const category = catRes?.data?.success && catRes.data.data
+        ? catRes.data.data as CategoryItem
+        : { id: slug, name: formattedName, slug, description: `Explore premium commercial print options for ${formattedName}.` };
+      const allProducts: ProductItem[] = prodRes.data?.success && Array.isArray(prodRes.data.data) ? prodRes.data.data : [];
+      const matched = allProducts.filter((product) => {
+        const catSlug = product.category?.slug?.toLowerCase();
+        const catName = (product.category?.name || product.category_name || '').toLowerCase().replace(/\s+/g, '-');
+        const cleanSlug = slug.toLowerCase();
+        return catSlug === cleanSlug || catName.includes(cleanSlug) || cleanSlug.includes(catName);
+      });
+      return { category, products: matched.length > 0 ? matched : allProducts };
+    },
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+  const category = data?.category ?? null;
+  const products = data?.products ?? [];
+  const error = isError ? 'Could not load category products. Please try again.' : null;
 
   const categoryTitle =
     category?.name ||
@@ -246,6 +218,8 @@ export default function CategoryDetailPage({ params }: CategoryDetailPageProps) 
                         src={primaryImg}
                         alt={product.name}
                         className="max-h-full max-w-full object-contain drop-shadow-sm group-hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                        decoding="async"
                       />
                     ) : (
                       <div className="flex flex-col items-center gap-1.5 text-slate-400">

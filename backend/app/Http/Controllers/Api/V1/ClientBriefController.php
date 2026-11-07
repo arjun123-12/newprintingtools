@@ -20,6 +20,23 @@ use Throwable;
 
 class ClientBriefController extends Controller
 {
+    /** Create a short-lived secure brief link for a customer starting from the website. */
+    public function start(): JsonResponse
+    {
+        $brief = ClientBrief::create([
+            'uuid' => (string) Str::uuid(),
+            'token' => Str::random(48),
+            'status' => 'draft',
+            'is_active' => true,
+            'expires_at' => now()->addDays(7),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => ['token' => $brief->token],
+        ], 201);
+    }
+
     /**
      * Open private client brief.
      */

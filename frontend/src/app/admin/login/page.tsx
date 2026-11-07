@@ -185,53 +185,7 @@ export default function AdminLoginPage() {
             {loading ? 'Signing in…' : 'Sign In to Dashboard'}
           </Button>
 
-          <div className="pt-2">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/50 p-3 text-xs text-slate-300 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-200">Quick-Fill Credentials:</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail('admin');
-                    setPassword('password');
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-700 border border-slate-600 text-left transition"
-                >
-                  <div className="text-[10px] text-slate-400">Username / Password</div>
-                  <div className="text-xs font-bold text-amber-300">admin / password</div>
-                </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail('admin@admin.com');
-                    setPassword('password');
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-700 border border-slate-600 text-left transition"
-                >
-                  <div className="text-[10px] text-slate-400">Admin Email</div>
-                  <div className="text-xs font-bold text-emerald-400">admin@admin.com</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail('admin@printecommerce.com.au');
-                    setPassword('SecretAdmin2026!');
-                  }}
-                  className="col-span-2 px-2.5 py-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-700 border border-slate-600 text-left transition flex items-center justify-between"
-                >
-                  <div>
-                    <div className="text-[10px] text-slate-400">Super Admin</div>
-                    <div className="text-xs font-bold text-sky-300">admin@printecommerce.com.au</div>
-                  </div>
-                  <span className="text-[10px] font-mono text-slate-400">SecretAdmin2026!</span>
-                </button>
-              </div>
-            </div>
-          </div>
         </form>
       </div>
     </div>

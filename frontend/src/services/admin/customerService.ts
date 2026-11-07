@@ -141,6 +141,9 @@ export const customerService = {
     search?: string;
     role?: string;
     has_artworks?: string | boolean;
+    summary?: boolean;
+    include_addresses?: boolean;
+    include_artworks?: boolean;
   }): Promise<FetchCustomersResponse> {
     const response = await apiClient.get<FetchCustomersResponse>(API_ENDPOINTS.ADMIN_CUSTOMERS, {
       params,

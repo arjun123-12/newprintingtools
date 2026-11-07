@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import {
   DocumentSettings,
   SelectedObjectState,
@@ -19,7 +20,6 @@ import { DesignerProperties } from './DesignerProperties';
 import { DesignerBottomBar } from './DesignerBottomBar';
 import { designerService } from './services/designerService';
 import { manualOrderService } from '@/services/admin/manualOrderService';
-import { exportHighResolutionImage, exportVectorPdf } from './services/exportService';
 import {
   collectFabricObjectsRecursively,
   rasterizeHollowTextForExport,
@@ -35,14 +35,11 @@ import {
   injectVisibleTrimLineInSvg,
   injectVisibleFoldMarksInSvg,
 } from './utils/exportGeometry';
-import { exportLayeredPsd } from './services/psdExportService';
-import { preloadPopularFonts } from './utils/fonts';
 import { PreflightReport } from './utils/preflightCheck';
 import { FloatingDrawToolbar } from './toolbar/FloatingDrawToolbar';
 import { ArtworkPreviewModal } from './controls/ArtworkPreviewModal';
 import { CustomBannerSizeModal } from './controls/CustomBannerSizeModal';
 import { AddToCartModal } from './controls/AddToCartModal';
-import { DownloadExportModal } from './controls/DownloadExportModal';
 import { PageManagerTray, PageData } from './controls/PageManagerTray';
 import { renderCanvasJsonToThumbnail } from './utils/canvasThumbnail';
 import {
@@ -56,6 +53,11 @@ import {
   safeSessionStorage,
   cleanupLegacyArtworkStorage,
 } from '@/utils/storageHelper';
+
+const DownloadExportModal = dynamic(
+  () => import('./controls/DownloadExportModal').then((module) => module.DownloadExportModal),
+  { ssr: false }
+);
 
 const API_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -2378,6 +2380,7 @@ export default function Designer({
       manager.setGuidesVisible(wasGuidesVisible);
       canvas.requestRenderAll();
 
+      const { exportVectorPdf } = await import('./services/exportService');
       await exportVectorPdf(
         [svg],
         documentSettings,
@@ -2414,6 +2417,7 @@ export default function Designer({
   const handleExportPng = useCallback(async () => {
     if (!canvasManagerRef.current) return;
     try {
+      const { exportHighResolutionImage } = await import('./services/exportService');
       await exportHighResolutionImage(
         canvasManagerRef.current,
         documentSettings,
@@ -2429,6 +2433,7 @@ export default function Designer({
   const handleExportJpg = useCallback(async () => {
     if (!canvasManagerRef.current) return;
     try {
+      const { exportHighResolutionImage } = await import('./services/exportService');
       await exportHighResolutionImage(
         canvasManagerRef.current,
         documentSettings,
@@ -2444,6 +2449,7 @@ export default function Designer({
   const handleExportPsd = useCallback(async () => {
     if (!canvasManagerRef.current) return;
     try {
+      const { exportLayeredPsd } = await import('./services/psdExportService');
       await exportLayeredPsd(
         canvasManagerRef.current,
         documentSettings,
@@ -2534,11 +2540,6 @@ export default function Designer({
     },
     []
   );
-
-  // Preload popular typography in background
-  useEffect(() => {
-    preloadPopularFonts();
-  }, []);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -2917,7 +2918,7 @@ export default function Designer({
       />
 
       {/* AI Upscaling & Multi-Format Download Modal */}
-      <DownloadExportModal
+      {isExportModalOpen && <DownloadExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         canvasManager={canvasManager}
@@ -2926,7 +2927,7 @@ export default function Designer({
         pages={pages}
         activePageIndex={activePageIndex}
         designName={designName}
-      />
+      />}
     </div>
   );
 }

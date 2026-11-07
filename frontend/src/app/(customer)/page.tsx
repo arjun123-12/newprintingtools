@@ -28,6 +28,10 @@ import {
   Shirt,
   PartyPopper,
   Box,
+  WandSparkles,
+  MessageCircle,
+  Eye,
+  CheckCircle2,
 } from 'lucide-react';
 
 export default function CustomerHomePage() {
@@ -262,6 +266,14 @@ export default function CustomerHomePage() {
                   <span>Start Designing</span>
                   <ArrowRight className="w-4 h-4" />
                 </Link>
+                <Link
+                  href="/design-request"
+                  className="group inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 px-5 py-3.5 text-sm font-bold text-violet-800 shadow-sm transition-all hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-md"
+                >
+                  <WandSparkles className="h-4 w-4 text-violet-600" />
+                  <span>Need a custom design?</span>
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </Link>
               </div>
 
               {/* 4 Value Props */}
@@ -328,6 +340,8 @@ export default function CustomerHomePage() {
                         src="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
                         alt="Brochure Mockup"
                         className="w-full h-full object-cover"
+                        fetchPriority="high"
+                        decoding="async"
                       />
                     </div>
                     <span className="text-[9px] font-bold text-blue-600 uppercase tracking-wider">Professional</span>
@@ -377,6 +391,47 @@ export default function CustomerHomePage() {
         </div>
       </section>
 
+      <section className="border-b border-violet-100 bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-950 py-12 sm:py-16">
+        <div className="mx-auto grid max-w-7xl items-center gap-8 px-4 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8">
+          <div>
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-bold tracking-wide text-violet-100">
+              <Sparkles className="h-3.5 w-3.5" />
+              YOUR IDEA, BEAUTIFULLY PRINTED
+            </span>
+            <h2 className="mt-4 max-w-2xl text-3xl font-black tracking-tight text-white sm:text-4xl">
+              Have an idea? Let our design team bring it to life.
+            </h2>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-indigo-100/80 sm:text-base">
+              Tell us what you have in mind, share a reference, and review your design preview online before it goes to print.
+            </p>
+            <Link
+              href="/design-request"
+              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white px-5 py-3.5 text-sm font-extrabold text-indigo-950 shadow-lg shadow-black/20 transition-all hover:-translate-y-0.5 hover:bg-violet-50"
+            >
+              Start your design request <ArrowRight className="h-4 w-4" />
+            </Link>
+            <p className="mt-3 text-xs text-indigo-100/60">Share your brief now. We’ll email you when your preview is ready.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+            {[
+              { icon: MessageCircle, title: 'Tell us your idea', copy: 'Add your product details and reference images.' },
+              { icon: Eye, title: 'Review your preview', copy: 'See the design and request changes online.' },
+              { icon: CheckCircle2, title: 'Approve when ready', copy: 'Once approved, we’ll help you get it printed.' },
+            ].map(({ icon: Icon, title, copy }, index) => (
+              <div key={title} className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.07] p-4 backdrop-blur-sm">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-400/15 text-violet-200">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-white"><span className="mr-1.5 text-violet-300">0{index + 1}</span>{title}</p>
+                  <p className="mt-1 text-xs leading-5 text-indigo-100/65">{copy}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ─────────────────────────────────────────────────────────────
           3. POPULAR PRODUCTS SECTION
       ───────────────────────────────────────────────────────────── */}
@@ -410,6 +465,7 @@ export default function CustomerHomePage() {
                     alt={product.title}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     loading="lazy"
+                    decoding="async"
                   />
                 </Link>
 
@@ -679,6 +735,8 @@ export default function CustomerHomePage() {
                         src="https://images.unsplash.com/photo-1542744094-3a31f272c490?auto=format&fit=crop&w=200&q=80"
                         alt="Template 1"
                         className="w-full h-full object-cover"
+                        loading="lazy"
+                        decoding="async"
                       />
                     </div>
                     <div className="h-16 rounded bg-slate-100 border border-slate-200 overflow-hidden">
@@ -686,6 +744,8 @@ export default function CustomerHomePage() {
                         src="https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=200&q=80"
                         alt="Template 2"
                         className="w-full h-full object-cover"
+                        loading="lazy"
+                        decoding="async"
                       />
                     </div>
                   </div>
@@ -734,6 +794,7 @@ export default function CustomerHomePage() {
                     alt={ind.name}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     loading="lazy"
+                    decoding="async"
                   />
                 </div>
                 <div className="p-2.5">

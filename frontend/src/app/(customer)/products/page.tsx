@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import {
   Layers,
   Palette,
@@ -34,30 +35,23 @@ interface ProductItem {
 }
 
 export default function ProductsPage() {
-  const [products, setProducts] = useState<ProductItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchProducts = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await apiClient.get('/products');
-        if (response.data?.success && Array.isArray(response.data?.data)) {
-          setProducts(response.data.data);
-        } else {
-          setProducts([]);
-        }
-      } catch (err) {
-        setError('Could not load products. Please check connection and try again.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void fetchProducts();
-  }, []);
+  const {
+    data: products = [],
+    isLoading: loading,
+    isError,
+    refetch,
+  } = useQuery<ProductItem[]>({
+    queryKey: ['public-products'],
+    queryFn: async () => {
+      const response = await apiClient.get('/products', { params: { summary: 1 } });
+      return response.data?.success && Array.isArray(response.data?.data)
+        ? response.data.data
+        : [];
+    },
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
+  });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-12">
@@ -83,11 +77,11 @@ export default function ProductsPage() {
           <Loader2 className="w-8 h-8 animate-spin text-sky-600" />
           <p className="text-sm font-semibold">Loading print products...</p>
         </div>
-      ) : error ? (
+      ) : isError ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center text-rose-700 space-y-3">
-          <p className="font-semibold text-sm">{error}</p>
+          <p className="font-semibold text-sm">Could not load products. Please check connection and try again.</p>
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => void refetch()}
             className="px-4 py-2 bg-rose-600 text-white font-bold text-xs rounded-xl shadow-sm hover:bg-rose-700 transition"
           >
             Retry
@@ -116,6 +110,8 @@ export default function ProductsPage() {
                       src={primaryImg}
                       alt={product.name}
                       className="max-h-full max-w-full object-contain drop-shadow-sm group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy"
+                      decoding="async"
                     />
                   ) : (
                     <div className="flex flex-col items-center gap-1.5 text-slate-400">

@@ -96,6 +96,11 @@ Route::prefix('designer')->group(function () {
 Route::prefix('client-brief')
     ->middleware('throttle:60,1')
     ->group(function () {
+        Route::post('/start', [
+            ClientBriefController::class,
+            'start',
+        ])->middleware('throttle:5,1');
+
         Route::get('/{token}', [
             ClientBriefController::class,
             'show',

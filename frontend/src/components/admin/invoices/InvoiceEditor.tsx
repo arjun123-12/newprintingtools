@@ -120,7 +120,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({ invoiceId, initial
     const fetchData = async () => {
       try {
         const [custRes, prodRes] = await Promise.all([
-          customerService.getCustomers(),
+          customerService.getCustomers({ summary: true, include_addresses: true }),
           apiClient.get('/admin/products'),
         ]);
 

@@ -95,7 +95,10 @@ class ProductController extends Controller
     
     public function index(Request $request): JsonResponse
     {
-        $query = Product::with(['category', 'categories', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices']);
+        $relations = $request->boolean('summary')
+            ? ['category', 'categories', 'images', 'pricingMatrices']
+            : ['category', 'categories', 'images', 'sides.printAreas', 'attributes.values', 'pricingMatrices'];
+        $query = Product::with($relations);
 
         if ($request->filled('category')) {
             $cat = (string) $request->input('category');
@@ -114,10 +117,18 @@ class ProductController extends Controller
 
         $products = $query->get();
 
-        return response()->json([
+        $response = response()->json([
             'success' => true,
             'data' => ProductResource::collection($products),
         ]);
+
+        // The public catalog is the same for every visitor; keep it briefly in
+        // browser/CDN caches. Admin and archived catalog responses stay private.
+        if ($request->user() || $request->query('status') === 'archived' || $request->boolean('archived')) {
+            return $response->header('Cache-Control', 'private, no-store');
+        }
+
+        return $response->header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
     }
 
     public function show(string $id): JsonResponse

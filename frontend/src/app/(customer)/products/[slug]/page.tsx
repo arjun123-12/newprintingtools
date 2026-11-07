@@ -1,7 +1,8 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use } from 'react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import {
   Palette,
   ArrowLeft,
@@ -52,47 +53,27 @@ interface ProductDetailPageProps {
 export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   const { slug } = use(params);
 
-  const [product, setProduct] = useState<ProductDetail | null>(null);
-  const [templates, setTemplates] = useState<AdminTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!slug) return;
-
-    const fetchProductAndTemplates = async () => {
-      setLoading(true);
-      setError(null);
-
-      try {
-        // 1. Fetch product
-        const prodRes = await apiClient.get(`/products/${slug}`);
-        const prodData = prodRes.data?.data;
-        if (!prodData) {
-          throw new Error('Product not found.');
-        }
-        setProduct(prodData);
-
-        // 2. Fetch admin-created templates for this product
-        try {
-          const tmplRes = await apiClient.get(`/designer/templates/${prodData.id}`);
-          if (tmplRes.data?.success && Array.isArray(tmplRes.data?.data)) {
-            setTemplates(tmplRes.data.data);
-          } else {
-            setTemplates([]);
-          }
-        } catch {
-          setTemplates([]);
-        }
-      } catch (err: any) {
-        setError(err.response?.data?.message || err.message || 'Failed to load product details.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void fetchProductAndTemplates();
-  }, [slug]);
+  const { data, isLoading: loading, error: queryError } = useQuery({
+    queryKey: ['public-product', slug],
+    queryFn: async () => {
+      const prodRes = await apiClient.get(`/products/${encodeURIComponent(slug)}`);
+      const product = prodRes.data?.data as ProductDetail | undefined;
+      if (!product) throw new Error('Product not found.');
+      const templatesPromise = apiClient.get(`/designer/templates/${product.id}`)
+        .then((response) => response.data?.success && Array.isArray(response.data?.data) ? response.data.data as AdminTemplate[] : [])
+        .catch(() => [] as AdminTemplate[]);
+      const templates = await templatesPromise;
+      return { product, templates };
+    },
+    staleTime: 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+  const product = data?.product ?? null;
+  const templates = data?.templates ?? [];
+  const error = queryError
+    ? ((queryError as any).response?.data?.message || (queryError as Error).message || 'Failed to load product details.')
+    : null;
 
   if (loading) {
     return (
@@ -225,6 +206,8 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
                         src={template.thumbnail_url}
                         alt={template.name}
                         className="max-h-full max-w-full object-contain rounded-md shadow-xs group-hover:scale-105 transition-transform duration-200"
+                        loading="lazy"
+                        decoding="async"
                       />
                     ) : (
                       <div className="flex flex-col items-center gap-1.5 text-slate-400">

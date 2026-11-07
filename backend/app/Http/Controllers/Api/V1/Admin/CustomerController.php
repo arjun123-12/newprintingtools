@@ -21,10 +21,13 @@ class CustomerController extends Controller
         $search = trim((string) $request->query('search', ''));
         $hasArtworks = $request->query('has_artworks');
 
-        $query = User::query()
-            ->with([
+        $query = User::query()->withCount(['artworks', 'orders']);
+
+        if (!$request->boolean('summary')) {
+            $query->with([
                 'artworks' => function ($q) {
                     $q->with('product:id,name,slug')
+                      ->withCount('pages')
                       ->latest();
                 },
                 'artworks.pages',
@@ -32,8 +35,19 @@ class CustomerController extends Controller
                 'orders' => function ($q) {
                     $q->latest()->take(5);
                 },
-            ])
-            ->withCount(['artworks', 'orders']);
+            ]);
+        } else {
+            if ($request->boolean('include_artworks')) {
+                $query->with(['artworks' => function ($q) {
+                    $q->with('product:id,name,slug')
+                      ->limit(3)
+                      ->latest();
+                }]);
+            }
+            if ($request->boolean('include_addresses')) {
+                $query->with('addresses');
+            }
+        }
 
         // Role filter
         if ($roleFilter !== 'all') {
@@ -354,8 +368,10 @@ class CustomerController extends Controller
             'updated_at' => $user->updated_at?->toISOString(),
             'artworks_count' => $user->artworks_count ?? $user->artworks->count(),
             'orders_count' => $user->orders_count ?? $user->orders->count(),
-            'addresses' => $user->addresses,
-            'orders' => $user->orders,
+            // Full addresses, orders, and artwork pages are fetched only when
+            // the staff member opens a customer profile or artwork gallery.
+            'addresses' => $user->relationLoaded('addresses') ? $user->addresses : [],
+            'orders' => $user->relationLoaded('orders') ? $user->orders : [],
             'artworks' => $user->artworks->map(fn (Artwork $art) => $this->formatArtwork($art))->values(),
         ];
     }
@@ -389,7 +405,7 @@ class CustomerController extends Controller
             'safe_area' => $artwork->safe_area,
             'background_color' => $artwork->background_color,
             'document_settings' => $artwork->document_settings,
-            'pages_count' => $artwork->pages ? $artwork->pages->count() : 0,
+            'pages_count' => $artwork->pages_count ?? ($artwork->relationLoaded('pages') ? $artwork->pages->count() : 0),
             'created_at' => $artwork->created_at?->toISOString(),
             'updated_at' => $artwork->updated_at?->toISOString(),
         ];
