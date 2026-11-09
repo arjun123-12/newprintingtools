@@ -3,9 +3,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { manualOrderService, ManualOrderListItem } from '@/services/admin/manualOrderService';
-import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle, Trash2, Pencil, Copy, Clock } from 'lucide-react';
+import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle, Trash2, Pencil, Copy, Clock, Gift } from 'lucide-react';
 import TurnaroundCell from '@/components/admin/orders/TurnaroundCell';
 import TurnaroundModal from '@/components/admin/orders/TurnaroundModal';
+import { spinWinService } from '@/services/spinWinService';
 
 import {
   STATUS_STYLES,
@@ -45,6 +46,7 @@ export default function AdminOrdersPage() {
 
   // Modal state for editing turnaround time directly from the table
   const [editingTurnaroundOrder, setEditingTurnaroundOrder] = useState<ManualOrderListItem | null>(null);
+  const [sendingSpinOrderId, setSendingSpinOrderId] = useState<string | null>(null);
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -82,6 +84,20 @@ export default function AdminOrdersPage() {
       }
     } catch (err: any) {
       alert(err?.response?.data?.message || 'Failed to delete order from database.');
+    }
+  };
+
+  const handleSendSpinInvitation = async (order: ManualOrderListItem) => {
+    if (!confirm(`Send a Spin Wheel invitation to ${order.customer.email} for order ${order.order_number}? This works whether the order is paid or unpaid.`)) return;
+    setSendingSpinOrderId(order.id);
+    try {
+      const result = await spinWinService.sendAdminSpinInvitation({ order_ids: [order.id] });
+      if (!result?.success) throw new Error(result?.message || 'Could not send the Spin Wheel invitation.');
+      alert(result.message || `Spin Wheel invitation sent to ${order.customer.email}.`);
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err.message || 'Could not send the Spin Wheel invitation.');
+    } finally {
+      setSendingSpinOrderId(null);
     }
   };
 
@@ -260,6 +276,16 @@ export default function AdminOrdersPage() {
                     </td>
                     <td className="px-6 py-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleSendSpinInvitation(order)}
+                          disabled={sendingSpinOrderId === order.id || !order.customer.email}
+                          className="inline-flex items-center gap-1 rounded border border-fuchsia-500/20 bg-fuchsia-500/10 px-2 py-1 text-xs font-medium text-fuchsia-300 transition-colors hover:bg-fuchsia-500/20 disabled:opacity-50"
+                          title="Send Spin Wheel invitation regardless of payment status"
+                        >
+                          <Gift className="h-3 w-3" />
+                          <span>{sendingSpinOrderId === order.id ? 'Sending…' : 'Spin invite'}</span>
+                        </button>
                         <Link
                           href={`/admin/orders/${order.id}`}
                           className="inline-flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 font-medium transition-colors"

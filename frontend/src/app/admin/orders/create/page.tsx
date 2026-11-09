@@ -30,7 +30,9 @@ import {
   Clock,
   Timer,
   Calendar,
+  Gift,
 } from 'lucide-react';
+import { spinWinService } from '@/services/spinWinService';
 import {
   calculateTurnaroundDeadline,
   formatTurnaroundDate,
@@ -165,6 +167,7 @@ export default function CreateManualOrderPage() {
   const [customCompletionDate, setCustomCompletionDate] = useState<string>('');
   const [useExactCompletionDate, setUseExactCompletionDate] = useState<boolean>(false);
   const [startClockImmediately, setStartClockImmediately] = useState<boolean>(false);
+  const [sendSpinWheelInvitation, setSendSpinWheelInvitation] = useState(false);
 
   // Products List
   const [items, setItems] = useState<ManualOrderItemPayload[]>([]);
@@ -956,6 +959,18 @@ export default function CreateManualOrderPage() {
     })));
   };
 
+  const sendSpinInvitationForOrder = async (orderId: string) => {
+    if (!sendSpinWheelInvitation) return null;
+    try {
+      const result = await spinWinService.sendAdminSpinInvitation({ order_ids: [orderId] });
+      if (!result?.success) return result?.message || 'Order saved, but the Spin Wheel invitation could not be sent.';
+      setSendSpinWheelInvitation(false);
+      return null;
+    } catch (err: any) {
+      return err?.response?.data?.message || 'Order saved, but the Spin Wheel invitation could not be sent.';
+    }
+  };
+
   // Save manual order draft
   const handleSaveDraft = async () => {
     if (!customerEmail.trim()) {
@@ -1013,7 +1028,9 @@ export default function CreateManualOrderPage() {
           await uploadArtworkFilesForItems(newOrderId, res.data.items);
           syncSavedOrderLineIds(res.data.items);
 
-          setSuccessMsg(`Draft order ${res.data.order_number} created and saved in database.`);
+          const invitationError = await sendSpinInvitationForOrder(newOrderId);
+          setSuccessMsg(`Draft order ${res.data.order_number} created and saved in database.${sendSpinWheelInvitation && !invitationError ? ' Spin Wheel invitation sent.' : ''}`);
+          if (invitationError) setError(invitationError);
         }
       }
     } catch (err: any) {
@@ -1080,11 +1097,13 @@ export default function CreateManualOrderPage() {
 
       if (orderId) {
         await manualOrderService.sendForApproval(orderId);
+        const invitationError = await sendSpinInvitationForOrder(orderId);
         setSuccessMsg(
-          currentOrderId
+          `${currentOrderId
             ? `Order ${orderNum || ''} updated and sent to customer!`
-            : `Order ${orderNum || ''} sent for customer approval!`
+            : `Order ${orderNum || ''} sent for customer approval!`}${sendSpinWheelInvitation && !invitationError ? ' Spin Wheel invitation sent.' : ''}`
         );
+        if (invitationError) setError(invitationError);
         setTimeout(() => router.push(`/admin/orders/${orderId}`), 800);
       }
     } catch (err: any) {
@@ -1886,6 +1905,22 @@ export default function CreateManualOrderPage() {
                 </span>
               </div>
             </div>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-fuchsia-500/25 bg-fuchsia-500/5 p-3 transition-colors hover:bg-fuchsia-500/10">
+              <input
+                type="checkbox"
+                checked={sendSpinWheelInvitation}
+                onChange={(event) => setSendSpinWheelInvitation(event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-800 accent-fuchsia-500"
+              />
+              <span className="flex gap-2">
+                <Gift className="mt-0.5 h-4 w-4 shrink-0 text-fuchsia-400" />
+                <span>
+                  <span className="block text-xs font-semibold text-fuchsia-100">Send Spin Wheel invitation</span>
+                  <span className="mt-1 block text-[10px] leading-relaxed text-slate-400">Email the customer a personal wheel link when this order is saved or sent for approval.</span>
+                </span>
+              </span>
+            </label>
           </div>
 
           {/* Activity Timeline */}

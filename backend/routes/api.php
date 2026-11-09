@@ -479,6 +479,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::prefix('rewards')->group(function () {
         Route::get('/my-rewards', [\App\Http\Controllers\Api\V1\Rewards\SpinRewardController::class, 'customerRewards']);
+        Route::post('/claim-spin-reward', [\App\Http\Controllers\Api\V1\Rewards\SpinRewardController::class, 'claimReward']);
     });
 });
 

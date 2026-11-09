@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Sparkles, Trophy, Check, Copy, X, ArrowRight, RotateCcw } from 'lucide-react';
+import Link from 'next/link';
+import { Sparkles, Trophy, Check, Copy, X, ArrowRight, RotateCcw, Lock, Loader2, BadgeCheck } from 'lucide-react';
 import { spinWinService, WonPrize } from '@/services/spinWinService';
+import { useAuth } from '@/context/AuthContext';
 
 export interface SpinSegment {
   label: string;
@@ -66,6 +68,7 @@ export default function SpinWheel({
   isPreview = false,
   canSpin = true,
 }: SpinWheelProps) {
+  const { user, isAuthenticated, login, logout } = useAuth();
   const [fetchedSegments, setFetchedSegments] = useState<SpinSegment[] | null>(null);
   // Normalize segments
   const segments = useMemo(() => {
@@ -87,8 +90,15 @@ export default function SpinWheel({
     code: string;
     subtitle?: string;
     expiresAt?: string;
+    claimToken?: string;
+    rewardType?: WonPrize['reward_type'];
+    value?: number;
   } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [claimEmail, setClaimEmail] = useState('');
+  const [claimPassword, setClaimPassword] = useState('');
+  const [claimStatus, setClaimStatus] = useState<'idle' | 'claiming' | 'claimed' | 'error'>('idle');
+  const [claimError, setClaimError] = useState<string | null>(null);
   const [isTicking, setIsTicking] = useState(false);
   const [confettiList, setConfettiList] = useState<ConfettiParticle[]>([]);
   const [serverSpinToken, setServerSpinToken] = useState<string | null>(token || null);
@@ -96,6 +106,13 @@ export default function SpinWheel({
   const [eligibilityState, setEligibilityState] = useState<'loading' | 'ready' | 'unavailable'>(
     token || orderNumber || reviewToken ? 'loading' : isPreview ? 'ready' : 'unavailable'
   );
+
+  const rewardReturnParams = new URLSearchParams();
+  if (token) rewardReturnParams.set('token', token);
+  if (orderNumber) rewardReturnParams.set('order', orderNumber);
+  if (reviewToken) rewardReturnParams.set('review_token', reviewToken);
+  const rewardReturnUrl = `/rewards/spin?${rewardReturnParams.toString()}`;
+  const registerUrl = `/register?redirect=${encodeURIComponent(rewardReturnUrl)}`;
 
   // Sparkles in the background (8 randomized twinkling points)
   const sparkles = useMemo(() => {
@@ -153,6 +170,9 @@ export default function SpinWheel({
             code: data.prize.reward_code,
             subtitle: data.prize.badge_text || 'Your saved reward voucher',
             expiresAt: data.prize.expires_at,
+            claimToken: data.prize.claim_token || undefined,
+            rewardType: data.prize.reward_type,
+            value: data.prize.value,
           });
           const segIdx = data.prize.segment_index ?? 0;
           setWinningIndex(segIdx);
@@ -168,6 +188,25 @@ export default function SpinWheel({
     };
     void fetchEligibility();
   }, [token, orderNumber, reviewToken, isPreview, sliceAngle]);
+
+  const claimWonReward = useCallback(async () => {
+    if (!wonPrize?.claimToken) return;
+    setClaimStatus('claiming');
+    setClaimError(null);
+    try {
+      await spinWinService.claimReward(wonPrize.claimToken);
+      setClaimStatus('claimed');
+    } catch (err: any) {
+      setClaimError(err.response?.data?.message || 'Could not add this reward to your account. Sign in with the email that received the invitation.');
+      setClaimStatus('error');
+    }
+  }, [wonPrize?.claimToken]);
+
+  useEffect(() => {
+    if (isAuthenticated && wonPrize?.claimToken && claimStatus === 'idle') {
+      void claimWonReward();
+    }
+  }, [isAuthenticated, user?.id, wonPrize?.claimToken, claimStatus, claimWonReward]);
 
   // Pointer tick sound / visual effect
   const tickRef = useRef<number | null>(null);
@@ -188,7 +227,7 @@ export default function SpinWheel({
     setShowResultModal(false);
 
     let targetIndex = Math.floor(Math.random() * totalSlices);
-    let resolvedPrize: { title: string; code: string; subtitle?: string; expiresAt?: string } | null = null;
+    let resolvedPrize: { title: string; code: string; subtitle?: string; expiresAt?: string; claimToken?: string; rewardType?: WonPrize['reward_type']; value?: number } | null = null;
 
     // Check if we have server credentials to execute a verified spin
     const activeToken = serverSpinToken || token;
@@ -207,6 +246,9 @@ export default function SpinWheel({
             code: serverPrize.reward_code,
             subtitle: serverPrize.badge_text || 'Reward Voucher',
             expiresAt: serverPrize.expires_at,
+            claimToken: serverPrize.claim_token || undefined,
+            rewardType: serverPrize.reward_type,
+            value: serverPrize.value,
           };
         }
       } catch (err: any) {
@@ -223,9 +265,12 @@ export default function SpinWheel({
         title: seg.label,
         code: seg.code || randomCode,
         subtitle: seg.sub || 'Exclusive reward voucher',
+        claimToken: undefined,
       };
     }
 
+    setClaimStatus('idle');
+    setClaimError(null);
     setIsSpinning(true);
     setWinningIndex(null);
 
@@ -667,6 +712,52 @@ export default function SpinWheel({
                 </p>
               )}
             </div>
+
+            {wonPrize.claimToken && (
+              <div className="rounded-2xl border border-emerald-400/25 bg-emerald-400/5 p-3 text-left">
+                {claimStatus === 'claimed' ? (
+                  <div className="flex items-start gap-2 text-emerald-200">
+                    <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold">Reward added to your account</p>
+                      <p className="mt-1 text-[10px] text-slate-300">
+                        {wonPrize.rewardType === 'print_credit' ? `AUD $${Number(wonPrize.value || 0).toFixed(2)} is now in your Print Bank.` : 'You can find this reward in My Print Bank.'}
+                      </p>
+                      <Link href="/account" className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300 hover:text-emerald-100">View My Print Bank <ArrowRight className="h-3 w-3" /></Link>
+                    </div>
+                  </div>
+                ) : isAuthenticated ? (
+                  <div>
+                    <p className="text-xs font-bold text-white">Save this reward to your account</p>
+                    <p className="mt-1 text-[10px] text-slate-300">Signed in as {user?.email}. Use the email that received this invitation.</p>
+                    {claimStatus === 'claiming' && <p className="mt-2 flex items-center gap-1.5 text-[10px] text-amber-200"><Loader2 className="h-3 w-3 animate-spin" /> Adding reward to your Print Bank…</p>}
+                    {claimError && <p role="alert" className="mt-2 text-[10px] text-rose-300">{claimError}</p>}
+                    {claimStatus === 'error' && <button type="button" onClick={() => void claimWonReward()} className="mt-2 text-[10px] font-bold text-amber-200 underline">Try again</button>}
+                    {claimStatus === 'error' && <button type="button" onClick={async () => { await logout(); setClaimStatus('idle'); setClaimError(null); }} className="ml-3 mt-2 text-[10px] font-bold text-sky-200 underline">Use another account</button>}
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-xs font-bold text-white">Log in to add this reward to your account</p>
+                    <p className="mt-1 text-[10px] text-slate-300">{wonPrize.rewardType === 'print_credit' ? `Your AUD $${Number(wonPrize.value || 0).toFixed(2)} print credit will appear in your Print Bank.` : 'Keep this reward in your account and use it on a future order.'}</p>
+                    <form className="mt-3 space-y-2" onSubmit={async (event) => {
+                      event.preventDefault();
+                      setClaimError(null);
+                      try {
+                        await login({ email: claimEmail.trim(), password: claimPassword });
+                      } catch (err: any) {
+                        setClaimError(err.response?.data?.message || err.message || 'Login failed. Check your email and password.');
+                      }
+                    }}>
+                      <input type="email" required autoComplete="email" value={claimEmail} onChange={(event) => setClaimEmail(event.target.value)} placeholder="Email used for this invitation" className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-white outline-none focus:border-amber-300" />
+                      <input type="password" required autoComplete="current-password" value={claimPassword} onChange={(event) => setClaimPassword(event.target.value)} placeholder="Password" className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-white outline-none focus:border-amber-300" />
+                      {claimError && <p role="alert" className="text-[10px] text-rose-300">{claimError}</p>}
+                      <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3 py-2.5 text-xs font-extrabold text-emerald-950 transition hover:bg-emerald-400"><Lock className="h-3.5 w-3.5" /> Log in &amp; save reward</button>
+                    </form>
+                    <p className="mt-2 text-center text-[10px] text-slate-400">New here? <Link href={registerUrl} className="font-bold text-amber-200 underline">Create an account</Link></p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Action Buttons */}
             <div className="mt-5 flex gap-2">

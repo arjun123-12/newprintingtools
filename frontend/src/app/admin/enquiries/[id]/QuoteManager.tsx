@@ -164,6 +164,13 @@ const FINISH_OPTIONS = [
 
 const createQuoteLineKey = () => `quote-line-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+const cleanSpecificationText = (value?: string) => {
+  if (!value?.trim()) return 'Standard Specifications';
+  const parts = value.split(/,\s*(?=[\w -]+:\s*)/);
+  const visibleParts = parts.filter((part) => !/^[\w -]+:\s*$/.test(part.trim()));
+  return visibleParts.join(' · ') || 'Standard Specifications';
+};
+
 export default function QuoteManager({
   enquiry,
   standalone = false,
@@ -1116,6 +1123,9 @@ export default function QuoteManager({
     setTimeout(() => setCopied(false), 2500);
   };
 
+  const productGst = Math.round(totals.subtotal_ex_gst * 0.1 * 100) / 100;
+  const productTotalIncGst = Math.round((totals.subtotal_ex_gst + productGst) * 100) / 100;
+
   return (
     <div className="space-y-6">
       {/* Feedback Messages */}
@@ -1194,9 +1204,9 @@ export default function QuoteManager({
 
       {/* Main Form Layout */}
       <div id="quote-editor-section">
-        <form onSubmit={(e) => { e.preventDefault(); handleSaveQuote(false); }} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <form onSubmit={(e) => { e.preventDefault(); handleSaveQuote(false); }} className="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1fr)_360px]">
         {/* Left 2 Columns: Customer Details, Products Table, Notes */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="min-w-0 space-y-6">
           {/* 1. Customer Details Section */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -1335,16 +1345,16 @@ export default function QuoteManager({
               </button>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+            <div className="overflow-x-auto rounded-lg">
+              <table className="w-full min-w-[780px] table-fixed text-xs">
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400 text-left">
-                    <th className="pb-2.5 font-medium">Product</th>
-                    <th className="pb-2.5 font-medium">Specifications & Options</th>
-                    <th className="pb-2.5 font-medium">Qty</th>
-                    <th className="pb-2.5 font-medium">Price (ex. GST)</th>
-                    <th className="pb-2.5 font-medium">Total</th>
-                    <th className="pb-2.5 text-right font-medium">Action</th>
+                    <th className="w-[23%] pb-2.5 pr-3 font-medium">Product</th>
+                    <th className="w-[39%] pb-2.5 pr-3 font-medium">Specifications & Options</th>
+                    <th className="w-[8%] pb-2.5 font-medium">Qty</th>
+                    <th className="w-[13%] pb-2.5 font-medium">Price (ex. GST)</th>
+                    <th className="w-[11%] pb-2.5 font-medium">Total</th>
+                    <th className="w-[6%] pb-2.5 text-right font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -1387,9 +1397,9 @@ export default function QuoteManager({
                             </div>
                           </div>
                         </td>
-                        <td className="py-3 text-slate-300 max-w-sm">
-                          <div className="text-xs leading-relaxed font-medium">
-                            {item.specifications || 'Standard Specifications'}
+                        <td className="py-3 pr-3 text-slate-300">
+                          <div className="break-words text-xs leading-relaxed font-medium">
+                            {cleanSpecificationText(item.specifications)}
                           </div>
                           {item.options?.notes && (
                             <div className="mt-1 text-[11px] text-sky-400/90 italic">
@@ -1483,40 +1493,25 @@ export default function QuoteManager({
         </div>
 
         {/* Right 1 Column: Totals Summary & Actions */}
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6 2xl:sticky 2xl:top-6 2xl:self-start">
           {/* Live Quote Summary Card */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-semibold text-white">Quote summary</h3>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                Live Pricing
-              </span>
+              <h3 className="text-sm font-semibold text-white">Quote actions</h3>
             </div>
 
-            <div className="space-y-2.5 text-xs">
+            <div className="space-y-2.5 rounded-xl border border-sky-500/15 bg-sky-500/5 p-4 text-xs">
               <div className="flex justify-between text-slate-400">
-                <span>Subtotal (ex. GST)</span>
-                <span className="text-slate-200 font-mono">
-                  ${totals.subtotal_ex_gst.toFixed(2)}
-                </span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Delivery fee</span>
-                <span className="text-slate-200 font-mono">
-                  ${totals.shipping_fee_inc_gst.toFixed(2)}
-                </span>
+                <span>Products subtotal (ex. GST)</span>
+                <span className="font-mono text-slate-200">${totals.subtotal_ex_gst.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-slate-400">
                 <span>GST (10%)</span>
-                <span className="text-slate-200 font-mono">
-                  ${totals.gst_amount.toFixed(2)}
-                </span>
+                <span className="font-mono text-slate-200">${productGst.toFixed(2)}</span>
               </div>
-              <div className="border-t border-slate-800 pt-3 flex justify-between items-center text-sm font-bold text-white">
-                <span>Total (AUD)</span>
-                <span className="text-base font-mono text-emerald-400">
-                  ${totals.total_inc_gst.toFixed(2)}
-                </span>
+              <div className="flex justify-between items-center border-t border-slate-800 pt-3 text-sm font-bold text-white">
+                <span>Product total (inc. GST)</span>
+                <span className="font-mono text-base text-emerald-400">${productTotalIncGst.toFixed(2)}</span>
               </div>
             </div>
 

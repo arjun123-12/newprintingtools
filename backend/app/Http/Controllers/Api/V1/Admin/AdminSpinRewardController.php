@@ -440,18 +440,14 @@ class AdminSpinRewardController extends Controller
     }
 
     /**
-     * Get customers with paid orders, registered customer accounts, and marketing contacts for sending spin invitations.
+     * Get order customers regardless of payment status, registered customer accounts, and marketing contacts.
      */
     public function getCampaignRecipients(): JsonResponse
     {
-        $paidOrders = Order::query()
-            ->where(function ($q) {
-                $q->where('payment_status', PaymentStatus::PAID)
-                  ->orWhere('payment_status', 'paid');
-            })
+        $orders = Order::query()
             ->with(['user:id,name,email,company_name', 'spinEntitlement:id,order_id,status,spun_at'])
             ->latest('created_at')
-            ->take(50)
+            ->take(100)
             ->get()
             ->map(function ($o) {
                 $shipping = is_array($o->shipping_address) ? $o->shipping_address : (json_decode($o->shipping_address ?? '[]', true) ?: []);
@@ -466,6 +462,7 @@ class AdminSpinRewardController extends Controller
                     'name' => $name,
                     'email' => $email,
                     'total' => $o->total_inc_gst ?? $o->total,
+                    'payment_status' => $o->payment_status instanceof PaymentStatus ? $o->payment_status->value : (string) $o->payment_status,
                     'has_spun' => $o->spinEntitlement?->status === 'spun',
                     'spun_at' => $o->spinEntitlement?->spun_at?->toIso8601String(),
                     'created_at' => $o->created_at->toIso8601String(),
@@ -492,7 +489,8 @@ class AdminSpinRewardController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'paid_orders' => $paidOrders,
+                'orders' => $orders,
+                'paid_orders' => $orders,
                 'customers' => $customers,
                 'contacts' => $contacts,
             ],
@@ -517,6 +515,7 @@ class AdminSpinRewardController extends Controller
             'order_ids' => ['nullable', 'array'],
             'contact_ids' => ['nullable', 'array'],
             'all_paid' => ['nullable', 'boolean'],
+            'all_orders' => ['nullable', 'boolean'],
             'subject' => ['nullable', 'string', 'max:180'],
             'headline' => ['nullable', 'string', 'max:180'],
             'message' => ['nullable', 'string', 'max:5000'],
@@ -540,6 +539,7 @@ class AdminSpinRewardController extends Controller
                 orderIds: $validated['order_ids'] ?? [],
                 contactIds: $validated['contact_ids'] ?? [],
                 allPaid: (bool) ($validated['all_paid'] ?? false),
+                allOrders: (bool) ($validated['all_orders'] ?? false),
                 subject: $validated['subject'] ?? null,
                 headline: $validated['headline'] ?? null,
                 message: $validated['message'] ?? null,

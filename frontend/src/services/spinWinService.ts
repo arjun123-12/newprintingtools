@@ -164,6 +164,12 @@ export const spinWinService = {
     return res.data?.data;
   },
 
+  /** Claim a won reward into the matching signed-in customer's Print Bank. */
+  async claimReward(claimToken: string) {
+    const res = await apiClient.post('/rewards/claim-spin-reward', { claim_token: claimToken });
+    return res.data;
+  },
+
   /**
    * Admin: Get all segments, categories, stats, and platform settings.
    */

@@ -23,13 +23,14 @@ import SpinWheel, { DEFAULT_SEGMENTS } from '@/components/SpinWheel';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:8000/api/v1';
 
-type PaidOrderRecipient = {
+type OrderRecipient = {
   order_id: string;
   order_number: string;
   customer_id?: number;
   name: string;
   email: string;
   total: number | string;
+  payment_status?: string;
   has_spun: boolean;
   spun_at?: string;
   created_at: string;
@@ -57,7 +58,7 @@ export default function AdminSpinWheelPage() {
   });
 
   const [stats, setStats] = useState<any>(null);
-  const [paidOrders, setPaidOrders] = useState<PaidOrderRecipient[]>([]);
+  const [paidOrders, setPaidOrders] = useState<OrderRecipient[]>([]);
   const [contacts, setContacts] = useState<CampaignContact[]>([]);
   const [selectedContactIds, setSelectedContactIds] = useState<number[]>([]);
   const [newRecipient, setNewRecipient] = useState({ name: '', email: '', consent: false });
@@ -93,7 +94,7 @@ export default function AdminSpinWheelPage() {
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<number[]>([]);
   const [rewardId, setRewardId] = useState('');
   const [rewardAssignments, setRewardAssignments] = useState<Record<string, string>>({});
-  const [allPaidSelected, setAllPaidSelected] = useState(false);
+  const [allOrdersSelected, setAllOrdersSelected] = useState(false);
 
   const headers = useMemo(() => {
     const token = getAuthToken();
@@ -131,7 +132,7 @@ export default function AdminSpinWheelPage() {
 
       if (recipRes.ok) {
         const rj = await recipRes.json();
-        setPaidOrders(rj.data?.paid_orders || []);
+        setPaidOrders(rj.data?.orders || rj.data?.paid_orders || []);
         setContacts(rj.data?.contacts || []);
         setCustomers(rj.data?.customers || []);
       }
@@ -206,7 +207,7 @@ export default function AdminSpinWheelPage() {
 
   const sendInvitationCampaign = async () => {
     if (
-      !allPaidSelected &&
+      !allOrdersSelected &&
       selectedOrderIds.length === 0 &&
       selectedCustomerIds.length === 0 &&
       selectedContactIds.length === 0
@@ -215,8 +216,8 @@ export default function AdminSpinWheelPage() {
       return;
     }
 
-    const countText = allPaidSelected
-      ? 'all qualifying customers with completed payments'
+    const countText = allOrdersSelected
+      ? 'customers on all orders, regardless of payment status'
       : `${selectedOrderIds.length + selectedCustomerIds.length + selectedContactIds.length} selected recipients`;
 
     if (!window.confirm(`Send Spin & Win Wheel VIP invitation email to ${countText}?`)) return;
@@ -228,16 +229,17 @@ export default function AdminSpinWheelPage() {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          order_ids: allPaidSelected ? [] : selectedOrderIds,
-          customer_ids: allPaidSelected ? [] : selectedCustomerIds,
-          contact_ids: allPaidSelected ? [] : selectedContactIds,
+          order_ids: allOrdersSelected ? [] : selectedOrderIds,
+          customer_ids: allOrdersSelected ? [] : selectedCustomerIds,
+          contact_ids: allOrdersSelected ? [] : selectedContactIds,
           reward_id: rewardId ? Number(rewardId) : null,
           reward_assignments: {
             orders: Object.fromEntries(selectedOrderIds.filter((id) => rewardAssignments[`order:${id}`]).map((id) => [id, Number(rewardAssignments[`order:${id}`])])),
             customers: Object.fromEntries(selectedCustomerIds.filter((id) => rewardAssignments[`customer:${id}`]).map((id) => [String(id), Number(rewardAssignments[`customer:${id}`])])),
             contacts: Object.fromEntries(selectedContactIds.filter((id) => rewardAssignments[`contact:${id}`]).map((id) => [String(id), Number(rewardAssignments[`contact:${id}`])])),
           },
-          all_paid: allPaidSelected,
+          all_paid: false,
+          all_orders: allOrdersSelected,
           subject: campaign.subject,
           headline: campaign.headline,
           message: campaign.message,
@@ -261,7 +263,7 @@ export default function AdminSpinWheelPage() {
       setSelectedCustomerIds([]);
       setSelectedContactIds([]);
       setRewardAssignments({});
-      setAllPaidSelected(false);
+      setAllOrdersSelected(false);
       await loadData();
     } catch (e: any) {
       setMessage({
@@ -490,8 +492,8 @@ export default function AdminSpinWheelPage() {
               <div className="flex items-center justify-between text-xs font-bold text-slate-800">
                 <span>Who should receive this invitation?</span>
                 <span className="text-slate-500">
-                  {allPaidSelected
-                    ? 'All customers who completed payment'
+                  {allOrdersSelected
+                    ? 'All orders, regardless of payment status'
                     : `${selectedOrderIds.length + selectedCustomerIds.length + selectedContactIds.length} selected`}
                 </span>
               </div>
@@ -499,23 +501,23 @@ export default function AdminSpinWheelPage() {
               <label className="flex items-center gap-2 text-xs font-medium text-slate-700">
                 <input
                   type="checkbox"
-                  checked={allPaidSelected}
+                  checked={allOrdersSelected}
                   onChange={(e) => {
-                    setAllPaidSelected(e.target.checked);
+                    setAllOrdersSelected(e.target.checked);
                     setSelectedOrderIds([]);
                     setSelectedCustomerIds([]);
                     setSelectedContactIds([]);
                   }}
                   className="rounded"
                 />
-                <span>Send to all qualifying customers with completed payment</span>
+                <span>Send to all order customers, whether paid or unpaid</span>
               </label>
 
-              {!allPaidSelected && (
+              {!allOrdersSelected && (
                 <div className="max-h-64 overflow-auto rounded-xl border bg-white divide-y text-xs">
                   {paidOrders.length > 0 && (
                     <div className="bg-slate-100/70 px-3 py-1.5 text-[11px] font-bold text-slate-600 uppercase tracking-wider sticky top-0 z-10">
-                      Paid Orders ({paidOrders.length})
+                      Recent Orders · Any Payment Status ({paidOrders.length})
                     </div>
                   )}
                   {paidOrders.map((po) => {
@@ -558,7 +560,7 @@ export default function AdminSpinWheelPage() {
                                   : 'bg-emerald-100 text-emerald-700'
                               }`}
                             >
-                              {po.has_spun ? 'Already spun' : 'Paid · Ready to spin'}
+                              {po.has_spun ? 'Already spun' : `${(po.payment_status || 'unpaid').replaceAll('_', ' ')} · Ready to spin`}
                             </span>
                           </div>
                         </label>
@@ -613,7 +615,7 @@ export default function AdminSpinWheelPage() {
                   })}
                 </div>
               )}
-              {!allPaidSelected && <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-[1fr_1fr_auto]">
+              {!allOrdersSelected && <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-[1fr_1fr_auto]">
                 <input value={newRecipient.name} onChange={(e) => setNewRecipient((prev) => ({ ...prev, name: e.target.value }))} placeholder="New recipient name" className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs" />
                 <input type="email" value={newRecipient.email} onChange={(e) => setNewRecipient((prev) => ({ ...prev, email: e.target.value }))} placeholder="Email address" className="rounded-lg border border-slate-200 px-2.5 py-2 text-xs" />
                 <button type="button" onClick={() => void addCampaignRecipient()} disabled={busy} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Add recipient</button>
@@ -639,7 +641,7 @@ export default function AdminSpinWheelPage() {
             <button
               type="button"
               onClick={sendInvitationCampaign}
-              disabled={busy || (!allPaidSelected && selectedOrderIds.length === 0 && selectedCustomerIds.length === 0 && selectedContactIds.length === 0)}
+              disabled={busy || (!allOrdersSelected && selectedOrderIds.length === 0 && selectedCustomerIds.length === 0 && selectedContactIds.length === 0)}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-500 py-3 font-bold text-slate-950 hover:brightness-105 disabled:opacity-40 shadow-md shadow-amber-500/20"
             >
               {busy ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}

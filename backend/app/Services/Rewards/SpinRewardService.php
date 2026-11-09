@@ -281,18 +281,22 @@ class SpinRewardService
 
         $order = $this->resolveOrderFromRequest($orderNumber, $reviewToken, $user, $spinToken);
 
-        // Strict security requirement: Backend verification of payment status via genuine succeeded transaction
-        if (! $this->isPaymentGenuinelyVerified($order)) {
+        // A valid admin-issued spin token is an explicit invitation and permits
+        // the customer to spin even when the order is still awaiting payment.
+        $invited = $spinToken && OrderSpinEntitlement::where('order_id', $order->id)
+            ->where('spin_token', $spinToken)
+            ->exists();
+        if (! $this->isPaymentGenuinelyVerified($order) && ! $invited) {
             return [
                 'eligible' => false,
-                'reason' => 'Payment has not been completed or verified for this order. Spins are granted only after successful payment.',
+                'reason' => 'Payment is not confirmed and this order does not have a Spin Wheel invitation.',
             ];
         }
 
         // Minimum order spend check
         $minSpend = (float) SpinWinSetting::get('min_order_spend', 0.00);
         $orderTotal = (float) ($order->total_inc_gst ?? $order->total);
-        if ($minSpend > 0 && $orderTotal < $minSpend) {
+        if ($minSpend > 0 && $orderTotal < $minSpend && ! $invited) {
             return [
                 'eligible' => false,
                 'reason' => "This order does not meet the minimum spend requirement of AUD $" . number_format($minSpend, 2) . " for Spin & Win.",
@@ -304,11 +308,11 @@ class SpinRewardService
         $segments = $this->getActiveSegments($category);
 
         // Safe entitlement retrieval or creation in atomic transaction
-        $entitlement = DB::transaction(function () use ($order, $user) {
+        $entitlement = DB::transaction(function () use ($order) {
             return OrderSpinEntitlement::firstOrCreate(
                 ['order_id' => $order->id],
                 [
-                    'user_id' => $user?->id ?? $order->user_id,
+                    'user_id' => $order->user_id,
                     'spin_token' => Str::random(48),
                     'status' => 'eligible',
                 ]
@@ -397,9 +401,13 @@ class SpinRewardService
         }
         $order = $this->resolveOrderFromRequest($orderNumber, $reviewToken, $user, $spinToken);
 
-        // Strict backend payment check: genuine succeeded payment required
-        if (! $this->isPaymentGenuinelyVerified($order)) {
-            throw new RuntimeException('Cannot spin. Payment is not confirmed for this order.');
+        // An admin-issued spin token acts as an explicit invitation, including
+        // for orders that have not been paid yet.
+        $invited = OrderSpinEntitlement::where('order_id', $order->id)
+            ->where('spin_token', $spinToken)
+            ->exists();
+        if (! $this->isPaymentGenuinelyVerified($order) && ! $invited) {
+            throw new RuntimeException('Cannot spin. Payment is not confirmed and this order has no Spin Wheel invitation.');
         }
 
         // Atomic transaction with row lock to prevent race conditions, double clicks, and multiple tabs
@@ -587,7 +595,7 @@ class SpinRewardService
             $ledger = CustomerRewardLedger::create([
                 'entitlement_id' => $entitlement->id,
                 'order_id' => $order->id,
-                'user_id' => $user?->id ?? $order->user_id,
+                'user_id' => $order->user_id,
                 'spin_reward_id' => $selectedReward->id,
                 'category_id' => $category?->id,
                 'category_name' => $category?->name ?? 'Default / General',
@@ -786,6 +794,51 @@ class SpinRewardService
         ];
     }
 
+    /** Attach a won reward to the matching signed-in customer account. */
+    public function claimReward(User $user, string $claimToken): CustomerRewardLedger
+    {
+        return DB::transaction(function () use ($user, $claimToken) {
+            $ledger = CustomerRewardLedger::with(['order.user', 'entitlement'])
+                ->where('claim_token', $claimToken)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $ledger) {
+                throw new InvalidArgumentException('This reward claim link is invalid.');
+            }
+
+            if ($ledger->user_id && (int) $ledger->user_id !== (int) $user->id) {
+                throw new InvalidArgumentException('This reward is already linked to another customer account.');
+            }
+
+            $order = $ledger->order;
+            if ($order?->user_id && (int) $order->user_id !== (int) $user->id) {
+                throw new InvalidArgumentException('Please sign in with the account that placed this order.');
+            }
+
+            $shipping = is_array($order?->shipping_address) ? $order->shipping_address : (json_decode($order?->shipping_address ?? '[]', true) ?: []);
+            $billing = is_array($order?->billing_address) ? $order->billing_address : (json_decode($order?->billing_address ?? '[]', true) ?: []);
+            $recipientEmail = $shipping['email']
+                ?? $billing['email']
+                ?? $order?->user?->email
+                ?? $ledger->entitlement?->email;
+
+            if (! $recipientEmail || strtolower(trim($recipientEmail)) !== strtolower(trim($user->email))) {
+                throw new InvalidArgumentException('Sign in with the email address that received this Spin Wheel invitation.');
+            }
+
+            $ledger->user_id = $user->id;
+            $ledger->save();
+
+            if ($ledger->entitlement && (int) $ledger->entitlement->user_id !== (int) $user->id) {
+                $ledger->entitlement->user_id = $user->id;
+                $ledger->entitlement->save();
+            }
+
+            return $ledger->fresh();
+        });
+    }
+
     /**
      * Validate and preview application of a reward code on future checkout.
      * Note: A reward won after payment applies ONLY to a future eligible order.
@@ -865,6 +918,10 @@ class SpinRewardService
             ]
         );
 
+        if ($entitlement->status === 'spun' || $entitlement->spun_at !== null) {
+            return false;
+        }
+
         if ($assignedRewardId && $entitlement->status !== 'spun') {
             $assignedReward = SpinReward::with('category')->whereKey($assignedRewardId)->where('is_active', true)->first();
             if (! $assignedReward) {
@@ -931,6 +988,7 @@ class SpinRewardService
         array $orderIds = [],
         array $contactIds = [],
         bool $allPaid = false,
+        bool $allOrders = false,
         ?string $subject = null,
         ?string $headline = null,
         ?string $message = null,
@@ -941,7 +999,7 @@ class SpinRewardService
         $processedEmails = [];
 
         // 1. Process specific order IDs if provided
-        if (! empty($orderIds)) {
+        if (! $allOrders && ! empty($orderIds)) {
             $orders = Order::with('user')->whereIn('id', $orderIds)->get();
             foreach ($orders as $order) {
                 $shipping = is_array($order->shipping_address) ? $order->shipping_address : (json_decode($order->shipping_address ?? '[]', true) ?: []);
@@ -957,8 +1015,31 @@ class SpinRewardService
             }
         }
 
+        // Admin-selected all-orders campaign includes unpaid and pending orders too.
+        if ($allOrders) {
+            $orders = Order::with(['user', 'spinEntitlement'])->latest()->get();
+            foreach ($orders as $order) {
+                if ($order->spinEntitlement?->status === 'spun') {
+                    continue;
+                }
+
+                $shipping = is_array($order->shipping_address) ? $order->shipping_address : (json_decode($order->shipping_address ?? '[]', true) ?: []);
+                $billing = is_array($order->billing_address) ? $order->billing_address : (json_decode($order->billing_address ?? '[]', true) ?: []);
+                $email = strtolower(trim($shipping['email'] ?? $billing['email'] ?? $order->user?->email ?? ''));
+                if (! $email) {
+                    continue;
+                }
+                $processedEmails[] = $email;
+
+                $rewardId = $rewardAssignments['orders'][$order->id] ?? $assignedRewardId;
+                if ($this->sendSpinInvitationForOrder($order, $subject, $headline, $message, $rewardId ? (int) $rewardId : null)) {
+                    $sentCount++;
+                }
+            }
+        }
+
         // 2. Process all paid customers if selected
-        if ($allPaid) {
+        if ($allPaid && ! $allOrders) {
             $paidOrders = Order::query()
                 ->where(function ($q) {
                     $q->where('payment_status', PaymentStatus::PAID)

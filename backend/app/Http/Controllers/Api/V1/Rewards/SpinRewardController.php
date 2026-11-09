@@ -134,6 +134,29 @@ class SpinRewardController extends Controller
         }
     }
 
+    /** Link a spun reward to the invitation recipient's authenticated account. */
+    public function claimReward(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'claim_token' => ['required', 'string', 'max:128'],
+        ]);
+
+        try {
+            $ledger = $this->spinRewardService->claimReward($request->user(), $validated['claim_token']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Your Spin Wheel reward has been added to your account.',
+                'data' => ['reward_id' => $ledger->id, 'reward_type' => $ledger->reward_type, 'value' => (float) $ledger->value],
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        } catch (Throwable $e) {
+            report($e);
+            return response()->json(['success' => false, 'message' => 'Unable to add this reward to your account.'], 500);
+        }
+    }
+
     /**
      * Validate a reward code for redemption on a future order.
      */
