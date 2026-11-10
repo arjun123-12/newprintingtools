@@ -63,6 +63,9 @@ export default function AdminSpinWheelPage() {
   const [selectedContactIds, setSelectedContactIds] = useState<number[]>([]);
   const [newRecipient, setNewRecipient] = useState({ name: '', email: '', consent: false });
   const [ledger, setLedger] = useState<any[]>([]);
+  const [printCreditBalances, setPrintCreditBalances] = useState<any[]>([]);
+  const [ledgerSearch, setLedgerSearch] = useState('');
+  const [ledgerStatus, setLedgerStatus] = useState('');
   const [categories, setCategories] = useState<any[]>([]);
   const [segments, setSegments] = useState<any[]>([]);
 
@@ -111,7 +114,7 @@ export default function AdminSpinWheelPage() {
       const [settingsRes, recipRes, ledgerRes] = await Promise.all([
         fetch(`${API_URL}/admin/spin-win/settings`, { headers }),
         fetch(`${API_URL}/admin/spin-win/campaign-recipients`, { headers }),
-        fetch(`${API_URL}/admin/spin-win/ledger`, { headers }),
+        fetch(`${API_URL}/admin/spin-win/ledger?${new URLSearchParams({ ...(ledgerSearch.trim() ? { search: ledgerSearch.trim() } : {}), ...(ledgerStatus ? { status: ledgerStatus } : {}) })}`, { headers }),
       ]);
 
       if (settingsRes.ok) {
@@ -139,7 +142,8 @@ export default function AdminSpinWheelPage() {
 
       if (ledgerRes.ok) {
         const lj = await ledgerRes.json();
-        setLedger(lj.data?.data || []);
+        setLedger(lj.data?.data?.data || []);
+        setPrintCreditBalances(lj.data?.data?.print_credit_balances || []);
       }
     } catch (e: any) {
       setMessage({ good: false, text: e.message || 'Could not load spin wheel data.' });
@@ -670,6 +674,31 @@ export default function AdminSpinWheelPage() {
               <RefreshCw size={13} />
               <span>Refresh</span>
             </button>
+          </div>
+
+          {printCreditBalances.length > 0 && (
+            <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+              <h3 className="mb-3 text-sm font-extrabold text-slate-900">Customer Print Credit Balances</h3>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {printCreditBalances.map((customer) => (
+                  <div key={customer.user_id} className="flex items-center justify-between gap-3 rounded-xl border border-white bg-white px-3 py-2 shadow-sm">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-bold text-slate-800">{customer.name}</p>
+                      <p className="truncate text-[10px] text-slate-500">{customer.email} · {customer.reward_count} active {customer.reward_count === 1 ? 'reward' : 'rewards'}</p>
+                    </div>
+                    <span className="shrink-0 text-sm font-black text-emerald-700">${Number(customer.balance).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row">
+            <input value={ledgerSearch} onChange={(event) => setLedgerSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void loadData(); }} placeholder="Search customer, order, reward or code" className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-amber-400" />
+            <select value={ledgerStatus} onChange={(event) => setLedgerStatus(event.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs">
+              <option value="">All statuses</option><option value="active">Active</option><option value="redeemed">Redeemed</option><option value="expired">Expired</option>
+            </select>
+            <button type="button" onClick={() => void loadData()} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white">Search / Filter</button>
           </div>
 
           {ledger.length === 0 ? (

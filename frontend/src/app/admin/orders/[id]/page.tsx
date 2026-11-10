@@ -1163,6 +1163,15 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
                   ${order.shipping_fee_inc_gst.toFixed(2)}
                 </span>
               </div>
+              {Number(order.discount_amount) > 0 && (
+                <div className="flex items-start justify-between gap-3 text-emerald-400">
+                  <span>
+                    <span className="block">{order.applied_reward_title || 'Discount'}{order.applied_reward_type === 'offer' ? ' (Offer)' : order.applied_reward_type ? ' (Spin reward)' : ''}</span>
+                    {order.applied_reward_code && <span className="mt-0.5 block font-mono text-[10px] text-emerald-500">{order.applied_reward_code}</span>}
+                  </span>
+                  <span className="shrink-0 font-mono">-${Number(order.discount_amount).toFixed(2)}</span>
+                </div>
+              )}
               <div className="border-t border-slate-800 pt-3 flex justify-between items-center text-sm font-bold text-white">
                 <span>Total (AUD)</span>
                 <span className="text-base font-mono text-emerald-400">

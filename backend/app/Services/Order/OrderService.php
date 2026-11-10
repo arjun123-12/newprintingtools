@@ -104,6 +104,13 @@ class OrderService
                 }
                 $offer->increment('usage_count');
             }
+            $appliedRewardCodeForOrder = $validationResult['reward_code'] ?? $validationResult['offer_code'] ?? null;
+            $appliedRewardLedger = $appliedRewardCodeForOrder
+                ? \App\Models\CustomerRewardLedger::where('reward_code', strtoupper(trim($appliedRewardCodeForOrder)))->first()
+                : null;
+            $appliedOffer = (!$appliedRewardLedger && $offerCode)
+                ? \App\Models\Offer::where('code', $offerCode)->first()
+                : null;
             $order = Order::create([
                 'order_number' => $orderNumber,
                 'user_id' => $user->id,
@@ -113,6 +120,9 @@ class OrderService
                 'gst_amount' => $validationResult['gst_amount'],
                 'shipping_fee_inc_gst' => $validationResult['shipping'],
                 'discount_amount' => $validationResult['discount'] ?? 0.00,
+                'applied_reward_code' => $appliedRewardCodeForOrder,
+                'applied_reward_title' => $appliedRewardLedger?->title ?? $appliedOffer?->name,
+                'applied_reward_type' => $appliedRewardLedger?->reward_type ?? ($appliedOffer ? 'offer' : null),
                 'total_inc_gst' => $validationResult['total'],
                 'currency' => 'AUD',
                 'shipping_address' => $shippingAddressSnapshot,

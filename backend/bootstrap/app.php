@@ -4,6 +4,7 @@ use App\Http\Middleware\ClientBriefAdmin;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Console\Scheduling\Schedule;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -11,6 +12,9 @@ return Application::configure(basePath: dirname(__DIR__))
         apiPrefix: 'api/v1',
         health: '/up',
     )
+    ->withSchedule(function (Schedule $schedule) {
+        $schedule->command('rewards:send-expiry-reminders')->dailyAt('09:00');
+    })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'client.brief.admin'  => ClientBriefAdmin::class,

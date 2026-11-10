@@ -39,7 +39,7 @@ import {
   CheckoutShippingMethod,
   CheckoutValidationResponse,
 } from '@/services/checkoutService';
-import { spinWinService } from '@/services/spinWinService';
+import { spinWinService, CustomerRewardItem } from '@/services/spinWinService';
 import { apiClient } from '@/services/api/client';
 import { formatImageUrl } from '@/utils/imageUrl';
 
@@ -118,6 +118,7 @@ export default function CheckoutPage() {
   } | null>(null);
   const [validatingVoucher, setValidatingVoucher] = useState(false);
   const [voucherError, setVoucherError] = useState<string | null>(null);
+  const [savedRewards, setSavedRewards] = useState<CustomerRewardItem[]>([]);
 
   // 1. Initial Load of Authoritative Checkout Data
   useEffect(() => {
@@ -134,6 +135,12 @@ export default function CheckoutPage() {
       try {
         const data = await checkoutService.getCheckoutData();
         setCheckoutData(data);
+        try {
+          const rewards = await spinWinService.getCustomerRewards();
+          setSavedRewards(rewards.rewards.filter((reward) => reward.status === 'active'));
+        } catch {
+          // Checkout remains available if the rewards service is temporarily unavailable.
+        }
 
         // Pre-fill user contact info
         if (data.user) {
@@ -378,6 +385,25 @@ export default function CheckoutPage() {
       }
     } catch (err: any) {
       setVoucherError(err.response?.data?.message || 'Unable to apply voucher code.');
+    } finally {
+      setValidatingVoucher(false);
+    }
+  };
+
+  const handleApplySavedReward = async (reward: CustomerRewardItem) => {
+    setVoucherError(null);
+    setValidatingVoucher(true);
+    try {
+      const result = await spinWinService.validateVoucher(reward.reward_code, subtotalExGst + gstAmount);
+      if (!result?.valid) throw new Error(result?.message || 'This reward cannot be applied to this cart.');
+      setAppliedReward({
+        code: result.reward_code,
+        title: result.title,
+        discount_amount: Number(result.discount_amount),
+        reward_type: result.reward_type,
+      });
+    } catch (error: any) {
+      setVoucherError(error.response?.data?.message || error.message || 'Unable to apply this reward.');
     } finally {
       setValidatingVoucher(false);
     }
@@ -1264,6 +1290,20 @@ export default function CheckoutPage() {
                   </div>
                 ) : (
                   <div className="space-y-1.5">
+                    {savedRewards.length > 0 && (
+                      <div className="space-y-1.5 pb-1">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Your saved Spin &amp; Win rewards</p>
+                        {savedRewards.map((reward) => (
+                          <div key={reward.id} className="flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-bold text-slate-800">{reward.title}</p>
+                              <p className="text-[10px] text-slate-500">{reward.reward_type === 'print_credit' ? `AUD $${Number(reward.value).toFixed(2)} credit` : reward.reward_type.replaceAll('_', ' ')} · expires {new Date(reward.expires_at).toLocaleDateString()}</p>
+                            </div>
+                            <button type="button" onClick={() => void handleApplySavedReward(reward)} disabled={validatingVoucher} className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-[10px] font-extrabold text-slate-950 hover:bg-amber-400 disabled:opacity-50">Use reward</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex gap-1.5">
                       <div className="relative flex-1">
                         <Tag className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />

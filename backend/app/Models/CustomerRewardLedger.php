@@ -31,6 +31,7 @@ class CustomerRewardLedger extends Model
         'redeemed_order_id',
         'claim_token',
         'reward_email_sent_at',
+        'expiry_reminder_sent_at',
     ];
 
     protected $casts = [
@@ -39,6 +40,7 @@ class CustomerRewardLedger extends Model
         'expires_at' => 'datetime',
         'redeemed_at' => 'datetime',
         'reward_email_sent_at' => 'datetime',
+        'expiry_reminder_sent_at' => 'datetime',
     ];
 
     public function category(): BelongsTo

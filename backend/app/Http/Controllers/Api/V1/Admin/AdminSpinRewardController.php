@@ -424,7 +424,15 @@ class AdminSpinRewardController extends Controller
         }
 
         if ($status = $request->query('status')) {
-            $query->where('status', $status);
+            if ($status === 'expired') {
+                $query->where('status', 'active')->whereNotNull('expires_at')->where('expires_at', '<=', now());
+            } elseif ($status === 'active') {
+                $query->where('status', 'active')->where(function ($q) {
+                    $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                });
+            } else {
+                $query->where('status', $status);
+            }
         }
 
         if ($categoryId = $request->query('category_id')) {
@@ -432,10 +440,31 @@ class AdminSpinRewardController extends Controller
         }
 
         $ledger = $query->paginate(20);
+        $printCreditBalances = CustomerRewardLedger::query()
+            ->selectRaw('user_id, SUM(value) as balance, COUNT(*) as reward_count')
+            ->where('status', 'active')
+            ->where('reward_type', 'print_credit')
+            ->where(function ($q) {
+                $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+            })
+            ->whereNotNull('user_id')
+            ->groupBy('user_id')
+            ->with('user:id,name,email')
+            ->orderByDesc('balance')
+            ->get();
 
         return response()->json([
             'success' => true,
-            'data' => $ledger,
+            'data' => [
+                ...$ledger->toArray(),
+                'print_credit_balances' => $printCreditBalances->map(fn ($row) => [
+                    'user_id' => $row->user_id,
+                    'name' => $row->user?->name ?? 'Customer',
+                    'email' => $row->user?->email,
+                    'balance' => (float) $row->balance,
+                    'reward_count' => (int) $row->reward_count,
+                ])->values(),
+            ],
         ]);
     }
 
