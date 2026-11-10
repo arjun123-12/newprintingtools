@@ -570,9 +570,9 @@ export default function ClientBriefForm({
 
     if (checkingLink) {
         return (
-            <main className="flex min-h-screen items-center justify-center bg-[#f5f8f5] px-4">
+            <main className="flex min-h-screen items-center justify-center bg-[#f5f8fc] px-4">
                 <div className="text-center">
-                    <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-[#dce6e3] border-t-[#154e45]" />
+                    <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-[#dbe5ed] border-t-[#078bc5]" />
 
                     <p className="mt-4 text-sm text-[#647577]">
                         Checking your private request link...
@@ -608,8 +608,8 @@ export default function ClientBriefForm({
             finally { setPortalBusy(false); }
         };
         return (
-            <main className="min-h-screen bg-[#f5f8f5] text-[#172e32]">
-                <header className="border-b border-[#dce6e3] bg-white">
+            <main className="min-h-screen bg-[#f5f8fc] text-[#111827]">
+                <header className="border-b border-[#dbe5ed] bg-white">
                     <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
                         <div className="flex items-center gap-3.5">
                             <Link href="/" className="flex items-center shrink-0">
@@ -623,10 +623,10 @@ export default function ClientBriefForm({
                                 />
                             </Link>
 
-                            <div className="hidden h-7 w-px bg-[#dce6e3] sm:block" />
+                            <div className="hidden h-7 w-px bg-[#dbe5ed] sm:block" />
 
                             <div>
-                                <div className="font-extrabold tracking-tight text-[#172e32]">
+                                <div className="font-extrabold tracking-tight text-[#111827]">
                                     Erry Imprints Pro
                                 </div>
 
@@ -636,14 +636,15 @@ export default function ClientBriefForm({
                             </div>
                         </div>
 
-                        <span className="rounded-full border border-[#c7dccc] bg-[#edf5e9] px-3 py-1.5 text-[11px] font-bold text-[#285740]">
+                        <span className="rounded-full border border-[#bfe8f7] bg-[#ecf8fd] px-3 py-1.5 text-[11px] font-bold text-[#086b95]">
                             Design Review
                         </span>
                     </div>
                 </header>
+                <div className="h-1 bg-gradient-to-r from-cyan-500 via-fuchsia-500 to-amber-400" />
                 <div className="mx-auto max-w-4xl px-4 py-8 space-y-5">
                     <section className="rounded-2xl bg-white p-6 shadow-sm">
-                        <p className="text-xs font-bold uppercase tracking-widest text-[#154e45]">Design review</p>
+                        <p className="text-xs font-bold uppercase tracking-widest text-[#078bc5]">Design review</p>
                         <h1 className="mt-2 text-2xl font-bold">{portal.product || 'Your design request'}</h1>
                         <p className="mt-2 text-sm capitalize text-slate-600">Status: {String(portal.status).replaceAll('_', ' ')}</p>
                         {portal.description && <p className="mt-4 whitespace-pre-wrap text-sm">{portal.description}</p>}
@@ -687,9 +688,9 @@ export default function ClientBriefForm({
 
     if (linkError) {
         return (
-            <main className="flex min-h-screen items-center justify-center bg-[#f5f8f5] px-4">
+            <main className="flex min-h-screen items-center justify-center bg-[#f5f8fc] px-4">
                 <div className="w-full max-w-lg rounded-3xl border border-red-200 bg-white p-8 text-center shadow-sm">
-                    <h1 className="text-2xl font-bold text-[#172e32]">
+                    <h1 className="text-2xl font-bold text-[#111827]">
                         This link is unavailable
                     </h1>
 
@@ -707,13 +708,13 @@ export default function ClientBriefForm({
 
     if (success) {
         return (
-            <main className="min-h-screen bg-[#f5f8f5] px-4 py-12 text-[#172e32]">
-                <div className="mx-auto max-w-xl rounded-3xl border border-[#dce6e3] bg-white p-8 text-center shadow-sm sm:p-12">
-                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#e2f1df] text-[#154e45]">
+            <main className="min-h-screen bg-[#f5f8fc] px-4 py-12 text-[#111827]">
+                <div className="mx-auto max-w-xl rounded-3xl border border-[#dbe5ed] bg-white p-8 text-center shadow-sm sm:p-12">
+                    <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[#e3f4fb] text-[#078bc5]">
                         <CheckCircle2 className="h-8 w-8" />
                     </div>
 
-                    <p className="mt-6 text-xs font-extrabold uppercase tracking-[0.18em] text-[#154e45]">
+                    <p className="mt-6 text-xs font-extrabold uppercase tracking-[0.18em] text-[#078bc5]">
                         Request received
                     </p>
 
@@ -731,12 +732,12 @@ export default function ClientBriefForm({
                     </p>
 
                     {reference && (
-                        <div className="mt-7 rounded-2xl bg-[#f5f8f5] p-5">
+                        <div className="mt-7 rounded-2xl bg-[#f5f8fc] p-5">
                             <span className="text-xs font-semibold uppercase tracking-wider text-[#647577]">
                                 Job reference
                             </span>
 
-                            <strong className="mt-1 block text-xl text-[#154e45]">
+                            <strong className="mt-1 block text-xl text-[#078bc5]">
                                 {reference}
                             </strong>
                         </div>
@@ -755,9 +756,9 @@ export default function ClientBriefForm({
     }
 
     return (
-        <main className="min-h-screen bg-[#f5f8f5] text-[#172e32]">
+        <main className="min-h-screen bg-[#f5f8fc] text-[#111827]">
             {/* Header */}
-            <header className="border-b border-[#dce6e3] bg-white">
+            <header className="border-b border-[#dbe5ed] bg-white">
                 <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-5 sm:px-6 lg:px-8">
                     <div className="flex items-center gap-3.5">
                         <Link href="/" className="flex items-center shrink-0">
@@ -771,10 +772,10 @@ export default function ClientBriefForm({
                             />
                         </Link>
 
-                        <div className="hidden h-7 w-px bg-[#dce6e3] sm:block" />
+                        <div className="hidden h-7 w-px bg-[#dbe5ed] sm:block" />
 
                         <div>
-                            <div className="font-extrabold tracking-tight text-[#172e32]">
+                            <div className="font-extrabold tracking-tight text-[#111827]">
                                 Erry Imprints Pro
                             </div>
 
@@ -784,17 +785,18 @@ export default function ClientBriefForm({
                         </div>
                     </div>
 
-                    <span className="rounded-full border border-[#c7dccc] bg-[#edf5e9] px-3 py-1.5 text-[11px] font-bold text-[#285740]">
+                    <span className="rounded-full border border-[#bfe8f7] bg-[#ecf8fd] px-3 py-1.5 text-[11px] font-bold text-[#086b95]">
                         Private request link
                     </span>
                 </div>
             </header>
+            <div className="h-1 bg-gradient-to-r from-cyan-500 via-fuchsia-500 to-amber-400" />
 
             <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
                 {/* Heading */}
                 <div className="mb-7 flex flex-wrap items-end justify-between gap-5">
                     <div>
-                        <p className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#154e45]">
+                        <p className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#078bc5]">
                             New print request
                         </p>
 
@@ -813,7 +815,7 @@ export default function ClientBriefForm({
                         </p>
                     </div>
 
-                    <span className="rounded-full border border-[#c7dccc] bg-[#edf5e9] px-4 py-2 text-xs font-bold text-[#285740]">
+                    <span className="rounded-full border border-[#bfe8f7] bg-[#ecf8fd] px-4 py-2 text-xs font-bold text-[#086b95]">
                         Request first · We&apos;ll
                         confirm the details
                     </span>
@@ -827,7 +829,7 @@ export default function ClientBriefForm({
                         onSubmit={
                             handleSubmit
                         }
-                        className="rounded-2xl border border-[#dce6e3] bg-white p-5 shadow-sm sm:p-7"
+                        className="rounded-2xl border border-[#dbe5ed] bg-white p-5 shadow-sm sm:p-7"
                     >
                         {/* Request type */}
                         <div className="grid gap-3 sm:grid-cols-3">
@@ -1305,8 +1307,8 @@ export default function ClientBriefForm({
                             title="Upload artwork & references"
                         />
 
-                        <label className="group block cursor-pointer rounded-2xl border-2 border-dashed border-[#c7d7d2] bg-[#f9fbf9] p-7 text-center transition hover:border-[#6f9b8e] hover:bg-[#f2f8f3]">
-                            <UploadCloud className="mx-auto h-8 w-8 text-[#154e45]" />
+                        <label className="group block cursor-pointer rounded-2xl border-2 border-dashed border-[#c7d7d2] bg-[#f8fbfe] p-7 text-center transition hover:border-[#6f9b8e] hover:bg-[#edf8fd]">
+                            <UploadCloud className="mx-auto h-8 w-8 text-[#078bc5]" />
 
                             <strong className="mt-3 block text-sm">
                                 Upload artwork,
@@ -1346,10 +1348,10 @@ export default function ClientBriefForm({
                                     ) => (
                                         <div
                                             key={`${file.name}-${index}`}
-                                            className="flex items-center justify-between gap-3 rounded-xl border border-[#dce6e3] px-4 py-3"
+                                            className="flex items-center justify-between gap-3 rounded-xl border border-[#dbe5ed] px-4 py-3"
                                         >
                                             <div className="flex min-w-0 items-center gap-3">
-                                                <FileText className="h-5 w-5 shrink-0 text-[#154e45]" />
+                                                <FileText className="h-5 w-5 shrink-0 text-[#078bc5]" />
 
                                                 <div className="min-w-0">
                                                     <p className="truncate text-sm font-semibold">
@@ -1399,7 +1401,7 @@ export default function ClientBriefForm({
                         )}
 
                         {/* Confirmation */}
-                        <div className="mt-7 rounded-2xl border border-[#dce6e3] bg-[#f8faf8] p-4">
+                        <div className="mt-7 rounded-2xl border border-[#dbe5ed] bg-[#f8faf8] p-4">
                             <label className="flex cursor-pointer items-start gap-3 text-sm">
                                 <input
                                     type="checkbox"
@@ -1412,7 +1414,7 @@ export default function ClientBriefForm({
                                             e.target.checked
                                         )
                                     }
-                                    className="mt-1 h-4 w-4 accent-[#154e45]"
+                                    className="mt-1 h-4 w-4 accent-[#078bc5]"
                                 />
 
                                 <span className="leading-6">
@@ -1447,7 +1449,7 @@ export default function ClientBriefForm({
                             disabled={
                                 submitting
                             }
-                            className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#154e45] px-6 py-3 text-sm font-bold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                            className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#078bc5] px-6 py-3 text-sm font-bold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                         >
                             {submitting
                                 ? 'Sending request...'
@@ -1461,8 +1463,8 @@ export default function ClientBriefForm({
 
                     {/* Right side */}
                     <aside className="space-y-5 lg:sticky lg:top-6">
-                        <section className="rounded-2xl border border-[#dce6e3] bg-white p-6 shadow-sm">
-                            <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#154e45]">
+                        <section className="rounded-2xl border border-[#dbe5ed] bg-white p-6 shadow-sm">
+                            <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#078bc5]">
                                 What happens next
                             </p>
 
@@ -1498,7 +1500,7 @@ export default function ClientBriefForm({
                             </div>
                         </section>
 
-                        <section className="rounded-2xl bg-[#154e45] p-6 text-white shadow-sm">
+                        <section className="rounded-2xl bg-[#078bc5] p-6 text-white shadow-sm">
                             <PackageCheck className="h-7 w-7 text-[#dff0df]" />
 
                             <h3 className="mt-4 text-xl font-bold">
@@ -1506,7 +1508,7 @@ export default function ClientBriefForm({
                                 choose?
                             </h3>
 
-                            <p className="mt-2 text-sm leading-6 text-[#d2e7df]">
+                            <p className="mt-2 text-sm leading-6 text-[#dbeafe]">
                                 You don&apos;t
                                 need to know every
                                 printing
@@ -1543,7 +1545,7 @@ export default function ClientBriefForm({
 }
 
 const inputClass =
-    'mt-1.5 block w-full rounded-xl border border-[#bfcfca] bg-white px-3.5 py-3 text-sm text-[#172e32] outline-none transition placeholder:text-[#97a5a3] focus:border-[#6a9275] focus:ring-2 focus:ring-[#aacdbf]/40';
+    'mt-1.5 block w-full rounded-xl border border-[#c7d6e3] bg-white px-3.5 py-3 text-sm text-[#111827] outline-none transition placeholder:text-[#94a3b8] focus:border-[#078bc5] focus:ring-2 focus:ring-[#bae6fd]/40';
 
 function SectionTitle({
     number,
@@ -1554,7 +1556,7 @@ function SectionTitle({
 }) {
     return (
         <div className="mb-4 mt-8 flex items-center gap-3 border-t border-[#e5ece9] pt-7">
-            <span className="flex h-7 min-w-7 items-center justify-center rounded-full border border-[#dce6e3] text-[10px] font-bold text-[#657d6f]">
+            <span className="flex h-7 min-w-7 items-center justify-center rounded-full border border-[#dbe5ed] text-[10px] font-bold text-[#657d6f]">
                 {number}
             </span>
 
@@ -1607,14 +1609,14 @@ function RequestChoice({
             type="button"
             onClick={onClick}
             className={`rounded-2xl border p-4 text-left transition ${checked
-                ? 'border-[#6a9275] bg-[#f0f7ed] ring-2 ring-[#aacdbf]/25'
-                : 'border-[#dce6e3] bg-white hover:border-[#a8beb6] hover:bg-[#fafcfb]'
+                ? 'border-[#078bc5] bg-[#eff9fd] ring-2 ring-[#bae6fd]/25'
+                : 'border-[#dbe5ed] bg-white hover:border-[#a8beb6] hover:bg-[#fafcfb]'
                 }`}
         >
             <div
                 className={`flex h-9 w-9 items-center justify-center rounded-xl ${checked
-                    ? 'bg-[#154e45] text-white'
-                    : 'bg-[#edf3ef] text-[#45665c]'
+                    ? 'bg-[#078bc5] text-white'
+                    : 'bg-[#edf3ef] text-[#0e7490]'
                     }`}
             >
                 <Icon className="h-4 w-4" />
@@ -1642,7 +1644,7 @@ function Step({
 }) {
     return (
         <div className="flex gap-3">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#e2f1df] text-xs font-extrabold text-[#154e45]">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#e3f4fb] text-xs font-extrabold text-[#078bc5]">
                 {number}
             </span>
 

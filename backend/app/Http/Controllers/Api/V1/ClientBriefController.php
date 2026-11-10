@@ -620,7 +620,11 @@ class ClientBriefController extends Controller
             ]];
             if ((float) $brief->design_fee > 0) {
                 $items[] = [
-                    'product_id' => $product->id,
+                    // Keep the design service as a separate non-catalog line.
+                    // Assigning the print product ID makes ManualOrderService
+                    // replace this label with the product name, which can
+                    // incorrectly include the service fee in a product reward.
+                    'product_id' => null,
                     'product_name' => 'Graphic design service',
                     'quantity' => 1,
                     'price' => (float) $brief->design_fee,

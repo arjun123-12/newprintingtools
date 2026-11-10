@@ -311,7 +311,8 @@ export default function SpinWheel({
         if (data.spin_token) {
           setServerSpinToken(data.spin_token);
         }
-        if (!data.eligible || !data.spin_token) {
+        const hasSavedPrize = Boolean(data.has_spun && data.prize);
+        if (!data.eligible || (!data.spin_token && !hasSavedPrize)) {
           setEligibilityState('unavailable');
           setErrorMessage(data.reason || 'This Spin Wheel invitation is not available. Please contact us for help.');
           return;
@@ -343,6 +344,7 @@ export default function SpinWheel({
           });
           const segIdx = data.prize.segment_index ?? 0;
           setWinningIndex(segIdx);
+          setShowResultModal(true);
           // Calculate angle so slice is positioned under pointer at top
           const targetAngle = 360 * 3 + (360 - (segIdx * sliceAngle + sliceAngle / 2));
           setRotationDegrees(targetAngle);
