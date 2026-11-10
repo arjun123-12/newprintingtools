@@ -33,6 +33,7 @@ import {
   Banknote,
   Loader2,
   Pencil,
+  Link2,
 } from 'lucide-react';
 import {
   invoiceService,
@@ -95,6 +96,33 @@ export default function AdminInvoicesPage() {
 
   // Clipboard copy state
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [paymentLinkOrder, setPaymentLinkOrder] = useState<TaxInvoiceOrder | null>(null);
+  const [paymentLinkValue, setPaymentLinkValue] = useState('');
+  const [paymentLinkError, setPaymentLinkError] = useState<string | null>(null);
+  const [isLoadingPaymentLink, setIsLoadingPaymentLink] = useState(false);
+
+  const handleOpenPaymentLink = async (order: TaxInvoiceOrder) => {
+    setPaymentLinkOrder(order);
+    setPaymentLinkError(null);
+    setPaymentLinkValue(order.payment_link || '');
+    if (order.payment_link) return;
+
+    setIsLoadingPaymentLink(true);
+    try {
+      const response = await invoiceService.getPaymentLink(order.id);
+      setPaymentLinkValue(response.data.payment_url);
+      setOrders((current) => current.map((item) => item.id === order.id
+        ? { ...item, payment_link: response.data.payment_url }
+        : item));
+      setSelectedInvoiceOrder((current) => current?.id === order.id
+        ? { ...current, payment_link: response.data.payment_url }
+        : current);
+    } catch (err: any) {
+      setPaymentLinkError(err?.response?.data?.message || err?.message || 'Could not create payment link.');
+    } finally {
+      setIsLoadingPaymentLink(false);
+    }
+  };
 
   const handleOpenPaymentModal = (order: TaxInvoiceOrder) => {
     setPaymentModalOrder(order);
@@ -193,11 +221,12 @@ export default function AdminInvoicesPage() {
         if (paymentModalOrder) setPaymentModalOrder(null);
         if (selectedInvoiceOrder) setSelectedInvoiceOrder(null);
         if (selectedAuditPayment) setSelectedAuditPayment(null);
+        if (paymentLinkOrder) setPaymentLinkOrder(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [paymentModalOrder, selectedInvoiceOrder, selectedAuditPayment]);
+  }, [paymentModalOrder, selectedInvoiceOrder, selectedAuditPayment, paymentLinkOrder]);
 
   // Client-side quick filter on search query for instant responsiveness
   const filteredOrders = useMemo(() => {
@@ -827,6 +856,16 @@ export default function AdminInvoicesPage() {
                       {/* Actions */}
                       <td className="py-3.5 px-4 align-top text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {!isPaid && (
+                            <button
+                              onClick={() => handleOpenPaymentLink(order)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/20 text-xs font-medium transition"
+                              title="View or copy customer payment link"
+                            >
+                              <Link2 className="w-3.5 h-3.5" />
+                              <span>Payment Link</span>
+                            </button>
+                          )}
                           {!isPaid ? (
                             <button
                               onClick={() => handleOpenPaymentModal(order)}
@@ -904,6 +943,15 @@ export default function AdminInvoicesPage() {
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                {selectedInvoiceOrder.payment_status !== 'paid' && Number(selectedInvoiceOrder.total_inc_gst) > 0 && (
+                  <button
+                    onClick={() => handleOpenPaymentLink(selectedInvoiceOrder)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold transition shadow-sm"
+                  >
+                    <Link2 className="w-3.5 h-3.5" />
+                    <span>Payment Link</span>
+                  </button>
+                )}
                 {selectedInvoiceOrder.payment_status !== 'paid' && (
                   <button
                     onClick={() => handleOpenPaymentModal(selectedInvoiceOrder)}
@@ -1191,6 +1239,67 @@ export default function AdminInvoicesPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: Shareable Customer Payment Link ─────────────────────────── */}
+      {paymentLinkOrder && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setPaymentLinkOrder(null);
+          }}
+        >
+          <div className="w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-900 p-6 text-slate-100 shadow-2xl space-y-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-violet-300">
+                  <Link2 className="h-5 w-5" />
+                  <h3 className="text-lg font-bold text-white">Customer Payment Link</h3>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  {paymentLinkOrder.invoice?.invoice_number || paymentLinkOrder.order_number} · Share this link by WhatsApp, SMS, or another channel.
+                </p>
+              </div>
+              <button
+                onClick={() => setPaymentLinkOrder(null)}
+                className="rounded-lg bg-slate-800 p-1.5 text-slate-400 transition hover:bg-slate-700 hover:text-white"
+                aria-label="Close payment link"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {paymentLinkError ? (
+              <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">{paymentLinkError}</p>
+            ) : isLoadingPaymentLink ? (
+              <div className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 p-4 text-sm text-slate-300">
+                <Loader2 className="h-4 w-4 animate-spin" /> Creating payment link…
+              </div>
+            ) : paymentLinkValue ? (
+              <>
+                <label className="block space-y-2">
+                  <span className="text-xs font-semibold text-slate-300">Shareable URL</span>
+                  <input
+                    readOnly
+                    value={paymentLinkValue}
+                    onFocus={(event) => event.currentTarget.select()}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 font-mono text-xs text-sky-300 outline-none"
+                  />
+                </label>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] text-slate-500">The same active link is reused when you send the invoice email.</span>
+                  <button
+                    onClick={() => copyToClipboard(paymentLinkValue)}
+                    className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-violet-500"
+                  >
+                    {copiedText === paymentLinkValue ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    {copiedText === paymentLinkValue ? 'Copied' : 'Copy link'}
+                  </button>
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
       )}

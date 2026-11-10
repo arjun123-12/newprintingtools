@@ -112,6 +112,7 @@ export interface TaxInvoiceOrder {
   payments: InvoicePayment[];
   items: InvoiceOrderItem[];
   invoice?: LinkedInvoice | null;
+  payment_link?: string | null;
 }
 
 export interface InvoiceStats {
@@ -209,6 +210,13 @@ export const invoiceService = {
   async sendPaymentLink(id: string): Promise<{ success: boolean; message: string; data?: { payment_url: string; email_sent: boolean } }> {
     const response = await apiClient.post<{ success: boolean; message: string; data?: { payment_url: string; email_sent: boolean } }>(
       `/admin/invoices/${id}/send-payment-link`
+    );
+    return response.data;
+  },
+
+  async getPaymentLink(id: string): Promise<{ success: boolean; message: string; data: { payment_url: string; expires_at?: string | null } }> {
+    const response = await apiClient.post<{ success: boolean; message: string; data: { payment_url: string; expires_at?: string | null } }>(
+      `/admin/invoices/${id}/payment-link`
     );
     return response.data;
   },

@@ -40,8 +40,8 @@ function consumeAdminReturnPath(): string {
 export default function AdminLoginPage() {
   const router = useRouter();
 
-  const [email, setEmail] = useState('admin@printecommerce.com.au');
-  const [password, setPassword] = useState('SecretAdmin2026!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -151,7 +151,7 @@ export default function AdminLoginPage() {
           <Input
             label="Email or Username"
             type="text"
-            placeholder="admin or admin@printecommerce.com.au"
+            placeholder="Enter email or username"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             disabled={loading}
@@ -161,7 +161,7 @@ export default function AdminLoginPage() {
           <Input
             label="Password"
             type="password"
-            placeholder="••••••••"
+            placeholder="Enter password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             disabled={loading}

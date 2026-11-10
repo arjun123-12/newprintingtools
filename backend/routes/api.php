@@ -818,6 +818,10 @@ Route::middleware(['auth:sanctum', 'admin.access'])
                 App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
                 'sendPaymentLink',
             ]);
+            Route::post('/invoices/{id}/payment-link', [
+                App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
+                'paymentLink',
+            ]);
             Route::delete('/invoices/{id}', [
                 App\Http\Controllers\Api\V1\Admin\AdminInvoiceController::class,
                 'destroy',

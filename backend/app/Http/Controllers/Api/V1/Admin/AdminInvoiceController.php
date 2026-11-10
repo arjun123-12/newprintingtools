@@ -63,6 +63,7 @@ class AdminInvoiceController extends Controller
                 },
                 'items.product:id,name,sku',
                 'invoice',
+                'activeReviewLink',
             ]);
 
         // Filter by Payment Status
@@ -149,6 +150,15 @@ class AdminInvoiceController extends Controller
                 }
             }
         }
+
+        $frontendUrl = rtrim(ManualOrderService::getLiveFrontendUrl(), '/');
+        $orders->each(function (Order $order) use ($frontendUrl) {
+            $link = $order->activeReviewLink;
+            $order->setAttribute(
+                'payment_link',
+                $link && $link->isValid() ? $frontendUrl . '/orders/review/' . $link->token : null
+            );
+        });
 
         return response()->json([
             'success' => true,
@@ -779,8 +789,12 @@ class AdminInvoiceController extends Controller
             return response()->json(['success' => false, 'message' => 'Add a customer email before sending this invoice.'], 422);
         }
 
-        $link = $this->manualOrderService->generateReviewLink($order, $request->user());
-        $paymentUrl = ManualOrderService::getLiveFrontendUrl() . '/orders/review/' . $link->token;
+        $order->load('activeReviewLink');
+        $link = $order->activeReviewLink;
+        if (!$link || !$link->isValid()) {
+            $link = $this->manualOrderService->generateReviewLink($order, $request->user());
+        }
+        $paymentUrl = rtrim(ManualOrderService::getLiveFrontendUrl(), '/') . '/orders/review/' . $link->token;
         $sent = $this->notificationService->sendInvoicePaymentLink($order, $paymentUrl, $customerEmail);
         if (!$sent) {
             return response()->json(['success' => false, 'message' => 'Invoice saved, but the email could not be sent. Please check mail settings and try again.'], 502);
@@ -799,6 +813,38 @@ class AdminInvoiceController extends Controller
             'success' => true,
             'message' => 'Invoice and payment link sent to ' . $customerEmail,
             'data' => ['payment_url' => $paymentUrl, 'email_sent' => true],
+        ]);
+    }
+
+    /** Return a reusable payment URL for copying from the invoice panel. */
+    public function paymentLink(Request $request, string $id): JsonResponse
+    {
+        $order = Order::with(['invoice', 'activeReviewLink'])->where('id', $id)->orWhere('order_number', $id)->first();
+        if (!$order) {
+            $invoice = Invoice::where('id', $id)->orWhere('invoice_number', $id)->first();
+            $order = $invoice ? Order::with(['invoice', 'activeReviewLink'])->find($invoice->order_id) : null;
+        }
+
+        if (!$order || !$order->invoice) {
+            return response()->json(['success' => false, 'message' => 'Invoice not found.'], 404);
+        }
+        if ((string) ($order->payment_status->value ?? $order->payment_status) === 'paid') {
+            return response()->json(['success' => false, 'message' => 'This invoice is already paid.'], 422);
+        }
+        if ((float) $order->total_inc_gst <= 0) {
+            return response()->json(['success' => false, 'message' => 'Set an invoice total greater than zero before creating a payment link.'], 422);
+        }
+
+        $link = $order->activeReviewLink;
+        if (!$link || !$link->isValid()) {
+            $link = $this->manualOrderService->generateReviewLink($order, $request->user());
+        }
+        $paymentUrl = rtrim(ManualOrderService::getLiveFrontendUrl(), '/') . '/orders/review/' . $link->token;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment link ready to share.',
+            'data' => ['payment_url' => $paymentUrl, 'expires_at' => $link->expires_at?->toIso8601String()],
         ]);
     }
 
