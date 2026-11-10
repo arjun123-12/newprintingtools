@@ -680,7 +680,9 @@ export default function OrderReviewPage({ params }: PageProps) {
           'collected',
         ].includes(res.data.status);
 
-        if (isPostReviewStatus || res.data.payment_status === 'paid') {
+        if (res.data.invoice && res.data.payment_status !== 'paid') {
+          setCurrentStep('payment');
+        } else if (isPostReviewStatus || res.data.payment_status === 'paid') {
           if (isPostReviewStatus || res.data.status === 'in_production') {
             setCurrentStep('production');
           } else {
@@ -1381,14 +1383,14 @@ export default function OrderReviewPage({ params }: PageProps) {
       <div className="bg-white rounded-3xl border border-slate-200/90 p-8 shadow-sm space-y-6">
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <button
+            {!orderData.invoice && <button
               type="button"
               onClick={() => setCurrentStep('review')}
               className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition flex items-center justify-center shrink-0 cursor-pointer"
               title="Back to artwork review"
             >
               <ArrowLeft className="w-4 h-4" />
-            </button>
+            </button>}
             <div className="w-12 h-12 rounded-2xl bg-pink-50 text-[#E11D48] flex items-center justify-center shrink-0">
               <CreditCard className="w-6 h-6" />
             </div>
@@ -1398,7 +1400,7 @@ export default function OrderReviewPage({ params }: PageProps) {
             </div>
           </div>
           <span className="text-xs font-semibold px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full shrink-0">
-            Proof V{orderData.proof.current_version} Approved
+            {orderData.invoice ? 'Invoice payment' : `Proof V${orderData.proof.current_version} Approved`}
           </span>
         </div>
 
@@ -1519,11 +1521,11 @@ export default function OrderReviewPage({ params }: PageProps) {
                   <Lock className="w-4 h-4" />
                 )}
                 <span>
-                  Approve artwork & proceed to production — ${orderData.totals.total_inc_gst.toFixed(2)} AUD
+                  {orderData.invoice ? 'Pay invoice' : 'Approve artwork & proceed to production'} — ${orderData.totals.total_inc_gst.toFixed(2)} AUD
                 </span>
               </button>
 
-              <button
+              {!orderData.invoice && <button
                 type="button"
                 onClick={() => setCurrentStep('review')}
                 disabled={submittingPayment}
@@ -1531,7 +1533,7 @@ export default function OrderReviewPage({ params }: PageProps) {
               >
                 <ArrowLeft className="w-4 h-4 text-slate-500" />
                 <span>Back to artwork review</span>
-              </button>
+              </button>}
 
               <div className="flex items-center justify-center gap-2.5 text-[11px] text-slate-400 pt-1">
                 <span className="flex items-center gap-1 font-medium text-slate-500">
@@ -2032,7 +2034,7 @@ export default function OrderReviewPage({ params }: PageProps) {
         {/* Title Bar & Progress Stepper */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 pb-2">
           <div>
-            {currentStep === 'payment' && (
+            {currentStep === 'payment' && !orderData.invoice && (
               <button
                 type="button"
                 onClick={() => setCurrentStep('review')}
@@ -2046,11 +2048,13 @@ export default function OrderReviewPage({ params }: PageProps) {
               {currentStep === 'review'
                 ? 'Your artwork is ready to review'
                 : currentStep === 'payment'
-                  ? 'Proof approved — Complete payment'
+                  ? orderData.invoice
+                    ? 'Invoice ready — Complete payment'
+                    : 'Proof approved — Complete payment'
                   : 'Track Your Order Progress'}
             </h1>
             <p className="text-sm font-medium text-slate-500 mt-1">
-              Order {orderData.order_number} • {primaryItem?.product_name || 'Print Products'} • {orderData.proof.version_label}
+              Order {orderData.order_number} • {primaryItem?.product_name || 'Print Products'} • {orderData.invoice?.invoice_number || orderData.proof.version_label}
             </p>
           </div>
 
@@ -2060,9 +2064,9 @@ export default function OrderReviewPage({ params }: PageProps) {
             <button
               type="button"
               onClick={() => {
-                if (currentStep === 'payment') setCurrentStep('review');
+                if (currentStep === 'payment' && !orderData.invoice) setCurrentStep('review');
               }}
-              className={`flex items-center gap-1.5 text-left ${currentStep === 'payment' ? 'cursor-pointer hover:opacity-80' : ''}`}
+              className={`flex items-center gap-1.5 text-left ${currentStep === 'payment' && !orderData.invoice ? 'cursor-pointer hover:opacity-80' : ''}`}
             >
               <span
                 className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition ${currentStep === 'review'
@@ -2076,7 +2080,7 @@ export default function OrderReviewPage({ params }: PageProps) {
                 className={`font-semibold ${currentStep === 'review' ? 'text-slate-900' : 'text-slate-500'
                   }`}
               >
-                Review artwork
+                {orderData.invoice ? 'Invoice' : 'Review artwork'}
               </span>
             </button>
 

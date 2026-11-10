@@ -12,6 +12,8 @@ use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\Notification\OrderNotificationService;
+use App\Services\Order\ManualOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +21,11 @@ use Illuminate\Support\Str;
 
 class AdminInvoiceController extends Controller
 {
+    public function __construct(
+        protected ManualOrderService $manualOrderService,
+        protected OrderNotificationService $notificationService
+    ) {}
+
     /**
      * Store metadata for Australian Tax Invoices (ATO Compliant)
      */
@@ -745,9 +752,57 @@ class AdminInvoiceController extends Controller
         });
     }
 
-    /**
-     * Delete an invoice and associated order record.
-     */
+    /** Send the invoice and its secure online payment link to its customer. */
+    public function sendPaymentLink(Request $request, string $id): JsonResponse
+    {
+        $order = Order::with(['user', 'invoice'])->where('id', $id)->orWhere('order_number', $id)->first();
+        if (!$order) {
+            $invoice = Invoice::where('id', $id)->orWhere('invoice_number', $id)->first();
+            $order = $invoice ? Order::with(['user', 'invoice'])->find($invoice->order_id) : null;
+        }
+
+        if (!$order || !$order->invoice) {
+            return response()->json(['success' => false, 'message' => 'Invoice not found.'], 404);
+        }
+
+        if ((string) ($order->payment_status->value ?? $order->payment_status) === 'paid') {
+            return response()->json(['success' => false, 'message' => 'This invoice is already paid.'], 422);
+        }
+        if ((float) $order->total_inc_gst <= 0) {
+            return response()->json(['success' => false, 'message' => 'Set an invoice total greater than zero before sending a payment link.'], 422);
+        }
+
+        $customerEmail = data_get($order->billing_address, 'email')
+            ?: data_get($order->shipping_address, 'email')
+            ?: $order->user?->email;
+        if (!$customerEmail) {
+            return response()->json(['success' => false, 'message' => 'Add a customer email before sending this invoice.'], 422);
+        }
+
+        $link = $this->manualOrderService->generateReviewLink($order, $request->user());
+        $paymentUrl = ManualOrderService::getLiveFrontendUrl() . '/orders/review/' . $link->token;
+        $sent = $this->notificationService->sendInvoicePaymentLink($order, $paymentUrl, $customerEmail);
+        if (!$sent) {
+            return response()->json(['success' => false, 'message' => 'Invoice saved, but the email could not be sent. Please check mail settings and try again.'], 502);
+        }
+
+        OrderActivity::record(
+            $order->id,
+            'invoice_payment_link_sent',
+            'Invoice ' . $order->invoice->invoice_number . ' and payment link sent to ' . $customerEmail,
+            'staff',
+            $request->user(),
+            ['email' => $customerEmail, 'invoice_number' => $order->invoice->invoice_number]
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Invoice and payment link sent to ' . $customerEmail,
+            'data' => ['payment_url' => $paymentUrl, 'email_sent' => true],
+        ]);
+    }
+
+    /** Delete an invoice and associated order record. */
     public function destroy(string $id): JsonResponse
     {
         $order = Order::with('invoice')->where('id', $id)->first();

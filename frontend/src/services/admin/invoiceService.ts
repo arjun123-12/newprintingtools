@@ -206,6 +206,13 @@ export const invoiceService = {
     return response.data;
   },
 
+  async sendPaymentLink(id: string): Promise<{ success: boolean; message: string; data?: { payment_url: string; email_sent: boolean } }> {
+    const response = await apiClient.post<{ success: boolean; message: string; data?: { payment_url: string; email_sent: boolean } }>(
+      `/admin/invoices/${id}/send-payment-link`
+    );
+    return response.data;
+  },
+
   async deleteInvoice(id: string): Promise<{ success: boolean; message: string }> {
     const response = await apiClient.delete<{ success: boolean; message: string }>(
       API_ENDPOINTS.ADMIN_INVOICE_DETAIL(id)

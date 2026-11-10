@@ -24,6 +24,36 @@ class OrderNotificationService
      */
     public const LINKED_ADMIN_EMAIL = 'erryimprints@gmail.com';
 
+    /** Email an issued invoice with its secure online payment link. */
+    public function sendInvoicePaymentLink(Order $order, string $paymentUrl, string $customerEmail): bool
+    {
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $invoiceNumber = $order->invoice?->invoice_number ?: $order->order_number;
+        $customerName = $order->user?->name ?: data_get($order->billing_address, 'name', 'Customer');
+        $amount = number_format((float) $order->total_inc_gst, 2);
+        $dueDate = $order->invoice?->due_at?->format('d M Y');
+        $body = "Dear {$customerName},\n\n"
+            . "Your invoice {$invoiceNumber} is ready.\n"
+            . "Amount due: AUD \${$amount}\n"
+            . ($dueDate ? "Due date: {$dueDate}\n" : '')
+            . "\nView your order and complete payment securely here:\n{$paymentUrl}\n\n"
+            . "Warm regards,\nErry Imprints\nInfo@erryimprints.com.au";
+
+        try {
+            Mail::raw($body, function ($message) use ($customerEmail, $invoiceNumber, $fromEmail, $fromName) {
+                $message->to($customerEmail)
+                    ->from($fromEmail, $fromName)
+                    ->replyTo($fromEmail, $fromName)
+                    ->subject("Invoice {$invoiceNumber} and payment link | Erry Imprints");
+            });
+            return true;
+        } catch (Throwable $e) {
+            Log::warning("Failed sending invoice payment link for {$invoiceNumber} to {$customerEmail}: {$e->getMessage()}");
+            return false;
+        }
+    }
+
     /** Notify the admin inbox for every new customer message on a design query. */
     public function sendClientBriefMessageAlert(ClientBrief $brief, string $messageText): bool
     {

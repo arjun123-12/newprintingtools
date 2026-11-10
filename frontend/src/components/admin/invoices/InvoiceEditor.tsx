@@ -417,7 +417,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({ invoiceId, initial
   }, [lines, taxMode, discountType, discountValue, shippingFee]);
 
   // 7. Save and Submit Handler
-  const handleSaveInvoice = async (markPaid: boolean = false) => {
+  const handleSaveInvoice = async (markPaid: boolean = false, sendPaymentLink: boolean = false) => {
     // Basic validation
     if (!selectedCustomerId && !selectedCustomer?.name) {
       setErrorMessage('Please select or create a customer.');
@@ -435,6 +435,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({ invoiceId, initial
     setSaving(true);
     setErrorMessage(null);
     setSuccessMessage(null);
+    let invoiceSaved = false;
 
     const payload = {
       customer_id: selectedCustomerId || null,
@@ -483,7 +484,13 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({ invoiceId, initial
       }
 
       if (res.success) {
-        setSuccessMessage('Invoice saved successfully!');
+        invoiceSaved = true;
+        if (sendPaymentLink) {
+          const sendResult = await invoiceService.sendPaymentLink(String(res.data.id));
+          setSuccessMessage(sendResult.message || 'Invoice and payment link sent successfully!');
+        } else {
+          setSuccessMessage('Invoice saved successfully!');
+        }
         setTimeout(() => {
           router.push('/admin/invoices');
         }, 1200);
@@ -491,7 +498,10 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({ invoiceId, initial
         setErrorMessage(res.message || 'Failed to save invoice.');
       }
     } catch (err: any) {
-      setErrorMessage(err?.response?.data?.message || err?.message || 'Error occurred while saving invoice.');
+      setErrorMessage(
+        err?.response?.data?.message ||
+        (invoiceSaved ? 'Invoice saved, but the payment link could not be sent.' : err?.message || 'Error occurred while saving invoice.')
+      );
     } finally {
       setSaving(false);
     }
@@ -1168,7 +1178,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({ invoiceId, initial
 
           <button
             type="button"
-            onClick={() => handleSaveInvoice(false)}
+            onClick={() => handleSaveInvoice(false, true)}
             disabled={saving}
             className="px-6 py-2 rounded-full bg-[#0d5c3a] hover:bg-[#09472c] text-white text-xs font-bold transition shadow-xs disabled:opacity-50 flex items-center gap-1.5"
           >
@@ -1178,7 +1188,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({ invoiceId, initial
                 <span>Saving…</span>
               </>
             ) : (
-              <span>Save and send</span>
+              <span>Save and send invoice + payment link</span>
             )}
           </button>
         </div>

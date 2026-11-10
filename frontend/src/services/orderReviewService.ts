@@ -6,6 +6,7 @@ const API_BASE_URL =
 
 export interface CustomerReviewData {
   order_number: string;
+  invoice?: { invoice_number: string; status: string } | null;
   status: string;
   status_label?: string;
   shipping_carrier?: string | null;

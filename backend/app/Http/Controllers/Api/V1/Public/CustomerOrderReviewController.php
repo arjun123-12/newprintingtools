@@ -109,6 +109,7 @@ class CustomerOrderReviewController extends Controller
 
         $order = Order::with([
             'user:id,name,email,company_name',
+            'invoice',
             'items' => function ($query) {
                 // designer_canvas_state can contain embedded print-resolution artwork.
                 // It is not needed for the public item summary.
@@ -280,6 +281,10 @@ class CustomerOrderReviewController extends Controller
             'success' => true,
             'data' => [
                 'order_number' => $order->order_number,
+                'invoice' => $order->invoice ? [
+                    'invoice_number' => $order->invoice->invoice_number,
+                    'status' => $order->invoice->status,
+                ] : null,
                 'status' => $order->status->value ?? (string) $order->status,
                 'status_label' => OrderStatus::WORKFLOW_SEQUENCE[$order->status->value ?? (string) $order->status]
                     ?? ($order->status instanceof OrderStatus ? $order->status->label() : ucwords(str_replace('_', ' ', (string) $order->status))),
@@ -735,7 +740,7 @@ class CustomerOrderReviewController extends Controller
             ], 409);
         }
 
-        if (empty($order->approved_proof_version)) {
+        if (empty($order->approved_proof_version) && !$order->invoice()->exists()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Please review and approve your artwork proof before continuing to payment.',
