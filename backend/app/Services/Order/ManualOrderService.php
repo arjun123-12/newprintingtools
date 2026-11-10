@@ -6,6 +6,7 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Artwork;
 use App\Models\ArtworkVersion;
+use App\Models\CustomerRewardLedger;
 use App\Models\Order;
 use App\Models\OrderActivity;
 use App\Models\OrderItem;
@@ -228,7 +229,7 @@ class ManualOrderService
                     'unit_price_inc_gst' => round($itemData['unit_price_ex_gst'] * 1.10, 4),
                     'total_price_inc_gst' => $itemData['line_total_inc_gst'],
                     'options_snapshot' => $itemData['options'] ?? [],
-                    'production_status' => 'queued',
+                    'production_status' => !empty($itemData['options']['non_production']) ? 'completed' : 'queued',
                 ]);
             }
 
@@ -261,6 +262,33 @@ class ManualOrderService
             $data['delivery_method'] ?? ($order->delivery_method ?? 'standard'),
             $data['shipping_fee'] ?? null
         );
+        $reward = $order->applied_reward_code
+            ? CustomerRewardLedger::where('reward_code', $order->applied_reward_code)->where('status', 'active')->first()
+            : null;
+        if ($reward && (int) $reward->user_id !== (int) $order->user_id && (string) $reward->order_id !== (string) $order->id) {
+            $reward = null;
+        }
+        if ($reward && (!$reward->expires_at || !$reward->expires_at->isPast())) {
+            $targetSubtotal = 0.0;
+            $targetUnit = 0.0;
+            foreach ($calculated['items'] as $item) {
+                if (in_array($reward->reward_type, ['product_discount', 'free_product'], true)
+                    && trim((string) $reward->target_product) !== ''
+                    && str_contains(mb_strtolower(trim((string) $item['product_name'])), mb_strtolower(trim((string) $reward->target_product)))) {
+                    $targetSubtotal += (float) $item['line_total_inc_gst'];
+                    $targetUnit += (float) $item['line_total_inc_gst'] / max(1, (int) $item['quantity']);
+                }
+            }
+            $baseTotal = (float) $calculated['subtotal_ex_gst'] + (float) $calculated['gst_amount'] + (float) $calculated['shipping_fee_inc_gst'];
+            $discount = match ($reward->reward_type) {
+                'product_discount' => $targetSubtotal * min(100, max(0, (float) $reward->value)) / 100,
+                'free_product' => min($targetSubtotal, $targetUnit),
+                'print_credit' => min($baseTotal, (float) $reward->value),
+                default => 0.0,
+            };
+            $calculated['discount_amount'] = round(min($baseTotal, max(0, $discount)), 2);
+            $calculated['total_inc_gst'] = round(max(0, $baseTotal - $calculated['discount_amount']), 2);
+        }
 
         return DB::transaction(function () use ($order, $staffUser, $calculated, $data) {
             $shippingAddress = $order->shipping_address ?? [];
@@ -358,7 +386,7 @@ class ManualOrderService
                         'options_snapshot' => $itemData['options'] ?? [],
                         'artwork_id' => $previousItem?->artwork_id,
                         'designer_canvas_state' => $previousItem?->designer_canvas_state,
-                        'production_status' => 'queued',
+                        'production_status' => !empty($itemData['options']['non_production']) ? 'completed' : 'queued',
                     ]);
                 }
             }

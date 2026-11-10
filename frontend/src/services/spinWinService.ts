@@ -22,7 +22,8 @@ export interface WheelSegment {
   code: string;
   title: string;
   badge_text?: string | null;
-  reward_type: 'print_credit' | 'free_product' | 'premium_upgrade' | 'shipping_upgrade';
+  reward_type: 'print_credit' | 'product_discount' | 'free_product' | 'premium_upgrade' | 'shipping_upgrade';
+  target_product?: string | null;
   value: number;
   inventory?: number | null;
   terms_text: string;
@@ -39,7 +40,8 @@ export interface WonPrize {
   reward_code: string;
   title: string;
   badge_text?: string | null;
-  reward_type: 'print_credit' | 'free_product' | 'premium_upgrade' | 'shipping_upgrade';
+  reward_type: 'print_credit' | 'product_discount' | 'free_product' | 'premium_upgrade' | 'shipping_upgrade';
+  target_product?: string | null;
   value: number;
   segment_index: number;
   terms_text: string;
@@ -73,7 +75,8 @@ export interface CustomerRewardItem {
   category_id?: number;
   category_name?: string;
   reward_code: string;
-  reward_type: 'print_credit' | 'free_product' | 'premium_upgrade' | 'shipping_upgrade';
+  reward_type: 'print_credit' | 'product_discount' | 'free_product' | 'premium_upgrade' | 'shipping_upgrade';
+  target_product?: string | null;
   title: string;
   badge_text?: string | null;
   value: number;
@@ -168,6 +171,11 @@ export const spinWinService = {
   async claimReward(claimToken: string) {
     const res = await apiClient.post('/rewards/claim-spin-reward', { claim_token: claimToken });
     return res.data;
+  },
+
+  async startDesignQueryFromReward(claimToken: string): Promise<{ token: string; product: string }> {
+    const res = await apiClient.post('/client-brief/start-from-reward', { claim_token: claimToken });
+    return res.data?.data;
   },
 
   /**

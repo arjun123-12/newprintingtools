@@ -162,8 +162,20 @@ class SpinAndWinRewardTest extends TestCase
             'code' => $prize['reward_code'],
             'subtotal' => 100.00,
         ]);
-        $valRes->assertStatus(200);
-        $this->assertTrue($valRes->json('data.valid'));
-        $this->assertEquals($prize['reward_code'], $valRes->json('data.reward_code'));
+        $ledger = CustomerRewardLedger::where('reward_code', $prize['reward_code'])->firstOrFail();
+        if (in_array($ledger->reward_type, ['product_discount', 'free_product'], true)) {
+            $valRes->assertStatus(422);
+            $this->assertStringContainsString($ledger->target_product, $valRes->json('data.message'));
+            $result = app(\App\Services\Rewards\SpinRewardService::class)->validateRewardForCheckout(
+                $prize['reward_code'], 100.00, $user,
+                [['product_name' => 'Premium ' . $ledger->target_product, 'quantity' => 2, 'total_inc_gst' => 100.00]]
+            );
+            $this->assertTrue($result['valid']);
+            $this->assertGreaterThan(0, $result['discount_amount']);
+        } else {
+            $valRes->assertStatus(200);
+            $this->assertTrue($valRes->json('data.valid'));
+            $this->assertEquals($prize['reward_code'], $valRes->json('data.reward_code'));
+        }
     }
 }

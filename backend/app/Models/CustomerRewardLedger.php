@@ -20,6 +20,7 @@ class CustomerRewardLedger extends Model
         'category_name',
         'reward_code',
         'reward_type',
+        'target_product',
         'title',
         'badge_text',
         'value',

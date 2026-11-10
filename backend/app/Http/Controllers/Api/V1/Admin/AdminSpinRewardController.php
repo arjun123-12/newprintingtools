@@ -122,7 +122,8 @@ class AdminSpinRewardController extends Controller
             'segments.*.category_id' => ['nullable', 'integer', 'exists:spin_reward_categories,id'],
             'segments.*.code' => ['required', 'string', 'max:64'],
             'segments.*.title' => ['required', 'string', 'max:100'],
-            'segments.*.reward_type' => ['required', 'string', 'in:print_credit,free_product,premium_upgrade,shipping_upgrade'],
+            'segments.*.reward_type' => ['required', 'string', 'in:print_credit,product_discount,free_product,premium_upgrade,shipping_upgrade'],
+            'segments.*.target_product' => ['nullable', 'string', 'max:150'],
             'segments.*.badge_text' => ['nullable', 'string', 'max:32'],
             'segments.*.value' => ['required', 'numeric', 'min:0'],
             'segments.*.description' => ['nullable', 'string'],
@@ -139,6 +140,19 @@ class AdminSpinRewardController extends Controller
         ]);
 
         if (array_key_exists('segments', $validated)) {
+            foreach ($validated['segments'] ?? [] as $segment) {
+                if (($segment['reward_type'] ?? null) === 'product_discount'
+                    && (empty($segment['target_product']) || (float) ($segment['value'] ?? 0) > 100)) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'segments' => ['Product discounts need a target product and a percentage from 0 to 100.'],
+                    ]);
+                }
+                if (($segment['reward_type'] ?? null) === 'free_product' && empty($segment['target_product'])) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'segments' => ['Free product rewards need a target product.'],
+                    ]);
+                }
+            }
             $defaultCategoryId = SpinRewardCategory::where('is_default', true)->value('id');
             $activeSegmentsByCategory = collect($validated['segments'] ?? [])
                 ->filter(fn (array $segment) => (bool) ($segment['is_active'] ?? false))
@@ -199,6 +213,7 @@ class AdminSpinRewardController extends Controller
                         'category_id' => $catId,
                         'title' => $segData['title'],
                         'reward_type' => $segData['reward_type'],
+                        'target_product' => $segData['target_product'] ?? null,
                         'badge_text' => $segData['badge_text'] ?? null,
                         'value' => $segData['value'],
                         'description' => $segData['description'] ?? null,

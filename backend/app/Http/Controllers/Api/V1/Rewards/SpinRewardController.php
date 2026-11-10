@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\V1\Rewards;
 
 use App\Http\Controllers\Controller;
+use App\Models\Cart;
+use App\Services\Checkout\CheckoutService;
 use App\Services\Rewards\SpinRewardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -168,10 +170,18 @@ class SpinRewardController extends Controller
         ]);
 
         try {
+            $cartItems = [];
+            if ($request->user()) {
+                $cart = Cart::where('user_id', $request->user()->id)->first();
+                if ($cart) {
+                    $cartItems = app(CheckoutService::class)->recalculateCartItems($cart)['items'] ?? [];
+                }
+            }
             $result = $this->spinRewardService->validateRewardForCheckout(
                 $validated['code'],
                 (float) ($validated['subtotal'] ?? 0),
-                $request->user()
+                $request->user(),
+                $cartItems
             );
 
             return response()->json([

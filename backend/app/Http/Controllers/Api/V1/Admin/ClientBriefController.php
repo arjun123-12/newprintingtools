@@ -118,14 +118,14 @@ class ClientBriefController extends Controller
     ): JsonResponse {
         $brief =
             ClientBrief::query()
-                ->with(['files', 'messages'])
+                ->with(['files', 'messages', 'rewardLedger.spinReward'])
                 ->findOrFail($id);
 
         $payload = $brief->only([
             'id','uuid','request_type','reorder_reference','project_name','product','quantity',
             'width','height','unit','print_sides','colours','description',
             'additional_notes','requested_date','status','is_active','expires_at','submitted_at',
-            'created_at','updated_at',
+            'created_at','updated_at','design_fee','design_fee_accepted_at',
         ]);
 
         return response()->json([
@@ -170,6 +170,13 @@ class ClientBriefController extends Controller
                     'id' => $message->id, 'author' => $message->author,
                     'message' => $message->message, 'created_at' => $message->created_at,
                 ]),
+                'spin_reward' => $brief->rewardLedger ? [
+                    'title' => $brief->rewardLedger->title,
+                    'reward_code' => $brief->rewardLedger->reward_code,
+                    'reward_type' => $brief->rewardLedger->reward_type,
+                    'target_product' => $brief->rewardLedger->target_product,
+                    'value' => (float) $brief->rewardLedger->value,
+                ] : null,
                 'linked_order' => $brief->order()->first(['id', 'order_number', 'status', 'payment_status']),
             ],
         ]);
@@ -207,9 +214,7 @@ class ClientBriefController extends Controller
             return response()->json(['success' => false, 'message' => 'The customer must approve the design before production completion.'], 422);
         }
 
-        $brief->update(
-            $validated
-        );
+        $brief->update($validated);
 
         return response()->json([
             'success' => true,
@@ -219,6 +224,19 @@ class ClientBriefController extends Controller
                 'id','uuid','status','is_active','expires_at','submitted_at','updated_at',
             ]),
         ]);
+    }
+
+    public function setDesignFee(Request $request, int $id, OrderNotificationService $notifications): JsonResponse
+    {
+        $data = $request->validate(['design_fee' => ['required', 'numeric', 'min:0', 'max:10000']]);
+        $brief = ClientBrief::findOrFail($id);
+        if ($brief->order()->exists()) return response()->json(['success' => false, 'message' => 'The linked order already exists; update the design service line on the order instead.'], 422);
+        if ((float) $data['design_fee'] === (float) $brief->design_fee) return response()->json(['success' => true, 'message' => 'Design fee is unchanged.']);
+        $brief->update(['design_fee' => $data['design_fee'], 'design_fee_accepted_at' => null]);
+        $amount = number_format((float) $data['design_fee'], 2);
+        $brief->messages()->create(['author' => 'employee', 'message' => (float) $data['design_fee'] > 0 ? "Design service fee: AUD \${$amount}. Please review and accept it before we proceed." : 'The design service fee has been removed.']);
+        if ((float) $brief->design_fee > 0) $notifications->sendClientBriefCustomerUpdate($brief->fresh(), 'A design service fee is ready for your review. Please open your design query link to accept it.');
+        return response()->json(['success' => true, 'message' => 'Design fee updated and customer notified.']);
     }
 
     public function uploadDesign(Request $request, int $id, OrderNotificationService $notifications): JsonResponse

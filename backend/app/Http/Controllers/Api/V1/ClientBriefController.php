@@ -9,6 +9,8 @@ use App\Models\Artwork;
 use App\Models\ArtworkVersion;
 use App\Models\OrderActivity;
 use App\Models\Product;
+use App\Models\CustomerRewardLedger;
+use App\Services\Rewards\SpinRewardService;
 use App\Services\Order\ManualOrderService;
 use App\Services\Notification\OrderNotificationService;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +22,36 @@ use Throwable;
 
 class ClientBriefController extends Controller
 {
+    /** Create or reuse a design query linked to the signed-in customer's claimed spin reward. */
+    public function startFromReward(Request $request, SpinRewardService $rewards): JsonResponse
+    {
+        $data = $request->validate(['claim_token' => ['required', 'string', 'max:120']]);
+        try {
+            $ledger = $rewards->claimReward($request->user(), $data['claim_token']);
+        } catch (\InvalidArgumentException $exception) {
+            return response()->json(['success' => false, 'message' => $exception->getMessage()], 422);
+        }
+        $ledger->load('spinReward');
+        $brief = ClientBrief::where('spin_reward_ledger_id', $ledger->id)->first();
+        if (!$brief) {
+            $user = $request->user();
+            $reward = $ledger->spinReward;
+            $product = $ledger->target_product ?: $reward?->target_product;
+            if (!$product && $ledger->reward_type === 'free_product') {
+                $product = preg_replace('/^free\s+/i', '', $ledger->title) ?: $ledger->title;
+            }
+            $brief = ClientBrief::create([
+                'uuid' => (string) Str::uuid(), 'token' => Str::random(48), 'status' => 'draft',
+                'is_active' => true, 'expires_at' => now()->addDays(30), 'user_id' => $user->id,
+                'spin_reward_ledger_id' => $ledger->id, 'client_name' => $user->name,
+                'company_name' => $user->company_name, 'email' => $user->email, 'phone' => $user->phone,
+                'product' => $product, 'quantity' => $ledger->reward_type === 'free_product' ? 1 : null,
+                'request_type' => 'design', 'description' => 'Spin reward: ' . $ledger->title . ' (' . $ledger->reward_code . ')',
+            ]);
+        }
+        return response()->json(['success' => true, 'data' => ['token' => $brief->token, 'product' => $brief->product]], 201);
+    }
+
     /** Create a short-lived secure brief link for a customer starting from the website. */
     public function start(): JsonResponse
     {
@@ -75,8 +107,21 @@ class ClientBriefController extends Controller
                     $brief->status,
 
                 'submitted' => $submitted,
-                'product' => $submitted ? $brief->product : null,
-                'quantity' => $submitted ? $brief->quantity : null,
+                'product' => $brief->product,
+                'client_name' => $brief->client_name,
+                'company_name' => $brief->company_name,
+                'email' => $brief->email,
+                'phone' => $brief->phone,
+                'design_fee' => (float) $brief->design_fee,
+                'design_fee_accepted' => !is_null($brief->design_fee_accepted_at),
+                'spin_reward' => $brief->spin_reward_ledger_id ? [
+                    'title' => $brief->rewardLedger?->title,
+                    'reward_code' => $brief->rewardLedger?->reward_code,
+                    'reward_type' => $brief->rewardLedger?->reward_type,
+                    'target_product' => $brief->rewardLedger?->target_product,
+                    'value' => (float) ($brief->rewardLedger?->value ?? 0),
+                ] : null,
+                'quantity' => $brief->quantity,
                 'width' => $submitted ? $brief->width : null,
                 'height' => $submitted ? $brief->height : null,
                 'unit' => $submitted ? $brief->unit : null,
@@ -523,11 +568,23 @@ class ClientBriefController extends Controller
         return response()->json(['success' => true]);
     }
 
+    public function acceptDesignFee(string $token, OrderNotificationService $notifications): JsonResponse
+    {
+        $brief = $this->findSubmitted($token);
+        if ($brief instanceof JsonResponse) return $brief;
+        if ((float) $brief->design_fee <= 0) return response()->json(['success' => false, 'message' => 'No design fee is awaiting acceptance.'], 422);
+        $brief->update(['design_fee_accepted_at' => now()]);
+        $brief->messages()->create(['author' => 'customer', 'message' => 'Customer accepted the design service fee of AUD $' . number_format((float) $brief->design_fee, 2) . '.']);
+        $notifications->sendClientBriefMessageAlert($brief->fresh(), 'Customer accepted the design service fee.');
+        return response()->json(['success' => true]);
+    }
+
     public function approve(string $token, ManualOrderService $manualOrderService): JsonResponse
     {
         $brief = $this->findSubmitted($token);
         if ($brief instanceof JsonResponse) return $brief;
         if (!$brief->files()->where('file_type', 'design')->exists()) return response()->json(['success' => false, 'message' => 'There is no design to approve yet.'], 422);
+        if ((float) $brief->design_fee > 0 && !$brief->design_fee_accepted_at) return response()->json(['success' => false, 'message' => 'Please accept the design service fee before approving the design.'], 422);
 
         $order = $brief->order;
         $designFiles = $brief->files()->where('file_type', 'design')->get();
@@ -553,6 +610,24 @@ class ClientBriefController extends Controller
                 'Customer approved design preview(s):' . "\n" . $previewLinks,
             ])));
 
+            $items = [[
+                'product_id' => $product->id,
+                'product_name' => $brief->product ?: $product->name,
+                'quantity' => max(1, (int) ($brief->quantity ?: 1)),
+                'price' => 0,
+                'specifications' => $specifications,
+                'options' => ['specifications' => $specifications, 'approved_design_urls' => $designFiles->map(fn ($file) => $file->file_url)->values()->all()],
+            ]];
+            if ((float) $brief->design_fee > 0) {
+                $items[] = [
+                    'product_id' => $product->id,
+                    'product_name' => 'Graphic design service',
+                    'quantity' => 1,
+                    'price' => (float) $brief->design_fee,
+                    'specifications' => 'Customer accepted design service fee on ' . $brief->design_fee_accepted_at?->format('Y-m-d H:i'),
+                    'options' => ['design_service_fee' => true, 'non_production' => true, 'client_brief_id' => $brief->id],
+                ];
+            }
             $order = $manualOrderService->createManualOrder(null, [
                 'client_brief_id' => $brief->id,
                 'customer_name' => $brief->client_name,
@@ -561,17 +636,19 @@ class ClientBriefController extends Controller
                 'company_name' => $brief->company_name,
                 'delivery_method' => $brief->fulfilment === 'pickup' ? 'Pickup' : 'Standard delivery (Free)',
                 'delivery_address' => $brief->delivery_address ?: 'To be confirmed',
-                'customer_notes' => 'Design request DQ-' . str_pad((string) $brief->id, 4, '0', STR_PAD_LEFT) . ' approved. Price is not set; confirm the quote before sending a payment link.',
+                'customer_notes' => 'Design request DQ-' . str_pad((string) $brief->id, 4, '0', STR_PAD_LEFT) . ' approved. Print price is not set; confirm the quote before sending a payment link.',
                 'internal_notes' => 'Created from approved design query #' . $brief->id . '. Set the correct price before sending any payment request.',
-                'items' => [[
-                    'product_id' => $product->id,
-                    'product_name' => $brief->product ?: $product->name,
-                    'quantity' => max(1, (int) ($brief->quantity ?: 1)),
-                    'price' => 0,
-                    'specifications' => $specifications,
-                    'options' => ['specifications' => $specifications, 'approved_design_urls' => $designFiles->map(fn ($file) => $file->file_url)->values()->all()],
-                ]],
+                'items' => $items,
             ]);
+
+            if ($brief->spin_reward_ledger_id) {
+                $reward = CustomerRewardLedger::find($brief->spin_reward_ledger_id);
+                if ($reward) $order->update([
+                    'applied_reward_code' => $reward->reward_code,
+                    'applied_reward_title' => $reward->title,
+                    'applied_reward_type' => $reward->reward_type,
+                ]);
+            }
 
         }
 

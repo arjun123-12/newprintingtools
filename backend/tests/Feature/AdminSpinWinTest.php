@@ -46,6 +46,7 @@ class AdminSpinWinTest extends TestCase
                     'code' => '100_business_cards_free',
                     'title' => '100 Business Cards Special',
                     'reward_type' => 'free_product',
+                    'target_product' => 'Business Cards',
                     'badge_text' => 'FREE',
                     'value' => 45.00,
                     'terms_text' => 'Special terms',
@@ -57,7 +58,24 @@ class AdminSpinWinTest extends TestCase
                     'expiry_days' => 60,
                     'is_active' => true,
                     'sort_order' => 1,
-                ]
+                ],
+                [
+                    'code' => 'business_cards_10_percent',
+                    'title' => 'Business Cards 10% Off',
+                    'reward_type' => 'product_discount',
+                    'target_product' => 'Business Cards',
+                    'badge_text' => '10% OFF',
+                    'value' => 10,
+                    'terms_text' => 'Special terms',
+                    'how_to_use' => 'How to use note',
+                    'color_bg' => '#e0f2fe',
+                    'color_text' => '#0369a1',
+                    'probability_weight' => 20,
+                    'min_order_spend' => 0,
+                    'expiry_days' => 60,
+                    'is_active' => true,
+                    'sort_order' => 2,
+                ],
             ]
         ]);
 

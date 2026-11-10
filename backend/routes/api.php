@@ -113,6 +113,7 @@ Route::prefix('client-brief')
             ->where('token', '[A-Za-z0-9]+')
             ->middleware('throttle:20,1');
         Route::post('/{token}/messages', [ClientBriefController::class, 'message'])->where('token', '[A-Za-z0-9]+')->middleware('throttle:20,1');
+        Route::post('/{token}/accept-design-fee', [ClientBriefController::class, 'acceptDesignFee'])->where('token', '[A-Za-z0-9]+')->middleware('throttle:10,1');
         Route::post('/{token}/approve', [ClientBriefController::class, 'approve'])->where('token', '[A-Za-z0-9]+')->middleware('throttle:10,1');
     });
 
@@ -385,6 +386,7 @@ Route::prefix('cart')->group(function () {
 // ==========================================
 
 Route::middleware(['auth:sanctum'])->group(function () {
+    Route::post('/client-brief/start-from-reward', [ClientBriefController::class, 'startFromReward']);
     Route::post('/offers/validate', [App\Http\Controllers\Api\V1\Admin\OfferController::class, 'validateCode'])->middleware('throttle:20,1');
     Route::prefix('auth')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
@@ -496,6 +498,7 @@ Route::middleware(['auth:sanctum', 'admin.access'])
             Route::post('/', [AdminClientBriefController::class, 'store']);
             Route::get('/{id}', [AdminClientBriefController::class, 'show'])->whereNumber('id');
             Route::patch('/{id}', [AdminClientBriefController::class, 'update'])->whereNumber('id');
+            Route::put('/{id}/fee', [AdminClientBriefController::class, 'setDesignFee'])->whereNumber('id')->middleware('permission:pricing');
             Route::post('/{id}/design', [AdminClientBriefController::class, 'uploadDesign'])->whereNumber('id');
             Route::post('/{id}/messages', [AdminClientBriefController::class, 'message'])->whereNumber('id');
         });

@@ -36,6 +36,168 @@ const CUSTOMER_WHEEL_PALETTE = DEFAULT_SEGMENTS.map(({ color, darkColor, textCol
 
 const NO_CONFETTI_LABELS = ['TRY AGAIN', 'NO LUCK', 'BETTER LUCK'];
 
+/**
+ * Format and balance slice label text so it sits neatly in 1 or 2 lines below the gift icon.
+ * Removes long parenthesized tags (e.g. "(Just Pay Shipping)") so text stays clean.
+ */
+function formatSliceLabel(rawLabel: string) {
+  const clean = (rawLabel || '')
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/\s*·.*$/, '')
+    .trim();
+
+  if (!clean) return { line1: '', line2: '' };
+
+  const words = clean.split(/\s+/);
+  if (words.length === 1) {
+    return { line1: clean, line2: '' };
+  }
+  if (words.length === 2) {
+    return { line1: words[0], line2: words[1] };
+  }
+  const mid = Math.ceil(words.length / 2);
+  return {
+    line1: words.slice(0, mid).join(' '),
+    line2: words.slice(mid).join(' '),
+  };
+}
+
+/** 3D-styled decorative navy and gold gift box with mini box (flanking the bottom-left of the wheel) */
+function DecorativeGiftBoxLeft() {
+  return (
+    <svg
+      viewBox="0 0 110 100"
+      className="w-16 h-16 sm:w-22 sm:h-20 drop-shadow-[0_12px_20px_rgba(0,0,0,0.7)]"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <defs>
+        <linearGradient id="decNavyGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#1e3a5f" />
+          <stop offset="100%" stopColor="#0a192f" />
+        </linearGradient>
+        <linearGradient id="decNavyGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#2d4a77" />
+          <stop offset="100%" stopColor="#112240" />
+        </linearGradient>
+        <linearGradient id="decGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#fef08a" />
+          <stop offset="45%" stopColor="#f59e0b" />
+          <stop offset="100%" stopColor="#b45309" />
+        </linearGradient>
+        <linearGradient id="decMiniGold" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#fef08a" />
+          <stop offset="60%" stopColor="#eab308" />
+          <stop offset="100%" stopColor="#a16207" />
+        </linearGradient>
+      </defs>
+
+      {/* Main Navy Box shadow on floor */}
+      <ellipse cx="62" cy="88" rx="34" ry="9" fill="rgba(0,0,0,0.5)" />
+
+      {/* Left face */}
+      <path d="M 36,44 L 36,80 L 62,92 L 62,54 Z" fill="url(#decNavyGrad1)" />
+      {/* Right face */}
+      <path d="M 62,54 L 62,92 L 88,80 L 88,44 Z" fill="url(#decNavyGrad2)" />
+      {/* Top Lid */}
+      <path d="M 62,26 L 92,40 L 62,54 L 32,40 Z" fill="#243b55" stroke="#3b597d" strokeWidth="1" />
+      <path d="M 32,40 L 32,46 L 62,60 L 62,54 Z" fill="#1b2d42" />
+      <path d="M 62,54 L 62,60 L 92,46 L 92,40 Z" fill="#132133" />
+
+      {/* Gold Ribbon on Main Box */}
+      <path d="M 47,33 L 77,47 L 73,49 L 43,35 Z" fill="url(#decGoldGrad)" />
+      <path d="M 77,33 L 47,47 L 51,49 L 81,35 Z" fill="url(#decGoldGrad)" />
+      <path d="M 47,48 L 51,50 L 51,86 L 47,84 Z" fill="url(#decGoldGrad)" />
+      <path d="M 73,50 L 77,48 L 77,84 L 73,86 Z" fill="url(#decGoldGrad)" />
+
+      {/* Golden Bow on top */}
+      <path
+        d="M 62,28 C 50,14 36,15 42,24 C 47,31 58,29 62,28 Z"
+        fill="url(#decGoldGrad)"
+        stroke="#fef08a"
+        strokeWidth="0.8"
+      />
+      <path
+        d="M 62,28 C 74,14 88,15 82,24 C 77,31 66,29 62,28 Z"
+        fill="url(#decGoldGrad)"
+        stroke="#fef08a"
+        strokeWidth="0.8"
+      />
+      <ellipse cx="62" cy="27" rx="3.5" ry="3" fill="#fef08a" />
+      <path d="M 62,28 Q 54,34 50,42 Q 54,38 62,31 Z" fill="#d97706" />
+      <path d="M 62,28 Q 70,34 74,42 Q 70,38 62,31 Z" fill="#d97706" />
+
+      {/* Mini Gold Gift Box in Front */}
+      <g transform="translate(6, 44)">
+        <ellipse cx="22" cy="40" rx="18" ry="5" fill="rgba(0,0,0,0.4)" />
+        <rect x="8" y="18" width="28" height="20" rx="2" fill="url(#decMiniGold)" stroke="#fef08a" strokeWidth="0.8" />
+        <rect x="6" y="14" width="32" height="6" rx="1.5" fill="#fef08a" />
+        <rect x="19" y="14" width="6" height="24" fill="#0f172a" />
+        <path d="M 22,14 C 16,7 9,8 13,12 C 16,15 20,14 22,14 Z" fill="#fef08a" />
+        <path d="M 22,14 C 28,7 35,8 31,12 C 28,15 24,14 22,14 Z" fill="#fef08a" />
+        <circle cx="22" cy="14" r="2" fill="#d97706" />
+      </g>
+    </svg>
+  );
+}
+
+/** 3D-styled decorative navy and gold gift box (flanking the bottom-right of the wheel) */
+function DecorativeGiftBoxRight() {
+  return (
+    <svg
+      viewBox="0 0 100 95"
+      className="w-15 h-15 sm:w-20 sm:h-19 drop-shadow-[0_12px_20px_rgba(0,0,0,0.7)]"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <defs>
+        <linearGradient id="decNavyGradR1" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#1e3a5f" />
+          <stop offset="100%" stopColor="#0a192f" />
+        </linearGradient>
+        <linearGradient id="decNavyGradR2" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#2d4a77" />
+          <stop offset="100%" stopColor="#112240" />
+        </linearGradient>
+        <linearGradient id="decGoldGradR" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#fef08a" />
+          <stop offset="45%" stopColor="#f59e0b" />
+          <stop offset="100%" stopColor="#b45309" />
+        </linearGradient>
+      </defs>
+
+      <ellipse cx="50" cy="84" rx="34" ry="9" fill="rgba(0,0,0,0.5)" />
+
+      <path d="M 24,40 L 24,76 L 50,88 L 50,50 Z" fill="url(#decNavyGradR1)" />
+      <path d="M 50,50 L 50,88 L 76,76 L 76,40 Z" fill="url(#decNavyGradR2)" />
+      <path d="M 50,22 L 80,36 L 50,50 L 20,36 Z" fill="#243b55" stroke="#3b597d" strokeWidth="1" />
+      <path d="M 20,36 L 20,42 L 50,56 L 50,50 Z" fill="#1b2d42" />
+      <path d="M 50,50 L 50,56 L 80,42 L 80,36 Z" fill="#132133" />
+
+      <path d="M 35,29 L 65,43 L 61,45 L 31,31 Z" fill="url(#decGoldGradR)" />
+      <path d="M 65,29 L 35,43 L 39,45 L 69,31 Z" fill="url(#decGoldGradR)" />
+      <path d="M 35,44 L 39,46 L 39,82 L 35,80 Z" fill="url(#decGoldGradR)" />
+      <path d="M 61,46 L 65,44 L 65,80 L 61,82 Z" fill="url(#decGoldGradR)" />
+
+      <path
+        d="M 50,24 C 38,10 24,11 30,20 C 35,27 46,25 50,24 Z"
+        fill="url(#decGoldGradR)"
+        stroke="#fef08a"
+        strokeWidth="0.8"
+      />
+      <path
+        d="M 50,24 C 62,10 76,11 70,20 C 65,27 54,25 50,24 Z"
+        fill="url(#decGoldGradR)"
+        stroke="#fef08a"
+        strokeWidth="0.8"
+      />
+      <ellipse cx="50" cy="23" rx="3.5" ry="3" fill="#fef08a" />
+      <path d="M 50,24 Q 42,30 38,38 Q 42,34 50,27 Z" fill="#d97706" />
+      <path d="M 50,24 Q 58,30 62,38 Q 58,34 50,27 Z" fill="#d97706" />
+    </svg>
+  );
+}
+
 interface SpinWheelProps {
   segments?: SpinSegment[];
   token?: string;
@@ -93,7 +255,11 @@ export default function SpinWheel({
     claimToken?: string;
     rewardType?: WonPrize['reward_type'];
     value?: number;
+    targetProduct?: string | null;
   } | null>(null);
+  const [startingDesignQuery, setStartingDesignQuery] = useState(false);
+  const [designQueryError, setDesignQueryError] = useState<string | null>(null);
+  const autoOpenedDesignQuery = useRef(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [claimEmail, setClaimEmail] = useState('');
   const [claimPassword, setClaimPassword] = useState('');
@@ -173,6 +339,7 @@ export default function SpinWheel({
             claimToken: data.prize.claim_token || undefined,
             rewardType: data.prize.reward_type,
             value: data.prize.value,
+            targetProduct: data.prize.target_product,
           });
           const segIdx = data.prize.segment_index ?? 0;
           setWinningIndex(segIdx);
@@ -208,6 +375,26 @@ export default function SpinWheel({
     }
   }, [isAuthenticated, user?.id, wonPrize?.claimToken, claimStatus, claimWonReward]);
 
+  const openDesignQuery = useCallback(async () => {
+    if (!wonPrize?.claimToken || startingDesignQuery) return;
+    setStartingDesignQuery(true);
+    setDesignQueryError(null);
+    try {
+      const brief = await spinWinService.startDesignQueryFromReward(wonPrize.claimToken);
+      window.location.href = `/client-brief/${brief.token}`;
+    } catch (err: any) {
+      setDesignQueryError(err.response?.data?.message || 'Could not start your design request. Please try again.');
+      setStartingDesignQuery(false);
+    }
+  }, [wonPrize?.claimToken, startingDesignQuery]);
+
+  useEffect(() => {
+    if (!isPreview && claimStatus === 'claimed' && wonPrize?.claimToken && !autoOpenedDesignQuery.current) {
+      autoOpenedDesignQuery.current = true;
+      void openDesignQuery();
+    }
+  }, [isPreview, claimStatus, wonPrize?.claimToken, openDesignQuery]);
+
   // Pointer tick sound / visual effect
   const tickRef = useRef<number | null>(null);
   const triggerTickAnimation = useCallback(() => {
@@ -227,7 +414,7 @@ export default function SpinWheel({
     setShowResultModal(false);
 
     let targetIndex = Math.floor(Math.random() * totalSlices);
-    let resolvedPrize: { title: string; code: string; subtitle?: string; expiresAt?: string; claimToken?: string; rewardType?: WonPrize['reward_type']; value?: number } | null = null;
+    let resolvedPrize: { title: string; code: string; subtitle?: string; expiresAt?: string; claimToken?: string; rewardType?: WonPrize['reward_type']; value?: number; targetProduct?: string | null } | null = null;
 
     // Check if we have server credentials to execute a verified spin
     const activeToken = serverSpinToken || token;
@@ -249,6 +436,7 @@ export default function SpinWheel({
             claimToken: serverPrize.claim_token || undefined,
             rewardType: serverPrize.reward_type,
             value: serverPrize.value,
+            targetProduct: serverPrize.target_product,
           };
         }
       } catch (err: any) {
@@ -514,6 +702,19 @@ export default function SpinWheel({
                 const textAngle = startDeg + sliceAngle / 2;
                 const isWinner = winningIndex === idx;
 
+                const { line1, line2 } = formatSliceLabel(seg.label);
+                const isCrowded = totalSlices > 7;
+                const maxLineLength = Math.max(line1.length, line2.length);
+
+                let line1FontSize = isCrowded ? 12 : 14;
+                if (maxLineLength > 12) {
+                  line1FontSize = isCrowded ? 9.5 : 11;
+                } else if (maxLineLength > 8) {
+                  line1FontSize = isCrowded ? 10.5 : 12.5;
+                }
+                const line2FontSize = Math.max(line1FontSize - 1.5, isCrowded ? 8.5 : 10);
+                const textColor = seg.textColor || '#ffffff';
+
                 return (
                   <g
                     key={idx}
@@ -529,32 +730,123 @@ export default function SpinWheel({
                       strokeWidth="1.5"
                     />
 
-                    {/* Slice Text Content */}
+                    {/* Slice Content (Image 2 style: Gift Icon above text) */}
                     <g
-                      transform={`translate(${center}, ${center}) rotate(${textAngle}) translate(${radius - 20}, 0)`}
+                      transform={`translate(${center}, ${center}) rotate(${textAngle + 90})`}
                     >
+                      {/* Gift Icon above the text */}
+                      <g
+                        transform={`translate(0, ${isCrowded ? -165 : -168})`}
+                        filter="drop-shadow(0 2px 3px rgba(0,0,0,0.5))"
+                      >
+                        <g transform={`scale(${isCrowded ? 1.05 : 1.2}) translate(-12, -12)`}>
+                          {/* Ribbon Bow Left Loop */}
+                          <path
+                            d="M 12,6.5 C 10,3.5 6.5,3.2 6.5,5.8 C 6.5,8 10,8.8 12,8.8 Z"
+                            fill={textColor}
+                            fillOpacity="0.32"
+                            stroke={textColor}
+                            strokeWidth="1.6"
+                            strokeLinejoin="round"
+                          />
+                          {/* Ribbon Bow Right Loop */}
+                          <path
+                            d="M 12,6.5 C 14,3.5 17.5,3.2 17.5,5.8 C 17.5,8 14,8.8 12,8.8 Z"
+                            fill={textColor}
+                            fillOpacity="0.32"
+                            stroke={textColor}
+                            strokeWidth="1.6"
+                            strokeLinejoin="round"
+                          />
+                          {/* Bow Knot */}
+                          <circle cx="12" cy="6.8" r="1.4" fill={textColor} />
+
+                          {/* Box Lid */}
+                          <rect
+                            x="3"
+                            y="8.8"
+                            width="18"
+                            height="3.6"
+                            rx="1.2"
+                            fill={textColor}
+                            fillOpacity="0.28"
+                            stroke={textColor}
+                            strokeWidth="1.6"
+                            strokeLinejoin="round"
+                          />
+
+                          {/* Box Body */}
+                          <path
+                            d="M 4.5,12.4 L 4.5,19.2 C 4.5,20.4 5.4,21.2 6.5,21.2 L 17.5,21.2 C 18.6,21.2 19.5,20.4 19.5,19.2 L 19.5,12.4 Z"
+                            fill={textColor}
+                            fillOpacity="0.2"
+                            stroke={textColor}
+                            strokeWidth="1.6"
+                            strokeLinejoin="round"
+                          />
+
+                          {/* Vertical Center Ribbon */}
+                          <line
+                            x1="12"
+                            y1="8.8"
+                            x2="12"
+                            y2="21.2"
+                            stroke={textColor}
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                          />
+                        </g>
+                      </g>
+
+                      {/* Slice Text Content below the Gift Icon */}
+                      {/* Line 1 */}
                       <text
-                        textAnchor="end"
+                        x="0"
+                        y={line2 ? (isCrowded ? -138 : -140) : (isCrowded ? -132 : -134)}
+                        textAnchor="middle"
                         dominantBaseline="central"
-                        fill={seg.textColor || '#ffffff'}
-                        className="font-extrabold tracking-wider"
+                        fill={textColor}
+                        className="font-black tracking-tight"
                         style={{
-                          fontSize: totalSlices > 8 ? '18px' : '23px',
-                          filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.55))',
+                          fontSize: `${line1FontSize}px`,
+                          fontWeight: 900,
+                          filter: 'drop-shadow(0 1.5px 2px rgba(0,0,0,0.7))',
                         }}
                       >
-                        {seg.label}
+                        {line1}
                       </text>
+
+                      {/* Line 2 (if present) */}
+                      {line2 && (
+                        <text
+                          x="0"
+                          y={isCrowded ? -122 : -123}
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          fill={textColor}
+                          className="font-black tracking-tight"
+                          style={{
+                            fontSize: `${line2FontSize}px`,
+                            fontWeight: 800,
+                            filter: 'drop-shadow(0 1.5px 2px rgba(0,0,0,0.7))',
+                          }}
+                        >
+                          {line2}
+                        </text>
+                      )}
+
+                      {/* Sub-label (if present) */}
                       {seg.sub && (
                         <text
-                          y="13"
+                          x="0"
+                          y={isCrowded ? -107 : -106}
                           textAnchor="middle"
                           dominantBaseline="central"
                           fill="#fef08a"
-                          className="font-semibold uppercase tracking-wider"
+                          className="font-bold uppercase tracking-wider"
                           style={{
-                            fontSize: '8.5px',
-                            filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.55))',
+                            fontSize: isCrowded ? '7.5px' : '8.5px',
+                            filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.75))',
                           }}
                         >
                           {seg.sub}
@@ -624,6 +916,29 @@ export default function SpinWheel({
             {/* Center Gem / Pivot */}
             <circle cx="17" cy="14" r="5" fill="#ffffff" stroke="#92400e" strokeWidth="1.5" />
           </svg>
+        </div>
+
+        {/* Decorative Sparkle Stars Around Wheel Frame (Image 2 style) */}
+        <span aria-hidden="true" className="pointer-events-none absolute -top-1 left-3 z-20 text-lg text-amber-300 drop-shadow-[0_0_8px_rgba(245,158,11,0.85)] animate-pulse">✦</span>
+        <span aria-hidden="true" className="pointer-events-none absolute top-4 -right-1 z-20 text-xl text-amber-300 drop-shadow-[0_0_8px_rgba(245,158,11,0.85)] animate-pulse" style={{ animationDelay: '350ms' }}>✦</span>
+        <span aria-hidden="true" className="pointer-events-none absolute top-1/2 -left-3 z-20 text-sm text-yellow-200 drop-shadow-[0_0_6px_rgba(254,240,138,0.7)] animate-pulse" style={{ animationDelay: '700ms' }}>✧</span>
+        <span aria-hidden="true" className="pointer-events-none absolute top-1/2 -right-3 z-20 text-sm text-yellow-200 drop-shadow-[0_0_6px_rgba(254,240,138,0.7)] animate-pulse" style={{ animationDelay: '1050ms' }}>✧</span>
+
+        {/* Decorative 3D Gift Boxes Flanking the Wheel (Image 2 style) */}
+        {/* Bottom-Left: Navy Gift Box with Gold Ribbon + Mini Gold Box */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-3 -left-3 sm:-bottom-5 sm:-left-5 z-30 transition-transform duration-300 hover:scale-105"
+        >
+          <DecorativeGiftBoxLeft />
+        </div>
+
+        {/* Bottom-Right: Navy Gift Box with Gold Ribbon */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-3 -right-3 sm:-bottom-5 sm:-right-5 z-30 transition-transform duration-300 hover:scale-105"
+        >
+          <DecorativeGiftBoxRight />
         </div>
       </div>
 
@@ -756,6 +1071,16 @@ export default function SpinWheel({
                     <p className="mt-2 text-center text-[10px] text-slate-400">New here? <Link href={registerUrl} className="font-bold text-amber-200 underline">Create an account</Link></p>
                   </div>
                 )}
+              </div>
+            )}
+            {wonPrize.targetProduct && <p className="mt-3 rounded-xl bg-violet-500/10 px-3 py-2 text-left text-xs text-violet-100">Reward applies to: <strong>{wonPrize.targetProduct}</strong>{wonPrize.rewardType === 'product_discount' ? ` · ${wonPrize.value}% off` : wonPrize.rewardType === 'free_product' ? ' · one free unit' : ''}</p>}
+            {wonPrize.claimToken && claimStatus === 'claimed' && (
+              <div className="mt-3">
+                <button type="button" disabled={startingDesignQuery} onClick={() => void openDesignQuery()} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3 text-sm font-extrabold text-white shadow-lg disabled:opacity-60">
+                  {startingDesignQuery ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                  {startingDesignQuery ? 'Opening design request…' : 'Upload artwork / start design query'}
+                </button>
+                {designQueryError && <p role="alert" className="mt-2 text-left text-xs text-rose-300">{designQueryError}</p>}
               </div>
             )}
 

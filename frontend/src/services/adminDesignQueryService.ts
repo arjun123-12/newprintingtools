@@ -39,6 +39,9 @@ export interface DesignQuery {
   files?: DesignQueryFile[];
   messages?: DesignQueryMessage[];
   linked_order?: { id: string; order_number: string; status: string; payment_status: string } | null;
+  design_fee?: number | string;
+  design_fee_accepted_at?: string | null;
+  spin_reward?: { title?: string; reward_code?: string; reward_type?: string; target_product?: string | null; value?: number } | null;
 }
 
 const BASE = '/admin/design-queries';
@@ -56,8 +59,11 @@ export const adminDesignQueryService = {
     const response = await apiClient.get(`${BASE}/${id}`);
     return response.data.data;
   },
-  async update(id: number, payload: { status?: string; is_active?: boolean }) {
+  async update(id: number, payload: { status?: string; is_active?: boolean; design_fee?: number }) {
     return apiClient.patch(`${BASE}/${id}`, payload);
+  },
+  async updateFee(id: number, design_fee: number) {
+    return apiClient.put(`${BASE}/${id}/fee`, { design_fee });
   },
   async upload(id: number, file: File, message?: string) {
     const data = new FormData(); data.append('file', file);

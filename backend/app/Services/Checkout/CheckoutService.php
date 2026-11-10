@@ -182,7 +182,7 @@ class CheckoutService
         }
         if (!empty($rewardCode)) {
             $spinService = app(\App\Services\Rewards\SpinRewardService::class);
-            $rewardValidation = $spinService->validateRewardForCheckout($rewardCode, (float) $recalculated['subtotal_inc_gst'], $user);
+            $rewardValidation = $spinService->validateRewardForCheckout($rewardCode, (float) $recalculated['subtotal_inc_gst'], $user, $recalculated['items']);
             if ($rewardValidation['valid'] ?? false) {
                 $discount = (float) ($rewardValidation['discount_amount'] ?? 0.00);
             }

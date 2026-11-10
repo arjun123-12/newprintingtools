@@ -5,12 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ClientBrief extends Model
 {
     protected $fillable = [
         'uuid',
         'token',
+        'user_id',
+        'spin_reward_ledger_id',
 
         'client_name',
         'company_name',
@@ -43,6 +46,8 @@ class ClientBrief extends Model
 
         'expires_at',
         'submitted_at',
+        'design_fee',
+        'design_fee_accepted_at',
     ];
 
     protected $casts = [
@@ -56,6 +61,8 @@ class ClientBrief extends Model
         'requested_date' => 'date',
         'expires_at' => 'datetime',
         'submitted_at' => 'datetime',
+        'design_fee' => 'decimal:2',
+        'design_fee_accepted_at' => 'datetime',
     ];
 
     protected $hidden = [
@@ -75,5 +82,10 @@ class ClientBrief extends Model
     public function order(): HasOne
     {
         return $this->hasOne(Order::class);
+    }
+
+    public function rewardLedger(): BelongsTo
+    {
+        return $this->belongsTo(CustomerRewardLedger::class, 'spin_reward_ledger_id');
     }
 }

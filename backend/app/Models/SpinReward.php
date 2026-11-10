@@ -15,6 +15,7 @@ class SpinReward extends Model
         'code',
         'title',
         'reward_type',
+        'target_product',
         'badge_text',
         'value',
         'description',

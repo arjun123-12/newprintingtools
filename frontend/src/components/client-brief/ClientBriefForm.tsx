@@ -158,8 +158,21 @@ export default function ClientBriefForm({
     const [linkError, setLinkError] =
         useState<string | null>(null);
     const [portal, setPortal] = useState<any>(null);
+    const [linkedReward, setLinkedReward] = useState<any>(null);
     const [portalMessage, setPortalMessage] = useState('');
     const [portalBusy, setPortalBusy] = useState(false);
+
+    const acceptFee = async () => {
+        setPortalBusy(true);
+        try {
+            const response = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}/accept-design-fee`, { method: 'POST', headers: { Accept: 'application/json' } });
+            const body = await response.json().catch(() => null);
+            if (!response.ok) throw new Error(body?.message || 'Could not accept design fee.');
+            setPortal((current: any) => ({ ...current, design_fee_accepted: true }));
+            setError('');
+        } catch (err) { setError(err instanceof Error ? err.message : 'Could not accept design fee.'); }
+        finally { setPortalBusy(false); }
+    };
 
     useEffect(() => {
         let cancelled = false;
@@ -197,6 +210,7 @@ export default function ClientBriefForm({
                 }
 
                 const brief = result?.data;
+                if (brief?.spin_reward) setLinkedReward(brief.spin_reward);
 
                 if (brief?.submitted) {
                     setPortal(brief);
@@ -217,6 +231,10 @@ export default function ClientBriefForm({
                         current.email ||
                         brief?.email ||
                         '',
+                    phone: current.phone || brief?.phone || '',
+                    product: current.product || brief?.product || '',
+                    quantity: current.quantity || (brief?.quantity ? String(brief.quantity) : ''),
+                    requestType: brief?.spin_reward ? 'design' : current.requestType,
                 }));
             } catch (linkValidationError) {
                 if (cancelled) {
@@ -629,6 +647,8 @@ export default function ClientBriefForm({
                         <h1 className="mt-2 text-2xl font-bold">{portal.product || 'Your design request'}</h1>
                         <p className="mt-2 text-sm capitalize text-slate-600">Status: {String(portal.status).replaceAll('_', ' ')}</p>
                         {portal.description && <p className="mt-4 whitespace-pre-wrap text-sm">{portal.description}</p>}
+                        {portal.spin_reward && <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50 p-4"><p className="font-bold text-violet-950">Your Spin Wheel reward: {portal.spin_reward.title}</p><p className="mt-1 text-sm text-violet-900">{portal.spin_reward.target_product || portal.product} · {portal.spin_reward.reward_type === 'product_discount' ? `${portal.spin_reward.value}% discount` : portal.spin_reward.reward_type === 'free_product' ? '1 free unit' : `AUD $${Number(portal.spin_reward.value || 0).toFixed(2)}`} · Code {portal.spin_reward.reward_code}</p></div>}
+                        {portal.design_fee > 0 && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="font-bold">Design service: AUD ${Number(portal.design_fee).toFixed(2)}</p><p className="mt-1 text-sm">This fee is set by our team and is separate from print pricing.</p>{portal.design_fee_accepted ? <p className="mt-2 text-sm font-semibold text-emerald-700">Fee accepted</p> : <button disabled={portalBusy} onClick={() => void acceptFee()} className="mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white">{portalBusy ? 'Saving…' : 'Accept design fee'}</button>}</div>}
                     </section>
                     <section className="rounded-2xl bg-white p-6 shadow-sm">
                         <h2 className="font-bold">Design previews</h2>
@@ -655,7 +675,7 @@ export default function ClientBriefForm({
                         <textarea value={portalMessage} onChange={e => setPortalMessage(e.target.value)} placeholder="Tell us what you would like changed" className="mt-4 min-h-24 w-full rounded-xl border p-3 text-sm"/>
                         <div className="mt-3 flex flex-wrap gap-2">
                             <button disabled={portalBusy || !portalMessage.trim()} onClick={() => void sendMessage()} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white">Send feedback</button>
-                            {(portal.files ?? []).length > 0 && !portal.approved && <button disabled={portalBusy} onClick={() => void approveDesign()} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white">Approve final design</button>}
+                            {(portal.files ?? []).length > 0 && !portal.approved && (!portal.design_fee || portal.design_fee_accepted) && <button disabled={portalBusy} onClick={() => void approveDesign()} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white">Approve final design</button>}
                             {portal.approved && <span className="self-center text-sm font-bold text-emerald-700">Design approved. Our team will confirm the order price and send your payment link.</span>}
                         </div>
                         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
@@ -798,6 +818,8 @@ export default function ClientBriefForm({
                         confirm the details
                     </span>
                 </div>
+
+                {linkedReward && <section className="mb-6 rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-5"><p className="text-xs font-extrabold uppercase tracking-wider text-violet-800">Spin Wheel reward attached</p><h2 className="mt-1 text-lg font-bold text-violet-950">{linkedReward.title}</h2><p className="mt-1 text-sm text-violet-900">{linkedReward.target_product || form.product} · {linkedReward.reward_type === 'product_discount' ? `${linkedReward.value}% discount` : linkedReward.reward_type === 'free_product' ? '1 free unit' : `AUD $${Number(linkedReward.value || 0).toFixed(2)}`} · Code {linkedReward.reward_code}</p><p className="mt-1 text-xs text-violet-800">Your reward stays linked to this design query.</p></section>}
 
                 <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.8fr)_minmax(300px,0.8fr)]">
                     {/* Form */}

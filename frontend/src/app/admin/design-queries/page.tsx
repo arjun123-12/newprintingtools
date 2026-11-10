@@ -15,6 +15,7 @@ const STATUSES = [
 export default function AdminDesignQueriesPage() {
   const { user } = useAuth();
   const canManageOrders = canAccessSection(user, 'orders');
+  const canManagePricing = canAccessSection(user, 'pricing');
   const [items, setItems] = useState<DesignQuery[]>([]);
   const [selected, setSelected] = useState<DesignQuery | null>(null);
   const [loading, setLoading] = useState(true);
@@ -25,6 +26,7 @@ export default function AdminDesignQueriesPage() {
   const [copied, setCopied] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [message, setMessage] = useState('');
+  const [designFee, setDesignFee] = useState('0');
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -57,6 +59,16 @@ export default function AdminDesignQueriesPage() {
     setSelected(null); setBusy(true); setError('');
     try { setSelected(await adminDesignQueryService.get(id)); }
     catch (e: any) { setError(e?.response?.data?.message ?? 'Design query could not be opened.'); }
+    finally { setBusy(false); }
+  };
+
+  useEffect(() => { if (selected) setDesignFee(String(selected.design_fee ?? 0)); }, [selected?.id, selected?.design_fee]);
+
+  const saveDesignFee = async () => {
+    if (!selected) return;
+    setBusy(true); setError('');
+    try { await adminDesignQueryService.updateFee(selected.id, Number(designFee)); setSelected(await adminDesignQueryService.get(selected.id)); }
+    catch (e: any) { setError(e?.response?.data?.message ?? 'Design fee could not be saved.'); }
     finally { setBusy(false); }
   };
 
@@ -117,6 +129,8 @@ export default function AdminDesignQueriesPage() {
         <section className="min-h-[600px] rounded-2xl border bg-white p-5 shadow-sm md:p-6">
           {!selected ? <div className="flex min-h-[540px] flex-col items-center justify-center text-center text-slate-400"><FileImage className="h-12 w-12"/><h2 className="mt-4 font-bold text-slate-700">Select a design query</h2><p className="mt-1 max-w-sm text-sm">Customer details and pricing stay hidden. Design files and the customer conversation appear here.</p>{busy && <Loader2 className="mt-4 h-5 w-5 animate-spin"/>}</div> : <div className="space-y-6">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4"><div><p className="text-xs font-bold uppercase tracking-wider text-violet-700">Design Query DQ-{String(selected.id).padStart(4, '0')}</p><h2 className="mt-1 text-2xl font-bold">{selected.product || 'Design request'}</h2><p className="mt-1 text-sm text-slate-500">Customer information and prices are not available in this workspace.</p>{canManageOrders && selected.linked_order && <div className="mt-3 flex flex-wrap gap-2"><Link href={`/admin/orders/create?orderId=${selected.linked_order.id}`} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Order {selected.linked_order.order_number} · Set price</Link><Link href={`/admin/orders/${selected.linked_order.id}`} className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 px-3 py-2 text-xs font-bold text-emerald-800">Open order · Send payment link</Link></div>}</div><label className="text-xs font-semibold text-slate-600">Status<select value={selected.status} disabled={busy} onChange={(e) => void setStatus(e.target.value)} className="mt-1 block rounded-lg border bg-white px-3 py-2 text-sm">{STATUSES.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div>
+            {selected.spin_reward && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="font-bold text-amber-900">Spin reward: {selected.spin_reward.title}</p><p className="mt-1 text-sm text-amber-800">{selected.spin_reward.target_product || selected.product} · {selected.spin_reward.reward_type === 'product_discount' ? `${selected.spin_reward.value}% discount` : selected.spin_reward.reward_type === 'free_product' ? '1 free unit' : `AUD $${Number(selected.spin_reward.value || 0).toFixed(2)}`} · Code {selected.spin_reward.reward_code}</p></div>}
+            {canManagePricing && <div className="flex flex-wrap items-end gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4"><label className="text-xs font-bold text-sky-900">Design service fee (AUD $)<input type="number" min="0" step="0.01" value={designFee} onChange={(e) => setDesignFee(e.target.value)} className="mt-1 block w-48 rounded-lg border bg-white px-3 py-2 text-sm"/></label><button disabled={busy} onClick={() => void saveDesignFee()} className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-bold text-white">Save & notify customer</button><span className="text-xs text-sky-800">Customer must accept before final design approval. Current: {selected.design_fee_accepted_at ? 'accepted' : 'awaiting acceptance'}.</span></div>}
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[['Quantity', selected.quantity], ['Size', selected.width && selected.height ? `${selected.width} × ${selected.height} ${selected.unit || ''}` : null], ['Print sides', selected.print_sides], ['Requested date', selected.requested_date]].map(([label, value]) => value ? <div key={String(label)} className="rounded-xl bg-slate-50 p-3"><p className="text-[11px] font-bold uppercase text-slate-500">{label}</p><p className="mt-1 text-sm font-semibold">{value}</p></div> : null)}</div>
             {(selected.colours || selected.description || selected.additional_notes) && <div className="space-y-3 rounded-xl border p-4"><h3 className="font-bold">Design requirements</h3>{selected.colours && <p className="whitespace-pre-wrap text-sm"><b>Colours:</b> {selected.colours}</p>}{selected.description && <p className="whitespace-pre-wrap text-sm">{selected.description}</p>}{selected.additional_notes && <p className="whitespace-pre-wrap text-sm text-slate-600">{selected.additional_notes}</p>}</div>}
             <div className="space-y-3"><h3 className="font-bold">References and design previews</h3>{visibleFiles.length === 0 ? <p className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">No files attached yet.</p> : <div className="grid gap-3 sm:grid-cols-2">{visibleFiles.map((file) => <div key={file.id} className="rounded-xl border p-3">{file.mime_type?.startsWith('image/') && <img src={file.url ?? ''} alt={file.name} loading="lazy" decoding="async" className="mb-3 max-h-80 w-full rounded-lg object-contain"/>}<div className="flex items-center justify-between gap-3"><span className="truncate text-sm font-semibold">{file.name}</span>{file.url && <a href={file.url} target="_blank" rel="noreferrer" className="shrink-0 text-xs font-bold text-violet-700">Open</a>}</div><span className="mt-1 block text-[10px] uppercase text-slate-400">{file.file_type || 'reference'}</span></div>)}</div>}</div>

@@ -265,6 +265,19 @@ class PaymentGatewayService
                     'status' => OrderStatus::PROCESSING,
                 ]);
 
+                if ($order->applied_reward_code && (float) $order->discount_amount > 0) {
+                    \App\Models\CustomerRewardLedger::where('reward_code', strtoupper(trim($order->applied_reward_code)))
+                        ->where('status', 'active')
+                        ->where(function ($query) use ($order) {
+                            $query->where('user_id', $order->user_id)->orWhere('order_id', $order->id);
+                        })
+                        ->update([
+                            'status' => 'redeemed',
+                            'redeemed_at' => now(),
+                            'redeemed_order_id' => $order->id,
+                        ]);
+                }
+
                 // Clear customer's shopping cart after confirmed payment
                 $userId = $user?->id ?? $order->user_id;
                 if ($userId) {

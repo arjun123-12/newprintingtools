@@ -33,7 +33,8 @@ interface SegmentConfig {
   category_name?: string;
   code: string;
   title: string;
-  reward_type: 'print_credit' | 'free_product' | 'premium_upgrade' | 'shipping_upgrade';
+  reward_type: 'print_credit' | 'product_discount' | 'free_product' | 'premium_upgrade' | 'shipping_upgrade';
+  target_product?: string;
   badge_text?: string;
   value: number;
   inventory?: number | null | '';
@@ -216,6 +217,7 @@ export default function AdminSettingsPage() {
       code: `custom_reward_${Date.now()}`,
       title: 'New Reward Prize',
       reward_type: 'print_credit',
+      target_product: '',
       badge_text: '$15',
       value: 15.0,
       inventory: null,
@@ -718,6 +720,7 @@ export default function AdminSettingsPage() {
                             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-pink-500"
                           >
                             <option value="print_credit">Print Credit (Wallet Dollar)</option>
+                            <option value="product_discount">Product Discount (%)</option>
                             <option value="free_product">Free Product Voucher</option>
                             <option value="premium_upgrade">Premium Finish Upgrade</option>
                             <option value="shipping_upgrade">Free Shipping Upgrade</option>
@@ -725,16 +728,30 @@ export default function AdminSettingsPage() {
                         </div>
 
                         <div>
-                          <label className="text-[10px] font-bold text-slate-400 block mb-1">Value ($ AUD)</label>
+                          <label className="text-[10px] font-bold text-slate-400 block mb-1">{seg.reward_type === 'product_discount' ? 'Discount (%)' : 'Value ($ AUD)'}</label>
                           <input
                             type="number"
                             min="0"
+                            max={seg.reward_type === 'product_discount' ? 100 : undefined}
                             step="0.01"
                             value={seg.value}
                             onChange={(e) => handleUpdateSegment(originalIndex, 'value', parseFloat(e.target.value) || 0)}
                             className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-pink-500"
                           />
                         </div>
+
+                        {(seg.reward_type === 'product_discount' || seg.reward_type === 'free_product') && (
+                          <div className="md:col-span-2">
+                            <label className="text-[10px] font-bold text-slate-400 block mb-1">Eligible product (e.g. Business Cards or A3 Poster)</label>
+                            <input
+                              type="text"
+                              value={seg.target_product || ''}
+                              onChange={(e) => handleUpdateSegment(originalIndex, 'target_product', e.target.value)}
+                              placeholder="Product name"
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-pink-500"
+                            />
+                          </div>
+                        )}
 
                         <div>
                           <label className="text-[10px] font-bold text-slate-400 block mb-1">

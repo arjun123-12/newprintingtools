@@ -374,6 +374,7 @@ export default function AccountPage() {
                     </div>
 
                     <h4 className="font-extrabold text-sm text-white">{reward.title}</h4>
+                    {reward.target_product && <p className="text-xs font-semibold text-amber-200">{reward.reward_type === 'product_discount' ? `${reward.value}% off` : reward.reward_type === 'free_product' ? '1 free unit' : 'Reward'} on {reward.target_product}</p>}
                     <p className="text-[11px] text-slate-300 line-clamp-2">{reward.how_to_use}</p>
                   </div>
 

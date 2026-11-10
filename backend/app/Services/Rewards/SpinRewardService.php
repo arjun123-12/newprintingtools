@@ -122,6 +122,7 @@ class SpinRewardService
                 'title' => $reward->title,
                 'badge_text' => $reward->badge_text,
                 'reward_type' => $reward->reward_type,
+                'target_product' => $reward->target_product,
                 'value' => (float) $reward->value,
                 'inventory' => $reward->inventory,
                 'terms_text' => $reward->terms_text,
@@ -271,7 +272,7 @@ class SpinRewardService
                 'prize' => $ledger ? [
                     'id' => $ledger->id, 'category_id' => $ledger->category_id, 'category_name' => $ledger->category_name,
                     'reward_code' => $ledger->reward_code, 'title' => $ledger->title, 'badge_text' => $ledger->badge_text,
-                    'reward_type' => $ledger->reward_type, 'value' => (float) $ledger->value,
+                    'reward_type' => $ledger->reward_type, 'target_product' => $ledger->target_product, 'value' => (float) $ledger->value,
                     'segment_index' => $segments->firstWhere('id', $ledger->spin_reward_id)['index'] ?? 0,
                     'terms_text' => $ledger->terms, 'how_to_use' => $ledger->how_to_use,
                     'expires_at' => $ledger->expires_at?->toIso8601String(), 'status' => $ledger->status, 'claim_token' => $ledger->claim_token,
@@ -289,7 +290,7 @@ class SpinRewardService
         if (! $this->isPaymentGenuinelyVerified($order) && ! $invited) {
             return [
                 'eligible' => false,
-                'reason' => 'Payment is not confirmed and this order does not have a Spin Wheel invitation.',
+                'reason' => 'Payment has not been completed or verified and no Spin Wheel invitation is available.',
             ];
         }
 
@@ -359,6 +360,7 @@ class SpinRewardService
                     'title' => $ledger->title,
                     'badge_text' => $ledger->badge_text,
                     'reward_type' => $ledger->reward_type,
+                    'target_product' => $ledger->target_product,
                     'value' => (float) $ledger->value,
                     'segment_index' => $segmentIndex,
                     'terms_text' => $ledger->terms,
@@ -407,7 +409,7 @@ class SpinRewardService
             ->where('spin_token', $spinToken)
             ->exists();
         if (! $this->isPaymentGenuinelyVerified($order) && ! $invited) {
-            throw new RuntimeException('Cannot spin. Payment is not confirmed and this order has no Spin Wheel invitation.');
+            throw new RuntimeException('Cannot spin. Payment has not been completed or verified and this order has no Spin Wheel invitation.');
         }
 
         // Atomic transaction with row lock to prevent race conditions, double clicks, and multiple tabs
@@ -453,6 +455,7 @@ class SpinRewardService
                             'title' => $existingLedger->title,
                             'badge_text' => $existingLedger->badge_text,
                             'reward_type' => $existingLedger->reward_type,
+                            'target_product' => $existingLedger->target_product,
                             'value' => (float) $existingLedger->value,
                             'segment_index' => $segmentIndex,
                             'terms_text' => $existingLedger->terms,
@@ -601,6 +604,7 @@ class SpinRewardService
                 'category_name' => $category?->name ?? 'Default / General',
                 'reward_code' => $rewardCode,
                 'reward_type' => $selectedReward->reward_type,
+                'target_product' => $selectedReward->target_product,
                 'title' => $selectedReward->title,
                 'badge_text' => $selectedReward->badge_text,
                 'value' => $selectedReward->value,
@@ -651,6 +655,7 @@ class SpinRewardService
                     'title' => $ledger->title,
                     'badge_text' => $ledger->badge_text,
                     'reward_type' => $ledger->reward_type,
+                    'target_product' => $ledger->target_product,
                     'value' => (float) $ledger->value,
                     'segment_index' => $segmentIndex,
                     'terms_text' => $ledger->terms,
@@ -687,7 +692,7 @@ class SpinRewardService
                 if ($ledger) {
                     return ['success' => true, 'already_spun' => true, 'category' => null, 'prize' => [
                         'id' => $ledger->id, 'reward_code' => $ledger->reward_code, 'title' => $ledger->title,
-                        'badge_text' => $ledger->badge_text, 'reward_type' => $ledger->reward_type, 'value' => (float) $ledger->value,
+                        'badge_text' => $ledger->badge_text, 'reward_type' => $ledger->reward_type, 'target_product' => $ledger->target_product, 'value' => (float) $ledger->value,
                         'segment_index' => $segments->firstWhere('id', $ledger->spin_reward_id)['index'] ?? 0,
                         'terms_text' => $ledger->terms, 'how_to_use' => $ledger->how_to_use,
                         'expires_at' => $ledger->expires_at?->toIso8601String(), 'claim_token' => $ledger->claim_token,
@@ -710,7 +715,7 @@ class SpinRewardService
                 'spin_reward_id' => $reward->id, 'category_id' => $reward->category_id,
                 'category_name' => $reward->category?->name ?? 'Default / General',
                 'reward_code' => 'SPIN-' . strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4)),
-                'reward_type' => $reward->reward_type, 'title' => $reward->title, 'badge_text' => $reward->badge_text,
+                'reward_type' => $reward->reward_type, 'target_product' => $reward->target_product, 'title' => $reward->title, 'badge_text' => $reward->badge_text,
                 'value' => $reward->value, 'terms' => $reward->terms_text, 'how_to_use' => $reward->how_to_use,
                 'expires_at' => now()->addDays(max(1, $reward->expiry_days)), 'status' => 'active', 'claim_token' => Str::random(48),
             ]);
@@ -721,6 +726,7 @@ class SpinRewardService
                 'id' => $ledger->id, 'category_id' => $ledger->category_id, 'category_name' => $ledger->category_name,
                 'reward_code' => $ledger->reward_code, 'title' => $ledger->title, 'badge_text' => $ledger->badge_text,
                 'reward_type' => $ledger->reward_type, 'value' => (float) $ledger->value,
+                'target_product' => $ledger->target_product,
                 'segment_index' => $target['index'], 'terms_text' => $ledger->terms, 'how_to_use' => $ledger->how_to_use,
                 'expires_at' => $ledger->expires_at->toIso8601String(), 'claim_token' => $ledger->claim_token,
             ]];
@@ -773,6 +779,7 @@ class SpinRewardService
                 'category_name' => $l->category_name ?? $l->category?->name ?? 'Default / General',
                 'reward_code' => $l->reward_code,
                 'reward_type' => $l->reward_type,
+                'target_product' => $l->target_product,
                 'title' => $l->title,
                 'badge_text' => $l->badge_text,
                 'value' => (float) $l->value,
@@ -843,16 +850,27 @@ class SpinRewardService
      * Validate and preview application of a reward code on future checkout.
      * Note: A reward won after payment applies ONLY to a future eligible order.
      */
-    public function validateRewardForCheckout(string $code, float $cartSubtotal, ?User $user = null): array
+    public function validateRewardForCheckout(string $code, float $cartSubtotal, ?User $user = null, array $cartItems = []): array
     {
         $code = strtoupper(trim($code));
-        $ledger = CustomerRewardLedger::with('category')->where('reward_code', $code)->first();
+        $ledger = CustomerRewardLedger::with(['category', 'order'])->where('reward_code', $code)->first();
 
         if (! $ledger) {
             return [
                 'valid' => false,
                 'message' => 'Invalid reward voucher code.',
             ];
+        }
+
+        if (!$user) {
+            return ['valid' => false, 'message' => 'Sign in to the account that owns this reward before using it.'];
+        }
+        $ownerId = $ledger->user_id ?: $ledger->order?->user_id;
+        if (!$ownerId || (int) $ownerId !== (int) $user->id) {
+            return ['valid' => false, 'message' => 'This reward belongs to another customer account.'];
+        }
+        if (\App\Models\ClientBrief::where('spin_reward_ledger_id', $ledger->id)->exists()) {
+            return ['valid' => false, 'message' => 'This reward is attached to your design query and will be applied to its linked order.'];
         }
 
         if ($ledger->status === 'redeemed') {
@@ -869,15 +887,40 @@ class SpinRewardService
             ];
         }
 
-        // Calculate discount amount
+        // Product promotions only apply to the configured product line in this cart.
         $discountAmount = 0.00;
         $rewardValue = (float) $ledger->value;
+        $targetSubtotal = 0.0;
+        $targetUnitValue = 0.0;
+        if (in_array($ledger->reward_type, ['product_discount', 'free_product'], true)) {
+            $targetName = mb_strtolower(trim((string) $ledger->target_product));
+            if ($targetName === '') {
+                return ['valid' => false, 'message' => 'This product reward is not configured yet. Please contact our team.'];
+            }
+            foreach ($cartItems as $item) {
+                $cartProductName = mb_strtolower(trim((string) ($item['product_name'] ?? '')));
+                if (!str_contains($cartProductName, $targetName)) continue;
+                $lineTotal = (float) ($item['total_inc_gst'] ?? $item['subtotal_inc_gst'] ?? 0);
+                $quantity = max(1, (int) ($item['quantity'] ?? 1));
+                $targetSubtotal += $lineTotal;
+                $targetUnitValue += $lineTotal / $quantity;
+            }
+            if ($targetSubtotal <= 0) {
+                return ['valid' => false, 'message' => "Add {$ledger->target_product} to your cart to use this reward."];
+            }
+        }
 
         switch ($ledger->reward_type) {
             case 'print_credit':
-            case 'free_product':
             case 'premium_upgrade':
                 $discountAmount = min($rewardValue, $cartSubtotal);
+                break;
+            case 'product_discount':
+                $discountAmount = min($targetSubtotal, $targetSubtotal * min(100, max(0, $rewardValue)) / 100);
+                break;
+            case 'free_product':
+                // A free product reward covers one unit of the configured product.
+                $discountAmount = min($targetSubtotal, $targetUnitValue);
                 break;
             case 'shipping_upgrade':
                 $discountAmount = $rewardValue;
@@ -892,6 +935,7 @@ class SpinRewardService
             'title' => $ledger->title,
             'category_name' => $ledger->category_name ?? $ledger->category?->name,
             'reward_type' => $ledger->reward_type,
+            'target_product' => $ledger->target_product,
             'discount_amount' => round($discountAmount, 2),
             'terms' => $ledger->terms,
             'how_to_use' => $ledger->how_to_use,

@@ -142,8 +142,8 @@ class ManualOrderSpinWinTest extends TestCase
         $spinResponse = $this->postJson("/api/v1/order-review/{$link->token}/spin", [
             'spin_token' => Str::random(48),
         ]);
-        $spinResponse->assertStatus(422);
-        $this->assertStringContainsString('Payment is not confirmed', $spinResponse->json('message'));
+        $spinResponse->assertStatus(403);
+        $this->assertStringContainsString('This spin reward link is invalid or has expired', $spinResponse->json('message'));
     }
 
     public function test_manually_changing_payment_status_without_succeeded_payment_record_is_rejected(): void
@@ -186,8 +186,8 @@ class ManualOrderSpinWinTest extends TestCase
             'order_number' => 'PO-ORDER-002',
             'spin_token' => Str::random(48),
         ]);
-        $spinResponse->assertStatus(422);
-        $this->assertStringContainsString('Order number does not match', $spinResponse->json('message'));
+        $spinResponse->assertStatus(403);
+        $this->assertStringContainsString('This spin reward link is invalid or has expired', $spinResponse->json('message'));
     }
 
     public function test_revoked_or_expired_review_token_is_rejected(): void
