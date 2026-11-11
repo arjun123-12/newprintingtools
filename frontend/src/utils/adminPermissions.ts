@@ -77,6 +77,13 @@ export const ADMIN_PERMISSIONS: AdminPermissionDef[] = [
     routePath: '/admin/design-queries',
   },
   {
+    key: 'web_projects',
+    name: 'Website Projects',
+    description: 'Manage website development clients, quotes, milestones and hosting',
+    category: 'Operations',
+    routePath: '/admin/web-projects',
+  },
+  {
     key: 'customers',
     name: 'Customers',
     description: 'Customer directory and ABN trade accounts',
@@ -193,6 +200,9 @@ export function getRequiredPermissionForPath(pathname: string): string | 'super_
   }
   if (pathname === '/admin/enquiries' || pathname.startsWith('/admin/enquiries/')) {
     return 'enquiries';
+  }
+  if (pathname === '/admin/web-projects' || pathname.startsWith('/admin/web-projects/')) {
+    return 'web_projects';
   }
   if (pathname === '/admin/products' || pathname.startsWith('/admin/products/') || pathname.startsWith('/admin/attributes') || pathname.startsWith('/admin/edit')) {
     return 'products';

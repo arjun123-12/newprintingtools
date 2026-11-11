@@ -90,12 +90,21 @@ Route::prefix('designer')->group(function () {
 // PUBLIC ROUTES
 // ==========================================
 
+Route::prefix('web-development')->middleware('throttle:30,1')->group(function () {
+    Route::post('/projects', [App\Http\Controllers\Api\V1\WebDevelopmentProjectController::class, 'store'])->middleware('throttle:5,1');
+    Route::get('/projects/{token}', [App\Http\Controllers\Api\V1\WebDevelopmentProjectController::class, 'publicShow'])->where('token', '[A-Za-z0-9]+');
+    Route::post('/projects/{token}/messages', [App\Http\Controllers\Api\V1\WebDevelopmentProjectController::class, 'publicMessage'])->where('token', '[A-Za-z0-9]+');
+    Route::post('/projects/{token}/files', [App\Http\Controllers\Api\V1\WebDevelopmentProjectController::class, 'publicFile'])->where('token', '[A-Za-z0-9]+');
+    Route::post('/projects/{token}/accept-quote', [App\Http\Controllers\Api\V1\WebDevelopmentProjectController::class, 'acceptQuote'])->where('token', '[A-Za-z0-9]+');
+});
+
 // Client Brief - private token link used by customers.
 // NOTE: This routes file already uses /api/v1 as its base URI, so do not
 // add another "v1" prefix here.
 Route::prefix('client-brief')
     ->middleware('throttle:60,1')
     ->group(function () {
+
         Route::post('/start', [
             ClientBriefController::class,
             'start',
@@ -492,6 +501,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
 Route::middleware(['auth:sanctum', 'admin.access'])
     ->prefix('admin')
     ->group(function () {
+
+        Route::middleware('permission:web_projects')->prefix('web-projects')->group(function () {
+            Route::get('/', [App\Http\Controllers\Api\V1\WebDevelopmentProjectController::class, 'index']);
+            Route::get('/developers', [App\Http\Controllers\Api\V1\WebDevelopmentProjectController::class, 'developers']);
+            Route::get('/{id}', [App\Http\Controllers\Api\V1\WebDevelopmentProjectController::class, 'show'])->whereNumber('id');
+            Route::patch('/{id}', [App\Http\Controllers\Api\V1\WebDevelopmentProjectController::class, 'update'])->whereNumber('id');
+            Route::post('/{id}/messages', [App\Http\Controllers\Api\V1\WebDevelopmentProjectController::class, 'adminMessage'])->whereNumber('id');
+            Route::post('/{id}/files', [App\Http\Controllers\Api\V1\WebDevelopmentProjectController::class, 'adminFile'])->whereNumber('id');
+        });
 
         Route::middleware('permission:design_queries')->prefix('design-queries')->group(function () {
             Route::get('/', [AdminClientBriefController::class, 'index']);

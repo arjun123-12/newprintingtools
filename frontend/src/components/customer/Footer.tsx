@@ -128,11 +128,20 @@ export default function Footer() {
         </div>
       </div>
 
+      {/* Website and app development services */}
+      <div className="border-t border-slate-800 px-4 py-5 text-center sm:px-6 lg:px-8">
+        <Link href="/website-development" className="text-xs font-semibold text-slate-300 transition-colors hover:text-sky-400">
+          Website Design & Development <span className="px-1.5 text-slate-600">·</span> App Development <span className="px-1.5 text-slate-600">·</span> Hosting & Maintenance
+        </Link>
+      </div>
+
       {/* Bottom Bar */}
       <div className="border-t border-slate-800/80 py-6 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <p>© {new Date().getFullYear()} Erry Imprints Pty Ltd. All prices in AUD include 10% GST.</p>
           <div className="flex items-center gap-4">
+            <span>Managed by Erry Imprints</span>
+            <span>•</span>
             <Link href="/about" className="hover:text-slate-400 transition-colors">About Us</Link>
             <span>•</span>
             <Link href="/privacy" className="hover:text-slate-400 transition-colors">Privacy Policy</Link>

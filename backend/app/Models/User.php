@@ -66,6 +66,11 @@ class User extends Authenticatable
             'description' => 'Create anonymized design requests and review customer feedback',
             'category' => 'Design',
         ],
+        'web_projects' => [
+            'name' => 'Website Projects',
+            'description' => 'Manage website development projects, clients, hosting and maintenance',
+            'category' => 'Operations',
+        ],
         'customers' => [
             'name' => 'Customers',
             'description' => 'View registered customers and business accounts',

@@ -68,6 +68,16 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    label: 'Website Projects',
+    href: '/admin/web-projects',
+    permissionKey: 'web_projects',
+    icon: (
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 5h18v14H3zM3 9h18M8 5v4m4-4v4m-5 5h4m2 0h4m-10 3h6" />
+      </svg>
+    ),
+  },
+  {
     label: 'Quotes',
     href: '/admin/quotes',
     permissionKey: 'enquiries',
