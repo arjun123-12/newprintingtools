@@ -1555,7 +1555,8 @@ export default function OrderReviewPage({ params }: PageProps) {
     if (!orderData) return null;
 
     const currentIdx = getTrackOrderStepIndex(orderData.status);
-    const isStorePickup = Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup'));
+    const isStorePickup = Boolean(orderData.delivery_summary?.method?.toLowerCase().includes('pickup')) ||
+      ['ready_for_pickup', 'collected'].includes(orderData.status);
     const isDeliveredOrCollected = orderData.status === 'delivered' || orderData.status === 'collected';
     const currentStepTitle = getTrackOrderStepTitle(currentIdx, isStorePickup, orderData.status);
     const currentStepSubtitle = getTrackOrderSubtitle(currentIdx, orderData.order_number, isStorePickup, orderData.status);

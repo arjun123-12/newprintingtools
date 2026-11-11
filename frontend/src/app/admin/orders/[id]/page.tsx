@@ -61,6 +61,7 @@ const getProductionStatusSequence = (isPickup: boolean) => [
         { value: 'collected', label: 'Order Collected by Customer' },
       ]
     : [
+        { value: 'ready_for_pickup', label: 'Ready for Store Pickup' },
         { value: 'handed_over_to_courier', label: 'Handed over to courier (Out for Delivery)' },
         { value: 'delivered', label: 'Delivered to Address' },
       ]),
