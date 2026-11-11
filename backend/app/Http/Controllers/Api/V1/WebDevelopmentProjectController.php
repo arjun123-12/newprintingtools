@@ -11,6 +11,7 @@ use Illuminate\Support\Str;
 class WebDevelopmentProjectController extends Controller
 {
     private const SERVICES = ['website_design', 'development', 'redesign', 'hosting', 'domain', 'maintenance', 'seo', 'ecommerce'];
+    private const ADDONS = ['business_email', 'ssl_security', 'backup', 'seo', 'analytics', 'payment_gateway', 'content_writing', 'speed_optimization'];
 
     public function store(Request $request): JsonResponse
     {
@@ -22,6 +23,13 @@ class WebDevelopmentProjectController extends Controller
             'website_type' => ['nullable', 'string', 'max:80'], 'reference_urls' => ['nullable', 'string', 'max:5000'],
             'requirements' => ['required', 'string', 'max:12000'], 'budget_range' => ['nullable', 'string', 'max:80'],
             'requested_deadline' => ['nullable', 'date', 'after_or_equal:today'],
+            'infrastructure' => ['nullable', 'array'],
+            'infrastructure.hosting_status' => ['nullable', 'in:already_have,need,not_sure'],
+            'infrastructure.hosting_provider' => ['nullable', 'string', 'max:160'],
+            'infrastructure.domain_status' => ['nullable', 'in:already_have,need_purchase,not_sure'],
+            'infrastructure.domain_name' => ['nullable', 'string', 'max:253'],
+            'infrastructure.addons' => ['nullable', 'array'],
+            'infrastructure.addons.*' => ['required', 'in:' . implode(',', self::ADDONS)],
         ]);
         $project = Project::create([...$data, 'token' => Str::random(56), 'status' => 'new']);
         return response()->json(['success' => true, 'message' => 'Website project enquiry received.', 'data' => ['id' => $project->id, 'token' => $project->token]], 201);

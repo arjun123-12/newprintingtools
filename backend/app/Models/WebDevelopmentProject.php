@@ -11,11 +11,11 @@ class WebDevelopmentProject extends Model
     protected $fillable = [
         'token', 'assigned_to', 'client_name', 'company_name', 'email', 'phone', 'project_name',
         'services', 'website_type', 'reference_urls', 'requirements', 'budget_range', 'requested_deadline',
-        'status', 'quote_amount', 'quote_scope', 'quote_accepted_at', 'milestones', 'hosting_details', 'admin_notes',
+        'status', 'quote_amount', 'quote_scope', 'quote_accepted_at', 'milestones', 'hosting_details', 'infrastructure', 'admin_notes',
     ];
 
     protected $casts = [
-        'services' => 'array', 'milestones' => 'array', 'hosting_details' => 'array',
+        'services' => 'array', 'milestones' => 'array', 'hosting_details' => 'array', 'infrastructure' => 'array',
         'requested_deadline' => 'date', 'quote_accepted_at' => 'datetime', 'quote_amount' => 'decimal:2',
     ];
 

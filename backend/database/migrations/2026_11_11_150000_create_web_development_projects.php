@@ -21,6 +21,7 @@ return new class extends Migration {
             $table->text('reference_urls')->nullable();
             $table->longText('requirements');
             $table->string('budget_range', 80)->nullable();
+            $table->json('infrastructure')->nullable();
             $table->date('requested_deadline')->nullable();
             $table->string('status', 30)->default('new');
             $table->decimal('quote_amount', 10, 2)->nullable();
