@@ -19,6 +19,7 @@ class WebDevelopmentProjectController extends Controller
             'client_name' => ['required', 'string', 'max:120'], 'company_name' => ['nullable', 'string', 'max:160'],
             'email' => ['required', 'email', 'max:190'], 'phone' => ['nullable', 'string', 'max:50'],
             'project_name' => ['required', 'string', 'max:160'],
+            'website_url' => ['nullable', 'url', 'max:2048'],
             'services' => ['required', 'array', 'min:1'], 'services.*' => ['required', 'in:' . implode(',', self::SERVICES)],
             'website_type' => ['nullable', 'string', 'max:80'], 'reference_urls' => ['nullable', 'string', 'max:5000'],
             'requirements' => ['required', 'string', 'max:12000'], 'budget_range' => ['nullable', 'string', 'max:80'],

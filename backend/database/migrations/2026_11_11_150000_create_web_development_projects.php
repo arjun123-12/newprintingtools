@@ -16,6 +16,7 @@ return new class extends Migration {
             $table->string('email');
             $table->string('phone', 50)->nullable();
             $table->string('project_name');
+            $table->string('website_url', 2048)->nullable();
             $table->json('services');
             $table->string('website_type', 80)->nullable();
             $table->text('reference_urls')->nullable();

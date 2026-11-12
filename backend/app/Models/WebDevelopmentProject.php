@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class WebDevelopmentProject extends Model
 {
     protected $fillable = [
-        'token', 'assigned_to', 'client_name', 'company_name', 'email', 'phone', 'project_name',
+        'token', 'assigned_to', 'client_name', 'company_name', 'email', 'phone', 'project_name', 'website_url',
         'services', 'website_type', 'reference_urls', 'requirements', 'budget_range', 'requested_deadline',
         'status', 'quote_amount', 'quote_scope', 'quote_accepted_at', 'milestones', 'hosting_details', 'infrastructure', 'admin_notes',
     ];
