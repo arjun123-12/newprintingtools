@@ -426,10 +426,6 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
           <p className="text-[10px] text-gray-500">{isTextSelected ? 'Apply to selected text' : 'Default for new text'}</p>
         </div>
         <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-2 py-1.5 hover:bg-gray-50">
-          <span
-            className="h-5 w-5 rounded border border-black/15"
-            style={{ backgroundColor: isTextSelected && typeof selected?.fill === 'string' ? selected.fill : newTextColor }}
-          />
           <span className="text-[10px] font-mono font-semibold uppercase text-gray-700">
             {isTextSelected && typeof selected?.fill === 'string' ? selected.fill : newTextColor}
           </span>

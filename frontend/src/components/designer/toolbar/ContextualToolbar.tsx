@@ -928,27 +928,6 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
             </button>
           </div>
 
-          {/* Text Color (Canva Style - Pure A swatch opening in sidebar) */}
-          <button
-            type="button"
-            onClick={() => {
-              if (onSelectSidebarTab) {
-                onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
-              }
-            }}
-            title="Text Colour (Open in Sidebar)"
-            className={`h-9 px-2.5 rounded-xl border flex flex-col items-center justify-center transition ${activeSidebarTab === 'color'
-              ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs'
-              : 'bg-white border-gray-200 hover:bg-gray-50'
-              }`}
-          >
-            <span className="text-xs font-black text-gray-900 leading-none">A</span>
-            <span
-              className="w-4.5 h-1 rounded-lg mt-0.5"
-              style={{ background: colorOrGradientToCss(selected.fillGradient || selected.fill, '#0f172a') }}
-            />
-          </button>
-
           {/* Bold */}
           <button
             type="button"

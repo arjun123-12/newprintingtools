@@ -2569,9 +2569,7 @@ export default function Designer({
         return;
       }
 
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        manager.deleteSelected();
-      } else if (e.key === 'Escape') {
+      if (e.key === 'Escape') {
         if (isPreviewOpen) setIsPreviewOpen(false);
         else if (isCustomSizeOpen) setIsCustomSizeOpen(false);
         else manager.deselectAll();
@@ -2579,21 +2577,12 @@ export default function Designer({
         handleSelectMode();
       } else if (e.key === 'h' || e.key === 'H') {
         handlePanMode();
-      } else if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
-        e.preventDefault();
-        manager.zoomIn();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === '-') {
-        e.preventDefault();
-        manager.zoomOut();
       } else if ((e.ctrlKey || e.metaKey) && e.key === '0') {
         e.preventDefault();
         handleFitCanvas();
       } else if ((e.ctrlKey || e.metaKey) && e.key === '1') {
         e.preventDefault();
         manager.resetZoom();
-      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
-        e.preventDefault();
-        manager.duplicateSelected();
       } else if ((e.ctrlKey || e.metaKey) && (e.key === ';' || e.key === ':')) {
         e.preventDefault();
         handleToggleGuides();
@@ -2605,13 +2594,6 @@ export default function Designer({
       ) {
         e.preventDefault();
         handleToggleRulers();
-      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
-        e.preventDefault();
-        if (e.shiftKey) {
-          manager.redo();
-        } else {
-          manager.undo();
-        }
       } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
         e.preventDefault();
         manager.redo();

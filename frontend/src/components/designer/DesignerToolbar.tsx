@@ -444,10 +444,10 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
             type="button"
             onClick={onSaveAsTemplate}
             title="Save this artwork as a reusable starter template in design_templates"
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition"
+            className="flex items-center gap-1.5 px-2 2xl:px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition"
           >
             <Save className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Save Template</span>
+            <span className="hidden 2xl:inline">Save Template</span>
           </button>
         )}
 
@@ -457,10 +457,10 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
             type="button"
             onClick={onOpenPreview}
             title="Preview Clean Artwork (without guides or controls)"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-gray-50 text-gray-700 text-xs font-semibold border border-gray-300 transition shadow-2xs"
+            className="flex items-center gap-1.5 px-2 2xl:px-3 py-1.5 rounded-lg bg-white hover:bg-gray-50 text-gray-700 text-xs font-semibold border border-gray-300 transition shadow-2xs"
           >
             <Eye className="w-3.5 h-3.5 text-gray-500" />
-            <span className="hidden md:inline">Preview</span>
+            <span className="hidden 2xl:inline">Preview</span>
           </button>
         )}
 
@@ -470,10 +470,10 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
             type="button"
             onClick={onAddToCart}
             title="Add this customized print product to your cart"
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition"
+            className="flex items-center gap-1.5 px-2 2xl:px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition"
           >
             <ShoppingCart className="w-3.5 h-3.5" />
-            <span>Add to Cart</span>
+            <span className="hidden 2xl:inline">Add to Cart</span>
           </button>
         )}
 
@@ -488,11 +488,11 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
                 setActiveMenu(activeMenu === 'export' ? null : 'export');
               }
             }}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition"
+            className="flex items-center gap-1.5 px-2 2xl:px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition"
             title="Export Artwork (JPEG, PNG, WebP, PDF, TIFF, PSD, AI Upscaling)"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export</span>
+            <span className="hidden 2xl:inline">Export</span>
           </button>
 
           {activeMenu === 'export' && (

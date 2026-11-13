@@ -611,14 +611,6 @@ export function DesignerCanvas({
         return;
       }
 
-      if (isCtrlOrCmd && event.key === '0') {
-        event.preventDefault();
-
-        canvasManager.resetZoom();
-
-        return;
-      }
-
       /*
        * Photoshop-style Background shortcut: Ctrl/Cmd + Alt + G
        * Selected Image -> Set image as canvas background
