@@ -8,11 +8,13 @@ use App\Http\Controllers\Controller;
 use App\Models\ArtworkReview;
 use App\Models\ArtworkVersion;
 use App\Models\Artwork;
+use App\Models\CustomerRewardLedger;
 use App\Models\DesignTemplate;
 use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\OrderActivity;
 use App\Models\OrderReviewLink;
+use App\Models\User;
 use App\Models\SpinWinSetting;
 use App\Services\Invoice\InvoiceGeneratorService;
 use App\Services\Notification\OrderNotificationService;
@@ -21,6 +23,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -298,6 +301,9 @@ class CustomerOrderReviewController extends Controller
                 'production_days' => $order->production_days,
                 'estimated_dispatch_at' => $this->estimatedDispatchAt($order),
                 'payment_status' => $order->payment_status->value ?? (string) $order->payment_status,
+                'applied_reward_code' => $order->applied_reward_code,
+                'applied_reward_title' => $order->applied_reward_title,
+                'applied_reward_type' => $order->applied_reward_type,
                 'customer' => [
                     'name' => $order->shipping_address['name'] ?? $order->user?->name,
                     'company_name' => $order->shipping_address['company'] ?? $order->user?->company_name,
@@ -561,6 +567,151 @@ class CustomerOrderReviewController extends Controller
         }
 
         return $dispatchDay->setTime(17, 0, 0)->toIso8601String();
+    }
+
+    /** Apply and reserve a customer's Spin & Win reward before proof approval/payment setup. */
+    public function applyReward(Request $request, string $token): JsonResponse
+    {
+        $link = $this->resolveLink($token);
+        if (!$link || !$link->isValid()) {
+            return response()->json(['success' => false, 'message' => 'Invalid or expired review link.'], 403);
+        }
+
+        $validated = $request->validate(['code' => ['required', 'string', 'max:32']]);
+
+        return DB::transaction(function () use ($link, $validated) {
+            $order = Order::with(['items', 'user'])->whereKey($link->order_id)->lockForUpdate()->firstOrFail();
+            if ($order->payment_status === PaymentStatus::PAID) {
+                return response()->json(['success' => false, 'message' => 'This order is already paid.'], 409);
+            }
+            if ($order->approved_proof_version || $order->invoice()->exists()) {
+                return response()->json(['success' => false, 'message' => 'Apply a reward before approving the proof or starting payment. Return to the proof review step first.'], 409);
+            }
+            if ((float) $order->discount_amount > 0 && !$order->applied_reward_code) {
+                return response()->json(['success' => false, 'message' => 'This order already has a discount. Contact the team to change it.'], 409);
+            }
+
+            $code = strtoupper(trim($validated['code']));
+            if (strtoupper((string) $order->applied_reward_code) === $code) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'This reward is already applied to your order.',
+                    'data' => $this->reviewRewardTotals($order),
+                ]);
+            }
+
+            $recipientEmail = strtolower(trim((string) (
+                $order->shipping_address['email']
+                ?? $order->billing_address['email']
+                ?? $order->user?->email
+                ?? ''
+            )));
+            $customer = $order->user ?: ($recipientEmail ? User::whereRaw('LOWER(email) = ?', [$recipientEmail])->first() : null);
+            if (!$customer) {
+                throw ValidationException::withMessages(['code' => ['This reward must be linked to your customer account before it can be applied here.']]);
+            }
+
+            $items = $order->items->map(fn ($item) => [
+                'product_name' => $item->product_name,
+                'quantity' => (int) $item->quantity,
+                'total_inc_gst' => (float) $item->total_price_inc_gst,
+            ])->all();
+            $cartSubtotal = (float) $order->subtotal_ex_gst + (float) $order->gst_amount;
+            $preview = app(\App\Services\Rewards\SpinRewardService::class)
+                ->validateRewardForCheckout($code, $cartSubtotal, $customer, $items);
+            if (!($preview['valid'] ?? false)) {
+                throw ValidationException::withMessages(['code' => [$preview['message'] ?? 'This reward cannot be used on this order.']]);
+            }
+
+            $reward = CustomerRewardLedger::where('reward_code', $code)->lockForUpdate()->first();
+            if (!$reward || $reward->status !== 'active' || $reward->isExpired()) {
+                throw ValidationException::withMessages(['code' => ['This reward has already been used or has expired.']]);
+            }
+
+            $baseTotal = (float) $order->subtotal_ex_gst + (float) $order->gst_amount + (float) $order->shipping_fee_inc_gst;
+            $discount = round(min($baseTotal, max(0, (float) ($preview['discount_amount'] ?? 0))), 2);
+            if ($discount <= 0) {
+                throw ValidationException::withMessages(['code' => ['This reward does not discount the items in this order.']]);
+            }
+
+            $oldCode = $order->applied_reward_code;
+            if ($oldCode) {
+                $oldReward = CustomerRewardLedger::where('reward_code', $oldCode)->lockForUpdate()->first();
+                if ($oldReward && $oldReward->status === 'redeemed' && (string) $oldReward->redeemed_order_id === (string) $order->id) {
+                    $oldReward->update(['status' => 'active', 'redeemed_at' => null, 'redeemed_order_id' => null]);
+                }
+            }
+
+            $reward->update(['status' => 'redeemed', 'redeemed_at' => now(), 'redeemed_order_id' => $order->id]);
+            $order->update([
+                'discount_amount' => $discount,
+                'total_inc_gst' => round(max(0, $baseTotal - $discount), 2),
+                'applied_reward_code' => $reward->reward_code,
+                'applied_reward_title' => $reward->title,
+                'applied_reward_type' => $reward->reward_type,
+            ]);
+            OrderActivity::record(
+                $order->id,
+                'spin_reward_applied',
+                "Customer applied Spin & Win reward {$reward->reward_code} (AUD $" . number_format($discount, 2) . ' discount).',
+                'customer',
+                null,
+                ['reward_code' => $reward->reward_code, 'discount_amount' => $discount]
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Spin & Win reward applied to your order.',
+                'data' => $this->reviewRewardTotals($order->fresh()),
+            ]);
+        });
+    }
+
+    /** Remove a reserved Spin & Win reward before proof approval/payment setup. */
+    public function removeReward(string $token): JsonResponse
+    {
+        $link = $this->resolveLink($token);
+        if (!$link || !$link->isValid()) {
+            return response()->json(['success' => false, 'message' => 'Invalid or expired review link.'], 403);
+        }
+
+        return DB::transaction(function () use ($link) {
+            $order = Order::whereKey($link->order_id)->lockForUpdate()->firstOrFail();
+            if ($order->payment_status === PaymentStatus::PAID || $order->approved_proof_version || $order->invoice()->exists()) {
+                return response()->json(['success' => false, 'message' => 'A reward can only be removed before proof approval or payment setup.'], 409);
+            }
+            if (!$order->applied_reward_code) {
+                return response()->json(['success' => false, 'message' => 'No Spin & Win reward is applied to this order.'], 422);
+            }
+
+            $reward = CustomerRewardLedger::where('reward_code', $order->applied_reward_code)->lockForUpdate()->first();
+            if ($reward && $reward->status === 'redeemed' && (string) $reward->redeemed_order_id === (string) $order->id) {
+                $reward->update(['status' => 'active', 'redeemed_at' => null, 'redeemed_order_id' => null]);
+            }
+
+            $baseTotal = (float) $order->subtotal_ex_gst + (float) $order->gst_amount + (float) $order->shipping_fee_inc_gst;
+            $order->update([
+                'discount_amount' => 0,
+                'total_inc_gst' => round($baseTotal, 2),
+                'applied_reward_code' => null,
+                'applied_reward_title' => null,
+                'applied_reward_type' => null,
+            ]);
+            OrderActivity::record($order->id, 'spin_reward_removed', 'Customer removed a Spin & Win reward before payment.', 'customer');
+
+            return response()->json(['success' => true, 'message' => 'Spin & Win reward removed.', 'data' => $this->reviewRewardTotals($order->fresh())]);
+        });
+    }
+
+    private function reviewRewardTotals(Order $order): array
+    {
+        return [
+            'discount_amount' => (float) $order->discount_amount,
+            'total_inc_gst' => (float) $order->total_inc_gst,
+            'applied_reward_code' => $order->applied_reward_code,
+            'applied_reward_title' => $order->applied_reward_title,
+            'applied_reward_type' => $order->applied_reward_type,
+        ];
     }
 
     /**

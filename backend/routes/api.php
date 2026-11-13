@@ -140,6 +140,16 @@ Route::prefix('order-review')
             'requestChanges',
         ])->where('token', '[A-Za-z0-9_-]+')->middleware('throttle:20,1');
 
+        Route::post('/{token}/apply-reward', [
+            \App\Http\Controllers\Api\V1\Public\CustomerOrderReviewController::class,
+            'applyReward',
+        ])->where('token', '[A-Za-z0-9_-]+')->middleware('throttle:10,1');
+
+        Route::post('/{token}/remove-reward', [
+            \App\Http\Controllers\Api\V1\Public\CustomerOrderReviewController::class,
+            'removeReward',
+        ])->where('token', '[A-Za-z0-9_-]+')->middleware('throttle:10,1');
+
         Route::post('/{token}/approve', [
             \App\Http\Controllers\Api\V1\Public\CustomerOrderReviewController::class,
             'approve',

@@ -263,7 +263,14 @@ class ManualOrderService
             $data['shipping_fee'] ?? null
         );
         $reward = $order->applied_reward_code
-            ? CustomerRewardLedger::where('reward_code', $order->applied_reward_code)->where('status', 'active')->first()
+            ? CustomerRewardLedger::where('reward_code', $order->applied_reward_code)
+                ->where(function ($query) use ($order) {
+                    $query->where('status', 'active')
+                        ->orWhere(function ($redeemed) use ($order) {
+                            $redeemed->where('status', 'redeemed')->where('redeemed_order_id', $order->id);
+                        });
+                })
+                ->first()
             : null;
         if ($reward && (int) $reward->user_id !== (int) $order->user_id && (string) $reward->order_id !== (string) $order->id) {
             $reward = null;

@@ -35,6 +35,7 @@ import {
   ExternalLink,
   ChevronRight,
   FileText,
+  Tag,
 } from 'lucide-react';
 import { orderReviewService, CustomerReviewData } from '@/services/orderReviewService';
 import { Artwork3DViewer } from '@/components/designer/controls/Artwork3DViewer';
@@ -634,6 +635,10 @@ export default function OrderReviewPage({ params }: PageProps) {
   // Approval state
   const [approving, setApproving] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [rewardCodeInput, setRewardCodeInput] = useState('');
+  const [applyingReward, setApplyingReward] = useState(false);
+  const [rewardError, setRewardError] = useState<string | null>(null);
+  const [rewardMessage, setRewardMessage] = useState<string | null>(null);
 
   // Payment states (BPOINT)
   const [gatewayStatus, setGatewayStatus] = useState<
@@ -981,6 +986,62 @@ export default function OrderReviewPage({ params }: PageProps) {
     }
   };
 
+  const handleApplyReward = async () => {
+    const code = rewardCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setApplyingReward(true);
+    setRewardError(null);
+    setRewardMessage(null);
+    try {
+      const response = await orderReviewService.applyReward(token, code);
+      if (!response?.success || !response?.data) throw new Error(response?.message || 'This reward could not be applied.');
+      setOrderData((current) => current ? {
+        ...current,
+        applied_reward_code: response.data.applied_reward_code,
+        applied_reward_title: response.data.applied_reward_title,
+        applied_reward_type: response.data.applied_reward_type,
+        totals: {
+          ...current.totals,
+          discount_amount: Number(response.data.discount_amount),
+          total_inc_gst: Number(response.data.total_inc_gst),
+        },
+      } : current);
+      setRewardCodeInput('');
+      setRewardMessage(response.message || 'Reward applied.');
+    } catch (err: any) {
+      const fieldError = err.response?.data?.errors?.code?.[0];
+      setRewardError(fieldError || err.response?.data?.message || err.message || 'Unable to apply this reward.');
+    } finally {
+      setApplyingReward(false);
+    }
+  };
+
+  const handleRemoveReward = async () => {
+    setApplyingReward(true);
+    setRewardError(null);
+    setRewardMessage(null);
+    try {
+      const response = await orderReviewService.removeReward(token);
+      if (!response?.success || !response?.data) throw new Error(response?.message || 'This reward could not be removed.');
+      setOrderData((current) => current ? {
+        ...current,
+        applied_reward_code: null,
+        applied_reward_title: null,
+        applied_reward_type: null,
+        totals: {
+          ...current.totals,
+          discount_amount: Number(response.data.discount_amount),
+          total_inc_gst: Number(response.data.total_inc_gst),
+        },
+      } : current);
+      setRewardMessage(response.message || 'Reward removed.');
+    } catch (err: any) {
+      setRewardError(err.response?.data?.message || err.message || 'Unable to remove this reward.');
+    } finally {
+      setApplyingReward(false);
+    }
+  };
+
   // 6. Handle Payment Form Submission
   const handlePaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1234,6 +1295,52 @@ export default function OrderReviewPage({ params }: PageProps) {
                 : `$${orderData.totals.shipping_fee_inc_gst.toFixed(2)}`}
             </span>
           </div>
+
+          {showApproveButton && currentStep === 'review' && orderData.payment_status !== 'paid' && !orderData.proof.is_approved && !orderData.invoice && (
+            <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50/70 p-3.5">
+              <div className="flex items-center gap-2 text-xs font-bold text-violet-950">
+                <Tag className="h-4 w-4 text-violet-700" />
+                <span>Apply your Spin &amp; Win reward</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-violet-800">
+                Have a reward from an earlier order? Enter its code from My Print Bank. The discount will be taken off this order before payment.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={rewardCodeInput}
+                  onChange={(event) => setRewardCodeInput(event.target.value.toUpperCase())}
+                  onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void handleApplyReward(); } }}
+                  placeholder="SPIN-XXXX-XXXX"
+                  aria-label="Spin & Win reward code"
+                  className="min-w-0 flex-1 rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-mono font-bold uppercase text-slate-800 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleApplyReward()}
+                  disabled={applyingReward || !rewardCodeInput.trim()}
+                  className="shrink-0 rounded-xl bg-violet-700 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {applyingReward ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
+                </button>
+              </div>
+              {orderData.applied_reward_code && (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-[11px] text-emerald-800">
+                  <span className="min-w-0 truncate">Applied: {orderData.applied_reward_title || orderData.applied_reward_code} · {orderData.applied_reward_code}</span>
+                  <button type="button" onClick={() => void handleRemoveReward()} disabled={applyingReward} className="shrink-0 font-bold underline disabled:opacity-50">Remove</button>
+                </div>
+              )}
+              {rewardError && <p role="alert" className="text-[11px] font-medium text-rose-700">{rewardError}</p>}
+              {rewardMessage && <p role="status" className="text-[11px] font-medium text-emerald-700">{rewardMessage}</p>}
+            </div>
+          )}
+
+          {orderData.totals.discount_amount > 0 && (
+            <div className="flex justify-between gap-3 text-emerald-700">
+              <span>{orderData.applied_reward_title ? `Spin & Win · ${orderData.applied_reward_title}` : 'Discount'}{orderData.applied_reward_code ? ` (${orderData.applied_reward_code})` : ''}</span>
+              <span className="shrink-0 font-semibold">−${orderData.totals.discount_amount.toFixed(2)}</span>
+            </div>
+          )}
 
           <div className="pt-3 border-t border-slate-100 flex justify-between items-baseline">
             <span className="font-bold text-sm text-slate-900">Total (AUD)</span>

@@ -30,6 +30,9 @@ export interface CustomerReviewData {
   production_days?: number | null;
   estimated_dispatch_at?: string | null;
   payment_status: string;
+  applied_reward_code?: string | null;
+  applied_reward_title?: string | null;
+  applied_reward_type?: string | null;
   customer: {
     name?: string;
     company_name?: string;
@@ -153,6 +156,18 @@ export const orderReviewService = {
     version_number: number;
   }) {
     const response = await axios.post(`${API_BASE_URL}/order-review/${token}/approve`, payload);
+    return response.data;
+  },
+
+  /** Apply a saved Spin & Win reward to an unpaid manual order. */
+  async applyReward(token: string, code: string) {
+    const response = await axios.post(`${API_BASE_URL}/order-review/${token}/apply-reward`, { code });
+    return response.data;
+  },
+
+  /** Remove the reserved Spin & Win reward before payment setup. */
+  async removeReward(token: string) {
+    const response = await axios.post(`${API_BASE_URL}/order-review/${token}/remove-reward`);
     return response.data;
   },
 
