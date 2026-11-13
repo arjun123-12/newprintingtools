@@ -819,15 +819,14 @@ export class CanvasManager {
     return this.dimensions;
   }
 
-  /** 15 mm of editor-only pasteboard around the bleed-inclusive artwork. */
-  public getWorkspacePaddingPx(): number {
-    const dpi = Math.max(1, Number(this.dimensions.dpi) || 300);
-    return (15 / 25.4) * dpi;
+  /** Keep a 20 CSS-pixel editor-only pasteboard around the artwork at every zoom. */
+  public getWorkspacePaddingPx(zoom = this.zoom): number {
+    return 20 / Math.max(zoom, 0.001);
   }
 
   private getEditorCanvasSize(zoom = this.zoom): { width: number; height: number } {
     const bleedPx = Math.max(0, Number(this.dimensions.bleedPx) || 0);
-    const paddingPx = this.getWorkspacePaddingPx();
+    const paddingPx = this.getWorkspacePaddingPx(zoom);
     const artworkWidth = (this.dimensions.widthPx || 1063) + bleedPx * 2;
     const artworkHeight = (this.dimensions.heightPx || 591) + bleedPx * 2;
     return {
@@ -865,7 +864,7 @@ export class CanvasManager {
   /** Keep document coordinates unchanged while shifting the artboard into the pasteboard. */
   private applyEditorViewportTransform(zoom = this.zoom): void {
     if (!this.canvas) return;
-    const offset = this.getWorkspacePaddingPx() * zoom;
+    const offset = this.getWorkspacePaddingPx(zoom) * zoom;
     this.canvas.setViewportTransform([zoom, 0, 0, zoom, offset, offset]);
   }
 

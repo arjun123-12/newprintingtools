@@ -139,9 +139,9 @@ function LoginForm() {
               <span>Remember me</span>
             </label>
 
-            <span className="text-slate-400 hover:text-sky-600 cursor-pointer">
+            <Link href="/forgot-password" className="text-slate-400 hover:text-sky-600">
               Forgot password?
-            </span>
+            </Link>
           </div>
 
           <button

@@ -7,12 +7,74 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
     public function __construct(
         protected \App\Services\Cart\CartService $cartService
     ) {}
+
+    /** Send a short-lived password reset code to an active customer account. */
+    public function sendPasswordResetOtp(Request $request): JsonResponse
+    {
+        $validated = $request->validate(['email' => ['required', 'email', 'max:255']]);
+        $email = Str::lower(trim($validated['email']));
+        $generic = 'If an active customer account exists for that email, a reset code has been sent.';
+        $user = User::query()->whereRaw('LOWER(email) = ?', [$email])->where('role', User::ROLE_CUSTOMER)->where('is_active', true)->first();
+        if (!$user) return response()->json(['success' => true, 'message' => $generic]);
+
+        $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        DB::table('password_reset_otps')->updateOrInsert(
+            ['email' => $email],
+            ['otp_hash' => Hash::make($otp), 'attempts' => 0, 'expires_at' => now()->addMinutes(10), 'created_at' => now(), 'updated_at' => now()]
+        );
+
+        try {
+            Mail::raw("Your Erry Imprints password reset code is: {$otp}\n\nThis code expires in 10 minutes. If you did not request a password reset, you can ignore this email.", function ($mail) use ($email) {
+                $mail->to($email)->subject('Your password reset code | Erry Imprints');
+            });
+        } catch (\Throwable $e) {
+            DB::table('password_reset_otps')->where('email', $email)->delete();
+            \Illuminate\Support\Facades\Log::warning('Customer password reset email could not be sent.', ['exception' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'We could not send the reset email right now. Please try again later.'], 503);
+        }
+
+        return response()->json(['success' => true, 'message' => $generic]);
+    }
+
+    /** Verify the emailed code and atomically replace the customer password. */
+    public function resetPasswordWithOtp(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+            'otp' => ['required', 'digits:6'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+        $email = Str::lower(trim($validated['email']));
+
+        $result = DB::transaction(function () use ($validated, $email) {
+            $reset = DB::table('password_reset_otps')->where('email', $email)->lockForUpdate()->first();
+            if (!$reset || now()->greaterThan($reset->expires_at) || $reset->attempts >= 5) return 'invalid';
+            if (!Hash::check($validated['otp'], $reset->otp_hash)) {
+                DB::table('password_reset_otps')->where('email', $email)->increment('attempts');
+                return 'invalid';
+            }
+
+            $user = User::query()->whereRaw('LOWER(email) = ?', [$email])->where('role', User::ROLE_CUSTOMER)->where('is_active', true)->lockForUpdate()->first();
+            if (!$user) return 'invalid';
+            $user->password = $validated['password'];
+            $user->save();
+            $user->tokens()->delete();
+            DB::table('password_reset_otps')->where('email', $email)->delete();
+            return 'ok';
+        });
+
+        if ($result !== 'ok') return response()->json(['success' => false, 'message' => 'The code is invalid or expired. Request a new code and try again.'], 422);
+        return response()->json(['success' => true, 'message' => 'Password reset successfully. You can now sign in with your new password.']);
+    }
 
     /**
      * Log in an existing user and create a Sanctum token.

@@ -433,7 +433,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
         <button
           type="button"
           onClick={() => handleSelectDefaultFont('Inter', 'heading')}
-          className={`w-full text-left p-3.5 rounded-xl border transition group ${isCurrentFont('Inter') && isTextSelected
+          className={`w-full text-left p-3.5 rounded-xl border transition group ${false
             ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
             : isTextSelected
               ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
@@ -448,7 +448,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
         <button
           type="button"
           onClick={() => handleSelectDefaultFont('Inter', 'subheading')}
-          className={`w-full text-left p-3 rounded-xl border transition group ${isCurrentFont('Inter') && isTextSelected
+          className={`w-full text-left p-3 rounded-xl border transition group ${false
             ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
             : isTextSelected
               ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
@@ -463,7 +463,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
         <button
           type="button"
           onClick={() => handleSelectDefaultFont('Inter', 'body')}
-          className={`w-full text-left p-2.5 rounded-xl border transition group ${isCurrentFont('Inter') && isTextSelected
+          className={`w-full text-left p-2.5 rounded-xl border transition group ${false
             ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
             : isTextSelected
               ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
@@ -529,6 +529,9 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
                 <button
                   key={preset.id}
                   type="button"
+                  onMouseEnter={() => {
+                    if (isTextSelected) handleSelectPreset(preset);
+                  }}
                   onClick={() => {
                     if (isTextSelected && getActiveTextObject()) {
                       handleSelectPreset(preset);

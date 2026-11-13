@@ -90,6 +90,7 @@ class WebDevelopmentProjectController extends Controller
             'status' => ['sometimes', 'in:new,review,quoted,active,design_review,revision,completed,cancelled'],
             'quote_amount' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:1000000'],
             'quote_scope' => ['sometimes', 'nullable', 'string', 'max:5000'],
+            'live_website_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
             'admin_notes' => ['sometimes', 'nullable', 'string', 'max:10000'],
             'milestones' => ['sometimes', 'array', 'max:30'],
             'milestones.*.title' => ['required', 'string', 'max:160'], 'milestones.*.status' => ['required', 'in:pending,in_progress,review,completed'],
@@ -132,7 +133,7 @@ class WebDevelopmentProjectController extends Controller
         unset($data['token']);
         if ($admin) $data['token'] = $project->token;
         $data['messages'] = $project->messages->map(fn ($m) => ['id' => $m->id, 'author_type' => $m->author_type, 'author_name' => $m->author?->name ?? ($m->author_type === 'customer' ? $project->client_name : 'Team'), 'message' => $m->message, 'created_at' => $m->created_at]);
-        $data['files'] = $project->files->map(fn ($f) => ['id' => $f->id, 'name' => $f->original_name, 'url' => url('/storage/' . $f->file_path), 'size_bytes' => $f->size_bytes]);
+        $data['files'] = $project->files->map(fn ($f) => ['id' => $f->id, 'name' => $f->original_name, 'url' => url('/storage/' . $f->file_path), 'mime_type' => $f->mime_type, 'size_bytes' => $f->size_bytes]);
         if (!$admin) unset($data['admin_notes']);
         return $data;
     }

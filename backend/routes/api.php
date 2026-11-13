@@ -310,6 +310,8 @@ Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
 
     Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/password/otp', [AuthController::class, 'sendPasswordResetOtp'])->middleware('throttle:5,1');
+    Route::post('/password/reset', [AuthController::class, 'resetPasswordWithOtp'])->middleware('throttle:10,1');
 });
 
 // ==========================================
