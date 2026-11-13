@@ -354,18 +354,19 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     }
 
     const activeText = getActiveTextObject();
-    if (isTextSelected && activeText) {
-      void handleApplyFont(family);
-      return;
-    }
-
-    // Text panel styles should also work as insert actions when nothing is selected.
     const styles = {
       heading: { text: 'Add a heading', fontSizePt: 32, fontWeight: 'bold', name: 'Heading' },
-      subheading: { text: 'Add a subheading', fontSizePt: 24, fontWeight: 'semibold', name: 'Subheading' },
+      subheading: { text: 'Add a subheading', fontSizePt: 24, fontWeight: 600, name: 'Subheading' },
       body: { text: 'Add body text', fontSizePt: 16, fontWeight: 'normal', name: 'Body Text' },
     };
     const style = styles[textKind];
+    if (isTextSelected && activeText) {
+      const dpi = Math.max(72, Number(canvasManager.getDimensions().dpi) || 96);
+      canvasManager.updateSelectedProperty('fontFamily', family);
+      canvasManager.updateSelectedProperty('fontSize', Math.round((style.fontSizePt * dpi) / 72));
+      canvasManager.updateSelectedProperty('fontWeight', style.fontWeight);
+      return;
+    }
 
     void canvasManager.addText({
       ...style,
@@ -433,12 +434,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
         <button
           type="button"
           onClick={() => handleSelectDefaultFont('Inter', 'heading')}
-          className={`w-full text-left p-3.5 rounded-xl border transition group ${false
-            ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
-            : isTextSelected
-              ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
-              : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
-            }`}
+          className="w-full text-left p-3.5 rounded-xl border border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer transition group"
         >
           <div className="flex items-center justify-between">
             <span className="text-xl font-extrabold text-gray-900 group-hover:text-purple-700">Heading Style</span>
@@ -448,12 +444,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
         <button
           type="button"
           onClick={() => handleSelectDefaultFont('Inter', 'subheading')}
-          className={`w-full text-left p-3 rounded-xl border transition group ${false
-            ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
-            : isTextSelected
-              ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
-              : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
-            }`}
+          className="w-full text-left p-3 rounded-xl border border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer transition group"
         >
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-800 group-hover:text-purple-700">Subheading Style</span>
@@ -463,12 +454,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
         <button
           type="button"
           onClick={() => handleSelectDefaultFont('Inter', 'body')}
-          className={`w-full text-left p-2.5 rounded-xl border transition group ${false
-            ? 'border-purple-500 bg-purple-50/70 shadow-2xs ring-1 ring-purple-400'
-            : isTextSelected
-              ? 'border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer'
-              : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
-            }`}
+          className="w-full text-left p-2.5 rounded-xl border border-gray-200 bg-white hover:bg-purple-50/50 hover:border-purple-200 cursor-pointer transition group"
         >
           <div className="flex items-center justify-between">
             <span className="text-xs text-gray-600 group-hover:text-purple-700">Body Text Style</span>
@@ -568,9 +554,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
                   }}
                   className={`w-full text-left p-3.5 rounded-2xl border transition shadow-2xs flex flex-col gap-1 relative overflow-hidden group ${isSelectedFont && isTextSelected
                     ? 'border-purple-500 bg-purple-50/80 shadow-xs ring-2 ring-purple-400/30'
-                    : isTextSelected
-                      ? 'border-gray-200 bg-white hover:bg-purple-50/70 hover:border-purple-300 cursor-pointer'
-                      : 'border-gray-200/60 bg-gray-50/50 text-gray-400 cursor-not-allowed opacity-60'
+                    : 'border-gray-200 bg-white hover:bg-purple-50/70 hover:border-purple-300 cursor-pointer'
                     }`}
                 >
                   <div className="flex items-center justify-between w-full">
