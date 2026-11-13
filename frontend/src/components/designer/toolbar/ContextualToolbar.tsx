@@ -519,16 +519,13 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 }
               }}
               title={`Colour ${idx + 1}: ${displayColor} (Open in Sidebar)`}
-              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${
+              className={`w-9 h-9 rounded-xl border border-black/20 transition ${
                 isCurrentActive
-                  ? 'bg-[#f0ebff] border-[#8b5cf6] shadow-2xs ring-2 ring-[#7c3aed] ring-offset-1 scale-105'
-                  : 'bg-white border-gray-200 hover:bg-gray-50 hover:scale-105'
+                  ? 'shadow-2xs ring-2 ring-[#7c3aed] ring-offset-1 scale-105'
+                  : 'hover:scale-105'
               }`}
+              style={{ backgroundColor: displayColor }}
             >
-              <div
-                className="w-5.5 h-5.5 rounded-lg border border-black/15 shadow-2xs"
-                style={{ backgroundColor: displayColor }}
-              />
             </button>
           );
         })}
