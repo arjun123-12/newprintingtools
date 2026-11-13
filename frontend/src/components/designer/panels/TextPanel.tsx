@@ -163,6 +163,7 @@ function extractResponseArray<T>(response: any): T[] {
 
 export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected }) => {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
+  const [newTextColor, setNewTextColor] = useState('#111827');
   const normalizedSelectedType = String(selected?.type || '')
     .toLowerCase()
     .replace(/[-_\s]/g, '');
@@ -371,7 +372,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     void canvasManager.addText({
       ...style,
       fontFamily: family,
-      fill: '#111827',
+      fill: newTextColor,
       textAlign: 'center',
     });
   };
@@ -418,6 +419,35 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
           <span>Click a style or font below to add new text to the canvas.</span>
         </div>
       )}
+
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2.5">
+        <div>
+          <p className="text-xs font-semibold text-gray-800">Text Color</p>
+          <p className="text-[10px] text-gray-500">{isTextSelected ? 'Apply to selected text' : 'Default for new text'}</p>
+        </div>
+        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-2 py-1.5 hover:bg-gray-50">
+          <span
+            className="h-5 w-5 rounded border border-black/15"
+            style={{ backgroundColor: isTextSelected && typeof selected?.fill === 'string' ? selected.fill : newTextColor }}
+          />
+          <span className="text-[10px] font-mono font-semibold uppercase text-gray-700">
+            {isTextSelected && typeof selected?.fill === 'string' ? selected.fill : newTextColor}
+          </span>
+          <input
+            aria-label="Choose text color"
+            type="color"
+            value={isTextSelected && typeof selected?.fill === 'string' && /^#[0-9a-f]{6}$/i.test(selected.fill) ? selected.fill : newTextColor}
+            onChange={(event) => {
+              const color = event.target.value;
+              setNewTextColor(color);
+              if (isTextSelected && canvasManager) {
+                canvasManager.updateSelectedProperty('fill', color);
+              }
+            }}
+            className="h-7 w-7 cursor-pointer border-0 bg-transparent p-0"
+          />
+        </label>
+      </div>
 
       {/* Default Text Styles */}
       <div className="space-y-2.5">
