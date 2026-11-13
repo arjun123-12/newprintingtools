@@ -647,9 +647,12 @@ function PaymentContent() {
                 </span>
               </div>
               {Number(order.discount_amount) > 0 && (
-                <div className="flex justify-between text-emerald-600 font-medium">
-                  <span>Discount</span>
-                  <span>-${Number(order.discount_amount).toFixed(2)}</span>
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800">
+                  <div className="flex justify-between font-semibold">
+                    <span>{order.applied_reward_type === 'offer' ? 'Offer' : 'Spin & Win reward'}{order.applied_reward_title ? ` · ${order.applied_reward_title}` : ''}</span>
+                    <span>−${Number(order.discount_amount).toFixed(2)}</span>
+                  </div>
+                  {order.applied_reward_code && <p className="mt-1 text-[10px]">Code {order.applied_reward_code} applied to this order.</p>}
                 </div>
               )}
               <div className="pt-2 border-t border-slate-200/80 flex justify-between items-baseline text-sm font-black text-slate-900">

@@ -6,6 +6,7 @@ use App\Models\CustomerEnquiry;
 use App\Models\ClientBrief;
 use App\Models\Invoice;
 use App\Models\Order;
+use App\Models\OrderSpinEntitlement;
 use App\Models\CustomerRewardLedger;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -172,8 +173,24 @@ class OrderNotificationService
     public function sendSpinRewardWonEmail(CustomerRewardLedger $reward, Order $order): bool
     {
         $recipient = $order->shipping_address['email'] ?? $order->user?->email;
+        $customerName = $order->shipping_address['name'] ?? $order->user?->name ?? 'Valued Customer';
+
+        return $this->sendSpinRewardEmail($reward, $recipient, $customerName, $order->order_number);
+    }
+
+    /** Email a reward won from a standalone promotional invitation. */
+    public function sendStandaloneSpinRewardWonEmail(CustomerRewardLedger $reward, OrderSpinEntitlement $entitlement): bool
+    {
+        $recipient = $entitlement->email ?? $entitlement->user?->email;
+        $customerName = $entitlement->name ?? $entitlement->user?->name ?? 'Valued Customer';
+
+        return $this->sendSpinRewardEmail($reward, $recipient, $customerName, null);
+    }
+
+    private function sendSpinRewardEmail(CustomerRewardLedger $reward, ?string $recipient, string $customerName, ?string $orderNumber): bool
+    {
         if (empty($recipient) || ! filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
-            Log::warning("Cannot email Spin & Win reward {$reward->id}: order {$order->order_number} has no valid customer email.");
+            Log::warning("Cannot email Spin & Win reward {$reward->id}: no valid customer email was found.");
             return false;
         }
 
@@ -182,12 +199,12 @@ class OrderNotificationService
         }
 
         try {
-            Mail::to($recipient)->send(new \App\Mail\SpinRewardWonMail($reward, $order));
+            Mail::to($recipient)->send(new \App\Mail\SpinRewardWonMail($reward, $customerName, $orderNumber));
             $reward->forceFill(['reward_email_sent_at' => now()])->save();
-            Log::info("Spin & Win reward email sent for order {$order->order_number} to {$recipient}.");
+            Log::info("Spin & Win reward email sent for reward {$reward->id} to {$recipient}.");
             return true;
         } catch (Throwable $e) {
-            Log::warning("Failed sending Spin & Win reward email for order {$order->order_number}: {$e->getMessage()}");
+            Log::warning("Failed sending Spin & Win reward email {$reward->id} to {$recipient}: {$e->getMessage()}");
             return false;
         }
     }

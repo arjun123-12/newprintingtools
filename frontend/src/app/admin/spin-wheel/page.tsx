@@ -224,7 +224,7 @@ export default function AdminSpinWheelPage() {
       ? 'customers on all orders, regardless of payment status'
       : `${selectedOrderIds.length + selectedCustomerIds.length + selectedContactIds.length} selected recipients`;
 
-    if (!window.confirm(`Send Spin & Win Wheel VIP invitation email to ${countText}?`)) return;
+    if (!window.confirm(`Send Spin & Win Wheel VIP invitation email to ${countText}? Each sent invitation creates one single-use spin. Send another invitation later to allow another spin.`)) return;
 
     setBusy(true);
     setMessage(null);

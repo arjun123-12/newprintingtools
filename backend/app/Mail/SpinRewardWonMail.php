@@ -3,7 +3,6 @@
 namespace App\Mail;
 
 use App\Models\CustomerRewardLedger;
-use App\Models\Order;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
@@ -14,19 +13,18 @@ class SpinRewardWonMail extends Mailable
 
     public function __construct(
         public CustomerRewardLedger $reward,
-        public Order $order
+        public string $customerName,
+        public ?string $orderNumber = null
     ) {}
 
     public function build(): self
     {
         $fromEmail = config('mail.from.address', 'Info@erryimprints.com.au');
         $fromName = config('mail.from.name', 'Erry Imprints');
-        $customerName = $this->order->shipping_address['name']
-            ?? $this->order->user?->name
-            ?? 'Valued Customer';
         $amount = number_format((float) $this->reward->value, 2);
         $valueLabel = match ($this->reward->reward_type) {
             'print_credit' => 'AUD $' . $amount . ' print credit',
+            'product_discount' => $amount . '% off ' . ($this->reward->target_product ?: 'an eligible product'),
             'free_product' => 'Free product reward',
             'premium_upgrade' => 'Premium upgrade',
             'shipping_upgrade' => (float) $this->reward->value > 0
@@ -38,8 +36,9 @@ class SpinRewardWonMail extends Mailable
         $howToUse = trim($this->reward->how_to_use) ?: 'Enter this reward code at checkout on your next eligible order.';
         $terms = trim($this->reward->terms) ?: 'This reward is subject to the stated expiry and eligibility conditions.';
 
-        $body = "Dear {$customerName},\n\n"
-            . "Congratulations! You have won a Spin & Win reward after order {$this->order->order_number}.\n\n"
+        $orderText = $this->orderNumber ? " after order {$this->orderNumber}" : '';
+        $body = "Dear {$this->customerName},\n\n"
+            . "Congratulations! You have won a Spin & Win reward{$orderText}.\n\n"
             . "Reward: {$this->reward->title}\n"
             . "Reward value: {$valueLabel}\n"
             . "Claim code: {$this->reward->reward_code}\n"

@@ -115,10 +115,15 @@ export default function CheckoutPage() {
     title: string;
     discount_amount: number;
     reward_type: string;
+    target_product?: string | null;
+    auto_applied?: boolean;
+    terms?: string | null;
   } | null>(null);
   const [validatingVoucher, setValidatingVoucher] = useState(false);
   const [voucherError, setVoucherError] = useState<string | null>(null);
   const [savedRewards, setSavedRewards] = useState<CustomerRewardItem[]>([]);
+  const [rewardsLoaded, setRewardsLoaded] = useState(false);
+  const autoApplyAttempted = useRef(false);
 
   // 1. Initial Load of Authoritative Checkout Data
   useEffect(() => {
@@ -140,6 +145,8 @@ export default function CheckoutPage() {
           setSavedRewards(rewards.rewards.filter((reward) => reward.status === 'active'));
         } catch {
           // Checkout remains available if the rewards service is temporarily unavailable.
+        } finally {
+          setRewardsLoaded(true);
         }
 
         // Pre-fill user contact info
@@ -205,6 +212,43 @@ export default function CheckoutPage() {
 
     void loadData();
   }, [authLoading, isAuthenticated]);
+
+  // Automatically use the customer's first active reward that fits this cart.
+  // Validation stays server-side so product-specific rewards only apply when
+  // their eligible product is actually in the cart.
+  useEffect(() => {
+    if (loading || !checkoutData || !rewardsLoaded || autoApplyAttempted.current || savedRewards.length === 0) return;
+    autoApplyAttempted.current = true;
+    let cancelled = false;
+
+    const applyFirstEligibleReward = async () => {
+      for (const reward of savedRewards) {
+        try {
+          const result = await spinWinService.validateVoucher(
+            reward.reward_code,
+            (checkoutData.subtotal_ex_gst || 0) + (checkoutData.gst_amount || 0),
+          );
+          if (!cancelled && result?.valid && Number(result.discount_amount) > 0) {
+            setAppliedReward({
+              code: result.reward_code,
+              title: result.title,
+              discount_amount: Number(result.discount_amount),
+              reward_type: result.reward_type,
+              target_product: result.target_product,
+              auto_applied: true,
+              terms: result.terms,
+            });
+            return;
+          }
+        } catch {
+          // Try the next active reward; an ineligible reward should not block checkout.
+        }
+      }
+    };
+
+    void applyFirstEligibleReward();
+    return () => { cancelled = true; };
+  }, [loading, checkoutData, rewardsLoaded, savedRewards]);
 
   // Shipping Rates Dynamic Refresh State
   const [isUpdatingRates, setIsUpdatingRates] = useState(false);
@@ -371,6 +415,9 @@ export default function CheckoutPage() {
           title: rewardResult.title,
           discount_amount: Number(rewardResult.discount_amount),
           reward_type: rewardResult.reward_type,
+          target_product: rewardResult.target_product,
+          auto_applied: false,
+          terms: rewardResult.terms,
         });
         setVoucherCodeInput('');
       } else {
@@ -401,6 +448,9 @@ export default function CheckoutPage() {
         title: result.title,
         discount_amount: Number(result.discount_amount),
         reward_type: result.reward_type,
+        target_product: result.target_product,
+        auto_applied: false,
+        terms: result.terms,
       });
     } catch (error: any) {
       setVoucherError(error.response?.data?.message || error.message || 'Unable to apply this reward.');
@@ -1274,6 +1324,14 @@ export default function CheckoutPage() {
                         <Gift className="w-3.5 h-3.5 text-emerald-600" />
                         <span>{appliedReward.reward_type === 'offer' ? 'Offer' : 'Reward'}: {appliedReward.title}</span>
                       </div>
+                      <p className="mt-1 text-[10px] text-emerald-800">
+                        {appliedReward.reward_type === 'offer'
+                          ? 'This offer was applied to your order.'
+                          : appliedReward.auto_applied
+                            ? 'Automatically applied from your saved Spin & Win reward.'
+                            : 'Applied from your Spin & Win reward.'}
+                        {appliedReward.target_product ? ` Eligible product: ${appliedReward.target_product}.` : appliedReward.terms ? ` ${appliedReward.terms}` : ' This reward is valid on this order.'}
+                      </p>
                       <span className="text-[10px] font-mono text-emerald-800 font-medium">{appliedReward.code}</span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1330,6 +1388,13 @@ export default function CheckoutPage() {
                   </div>
                 )}
               </div>
+
+              {appliedReward && (
+                <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                  <span>{appliedReward.reward_type === 'offer' ? 'Offer discount' : 'Spin &amp; Win discount'} · {appliedReward.title}</span>
+                  <span className="font-bold">−${rewardDiscount.toFixed(2)}</span>
+                </div>
+              )}
 
               <div className="pt-3 border-t border-slate-200 flex items-baseline justify-between">
                 <div>

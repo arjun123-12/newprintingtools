@@ -88,7 +88,7 @@ export default function AdminOrdersPage() {
   };
 
   const handleSendSpinInvitation = async (order: ManualOrderListItem) => {
-    if (!confirm(`Send a Spin Wheel invitation to ${order.customer.email} for order ${order.order_number}? This works whether the order is paid or unpaid.`)) return;
+    if (!confirm(`Send a new single-use Spin Wheel invitation to ${order.customer.email} for order ${order.order_number}? Each new invitation allows one additional spin, including when this customer has spun before.`)) return;
     setSendingSpinOrderId(order.id);
     try {
       const result = await spinWinService.sendAdminSpinInvitation({ order_ids: [order.id] });

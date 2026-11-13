@@ -119,6 +119,9 @@ export interface CreatedOrder {
   gst_amount: number;
   shipping_fee_inc_gst: number;
   discount_amount: number;
+  applied_reward_code?: string | null;
+  applied_reward_title?: string | null;
+  applied_reward_type?: string | null;
   total_inc_gst: number;
   total: number;
   currency: string;
