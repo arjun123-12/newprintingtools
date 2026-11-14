@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Check, Copy, FileImage, Link2, Loader2, MessageCircle, Plus, RefreshCw, Send, UploadCloud } from 'lucide-react';
+import { Check, Copy, FileImage, Link2, Loader2, MessageCircle, Plus, RefreshCw, Send, UploadCloud, ExternalLink } from 'lucide-react';
 import { adminDesignQueryService, DesignQuery } from '@/services/adminDesignQueryService';
 import { useAuth } from '@/context/AuthContext';
 import { canAccessSection } from '@/utils/adminPermissions';
@@ -111,7 +111,7 @@ export default function AdminDesignQueriesPage() {
         <aside className="space-y-4">
           <div className="rounded-2xl border bg-white p-5 shadow-sm">
             <h2 className="font-bold">Generate customer link</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-500">Share the private link with a customer so they can submit a design brief and later review proofs.</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">Generate a separate private link for each customer. Each link creates its own design brief and proof conversation.</p>
             <label className="mt-4 block text-xs font-semibold text-slate-600">Link expiry
               <select value={expiry} onChange={(e) => setExpiry(Number(e.target.value))} className="mt-1.5 w-full rounded-lg border px-3 py-2.5 text-sm"><option value={1}>1 day</option><option value={3}>3 days</option><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option><option value={90}>90 days</option></select>
             </label>
@@ -137,6 +137,24 @@ export default function AdminDesignQueriesPage() {
             <div className="rounded-xl border p-4"><h3 className="flex items-center gap-2 font-bold"><MessageCircle className="h-4 w-4"/>Customer conversation</h3><div className="mt-3 max-h-72 space-y-2 overflow-y-auto">{(selected.messages ?? []).length === 0 ? <p className="text-sm text-slate-500">No messages yet.</p> : selected.messages?.map((entry) => <div key={entry.id} className={`max-w-[90%] rounded-xl p-3 text-sm ${entry.author === 'employee' ? 'ml-auto bg-violet-50' : 'bg-slate-100'}`}><b>{entry.author === 'employee' ? 'Design team' : 'Customer'}</b><p className="mt-1 whitespace-pre-wrap">{entry.message}</p><time className="mt-1 block text-[10px] text-slate-400">{new Date(entry.created_at).toLocaleString()}</time></div>)}</div><textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Reply to the customer or add a note with the design upload" className="mt-3 min-h-20 w-full rounded-lg border p-3 text-sm"/><div className="mt-2 flex flex-wrap items-center gap-2"><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-bold"><UploadCloud className="h-4 w-4"/>Attach design<input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.svg,.ai,.eps,.psd,.tif,.tiff" className="hidden" onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}/></label>{uploadFile && <span className="max-w-48 truncate text-xs text-slate-500">{uploadFile.name}</span>}<div className="flex-1"/>{uploadFile ? <button disabled={busy} onClick={() => void uploadDesign()} className="inline-flex items-center gap-2 rounded-lg bg-violet-700 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-60"><UploadCloud className="h-4 w-4"/>Upload & send preview</button> : <button disabled={busy || !message.trim()} onClick={() => void sendMessage()} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-60"><Send className="h-4 w-4"/>Send message</button>}</div></div>
           </div>}
         </section>
+      </section>
+      <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b px-5 py-4"><div><h2 className="font-bold">Customer design links</h2><p className="mt-1 text-xs text-slate-500">Each row is a separate customer link and design query.</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold">{items.length}</span></div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3">Query</th><th className="px-5 py-3">Customer / request</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Expires</th><th className="px-5 py-3">Private link</th></tr></thead>
+            <tbody className="divide-y">
+              {items.map((item) => <tr key={item.id}>
+                <td className="px-5 py-3 font-semibold">DQ-{String(item.id).padStart(4, '0')}</td>
+                <td className="px-5 py-3">{item.product || 'Awaiting customer details'}<span className="ml-2 text-xs text-slate-400">{item.request_type || 'design'}</span></td>
+                <td className="px-5 py-3"><span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">{(item.status || 'draft').replaceAll('_', ' ')}</span></td>
+                <td className="px-5 py-3 text-xs text-slate-500">{item.expires_at ? new Date(item.expires_at).toLocaleDateString() : 'No expiry'}</td>
+                <td className="px-5 py-3">{item.client_url ? <div className="flex items-center gap-2"><button type="button" onClick={() => void navigator.clipboard.writeText(item.client_url!)} className="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-bold hover:bg-slate-50"><Copy className="h-3.5 w-3.5"/>Copy</button><a href={item.client_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-violet-700"><ExternalLink className="h-3.5 w-3.5"/>Open</a></div> : <span className="text-xs text-slate-400">Link unavailable</span>}</td>
+              </tr>)}
+              {!loading && items.length === 0 && <tr><td colSpan={5} className="px-5 py-8 text-center text-sm text-slate-500">No links yet. Generate one link per customer above.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   </main>;

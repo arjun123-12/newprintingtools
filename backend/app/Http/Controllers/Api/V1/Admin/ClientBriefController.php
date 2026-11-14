@@ -16,7 +16,7 @@ class ClientBriefController extends Controller
     ): JsonResponse {
         $briefs = ClientBrief::query()
             ->withCount('files')
-            ->select(['id','uuid','request_type','product','quantity','status','is_active','expires_at','submitted_at','created_at','updated_at'])
+            ->select(['id','uuid','token','request_type','product','quantity','status','is_active','expires_at','submitted_at','created_at','updated_at'])
             ->latest()
             ->paginate(
                 $request->integer(
@@ -24,6 +24,13 @@ class ClientBriefController extends Controller
                     20
                 )
             );
+
+        $frontendUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'http://localhost:3000')), '/');
+        $briefs->getCollection()->transform(function (ClientBrief $brief) use ($frontendUrl) {
+            $brief->setAttribute('client_url', $frontendUrl . '/client-brief/' . $brief->token);
+            $brief->makeHidden('token');
+            return $brief;
+        });
 
         return response()->json([
             'success' => true,

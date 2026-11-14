@@ -33,6 +33,7 @@ export interface DesignQuery {
   status: string;
   is_active?: boolean;
   expires_at?: string | null;
+  client_url?: string;
   submitted_at?: string | null;
   created_at?: string;
   files_count?: number;
