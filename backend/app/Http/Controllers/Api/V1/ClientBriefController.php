@@ -196,7 +196,7 @@ class ClientBriefController extends Controller
             ],
 
             'company' => [
-                'nullable',
+                'required',
                 'string',
                 'max:150',
             ],

@@ -66,6 +66,11 @@ class User extends Authenticatable
             'description' => 'Create anonymized design requests and review customer feedback',
             'category' => 'Design',
         ],
+        'design_queries_submitted_only' => [
+            'name' => 'Submitted Design Queries Only',
+            'description' => 'Limit design query access to forms submitted by customers; hide blank link drafts',
+            'category' => 'Design',
+        ],
         'web_projects' => [
             'name' => 'Website Projects',
             'description' => 'Manage website development projects, clients, hosting and maintenance',

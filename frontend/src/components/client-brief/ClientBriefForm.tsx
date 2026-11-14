@@ -343,6 +343,10 @@ export default function ClientBriefForm({
             return 'Please enter your contact name.';
         }
 
+        if (!form.company.trim()) {
+            return 'Please enter your company or business name.';
+        }
+
         if (!form.email.trim()) {
             return 'Please enter your email address.';
         }
@@ -920,22 +924,6 @@ export default function ClientBriefForm({
                                 />
                             </Field>
 
-                            <Field label="Company / business">
-                                <input
-                                    value={
-                                        form.company
-                                    }
-                                    onChange={(e) =>
-                                        updateField(
-                                            'company',
-                                            e.target.value
-                                        )
-                                    }
-                                    className={inputClass}
-                                    placeholder="Optional"
-                                />
-                            </Field>
-
                             <Field
                                 label="Email"
                                 required
@@ -1008,6 +996,16 @@ export default function ClientBriefForm({
                         />
 
                         <div className="grid gap-4 sm:grid-cols-2">
+                            <Field label="Company / business" required>
+                                <input
+                                    required
+                                    value={form.company}
+                                    onChange={(e) => updateField('company', e.target.value)}
+                                    className={inputClass}
+                                    placeholder="Your company or business name"
+                                />
+                            </Field>
+
                             <Field
                                 label="Product"
                                 required

@@ -77,6 +77,13 @@ export const ADMIN_PERMISSIONS: AdminPermissionDef[] = [
     routePath: '/admin/design-queries',
   },
   {
+    key: 'design_queries_submitted_only',
+    name: 'Submitted Design Queries Only',
+    description: 'Show customer-submitted forms only; hide blank link drafts',
+    category: 'Design',
+    routePath: '/admin/design-queries',
+  },
+  {
     key: 'web_projects',
     name: 'Website Projects',
     description: 'Manage website development clients, quotes, milestones and hosting',
@@ -253,6 +260,7 @@ export function getFirstPermittedRoute(user: CustomerUser | null | undefined): s
   if (isSuperAdmin(user)) return '/admin/dashboard';
 
   for (const perm of ADMIN_PERMISSIONS) {
+    if (perm.key === 'design_queries_submitted_only') continue;
     if (canAccessSection(user, perm.key)) {
       return perm.routePath;
     }

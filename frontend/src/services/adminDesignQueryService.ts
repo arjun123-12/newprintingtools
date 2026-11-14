@@ -22,6 +22,7 @@ export interface DesignQueryMessage {
 export interface DesignQuery {
   id: number;
   uuid: string;
+  company_name?: string | null;
   request_type?: string | null;
   product?: string | null;
   quantity?: number | null;

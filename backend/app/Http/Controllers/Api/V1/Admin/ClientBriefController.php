@@ -14,9 +14,14 @@ class ClientBriefController extends Controller
     public function index(
         Request $request
     ): JsonResponse {
-        $briefs = ClientBrief::query()
+        $query = ClientBrief::query();
+        if ($this->submittedQueriesOnly($request)) {
+            $query->whereNotNull('submitted_at');
+        }
+
+        $briefs = $query
             ->withCount('files')
-            ->select(['id','uuid','token','request_type','product','quantity','status','is_active','expires_at','submitted_at','created_at','updated_at'])
+            ->select(['id','uuid','token','company_name','request_type','product','quantity','status','is_active','expires_at','submitted_at','created_at','updated_at'])
             ->latest()
             ->paginate(
                 $request->integer(
@@ -41,6 +46,10 @@ class ClientBriefController extends Controller
     public function store(
         Request $request
     ): JsonResponse {
+        if ($this->submittedQueriesOnly($request)) {
+            return response()->json(['success' => false, 'message' => 'Your role can view submitted customer design queries only.'], 403);
+        }
+
         $validated = $request->validate([
                 'expires_in_days' => [
                     'nullable',
@@ -121,15 +130,16 @@ class ClientBriefController extends Controller
     }
 
     public function show(
+        Request $request,
         int $id
     ): JsonResponse {
         $brief =
-            ClientBrief::query()
+            $this->briefsVisibleTo($request)
                 ->with(['files', 'messages', 'rewardLedger.spinReward'])
                 ->findOrFail($id);
 
         $payload = $brief->only([
-            'id','uuid','request_type','reorder_reference','project_name','product','quantity',
+            'id','uuid','company_name','request_type','reorder_reference','project_name','product','quantity',
             'width','height','unit','print_sides','colours','description',
             'additional_notes','requested_date','status','is_active','expires_at','submitted_at',
             'created_at','updated_at','design_fee','design_fee_accepted_at',
@@ -195,10 +205,7 @@ class ClientBriefController extends Controller
         Request $request,
         int $id
     ): JsonResponse {
-        $brief =
-            ClientBrief::findOrFail(
-                $id
-            );
+        $brief = $this->briefsVisibleTo($request)->findOrFail($id);
 
         $validated =
             $request->validate([
@@ -238,7 +245,7 @@ class ClientBriefController extends Controller
     public function setDesignFee(Request $request, int $id, OrderNotificationService $notifications): JsonResponse
     {
         $data = $request->validate(['design_fee' => ['required', 'numeric', 'min:0', 'max:10000']]);
-        $brief = ClientBrief::findOrFail($id);
+        $brief = $this->briefsVisibleTo($request)->findOrFail($id);
         if ($brief->order()->exists()) return response()->json(['success' => false, 'message' => 'The linked order already exists; update the design service line on the order instead.'], 422);
         if ((float) $data['design_fee'] === (float) $brief->design_fee) return response()->json(['success' => true, 'message' => 'Design fee is unchanged.']);
         $brief->update(['design_fee' => $data['design_fee'], 'design_fee_accepted_at' => null]);
@@ -250,7 +257,7 @@ class ClientBriefController extends Controller
 
     public function uploadDesign(Request $request, int $id, OrderNotificationService $notifications): JsonResponse
     {
-        $brief = ClientBrief::findOrFail($id);
+        $brief = $this->briefsVisibleTo($request)->findOrFail($id);
         $data = $request->validate([
             'file' => ['required','file','max:51200','mimes:pdf,png,jpg,jpeg,webp,svg,ai,eps,psd,tif,tiff'],
             'message' => ['nullable','string','max:5000'],
@@ -275,7 +282,7 @@ class ClientBriefController extends Controller
 
     public function message(Request $request, int $id, OrderNotificationService $notifications): JsonResponse
     {
-        $brief = ClientBrief::findOrFail($id);
+        $brief = $this->briefsVisibleTo($request)->findOrFail($id);
         $data = $request->validate([
             'message' => ['nullable','string','max:5000','required_without:image'],
             'image' => ['nullable','image','max:10240','required_without:message'],
@@ -292,5 +299,20 @@ class ClientBriefController extends Controller
         ]);
         $notifications->sendClientBriefCustomerUpdate($brief, $message ?: 'The design team sent an image.');
         return response()->json(['success' => true]);
+    }
+
+    private function submittedQueriesOnly(Request $request): bool
+    {
+        $user = $request->user();
+        return $user && !$user->isSuperAdmin() && $user->hasPermission('design_queries_submitted_only');
+    }
+
+    private function briefsVisibleTo(Request $request)
+    {
+        $query = ClientBrief::query();
+        if ($this->submittedQueriesOnly($request)) {
+            $query->whereNotNull('submitted_at');
+        }
+        return $query;
     }
 }
