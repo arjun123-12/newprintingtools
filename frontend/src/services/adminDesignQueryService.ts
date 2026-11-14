@@ -14,6 +14,9 @@ export interface DesignQueryMessage {
   author: 'customer' | 'employee' | string;
   message: string;
   created_at: string;
+  attachment_url?: string | null;
+  attachment_name?: string | null;
+  attachment_mime_type?: string | null;
 }
 
 export interface DesignQuery {
@@ -71,7 +74,10 @@ export const adminDesignQueryService = {
     if (message?.trim()) data.append('message', message.trim());
     return apiClient.post(`${BASE}/${id}/design`, data);
   },
-  async sendMessage(id: number, message: string) {
-    return apiClient.post(`${BASE}/${id}/messages`, { message });
+  async sendMessage(id: number, message: string, image?: File | null) {
+    const data = new FormData();
+    if (message.trim()) data.append('message', message.trim());
+    if (image) data.append('image', image);
+    return apiClient.post(`${BASE}/${id}/messages`, data);
   },
 };

@@ -175,7 +175,9 @@ class ClientBriefController extends Controller
                         ),
                 'messages' => $brief->messages->map(fn ($message) => [
                     'id' => $message->id, 'author' => $message->author,
-                    'message' => $message->message, 'created_at' => $message->created_at,
+                    'message' => $message->message, 'attachment_url' => $message->attachment_url,
+                    'attachment_name' => $message->attachment_name, 'attachment_mime_type' => $message->attachment_mime_type,
+                    'created_at' => $message->created_at,
                 ]),
                 'spin_reward' => $brief->rewardLedger ? [
                     'title' => $brief->rewardLedger->title,
@@ -274,9 +276,21 @@ class ClientBriefController extends Controller
     public function message(Request $request, int $id, OrderNotificationService $notifications): JsonResponse
     {
         $brief = ClientBrief::findOrFail($id);
-        $data = $request->validate(['message' => ['required','string','max:5000']]);
-        $brief->messages()->create(['author' => 'employee', 'message' => $data['message']]);
-        $notifications->sendClientBriefCustomerUpdate($brief, $data['message']);
+        $data = $request->validate([
+            'message' => ['nullable','string','max:5000','required_without:image'],
+            'image' => ['nullable','image','max:10240','required_without:message'],
+        ]);
+        $image = $request->file('image');
+        $path = $image?->store('client-briefs/'.$brief->uuid.'/chat', 'public');
+        if ($image && !$path) return response()->json(['success' => false, 'message' => 'Could not store the chat image.'], 500);
+        $message = trim((string) ($data['message'] ?? ''));
+        $brief->messages()->create([
+            'author' => 'employee', 'message' => $message,
+            'attachment_path' => $path,
+            'attachment_name' => $image?->getClientOriginalName(),
+            'attachment_mime_type' => $image?->getMimeType(),
+        ]);
+        $notifications->sendClientBriefCustomerUpdate($brief, $message ?: 'The design team sent an image.');
         return response()->json(['success' => true]);
     }
 }

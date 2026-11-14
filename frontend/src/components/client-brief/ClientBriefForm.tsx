@@ -20,6 +20,9 @@ import {
     Printer,
     RotateCcw,
     UploadCloud,
+    Camera,
+    Image as ImageIcon,
+    Send,
 } from 'lucide-react';
 
 const API_URL = (
@@ -160,6 +163,7 @@ export default function ClientBriefForm({
     const [portal, setPortal] = useState<any>(null);
     const [linkedReward, setLinkedReward] = useState<any>(null);
     const [portalMessage, setPortalMessage] = useState('');
+    const [portalImage, setPortalImage] = useState<File | null>(null);
     const [portalBusy, setPortalBusy] = useState(false);
 
     const acceptFee = async () => {
@@ -584,13 +588,17 @@ export default function ClientBriefForm({
 
     if (portal) {
         const sendMessage = async () => {
-            if (!portalMessage.trim()) return;
+            if (!portalMessage.trim() && !portalImage) return;
             setPortalBusy(true);
             try {
-                const sent = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}/messages`, { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: portalMessage.trim() }) });
+                const data = new FormData();
+                if (portalMessage.trim()) data.append('message', portalMessage.trim());
+                if (portalImage) data.append('image', portalImage);
+                const sent = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}/messages`, { method: 'POST', headers: { Accept: 'application/json' }, body: data });
                 const sentResult = await sent.json().catch(() => null);
                 if (!sent.ok) throw new Error(sentResult?.message ?? 'Could not send feedback.');
                 setPortalMessage('');
+                setPortalImage(null);
                 const response = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}`);
                 const result = await response.json(); setPortal(result.data);
             } catch (e) { setError(e instanceof Error ? e.message : 'Could not send feedback.'); }
@@ -669,13 +677,17 @@ export default function ClientBriefForm({
                             {(portal.messages ?? []).map((m: any) => (
                                 <div key={m.id} className={`rounded-xl p-3 text-sm ${m.author === 'customer' ? 'bg-emerald-50' : 'bg-slate-100'}`}>
                                     <b>{m.author === 'customer' ? 'You' : 'Design team'}</b>
-                                    <p className="mt-1 whitespace-pre-wrap">{m.message}</p>
+                                    {m.message && <p className="mt-1 whitespace-pre-wrap">{m.message}</p>}
+                                    {m.attachment_url && <a href={m.attachment_url} target="_blank" rel="noreferrer"><img src={m.attachment_url} alt={m.attachment_name || 'Chat image'} className="mt-2 max-h-80 rounded-lg object-contain"/></a>}
                                 </div>
                             ))}
                         </div>
-                        <textarea value={portalMessage} onChange={e => setPortalMessage(e.target.value)} placeholder="Tell us what you would like changed" className="mt-4 min-h-24 w-full rounded-xl border p-3 text-sm"/>
+                        <textarea value={portalMessage} onChange={e => setPortalMessage(e.target.value)} onPaste={e => { const item = Array.from(e.clipboardData.items).find(entry => entry.type.startsWith('image/')); const file = item?.getAsFile(); if (file) setPortalImage(file); }} placeholder="Tell us what you would like changed or paste a screenshot" className="mt-4 min-h-24 w-full rounded-xl border p-3 text-sm"/>
                         <div className="mt-3 flex flex-wrap gap-2">
-                            <button disabled={portalBusy || !portalMessage.trim()} onClick={() => void sendMessage()} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white">Send feedback</button>
+                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold"><Camera className="h-4 w-4"/>Camera<input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => setPortalImage(e.target.files?.[0] ?? null)}/></label>
+                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold"><ImageIcon className="h-4 w-4"/>Photo<input type="file" accept="image/*" className="hidden" onChange={e => setPortalImage(e.target.files?.[0] ?? null)}/></label>
+                            {portalImage && <button type="button" onClick={() => setPortalImage(null)} className="self-center max-w-40 truncate text-xs text-slate-500">{portalImage.name} · remove</button>}
+                            <button disabled={portalBusy || (!portalMessage.trim() && !portalImage)} onClick={() => void sendMessage()} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white"><Send className="h-4 w-4"/>Send</button>
                             {(portal.files ?? []).length > 0 && !portal.approved && (!portal.design_fee || portal.design_fee_accepted) && <button disabled={portalBusy} onClick={() => void approveDesign()} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white">Approve final design</button>}
                             {portal.approved && <span className="self-center text-sm font-bold text-emerald-700">Design approved. Our team will confirm the order price and send your payment link.</span>}
                         </div>
