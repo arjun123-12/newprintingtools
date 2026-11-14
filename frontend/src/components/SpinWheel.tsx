@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Link from 'next/link';
 import { Sparkles, Trophy, Check, Copy, X, ArrowRight, RotateCcw, Lock, Loader2, BadgeCheck } from 'lucide-react';
 import { spinWinService, WonPrize } from '@/services/spinWinService';
+import RewardExpiryCountdown from '@/components/rewards/RewardExpiryCountdown';
 import { useAuth } from '@/context/AuthContext';
 
 export interface SpinSegment {
@@ -1024,9 +1025,10 @@ export default function SpinWheel({
                 </button>
               </div>
               {wonPrize.expiresAt && (
-                <p className="mt-2 text-[10px] text-slate-400">
-                  Valid until {new Date(wonPrize.expiresAt).toLocaleDateString()}
-                </p>
+                <>
+                  <p className="mt-2 text-[10px] text-slate-400">Valid until {new Date(wonPrize.expiresAt).toLocaleDateString()}</p>
+                  <RewardExpiryCountdown expiresAt={wonPrize.expiresAt} className="mt-2 text-xs" />
+                </>
               )}
             </div>
 

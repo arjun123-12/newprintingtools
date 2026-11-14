@@ -31,6 +31,7 @@ import {
   WonPrize,
   SpinEligibilityResponse,
 } from '@/services/spinWinService';
+import RewardExpiryCountdown from '@/components/rewards/RewardExpiryCountdown';
 
 interface SpinAndWinWheelProps {
   orderNumber?: string;
@@ -308,6 +309,7 @@ export default function SpinAndWinWheel({
                 <p className="mt-1 text-xs sm:text-sm text-slate-200">
                   You won <strong className="text-amber-300">{wonPrize.title}</strong>. Use code <strong className="font-mono text-pink-300">{wonPrize.reward_code}</strong> by {new Date(wonPrize.expires_at).toLocaleDateString()}.
                 </p>
+                <RewardExpiryCountdown expiresAt={wonPrize.expires_at} className="mt-2 text-xs sm:text-sm" />
               </>
             ) : (
               <>
@@ -571,6 +573,7 @@ export default function SpinAndWinWheel({
 
                 <div className="text-[11px] text-slate-300 space-y-1 pt-1 border-t border-white/5">
                   <p>{wonPrize.how_to_use}</p>
+                  <RewardExpiryCountdown expiresAt={wonPrize.expires_at} className="text-xs" />
                   <p className="text-[10px] text-slate-400">
                     <strong>Terms:</strong> {wonPrize.terms_text} Valid until {new Date(wonPrize.expires_at).toLocaleDateString()}.
                   </p>
