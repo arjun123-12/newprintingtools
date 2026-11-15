@@ -748,30 +748,6 @@ export class CanvasManager {
     canvas.defaultCursor = BLACK_ARTWORK_CURSOR;
     canvas.setCursor(BLACK_ARTWORK_CURSOR);
 
-    // Render artwork and bleed-line overlays above the background, but beneath
-    // objects and selection frames so elements and their frames never disappear behind lines.
-    const origRenderBackground = (canvas as any)._renderBackground?.bind(canvas);
-    if (origRenderBackground) {
-      (canvas as any)._renderBackground = (ctx: CanvasRenderingContext2D) => {
-        origRenderBackground(ctx);
-        // Fabric paints its background before applying viewportTransform, so
-        // the guides need the editor pasteboard offset and pan applied explicitly.
-        const fallbackOffset = this.getWorkspacePaddingPx() * this.zoom;
-        const vpt = (canvas as any).viewportTransform || [
-          this.zoom,
-          0,
-          0,
-          this.zoom,
-          fallbackOffset,
-          fallbackOffset,
-        ];
-        ctx.save();
-        ctx.translate(vpt[4], vpt[5]);
-        this.guides.renderGuides(ctx, vpt[0] || this.zoom);
-        ctx.restore();
-      };
-    }
-
     applyCanvaControlsGlobal();
     canvas.setZoom(this.zoom);
     const workspaceOffset = this.getWorkspacePaddingPx() * this.zoom;
@@ -12209,6 +12185,16 @@ export class CanvasManager {
       if (opt.ctx) {
         this.snapping.renderGuides(opt.ctx, this.zoom);
         this.smartSpacingManager.renderMeasurements(opt.ctx, this.zoom);
+
+        // Print guides are editor-only overlays: paint them after every artwork
+        // object so opaque images and full-bleed backgrounds cannot hide them.
+        // They remain on the canvas render surface (not in the object stack),
+        // and can still be hidden by export/preview flows through CanvasGuides.
+        const vpt = this.canvas?.viewportTransform || [1, 0, 0, 1, 0, 0];
+        opt.ctx.save();
+        opt.ctx.transform(vpt[0], vpt[1], vpt[2], vpt[3], vpt[4], vpt[5]);
+        this.guides.renderGuides(opt.ctx, this.zoom, true);
+        opt.ctx.restore();
       }
     });
 

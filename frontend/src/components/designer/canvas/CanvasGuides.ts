@@ -310,7 +310,8 @@ export class CanvasGuides {
 
   public renderGuides(
     ctx: CanvasRenderingContext2D,
-    zoom: number
+    zoom: number,
+    viewportTransformAlreadyApplied = false
   ): void {
     if (!this.isVisible || !this.canvas) return;
 
@@ -326,7 +327,9 @@ export class CanvasGuides {
     const shape = this.settings.artworkShape || 'rectangle';
 
     ctx.save();
-    ctx.scale(zoom, zoom);
+    if (!viewportTransformAlreadyApplied) {
+      ctx.scale(zoom, zoom);
+    }
 
     // 1. RED = outer bleed boundary.
     if (this.settings.showBleed !== false) {
@@ -442,7 +445,10 @@ export class CanvasGuides {
         this.recomputeSideFoldingLayout();
       }
       const sideLayout: SideFoldingLayout | null = this.cachedSideLayout;
-      if (!sideLayout) return;
+      if (!sideLayout) {
+        ctx.restore();
+        return;
+      }
 
       const isVertical =
         this.printLayout.folding.panelOrientation !== 'horizontal';

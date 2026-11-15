@@ -14,7 +14,7 @@ class DesignerController extends Controller
     /**
      * Return active templates belonging to a product.
      */
-    public function templates(?string $productId = null): JsonResponse
+    public function templates(Request $request, ?string $productId = null): JsonResponse
     {
         $query = DesignTemplate::query()->where('is_active', true);
 
@@ -34,11 +34,33 @@ class DesignerController extends Controller
             $query->where('product_id', $product->id);
         }
 
-        $templates = $query->with([
-            'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout,artwork_module',
-            'pages.productSide',
-            'categories:id,name,slug',
-        ])->latest()->get();
+        if ($request->boolean('summary')) {
+            $templates = $query->latest()->get([
+                'id', 'product_id', 'name', 'category', 'width_mm', 'height_mm',
+                'bleed_mm', 'safe_area_mm', 'artwork_config', 'thumbnail_url',
+            ])->map(function (DesignTemplate $template) {
+                $config = $template->artwork_config ?? [];
+                $config['width'] = $config['width'] ?? (float) $template->width_mm;
+                $config['height'] = $config['height'] ?? (float) $template->height_mm;
+                $config['bleed'] = $config['bleed'] ?? (float) $template->bleed_mm;
+                $config['safe_area'] = $config['safe_area'] ?? (float) $template->safe_area_mm;
+
+                return [
+                    'id' => $template->id,
+                    'product_id' => $template->product_id,
+                    'name' => $template->name,
+                    'category' => $template->category,
+                    'artwork_config' => $config,
+                    'thumbnail_url' => $template->thumbnail_url,
+                ];
+            })->values();
+        } else {
+            $templates = $query->with([
+                'product:id,name,slug,print_sides,width_mm,height_mm,margin_mm,bleed_mm,safe_area_mm,print_layout,artwork_module',
+                'pages.productSide',
+                'categories:id,name,slug',
+            ])->latest()->get();
+        }
 
         return response()->json([
             'success' => true,

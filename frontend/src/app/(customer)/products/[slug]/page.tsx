@@ -53,24 +53,28 @@ interface ProductDetailPageProps {
 export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   const { slug } = use(params);
 
-  const { data, isLoading: loading, error: queryError } = useQuery({
+  const { data: product, isLoading: loading, error: queryError } = useQuery({
     queryKey: ['public-product', slug],
     queryFn: async () => {
       const prodRes = await apiClient.get(`/products/${encodeURIComponent(slug)}`);
       const product = prodRes.data?.data as ProductDetail | undefined;
       if (!product) throw new Error('Product not found.');
-      const templatesPromise = apiClient.get(`/designer/templates/${product.id}`)
-        .then((response) => response.data?.success && Array.isArray(response.data?.data) ? response.data.data as AdminTemplate[] : [])
-        .catch(() => [] as AdminTemplate[]);
-      const templates = await templatesPromise;
-      return { product, templates };
+      return product;
     },
     staleTime: 60 * 1000,
     gcTime: 10 * 60 * 1000,
     retry: 1,
   });
-  const product = data?.product ?? null;
-  const templates = data?.templates ?? [];
+  const { data: templates = [], isLoading: templatesLoading, error: templatesError } = useQuery({
+    queryKey: ['public-product-templates', slug],
+    queryFn: async () => {
+      const response = await apiClient.get(`/designer/templates/${encodeURIComponent(slug)}?summary=1`);
+      return response.data?.success && Array.isArray(response.data?.data) ? response.data.data as AdminTemplate[] : [];
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    retry: 1,
+  });
   const error = queryError
     ? ((queryError as any).response?.data?.message || (queryError as Error).message || 'Failed to load product details.')
     : null;
@@ -171,7 +175,13 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
           </div>
         </div>
 
-        {templates.length === 0 ? (
+        {templatesLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" aria-label="Loading templates">
+            {Array.from({ length: 4 }, (_, index) => <div key={index} className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="aspect-[3/2] animate-pulse bg-slate-100"/><div className="space-y-3 p-4"><div className="h-4 w-2/3 animate-pulse rounded bg-slate-100"/><div className="h-9 animate-pulse rounded-xl bg-slate-100"/></div></div>)}
+          </div>
+        ) : templatesError ? (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">Templates could not be loaded right now. Please refresh the page to try again.</div>
+        ) : templates.length === 0 ? (
           <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center space-y-4">
             <LayoutTemplate className="w-10 h-10 text-slate-400 mx-auto" />
             <h3 className="text-base font-bold text-slate-800">No Pre-designed Templates Available</h3>
@@ -194,8 +204,10 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
               const bleed = cfg.bleed ? `Bleed: ${cfg.bleed}mm` : null;
 
               return (
-                <div
+                <Link
                   key={template.id}
+                  href={`/design/${product.id}?templateId=${template.id}`}
+                  aria-label={`Customize ${template.name}`}
                   className="group bg-white rounded-2xl border border-slate-200 hover:border-sky-300 hover:shadow-lg transition-all duration-200 flex flex-col overflow-hidden"
                 >
                   {/* Thumbnail */}
@@ -249,15 +261,12 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
                       </div>
                     </div>
 
-                    <Link
-                      href={`/design/${product.id}?templateId=${template.id}`}
-                      className="w-full py-2 px-3 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl shadow-sm hover:shadow transition flex items-center justify-center gap-1.5 text-center"
-                    >
+                    <span className="w-full py-2 px-3 bg-sky-600 group-hover:bg-sky-700 text-white font-bold text-xs rounded-xl shadow-sm group-hover:shadow transition flex items-center justify-center gap-1.5 text-center">
                       <Palette className="w-3.5 h-3.5" />
                       <span>Customize Template</span>
-                    </Link>
+                    </span>
                   </div>
-                </div>
+                </Link>
               );
             })}
           </div>
