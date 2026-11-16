@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Copy,
   Paintbrush,
@@ -31,6 +32,8 @@ interface MoreMenuPopoverProps {
   canvasManager: CanvasManager | null;
   onClose: () => void;
   align?: 'left' | 'right';
+  anchorRef?: React.RefObject<HTMLElement | null>;
+  boundsRef?: React.RefObject<HTMLElement | null>;
 }
 
 let copiedObjectStyle: Record<string, any> | null = null;
@@ -40,8 +43,68 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
   canvasManager,
   onClose,
   align = 'right',
+  anchorRef,
+  boundsRef,
 }) => {
   const [activeSubmenu, setActiveSubmenu] = useState<'layer' | 'align' | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
+  const [submenuSide, setSubmenuSide] = useState<'left' | 'right'>(align === 'left' ? 'right' : 'left');
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const placeMenu = () => {
+      const anchor = anchorRef?.current;
+      const menu = menuRef.current;
+      if (!anchor || !menu) return;
+
+      const anchorRect = anchor.getBoundingClientRect();
+      const boundaryRect = boundsRef?.current?.getBoundingClientRect() ?? new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+      const padding = 8;
+      const boundaryLeft = Math.max(padding, boundaryRect.left);
+      const boundaryRight = Math.min(window.innerWidth - padding, boundaryRect.right);
+      const boundaryTop = Math.max(padding, boundaryRect.top);
+      const boundaryBottom = Math.min(window.innerHeight - padding, boundaryRect.bottom);
+      const boundaryWidth = Math.max(120, boundaryRight - boundaryLeft);
+      const boundaryHeight = Math.max(120, boundaryBottom - boundaryTop);
+      const width = Math.min(240, boundaryWidth - padding * 2);
+      const height = Math.min(menu.scrollHeight, boundaryHeight - padding * 2);
+      const below = boundaryBottom - anchorRect.bottom - padding;
+      const above = anchorRect.top - boundaryTop - padding;
+      const openBelow = below >= height + padding || below >= above;
+      const top = openBelow
+        ? Math.min(anchorRect.bottom + padding, boundaryBottom - height - padding)
+        : Math.max(boundaryTop + padding, anchorRect.top - height - padding);
+      const left = Math.max(
+        boundaryLeft + padding,
+        Math.min(
+          align === 'left' ? anchorRect.left : anchorRect.right - width,
+          boundaryRight - width - padding
+        )
+      );
+
+      setMenuPosition({ top, left, width, maxHeight: boundaryHeight - padding * 2 });
+      const roomOnRight = boundaryRight - (left + width);
+      const roomOnLeft = left - boundaryLeft;
+      setSubmenuSide(roomOnRight >= 208 || roomOnRight >= roomOnLeft ? 'right' : 'left');
+    };
+
+    placeMenu();
+    window.addEventListener('resize', placeMenu);
+    window.addEventListener('scroll', placeMenu, true);
+    return () => {
+      window.removeEventListener('resize', placeMenu);
+      window.removeEventListener('scroll', placeMenu, true);
+    };
+  }, [activeSubmenu, align, anchorRef, boundsRef]);
+
+  React.useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !anchorRef?.current?.contains(target)) onClose();
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [anchorRef, onClose]);
 
   const handleAction = (action: () => void) => {
     action();
@@ -91,12 +154,21 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
   };
 
   return (
-    <div
+    typeof document !== 'undefined' && createPortal(<div
+      ref={menuRef}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className={`absolute top-full ${
-        align === 'left' ? 'left-0' : 'right-0'
-      } mt-2 w-60 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/90 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 select-none text-xs text-gray-800 space-y-0.5`}
+      data-designer-more-menu="true"
+      style={{
+        position: 'fixed',
+        top: menuPosition?.top ?? 0,
+        left: menuPosition?.left ?? 0,
+        width: menuPosition?.width ?? 240,
+        maxHeight: menuPosition?.maxHeight ?? 'calc(100vh - 16px)',
+        overflowY: menuPosition && menuRef.current && menuRef.current.scrollHeight > menuPosition.maxHeight ? 'auto' : 'visible',
+        visibility: menuPosition ? 'visible' : 'hidden',
+      }}
+      className="fixed z-[110] w-60 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/90 p-1.5 animate-in fade-in zoom-in-95 duration-100 select-none text-xs text-gray-800 space-y-0.5"
     >
       {/* 1. Copy */}
       <button
@@ -252,9 +324,9 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
 
         {activeSubmenu === 'layer' && (
           <div
-            className={`absolute ${
-              align === 'left' ? 'left-full ml-1.5' : 'right-full mr-1.5'
-            } top-0 w-48 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/90 p-1.5 z-60 animate-in fade-in zoom-in-95 duration-100 space-y-0.5`}
+            className={`fixed ${
+              submenuSide === 'right' ? 'left-full ml-1.5' : 'right-full mr-1.5'
+            } absolute top-0 w-48 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/90 p-1.5 z-[120] animate-in fade-in zoom-in-95 duration-100 space-y-0.5`}
           >
             <button
               type="button"
@@ -310,9 +382,9 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
 
         {activeSubmenu === 'align' && (
           <div
-            className={`absolute ${
-              align === 'left' ? 'left-full ml-1.5' : 'right-full mr-1.5'
-            } top-0 w-48 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/90 p-1.5 z-60 animate-in fade-in zoom-in-95 duration-100 space-y-0.5`}
+            className={`fixed ${
+              submenuSide === 'right' ? 'left-full ml-1.5' : 'right-full mr-1.5'
+            } absolute top-0 w-48 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/90 p-1.5 z-[120] animate-in fade-in zoom-in-95 duration-100 space-y-0.5`}
           >
             <button
               type="button"
@@ -391,6 +463,6 @@ export const MoreMenuPopover: React.FC<MoreMenuPopoverProps> = ({
           Ctrl+L
         </span>
       </button>
-    </div>
+    </div>, document.body)
   );
 };

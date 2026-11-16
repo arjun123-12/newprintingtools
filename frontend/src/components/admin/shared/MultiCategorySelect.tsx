@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Folder, Check, X, ChevronDown, Plus, Star, Loader2, Sparkles } from 'lucide-react';
 
 export interface CategoryItemOption {
@@ -42,12 +43,54 @@ export const MultiCategorySelect: React.FC<MultiCategorySelectProps> = ({
   const [createError, setCreateError] = useState<string | null>(null);
   const [showInlineInput, setShowInlineInput] = useState(false);
   const [inlineCategoryName, setInlineCategoryName] = useState('');
+  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setDropdownPosition(null);
+      return;
+    }
+
+    const updateDropdownPosition = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+
+      const rect = trigger.getBoundingClientRect();
+      const viewportPadding = 12;
+      const availableBelow = window.innerHeight - rect.bottom - viewportPadding * 2;
+      const availableAbove = rect.top - viewportPadding * 2;
+      const openBelow = availableBelow >= 220 || availableBelow >= availableAbove;
+      const maxHeight = Math.max(140, Math.min(320, openBelow ? availableBelow : availableAbove));
+      const width = Math.min(rect.width, window.innerWidth - viewportPadding * 2);
+      const left = Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - width - viewportPadding));
+      const top = openBelow
+        ? Math.min(rect.bottom + 6, window.innerHeight - maxHeight - viewportPadding)
+        : Math.max(viewportPadding, rect.top - maxHeight - 6);
+
+      setDropdownPosition({ top, left, width, maxHeight });
+    };
+
+    updateDropdownPosition();
+    window.addEventListener('resize', updateDropdownPosition);
+    window.addEventListener('scroll', updateDropdownPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateDropdownPosition);
+      window.removeEventListener('scroll', updateDropdownPosition, true);
+    };
+  }, [isOpen]);
 
   // Close dropdown on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target) &&
+        !panelRef.current?.contains(target)
+      ) {
         setIsOpen(false);
       }
     };
@@ -200,6 +243,7 @@ export const MultiCategorySelect: React.FC<MultiCategorySelectProps> = ({
       {/* Dropdown toggle trigger */}
       <div className="relative">
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setIsOpen((prev) => !prev)}
           disabled={loading}
@@ -217,8 +261,18 @@ export const MultiCategorySelect: React.FC<MultiCategorySelectProps> = ({
         </button>
 
         {/* Dropdown panel */}
-        {isOpen && (
-          <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 max-h-80 flex flex-col">
+        {isOpen && dropdownPosition && typeof document !== 'undefined' && createPortal(
+          <div
+            ref={panelRef}
+            style={{
+              position: 'fixed',
+              top: dropdownPosition.top,
+              left: dropdownPosition.left,
+              width: dropdownPosition.width,
+              maxHeight: dropdownPosition.maxHeight,
+            }}
+            className="z-[120] bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150 flex flex-col"
+          >
             <div className="p-2 border-b border-gray-100 bg-gray-50/60">
               <input
                 type="text"
@@ -253,7 +307,7 @@ export const MultiCategorySelect: React.FC<MultiCategorySelectProps> = ({
               </div>
             )}
 
-            <div className="overflow-y-auto divide-y divide-gray-50 p-1 custom-scrollbar max-h-48">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-gray-50 p-1 custom-scrollbar">
               {filteredCategories.length === 0 ? (
                 <div className="p-3 text-center text-xs text-gray-400">
                   {searchFilter ? 'No matching category found.' : 'No categories available.'}
@@ -357,7 +411,8 @@ export const MultiCategorySelect: React.FC<MultiCategorySelectProps> = ({
                 )}
               </div>
             )}
-          </div>
+          </div>,
+          document.body
         )}
       </div>
 

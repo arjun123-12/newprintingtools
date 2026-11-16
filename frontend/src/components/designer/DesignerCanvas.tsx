@@ -1411,6 +1411,7 @@ export function DesignerCanvas({
                     selected={selected}
                     canvasManager={canvasManager ?? null}
                     zoom={zoom}
+                    boundsRef={scrollViewportRef}
                   />
                 )}
 

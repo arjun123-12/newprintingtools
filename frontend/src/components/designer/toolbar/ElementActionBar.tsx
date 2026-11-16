@@ -7,6 +7,8 @@ import {
   CopyPlus,
   Trash2,
   MoreHorizontal,
+  Group as GroupIcon,
+  Ungroup,
 } from 'lucide-react';
 import { SelectedObjectState } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -17,6 +19,7 @@ interface ElementActionBarProps {
   canvasManager: CanvasManager | null;
   zoom: number;
   onOpenMore?: () => void;
+  boundsRef?: React.RefObject<HTMLElement | null>;
 }
 
 export const ElementActionBar: React.FC<ElementActionBarProps> = ({
@@ -24,6 +27,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
   canvasManager,
   zoom,
   onOpenMore,
+  boundsRef,
 }) => {
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
@@ -34,6 +38,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
   // Close popover when clicked outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      if ((e.target as HTMLElement | null)?.closest('[data-designer-more-menu="true"]')) return;
       if (barRef.current && !barRef.current.contains(e.target as Node)) {
         setIsMoreOpen(false);
       }
@@ -200,6 +205,8 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
     }
   };
 
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+
   return (
     <div
       style={{
@@ -244,6 +251,34 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
           </button>
         )}
 
+        {canvasManager?.canGroup() && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              canvasManager.groupSelected();
+            }}
+            title="Group selected objects (Ctrl+G)"
+            className="p-1.5 rounded-full hover:bg-violet-50 text-violet-700 hover:text-violet-800 transition flex items-center justify-center cursor-pointer"
+          >
+            <GroupIcon className="w-4 h-4" />
+          </button>
+        )}
+
+        {canvasManager?.canUngroup() && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              canvasManager.ungroupSelected();
+            }}
+            title="Ungroup selected objects (Ctrl+Shift+G)"
+            className="p-1.5 rounded-full hover:bg-violet-50 text-violet-700 hover:text-violet-800 transition flex items-center justify-center cursor-pointer"
+          >
+            <Ungroup className="w-4 h-4" />
+          </button>
+        )}
+
         {/* 3. Delete (hidden if locked) */}
         {!selected.isLocked && (
           <button
@@ -259,6 +294,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
         {/* 4. More actions (•••) */}
         <div className="relative">
           <button
+            ref={moreButtonRef}
             type="button"
             onClick={handleMore}
             title="More actions"
@@ -277,6 +313,8 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
               canvasManager={canvasManager}
               onClose={() => setIsMoreOpen(false)}
               align="left"
+              anchorRef={moreButtonRef}
+              boundsRef={boundsRef}
             />
           )}
         </div>

@@ -258,6 +258,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   });
 
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
   const frameFileInputRef = useRef<HTMLInputElement>(null);
 
   // Draggable position state so user can slide toolbar to any side
@@ -336,6 +337,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   // Close popover when clicked outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      if ((e.target as HTMLElement | null)?.closest('[data-designer-more-menu="true"]')) return;
       if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
         setActivePopover(null);
       }
@@ -1806,6 +1808,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           {/* More Actions (•••) */}
           <div className="relative">
             <button
+              ref={moreButtonRef}
               type="button"
               onClick={() => togglePopover('more')}
               title="More actions"
@@ -1822,6 +1825,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
                 selected={selected}
                 canvasManager={canvasManager}
                 onClose={() => setActivePopover(null)}
+                anchorRef={moreButtonRef}
               />
             )}
           </div>
