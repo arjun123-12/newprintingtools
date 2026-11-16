@@ -34,6 +34,7 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
   const [isTransforming, setIsTransforming] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number | null>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
 
   // Close popover when clicked outside
   useEffect(() => {
@@ -204,8 +205,6 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
       onOpenMore();
     }
   };
-
-  const moreButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div
