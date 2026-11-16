@@ -155,30 +155,25 @@ export default function AdminTemplatesPage() {
         fetch(`${API_URL}/admin/products`, {
           headers: authHeaders,
           cache: 'no-store',
-        }),
+        }).catch(() => null),
       ]);
 
-      if (tplRes.status === 401 || prodRes.status === 401) {
+      if (tplRes.status === 401 || prodRes?.status === 401) {
         handleUnauthorized();
         throw new Error('Your login session has expired.');
       }
 
       const [tplData, prodData] = await Promise.all([
         tplRes.json().catch(() => null),
-        prodRes.json().catch(() => null),
+        prodRes
+          ? prodRes.json().catch(() => null)
+          : Promise.resolve(null),
       ]);
 
       if (!tplRes.ok) {
         throw new Error(
           tplData?.message ??
           `Could not load templates (${tplRes.status}).`
-        );
-      }
-
-      if (!prodRes.ok) {
-        throw new Error(
-          prodData?.message ??
-          `Could not load products (${prodRes.status}).`
         );
       }
 

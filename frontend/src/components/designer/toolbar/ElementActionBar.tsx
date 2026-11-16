@@ -179,6 +179,8 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
 
   // Visible ONLY when object is fixed/stationary, NOT while moving/transforming
   const isVisible = !isTransforming;
+  const canGroupSelection = Boolean(canvasManager?.canGroup());
+  const canUngroupSelection = Boolean(canvasManager?.canUngroup());
 
   const handleToggleLock = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -250,33 +252,37 @@ export const ElementActionBar: React.FC<ElementActionBarProps> = ({
           </button>
         )}
 
-        {canvasManager?.canGroup() && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              canvasManager.groupSelected();
-            }}
-            title="Group selected objects (Ctrl+G)"
-            className="p-1.5 rounded-full hover:bg-violet-50 text-violet-700 hover:text-violet-800 transition flex items-center justify-center cursor-pointer"
-          >
-            <GroupIcon className="w-4 h-4" />
-          </button>
-        )}
+        <button
+          type="button"
+          disabled={!canGroupSelection}
+          onClick={(e) => {
+            e.stopPropagation();
+            canvasManager?.groupSelected();
+          }}
+          title={canGroupSelection ? 'Group selected objects (Ctrl+G)' : 'Select at least two unlocked objects to group'}
+          aria-label="Group selected objects"
+          className={`p-1.5 rounded-full transition flex items-center justify-center ${canGroupSelection
+            ? 'hover:bg-violet-50 text-violet-700 hover:text-violet-800 cursor-pointer'
+            : 'text-gray-300 cursor-not-allowed'}`}
+        >
+          <GroupIcon className="w-4 h-4" />
+        </button>
 
-        {canvasManager?.canUngroup() && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              canvasManager.ungroupSelected();
-            }}
-            title="Ungroup selected objects (Ctrl+Shift+G)"
-            className="p-1.5 rounded-full hover:bg-violet-50 text-violet-700 hover:text-violet-800 transition flex items-center justify-center cursor-pointer"
-          >
-            <Ungroup className="w-4 h-4" />
-          </button>
-        )}
+        <button
+          type="button"
+          disabled={!canUngroupSelection}
+          onClick={(e) => {
+            e.stopPropagation();
+            canvasManager?.ungroupSelected();
+          }}
+          title={canUngroupSelection ? 'Ungroup selected objects (Ctrl+Shift+G)' : 'Select a group to ungroup'}
+          aria-label="Ungroup selected objects"
+          className={`p-1.5 rounded-full transition flex items-center justify-center ${canUngroupSelection
+            ? 'hover:bg-violet-50 text-violet-700 hover:text-violet-800 cursor-pointer'
+            : 'text-gray-300 cursor-not-allowed'}`}
+        >
+          <Ungroup className="w-4 h-4" />
+        </button>
 
         {/* 3. Delete (hidden if locked) */}
         {!selected.isLocked && (
