@@ -265,6 +265,31 @@ export default function ClientBriefForm({
         };
     }, [token]);
 
+    // Keep the reward-linked design query chat current while the customer waits
+    // for the team to upload artwork or reply.
+    useEffect(() => {
+        if (!portal?.uuid || !portal?.submitted) return;
+        let cancelled = false;
+        const refreshPortal = async () => {
+            try {
+                const response = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}`, {
+                    headers: { Accept: 'application/json' },
+                    cache: 'no-store',
+                });
+                if (!response.ok) return;
+                const result = await response.json();
+                if (!cancelled && result?.success && result?.data) setPortal(result.data);
+            } catch {
+                // Keep the chat usable if a background refresh temporarily fails.
+            }
+        };
+        const timer = window.setInterval(() => void refreshPortal(), 7000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+        };
+    }, [portal?.uuid, portal?.submitted, token]);
+
     const totalUploadSize =
         useMemo(
             () =>
@@ -662,6 +687,11 @@ export default function ClientBriefForm({
                         <p className="mt-2 text-sm capitalize text-slate-600">Status: {String(portal.status).replaceAll('_', ' ')}</p>
                         {portal.description && <p className="mt-4 whitespace-pre-wrap text-sm">{portal.description}</p>}
                         {portal.spin_reward && <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50 p-4"><p className="font-bold text-violet-950">Your Spin Wheel reward: {portal.spin_reward.title}</p><p className="mt-1 text-sm text-violet-900">{portal.spin_reward.target_product || portal.product} · {portal.spin_reward.reward_type === 'product_discount' ? `${portal.spin_reward.value}% discount` : portal.spin_reward.reward_type === 'free_product' ? '1 free unit' : `AUD $${Number(portal.spin_reward.value || 0).toFixed(2)}`} · Code {portal.spin_reward.reward_code}</p></div>}
+                        {portal.linked_order && <div className={`mt-4 rounded-xl border p-4 ${portal.linked_order.payment_status === 'paid' ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                            <p className="font-bold">Order {portal.linked_order.order_number} · Payment {String(portal.linked_order.payment_status).replaceAll('_', ' ')}</p>
+                            {portal.linked_order.payment_status === 'paid' ? <p className="mt-1 text-sm">Payment confirmed. Our team can now prepare and send your artwork for approval.</p> : <><p className="mt-1 text-sm">Please complete payment before our team prepares your artwork. Artwork approval and production will be available after payment is confirmed.</p>{portal.linked_order.payment_url && <a href={portal.linked_order.payment_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-lg bg-amber-700 px-4 py-2 text-sm font-bold text-white">Pay order securely</a>}</>}
+                        </div>}
+                        {!portal.linked_order && <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">Our team is preparing your order and secure payment link. Artwork preparation starts after payment is confirmed.</p>}
                         {portal.design_fee > 0 && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="font-bold">Design service: AUD ${Number(portal.design_fee).toFixed(2)}</p><p className="mt-1 text-sm">This fee is set by our team and is separate from print pricing.</p>{portal.design_fee_accepted ? <p className="mt-2 text-sm font-semibold text-emerald-700">Fee accepted</p> : <button disabled={portalBusy} onClick={() => void acceptFee()} className="mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white">{portalBusy ? 'Saving…' : 'Accept design fee'}</button>}</div>}
                     </section>
                     <section className="rounded-2xl bg-white p-6 shadow-sm">
@@ -693,8 +723,8 @@ export default function ClientBriefForm({
                             <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-bold"><ImageIcon className="h-4 w-4"/>Photo<input type="file" accept="image/*" className="hidden" onChange={e => setPortalImage(e.target.files?.[0] ?? null)}/></label>
                             {portalImage && <button type="button" onClick={() => setPortalImage(null)} className="self-center max-w-40 truncate text-xs text-slate-500">{portalImage.name} · remove</button>}
                             <button disabled={portalBusy || (!portalMessage.trim() && !portalImage)} onClick={() => void sendMessage()} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white"><Send className="h-4 w-4"/>Send</button>
-                            {(portal.files ?? []).length > 0 && !portal.approved && (!portal.design_fee || portal.design_fee_accepted) && <button disabled={portalBusy} onClick={() => void approveDesign()} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white">Approve final design</button>}
-                            {portal.approved && <span className="self-center text-sm font-bold text-emerald-700">Design approved. Our team will confirm the order price and send your payment link.</span>}
+                            {(portal.files ?? []).length > 0 && !portal.approved && portal.linked_order?.payment_status === 'paid' && (!portal.design_fee || portal.design_fee_accepted) && <button disabled={portalBusy} onClick={() => void approveDesign()} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white">Approve artwork & start production</button>}
+                            {portal.approved && <span className="self-center text-sm font-bold text-emerald-700">Artwork approved. Your paid order is now in production.</span>}
                         </div>
                         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
                     </section>

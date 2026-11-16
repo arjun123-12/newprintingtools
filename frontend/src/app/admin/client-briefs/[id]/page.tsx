@@ -76,6 +76,8 @@ interface ClientBriefDetail {
     updated_at?: string | null;
 
     files?: BriefFile[];
+    spin_reward?: { title?: string; reward_code?: string; target_product?: string | null; reward_type?: string; value?: number; required_order_quantity?: number | null } | null;
+    linked_order?: { id: string; order_number: string; status: string; payment_status: string; payment_url?: string | null } | null;
 }
 
 const STATUS_OPTIONS = [
@@ -132,6 +134,12 @@ export default function ClientBriefDetailPage() {
 
     const [error, setError] =
         useState<string | null>(null);
+    const [orderProductName, setOrderProductName] = useState('');
+    const [orderQuantity, setOrderQuantity] = useState('');
+    const [orderUnitPrice, setOrderUnitPrice] = useState('');
+    const [orderShippingFee, setOrderShippingFee] = useState('0');
+    const [creatingPaymentOrder, setCreatingPaymentOrder] = useState(false);
+    const [orderMessage, setOrderMessage] = useState<string | null>(null);
 
     const loadBrief = useCallback(
         async () => {
@@ -157,6 +165,8 @@ export default function ClientBriefDetailPage() {
                     );
 
                 setBrief(data);
+                setOrderProductName(data.spin_reward?.target_product || data.product || '');
+                setOrderQuantity(data.quantity != null ? String(data.quantity) : data.spin_reward?.required_order_quantity ? String(data.spin_reward.required_order_quantity) : '');
             } catch (err: any) {
                 console.error(
                     'Failed to load client brief:',
@@ -257,6 +267,28 @@ export default function ClientBriefDetailPage() {
             );
         } finally {
             setUpdating(false);
+        }
+    };
+
+    const createPaymentOrder = async () => {
+        if (!brief) return;
+        setCreatingPaymentOrder(true);
+        setError(null);
+        setOrderMessage(null);
+        try {
+            const result = await clientBriefService.createPaymentOrder(brief.id, {
+                product_name: orderProductName.trim(),
+                quantity: Number(orderQuantity),
+                unit_price_ex_gst: Number(orderUnitPrice),
+                shipping_fee: Number(orderShippingFee || 0),
+                delivery_address: brief.delivery_address || undefined,
+            });
+            setOrderMessage(result.message || 'Payment order created.');
+            await loadBrief();
+        } catch (err: any) {
+            setError(err?.response?.data?.message || 'Could not create the payment order.');
+        } finally {
+            setCreatingPaymentOrder(false);
         }
     };
 
@@ -417,6 +449,39 @@ export default function ClientBriefDetailPage() {
                         </div>
                     </div>
                 </section>
+
+                {(
+                    <section className="rounded-2xl border border-violet-200 bg-white p-5 shadow-sm">
+                        <div className="mb-4">
+                            <h2 className="text-base font-bold text-slate-900">Create order & collect payment</h2>
+                            <p className="mt-1 text-sm text-slate-600">Confirm the catalog product, quantity, and price. The customer pays first; artwork upload becomes available only after payment is verified.</p>
+                        </div>
+                        {brief.linked_order ? (
+                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                <div>
+                                    <p className="font-bold text-slate-900">Order {brief.linked_order.order_number}</p>
+                                    <p className="mt-1 text-xs capitalize text-slate-500">Payment: {brief.linked_order.payment_status.replaceAll('_', ' ')}</p>
+                                </div>
+                                <div className="flex gap-2">
+                                    {brief.linked_order.payment_url && <a href={brief.linked_order.payment_url} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700">Open payment link</a>}
+                                    <Link href={`/admin/orders/${brief.linked_order.id}`} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white">View order</Link>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                <label className="text-xs font-semibold text-slate-600">Catalog product<input value={orderProductName} onChange={(event) => setOrderProductName(event.target.value)} placeholder="Exact product name" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" /></label>
+                                <label className="text-xs font-semibold text-slate-600">Quantity<input type="number" min={1} value={orderQuantity} readOnly={brief.quantity != null || brief.spin_reward?.required_order_quantity != null} onChange={(event) => setOrderQuantity(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm read-only:bg-slate-100" />{(brief.quantity != null || brief.spin_reward?.required_order_quantity != null) && <span className="mt-1 block text-[10px] text-slate-500">Fixed by the submitted design request or reward terms.</span>}</label>
+                                <label className="text-xs font-semibold text-slate-600">Unit price (AUD, ex GST)<input type="number" min={0} step="0.01" value={orderUnitPrice} onChange={(event) => setOrderUnitPrice(event.target.value)} placeholder="0.00" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" /></label>
+                                <label className="text-xs font-semibold text-slate-600">Shipping (AUD)<input type="number" min={0} step="0.01" value={orderShippingFee} onChange={(event) => setOrderShippingFee(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" /></label>
+                                <div className="sm:col-span-2 lg:col-span-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                                    <p className="text-xs text-slate-500">The reward will be applied to the order where eligible. The order is saved in Orders and the secure payment link is added to this chat.</p>
+                                    <button type="button" onClick={() => void createPaymentOrder()} disabled={creatingPaymentOrder || !orderProductName.trim() || !orderQuantity || orderUnitPrice === ''} className="inline-flex items-center gap-2 rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{creatingPaymentOrder ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}{creatingPaymentOrder ? 'Creating…' : 'Create order & send payment link'}</button>
+                                </div>
+                                {orderMessage && <p role="status" className="sm:col-span-2 lg:col-span-4 text-sm font-semibold text-emerald-700">{orderMessage}</p>}
+                            </div>
+                        )}
+                    </section>
+                )}
 
                 <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.8fr)_minmax(300px,0.8fr)]">
                     <div className="space-y-6">

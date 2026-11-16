@@ -1102,6 +1102,7 @@ Route::middleware([
             AdminClientBriefController::class,
             'update',
         ])->whereNumber('id');
+        Route::post('/{id}/payment-order', [AdminClientBriefController::class, 'createPaymentOrder'])->whereNumber('id');
         Route::post('/{id}/design', [AdminClientBriefController::class, 'uploadDesign'])->whereNumber('id');
         Route::post('/{id}/messages', [AdminClientBriefController::class, 'message'])->whereNumber('id');
     });

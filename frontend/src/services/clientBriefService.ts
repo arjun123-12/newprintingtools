@@ -105,6 +105,17 @@ export const clientBriefService = {
         return response.data.data;
     },
 
+    async createPaymentOrder(id: number, payload: {
+        product_name: string;
+        quantity: number;
+        unit_price_ex_gst: number;
+        shipping_fee?: number;
+        delivery_address?: string;
+    }) {
+        const response = await briefApiClient.post(`/admin/client-briefs/${id}/payment-order`, payload);
+        return response.data;
+    },
+
     async uploadDesign(id: number, file: File, message?: string) {
         const data = new FormData();
         data.append('file', file);

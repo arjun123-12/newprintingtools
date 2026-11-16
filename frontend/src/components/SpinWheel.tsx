@@ -280,6 +280,7 @@ export default function SpinWheel({
   if (reviewToken) rewardReturnParams.set('review_token', reviewToken);
   const rewardReturnUrl = `/rewards/spin?${rewardReturnParams.toString()}`;
   const registerUrl = `/register?redirect=${encodeURIComponent(rewardReturnUrl)}`;
+  const forgotPasswordUrl = `/forgot-password?redirect=${encodeURIComponent(rewardReturnUrl)}${claimEmail.trim() ? `&email=${encodeURIComponent(claimEmail.trim())}` : ''}`;
 
   // Sparkles in the background (8 randomized twinkling points)
   const sparkles = useMemo(() => {
@@ -1064,12 +1065,15 @@ export default function SpinWheel({
                       try {
                         await login({ email: claimEmail.trim(), password: claimPassword });
                       } catch (err: any) {
-                        setClaimError(err.response?.data?.message || err.message || 'Login failed. Check your email and password.');
+                        setClaimError(err.response?.status === 401
+                          ? 'Email or password did not match. Use the email that received this reward, or reset your password below.'
+                          : err.response?.data?.message || err.message || 'Login failed. Please try again.');
                       }
                     }}>
                       <input type="email" required autoComplete="email" value={claimEmail} onChange={(event) => setClaimEmail(event.target.value)} placeholder="Email used for this invitation" className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-white outline-none focus:border-amber-300" />
                       <input type="password" required autoComplete="current-password" value={claimPassword} onChange={(event) => setClaimPassword(event.target.value)} placeholder="Password" className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-white outline-none focus:border-amber-300" />
                       {claimError && <p role="alert" className="text-[10px] text-rose-300">{claimError}</p>}
+                      <div className="text-right"><Link href={forgotPasswordUrl} className="text-[10px] font-bold text-amber-200 underline hover:text-amber-100">Forgot password?</Link></div>
                       <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3 py-2.5 text-xs font-extrabold text-emerald-950 transition hover:bg-emerald-400"><Lock className="h-3.5 w-3.5" /> Log in &amp; save reward</button>
                     </form>
                     <p className="mt-2 text-center text-[10px] text-slate-400">New here? <Link href={registerUrl} className="font-bold text-amber-200 underline">Create an account</Link></p>

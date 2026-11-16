@@ -45,7 +45,7 @@ class ClientBriefController extends Controller
                 $product = preg_replace('/^free\s+/i', '', $ledger->title) ?: $ledger->title;
             }
             $brief = ClientBrief::create([
-                'uuid' => (string) Str::uuid(), 'token' => Str::random(48), 'status' => 'draft',
+                'uuid' => (string) Str::uuid(), 'token' => Str::random(48), 'status' => 'in_progress',
                 'is_active' => true, 'expires_at' => now()->addDays(30), 'user_id' => $user->id,
                 'spin_reward_ledger_id' => $ledger->id, 'client_name' => $user->name,
                 'company_name' => $user->company_name, 'email' => $user->email, 'phone' => $user->phone,
@@ -53,9 +53,14 @@ class ClientBriefController extends Controller
                 'request_type' => $data['request_type'] ?? ($configuredQuantity ? 'quote' : 'design'),
                 'description' => ($configuredQuantity ? 'Quote request for ' . number_format($configuredQuantity) . ' ' . ($product ?: 'print items') . '. ' : 'Reward-based order request. ')
                     . 'Spin reward: ' . $ledger->title . ' (' . $ledger->reward_code . ')',
+                'submitted_at' => now(),
             ]);
         } elseif ($brief->status === 'draft' && !$brief->submitted_at) {
-            $updates = ['request_type' => $data['request_type'] ?? $brief->request_type];
+            $updates = [
+                'request_type' => $data['request_type'] ?? $brief->request_type,
+                'status' => 'in_progress',
+                'submitted_at' => now(),
+            ];
             if ($configuredQuantity) {
                 $updates['quantity'] = $configuredQuantity;
                 $updates['description'] = 'Quote request for ' . number_format($configuredQuantity) . ' ' . ($brief->product ?: 'print items') . '. Spin reward: ' . $ledger->title . ' (' . $ledger->reward_code . ')';
@@ -130,6 +135,11 @@ class ClientBriefController extends Controller
         }
 
         $submitted = !is_null($brief->submitted_at);
+        $linkedOrder = $brief->order()->with('activeReviewLink')->first(['id', 'order_number', 'status', 'payment_status']);
+        $reviewLink = $linkedOrder?->activeReviewLink;
+        $paymentUrl = $reviewLink
+            ? rtrim((string) config('app.frontend_url', env('FRONTEND_URL', 'https://www.erryimprints.com.au')), '/') . '/orders/review/' . $reviewLink->token
+            : null;
         return response()->json([
             'success' => true,
 
@@ -174,6 +184,13 @@ class ClientBriefController extends Controller
                 'messages' => $submitted ? $brief->messages()->orderBy('created_at')->get(['id', 'author', 'message', 'attachment_path', 'attachment_name', 'attachment_mime_type', 'created_at']) : [],
                 'approved' => $brief->status === 'approved' || $brief->status === 'completed',
                 'order_created' => $brief->order()->exists(),
+                'linked_order' => $linkedOrder ? [
+                    'id' => $linkedOrder->id,
+                    'order_number' => $linkedOrder->order_number,
+                    'status' => $linkedOrder->status->value ?? (string) $linkedOrder->status,
+                    'payment_status' => $linkedOrder->payment_status->value ?? (string) $linkedOrder->payment_status,
+                    'payment_url' => $paymentUrl,
+                ] : null,
 
                 'expires_at' =>
                     $brief->expires_at
@@ -648,6 +665,9 @@ class ClientBriefController extends Controller
         if ((float) $brief->design_fee > 0 && !$brief->design_fee_accepted_at) return response()->json(['success' => false, 'message' => 'Please accept the design service fee before approving the design.'], 422);
 
         $order = $brief->order;
+        if (!$order || ($order->payment_status->value ?? (string) $order->payment_status) !== 'paid') {
+            return response()->json(['success' => false, 'message' => 'Please complete payment first. Artwork approval will be available after payment is confirmed.'], 409);
+        }
         $designFiles = $brief->files()->where('file_type', 'design')->get();
         if (!$order) {
             $product = Product::query()
@@ -774,20 +794,34 @@ class ClientBriefController extends Controller
             );
         }
 
+        $isPaidOrder = ($order->payment_status->value ?? (string) $order->payment_status) === 'paid';
         $order->update([
             'current_proof_version' => 1,
             'approved_proof_version' => 1,
             'proof_approved_at' => $order->proof_approved_at ?: now(),
             'proof_approved_by' => $order->proof_approved_by ?: ($brief->client_name ?: 'Customer'),
-            'status' => 'pending_payment',
+            'status' => $isPaidOrder ? 'in_production' : 'pending_payment',
         ]);
+        if ($isPaidOrder) {
+            $order->items()->update(['production_status' => 'printing']);
+            OrderActivity::record(
+                $order->id,
+                'in_production',
+                'Customer approved the artwork through design query #' . $brief->id . '; paid order moved to production.',
+                'system',
+                null,
+                ['client_brief_id' => $brief->id, 'approved_version' => 1]
+            );
+        }
         if (!$order->activeReviewLink) $manualOrderService->generateReviewLink($order, null);
 
         $brief->update(['status' => 'approved']);
         return response()->json([
             'success' => true,
-            'message' => 'Design approved and a draft order is ready for pricing.',
-            'data' => ['order_id' => $order->id, 'order_number' => $order->order_number],
+            'message' => $isPaidOrder
+                ? 'Artwork approved. Your paid order is now in production.'
+                : 'Design approved and a draft order is ready for pricing.',
+            'data' => ['order_id' => $order->id, 'order_number' => $order->order_number, 'paid' => $isPaidOrder, 'status' => $order->status->value ?? (string) $order->status],
         ]);
     }
 
