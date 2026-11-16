@@ -39,9 +39,13 @@ export function EnquiryProvider({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
   const [productContext, setProductContext] = useState<ProductEnquiryContext | null>(null);
 
-  // Authenticated Admin check validated against the backend Sanctum user
+  // Staff and admins use the storefront for product/template work without customer enquiry gates.
   const isAdmin = useMemo(() => {
-    return Boolean(user && user.role === 'admin' && user.is_admin === true);
+    return Boolean(
+      user &&
+      user.is_active !== false &&
+      (user.role === 'admin' || user.role === 'staff' || user.is_admin || user.is_super_admin)
+    );
   }, [user]);
 
   const openEnquiryModal = useCallback((context?: ProductEnquiryContext) => {

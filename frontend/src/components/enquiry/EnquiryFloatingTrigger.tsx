@@ -7,8 +7,8 @@ import { useEnquiry } from '@/context/EnquiryContext';
 export const EnquiryFloatingTrigger: React.FC = () => {
   const { openEnquiryModal, isOpen, isAdmin } = useEnquiry();
 
-  // If modal is already open, do not render trigger
-  if (isOpen) return null;
+  // Storefront staff/admin users work directly with products and templates.
+  if (isAdmin || isOpen) return null;
 
   return (
     <div className="fixed bottom-6 right-6 z-40 animate-in fade-in slide-in-from-bottom-4 duration-300">

@@ -83,12 +83,12 @@ export default function AdminLoginPage() {
         throw new Error('User information was not returned.');
       }
 
-      // Only admin users can access the admin panel.
-      if (user.role !== 'admin' && !user.is_admin) {
+      // AdminAuthGuard grants panel access to active staff and admin accounts.
+      if (user.role !== 'admin' && user.role !== 'staff' && !user.is_admin) {
         removeAuthToken();
 
         setError(
-          'Only administrator accounts can access the admin panel.'
+          'Only staff and administrator accounts can access the admin panel.'
         );
 
         return;
