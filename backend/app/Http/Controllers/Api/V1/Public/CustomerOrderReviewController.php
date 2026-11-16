@@ -828,6 +828,12 @@ class CustomerOrderReviewController extends Controller
                 'status' => $order->payment_status === PaymentStatus::PAID ? OrderStatus::IN_PRODUCTION : OrderStatus::PENDING_PAYMENT,
             ]);
 
+            // Payment may be collected before artwork is ready. Only queue production
+            // once the current proof is approved and the order is fully paid.
+            if ($order->payment_status === PaymentStatus::PAID) {
+                $order->items()->update(['production_status' => 'printing']);
+            }
+
             OrderActivity::record(
                 $order->id,
                 'proof_approved',
@@ -842,7 +848,9 @@ class CustomerOrderReviewController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Proof V' . $currentVersionNum . ' approved successfully. Please continue to payment.',
+                'message' => $order->payment_status === PaymentStatus::PAID
+                    ? 'Proof V' . $currentVersionNum . ' approved successfully. Your order is now in production.'
+                    : 'Proof V' . $currentVersionNum . ' approved successfully. Please continue to payment.',
                 'data' => [
                     'order_number' => $order->order_number,
                     'approved_version' => $currentVersionNum,
@@ -882,13 +890,6 @@ class CustomerOrderReviewController extends Controller
                 'message' => 'This order is already paid.',
                 'data' => ['paid' => true],
             ], 409);
-        }
-
-        if (empty($order->approved_proof_version) && !$order->invoice()->exists()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Please review and approve your artwork proof before continuing to payment.',
-            ], 422);
         }
 
         try {
@@ -1005,13 +1006,15 @@ class CustomerOrderReviewController extends Controller
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Payment approved successfully. Your order is now in production!',
+                    'message' => $order->approved_proof_version
+                        ? 'Payment approved successfully. Your order is now in production!'
+                        : 'Payment approved successfully. We will begin production after you approve the artwork proof.',
                     'data' => [
                         'paid' => true,
                         'order_number' => $order->order_number,
                         'receipt_number' => $result['receipt_number'] ?? null,
                         'invoice_number' => $invoice?->invoice_number,
-                        'status' => 'in_production',
+                        'status' => $order->status->value ?? (string) $order->status,
                     ],
                 ]);
             }

@@ -33,6 +33,7 @@ const API_URL = (
 type RequestType =
     | 'ready'
     | 'design'
+    | 'quote'
     | 'reorder';
 
 type FulfilmentType =
@@ -238,7 +239,7 @@ export default function ClientBriefForm({
                     phone: current.phone || brief?.phone || '',
                     product: current.product || brief?.product || '',
                     quantity: current.quantity || (brief?.quantity ? String(brief.quantity) : ''),
-                    requestType: brief?.spin_reward ? 'design' : current.requestType,
+                    requestType: brief?.spin_reward ? 'quote' : current.requestType,
                 }));
             } catch (linkValidationError) {
                 if (cancelled) {
@@ -837,7 +838,7 @@ export default function ClientBriefForm({
                     </span>
                 </div>
 
-                {linkedReward && <section className="mb-6 rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-5"><p className="text-xs font-extrabold uppercase tracking-wider text-violet-800">Spin Wheel reward attached</p><h2 className="mt-1 text-lg font-bold text-violet-950">{linkedReward.title}</h2><p className="mt-1 text-sm text-violet-900">{linkedReward.target_product || form.product} · {linkedReward.reward_type === 'product_discount' ? `${linkedReward.value}% discount` : linkedReward.reward_type === 'free_product' ? '1 free unit' : `AUD $${Number(linkedReward.value || 0).toFixed(2)}`} · Code {linkedReward.reward_code}</p><p className="mt-1 text-xs text-violet-800">Your reward stays linked to this design query.</p></section>}
+                        {linkedReward && <section className="mb-6 rounded-2xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-5"><p className="text-xs font-extrabold uppercase tracking-wider text-violet-800">Spin Wheel reward attached</p><h2 className="mt-1 text-lg font-bold text-violet-950">{linkedReward.title}</h2><p className="mt-1 text-sm text-violet-900">{linkedReward.target_product || form.product} · {linkedReward.reward_type === 'product_discount' ? `${linkedReward.value}% discount` : linkedReward.reward_type === 'free_product' ? '1 free unit' : `AUD $${Number(linkedReward.value || 0).toFixed(2)}`} · Code {linkedReward.reward_code}</p><p className="mt-1 text-xs text-violet-800">Reward conditions stay fixed. Our team will confirm the final order price.</p></section>}
 
                 <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.8fr)_minmax(300px,0.8fr)]">
                     {/* Form */}
@@ -848,7 +849,7 @@ export default function ClientBriefForm({
                         className="rounded-2xl border border-[#dbe5ed] bg-white p-5 shadow-sm sm:p-7"
                     >
                         {/* Request type */}
-                        <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                             <RequestChoice
                                 checked={
                                     form.requestType ===
@@ -879,6 +880,14 @@ export default function ClientBriefForm({
                                         'design'
                                     )
                                 }
+                            />
+
+                            <RequestChoice
+                                checked={form.requestType === 'quote'}
+                                icon={FileText}
+                                title="Request a quote"
+                                description="Get pricing before we create the order"
+                                onClick={() => updateField('requestType', 'quote')}
                             />
 
                             <RequestChoice
@@ -1015,6 +1024,7 @@ export default function ClientBriefForm({
                                     value={
                                         form.product
                                     }
+                                    readOnly={Boolean(portal?.spin_reward?.product_locked)}
                                     onChange={(e) =>
                                         updateField(
                                             'product',
@@ -1022,7 +1032,7 @@ export default function ClientBriefForm({
                                         )
                                     }
                                     className={inputClass}
-                                    placeholder="Choose or type a custom product"
+                                    placeholder={portal?.spin_reward?.product_locked ? 'Product set by your reward' : 'Choose or type a custom product'}
                                 />
 
                                 <datalist id="client-products">
@@ -1050,6 +1060,7 @@ export default function ClientBriefForm({
                                     min={1}
                                     max={10000000}
                                     step={1}
+                                    readOnly={Boolean(portal?.spin_reward?.quantity_locked)}
                                     value={
                                         form.quantity
                                     }
@@ -1060,8 +1071,9 @@ export default function ClientBriefForm({
                                         )
                                     }
                                     className={inputClass}
-                                    placeholder="500"
+                                    placeholder={portal?.spin_reward?.quantity_locked ? 'Quantity set by your reward' : 'Enter order quantity'}
                                 />
+                                {portal?.spin_reward?.quantity_locked && <p className="mt-1 text-xs text-amber-700">This quantity is fixed by your reward and cannot be changed.</p>}
                             </Field>
 
                             <Field label="Requested date">

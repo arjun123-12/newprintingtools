@@ -22,6 +22,7 @@ import {
   Copy,
   Check,
   Tag,
+  FileText,
   Clock,
   Sparkles,
   Briefcase,
@@ -69,6 +70,8 @@ export default function AccountPage() {
   const [rewardsData, setRewardsData] = useState<CustomerRewardsResponse | null>(null);
   const [loadingRewards, setLoadingRewards] = useState(false);
   const [copiedRewardCode, setCopiedRewardCode] = useState<string | null>(null);
+  const [startingQuoteRewardId, setStartingQuoteRewardId] = useState<string | null>(null);
+  const [rewardQuoteError, setRewardQuoteError] = useState<{ rewardId: string; message: string } | null>(null);
 
   // Business Category state
   const [categories, setCategories] = useState<RewardCategory[]>([]);
@@ -155,6 +158,23 @@ export default function AccountPage() {
     navigator.clipboard.writeText(code);
     setCopiedRewardCode(code);
     setTimeout(() => setCopiedRewardCode(null), 2000);
+  };
+
+  const requestLabelQuote = async (reward: CustomerRewardsResponse['rewards'][number]) => {
+    if (!reward.claim_token) {
+      setRewardQuoteError({ rewardId: reward.id, message: 'This reward cannot start a quote request. Please contact our team.' });
+      return;
+    }
+
+    setStartingQuoteRewardId(reward.id);
+    setRewardQuoteError(null);
+    try {
+      const brief = await spinWinService.startDesignQueryFromReward(reward.claim_token, 'quote');
+      router.push(`/client-brief/${encodeURIComponent(brief.token)}`);
+    } catch (error: any) {
+      setRewardQuoteError({ rewardId: reward.id, message: error?.response?.data?.message || 'Could not start your label quote request. Please try again.' });
+      setStartingQuoteRewardId(null);
+    }
   };
 
   const handleDeleteArtwork = async (e: React.MouseEvent, id: string) => {
@@ -402,6 +422,22 @@ export default function AccountPage() {
                       <span>Order #{reward.order_number || 'N/A'}</span>
                       <span>Expires {new Date(reward.expires_at).toLocaleDateString()}</span>
                     </div>
+
+                    {reward.status === 'active' && (
+                      <div className="space-y-1.5">
+                        <button
+                          type="button"
+                          onClick={() => void requestLabelQuote(reward)}
+                          disabled={startingQuoteRewardId === reward.id}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-3 py-2.5 text-xs font-extrabold text-white shadow-sm transition hover:brightness-110 disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {startingQuoteRewardId === reward.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                          Create order request
+                        </button>
+                        <p className="text-center text-[10px] text-slate-400">Reward product and quantity will be prefilled where specified.</p>
+                        {rewardQuoteError?.rewardId === reward.id && <p role="alert" className="text-[10px] font-semibold text-rose-300">{rewardQuoteError.message}</p>}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

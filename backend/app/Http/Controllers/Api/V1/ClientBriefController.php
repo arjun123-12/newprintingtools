@@ -25,13 +25,17 @@ class ClientBriefController extends Controller
     /** Create or reuse a design query linked to the signed-in customer's claimed spin reward. */
     public function startFromReward(Request $request, SpinRewardService $rewards): JsonResponse
     {
-        $data = $request->validate(['claim_token' => ['required', 'string', 'max:120']]);
+        $data = $request->validate([
+            'claim_token' => ['required', 'string', 'max:120'],
+            'request_type' => ['nullable', 'string', 'in:quote,design'],
+        ]);
         try {
             $ledger = $rewards->claimReward($request->user(), $data['claim_token']);
         } catch (\InvalidArgumentException $exception) {
             return response()->json(['success' => false, 'message' => $exception->getMessage()], 422);
         }
         $ledger->load('spinReward');
+        $configuredQuantity = $this->rewardOrderQuantity($ledger);
         $brief = ClientBrief::where('spin_reward_ledger_id', $ledger->id)->first();
         if (!$brief) {
             $user = $request->user();
@@ -45,11 +49,40 @@ class ClientBriefController extends Controller
                 'is_active' => true, 'expires_at' => now()->addDays(30), 'user_id' => $user->id,
                 'spin_reward_ledger_id' => $ledger->id, 'client_name' => $user->name,
                 'company_name' => $user->company_name, 'email' => $user->email, 'phone' => $user->phone,
-                'product' => $product, 'quantity' => $ledger->reward_type === 'free_product' ? 1 : null,
-                'request_type' => 'design', 'description' => 'Spin reward: ' . $ledger->title . ' (' . $ledger->reward_code . ')',
+                'product' => $product, 'quantity' => $configuredQuantity,
+                'request_type' => $data['request_type'] ?? ($configuredQuantity ? 'quote' : 'design'),
+                'description' => ($configuredQuantity ? 'Quote request for ' . number_format($configuredQuantity) . ' ' . ($product ?: 'print items') . '. ' : 'Reward-based order request. ')
+                    . 'Spin reward: ' . $ledger->title . ' (' . $ledger->reward_code . ')',
             ]);
+        } elseif ($brief->status === 'draft' && !$brief->submitted_at) {
+            $updates = ['request_type' => $data['request_type'] ?? $brief->request_type];
+            if ($configuredQuantity) {
+                $updates['quantity'] = $configuredQuantity;
+                $updates['description'] = 'Quote request for ' . number_format($configuredQuantity) . ' ' . ($brief->product ?: 'print items') . '. Spin reward: ' . $ledger->title . ' (' . $ledger->reward_code . ')';
+            }
+            $brief->update($updates);
         }
-        return response()->json(['success' => true, 'data' => ['token' => $brief->token, 'product' => $brief->product]], 201);
+        return response()->json(['success' => true, 'data' => ['token' => $brief->token, 'product' => $brief->product, 'quantity' => $brief->quantity]], 201);
+    }
+
+    private function rewardOrderQuantity(CustomerRewardLedger $ledger): ?int
+    {
+        $text = implode(' ', [$ledger->title, $ledger->terms, $ledger->how_to_use]);
+        $patterns = [
+            '/(?:order|purchase)\s+(?:(?:of|for)\s+)?(?:at least\s+)?(\d[\d,]*)/i',
+            '/minimum\s+(?:order\s+)?(?:quantity|qty)\s*(?:of\s*)?(\d[\d,]*)/i',
+            '/buy\s+(?:at least\s+)?(\d[\d,]*)/i',
+        ];
+        $matches = [];
+        foreach ($patterns as $pattern) {
+            if (preg_match_all($pattern, $text, $found)) {
+                foreach ($found[1] as $value) {
+                    $matches[] = (int) str_replace(',', '', $value);
+                }
+            }
+        }
+        $quantity = end($matches);
+        return $quantity !== false && $quantity > 0 && $quantity <= 10000000 ? $quantity : null;
     }
 
     /** Create a short-lived secure brief link for a customer starting from the website. */
@@ -120,6 +153,11 @@ class ClientBriefController extends Controller
                     'reward_type' => $brief->rewardLedger?->reward_type,
                     'target_product' => $brief->rewardLedger?->target_product,
                     'value' => (float) ($brief->rewardLedger?->value ?? 0),
+                    'product_locked' => $brief->spin_reward_ledger_id && (
+                        filled($brief->rewardLedger?->target_product)
+                        || ($brief->rewardLedger?->reward_type === 'free_product' && filled($brief->product))
+                    ),
+                    'quantity_locked' => !is_null($brief->quantity),
                 ] : null,
                 'quantity' => $brief->quantity,
                 'width' => $submitted ? $brief->width : null,
@@ -186,7 +224,7 @@ class ClientBriefController extends Controller
         $validated = $request->validate([
             'request_type' => [
                 'required',
-                'in:ready,design,reorder',
+                'in:ready,design,quote,reorder',
             ],
 
             'contact' => [
@@ -301,6 +339,15 @@ class ClientBriefController extends Controller
             ],
         ]);
 
+        $rewardLedger = $brief->spin_reward_ledger_id
+            ? CustomerRewardLedger::find($brief->spin_reward_ledger_id)
+            : null;
+        $rewardProductIsLocked = $rewardLedger && (
+            filled($rewardLedger->target_product)
+            || ($rewardLedger->reward_type === 'free_product' && filled($brief->product))
+        );
+        $rewardQuantityIsLocked = $rewardLedger && !is_null($brief->quantity);
+
         if (
             $validated['request_type'] ===
                 'reorder' &&
@@ -382,11 +429,13 @@ class ClientBriefController extends Controller
                         'reorder_reference'
                     ] ?? null,
 
-                'product' =>
-                    $validated['product'],
+                'product' => $rewardProductIsLocked
+                    ? ($rewardLedger->target_product ?: $brief->product)
+                    : $validated['product'],
 
-                'quantity' =>
-                    $validated['quantity'],
+                'quantity' => $rewardQuantityIsLocked
+                    ? $brief->quantity
+                    : $validated['quantity'],
 
                 'requested_date' =>
                     $validated[

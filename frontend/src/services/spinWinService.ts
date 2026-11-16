@@ -72,6 +72,7 @@ export interface SpinEligibilityResponse {
 
 export interface CustomerRewardItem {
   id: string;
+  claim_token?: string | null;
   category_id?: number;
   category_name?: string;
   reward_code: string;
@@ -173,8 +174,11 @@ export const spinWinService = {
     return res.data;
   },
 
-  async startDesignQueryFromReward(claimToken: string): Promise<{ token: string; product: string }> {
-    const res = await apiClient.post('/client-brief/start-from-reward', { claim_token: claimToken });
+  async startDesignQueryFromReward(claimToken: string, requestType?: 'quote' | 'design'): Promise<{ token: string; product: string | null; quantity: number | null }> {
+    const res = await apiClient.post('/client-brief/start-from-reward', {
+      claim_token: claimToken,
+      ...(requestType ? { request_type: requestType } : {}),
+    });
     return res.data?.data;
   },
 

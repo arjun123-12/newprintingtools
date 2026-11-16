@@ -685,17 +685,22 @@ export default function OrderReviewPage({ params }: PageProps) {
           'collected',
         ].includes(res.data.status);
 
-        if (res.data.invoice && res.data.payment_status !== 'paid') {
-          setCurrentStep('payment');
-        } else if (isPostReviewStatus || res.data.payment_status === 'paid') {
-          if (isPostReviewStatus || res.data.status === 'in_production') {
-            setCurrentStep('production');
+        if (isPostReviewStatus || (res.data.proof?.is_approved && res.data.payment_status === 'paid')) {
+          setCurrentStep('production');
+        } else if (!res.data.proof?.is_approved) {
+          // Payment can be collected before artwork is ready. If already paid,
+          // return to proof review and hold production until customer approval.
+          if (res.data.payment_status === 'paid') {
+            setCurrentStep('review');
+            setGatewayStatus('success');
           } else {
             setCurrentStep('payment');
-            setGatewayStatus('success');
           }
+        } else if (res.data.invoice && res.data.payment_status !== 'paid') {
+          setCurrentStep('payment');
         } else if (res.data.proof?.is_approved) {
           setCurrentStep('payment');
+          if (res.data.payment_status === 'paid') setGatewayStatus('success');
         } else {
           setCurrentStep('review');
         }
@@ -973,7 +978,7 @@ export default function OrderReviewPage({ params }: PageProps) {
 
       if (res.success) {
         await loadOrder();
-        setCurrentStep('payment');
+        setCurrentStep(res.data?.ready_for_payment === false ? 'production' : 'payment');
       } else {
         setApprovalError(res.message || 'Approval could not be completed.');
       }
@@ -1008,6 +1013,7 @@ export default function OrderReviewPage({ params }: PageProps) {
       } : current);
       setRewardCodeInput('');
       setRewardMessage(response.message || 'Reward applied.');
+      if (currentStep === 'payment') setGatewayStatus('idle');
     } catch (err: any) {
       const fieldError = err.response?.data?.errors?.code?.[0];
       setRewardError(fieldError || err.response?.data?.message || err.message || 'Unable to apply this reward.');
@@ -1035,6 +1041,7 @@ export default function OrderReviewPage({ params }: PageProps) {
         },
       } : current);
       setRewardMessage(response.message || 'Reward removed.');
+      if (currentStep === 'payment') setGatewayStatus('idle');
     } catch (err: any) {
       setRewardError(err.response?.data?.message || err.message || 'Unable to remove this reward.');
     } finally {
@@ -1049,6 +1056,7 @@ export default function OrderReviewPage({ params }: PageProps) {
       setPaymentError('Payment form is still loading. Please try again.');
       return;
     }
+    const proofWasApproved = Boolean(orderData?.proof.is_approved);
 
     setSubmittingPayment(true);
     setPaymentError(null);
@@ -1060,7 +1068,7 @@ export default function OrderReviewPage({ params }: PageProps) {
           if (result.success && result.data?.paid) {
             setPaymentReceipt(result.data?.receipt_number || 'VERIFIED');
             setGatewayStatus('success');
-            setCurrentStep('production');
+            setCurrentStep(proofWasApproved ? 'production' : 'review');
             await loadOrder();
           } else {
             setPaymentError(result.message || 'Payment could not be verified.');
@@ -1296,7 +1304,7 @@ export default function OrderReviewPage({ params }: PageProps) {
             </span>
           </div>
 
-          {showApproveButton && currentStep === 'review' && orderData.payment_status !== 'paid' && !orderData.proof.is_approved && !orderData.invoice && (
+          {((showApproveButton && currentStep === 'review') || currentStep === 'payment') && orderData.payment_status !== 'paid' && !orderData.proof.is_approved && !orderData.invoice && (
             <div className="space-y-2 rounded-2xl border border-violet-200 bg-violet-50/70 p-3.5">
               <div className="flex items-center gap-2 text-xs font-bold text-violet-950">
                 <Tag className="h-4 w-4 text-violet-700" />
@@ -1371,7 +1379,7 @@ export default function OrderReviewPage({ params }: PageProps) {
               ) : (
                 <Lock className="w-4 h-4" />
               )}
-              <span>Approve &amp; continue to payment</span>
+              <span>{orderData.payment_status === 'paid' ? 'Approve artwork &amp; start production' : 'Approve &amp; continue to payment'}</span>
             </button>
 
             <p className="text-[11px] text-center text-slate-400">
@@ -1385,7 +1393,7 @@ export default function OrderReviewPage({ params }: PageProps) {
           <div className="space-y-2 pt-2">
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>Proof approved! Complete payment to queue for printing.</span>
+              <span>{orderData.proof.is_approved ? 'Proof approved! Complete payment to queue for printing.' : 'Complete payment now; production will wait until you approve the artwork proof.'}</span>
             </div>
           </div>
         )}
@@ -2285,7 +2293,9 @@ export default function OrderReviewPage({ params }: PageProps) {
               <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm flex items-center gap-3 shadow-xs">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <span className="font-semibold">
-                  Payment successfully verified! Your order #{orderData.order_number} has been placed into production.
+                  {orderData.proof.is_approved
+                    ? `Payment successfully verified! Your order #${orderData.order_number} has been placed into production.`
+                    : `Payment successfully verified for order #${orderData.order_number}. Production will begin after you approve the artwork proof.`}
                 </span>
               </div>
 
@@ -2305,7 +2315,7 @@ export default function OrderReviewPage({ params }: PageProps) {
                   {renderVersionHistoryCard()}
                   <div className="p-4 bg-sky-50/80 rounded-2xl border border-sky-100 flex items-start gap-2.5 text-xs text-sky-800">
                     <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
-                    <span>Production begins immediately after verified payment. Your tax invoice will be sent via email.</span>
+                    <span>{orderData.proof.is_approved ? 'Production begins after verified payment. Your tax invoice will be sent via email.' : 'You can pay before artwork approval. Production will begin only after payment and proof approval.'}</span>
                   </div>
                 </div>
               </div>
@@ -2325,7 +2335,7 @@ export default function OrderReviewPage({ params }: PageProps) {
                 {renderPaymentCard()}
                 <div className="p-4 bg-sky-50/80 rounded-2xl border border-sky-100 flex items-start gap-2.5 text-xs text-sky-800">
                   <Info className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
-                  <span>Production begins immediately after verified payment. Your tax invoice will be sent via email.</span>
+                  <span>{orderData.proof.is_approved ? 'Production begins after verified payment. Your tax invoice will be sent via email.' : 'You can pay before artwork approval. Production will begin only after payment and proof approval.'}</span>
                 </div>
               </div>
             </div>

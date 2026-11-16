@@ -791,6 +791,7 @@ class SpinRewardService
 
             return [
                 'id' => $l->id,
+                'claim_token' => $l->claim_token,
                 'category_id' => $l->category_id,
                 'category_name' => $l->category_name ?? $l->category?->name ?? 'Default / General',
                 'reward_code' => $l->reward_code,
