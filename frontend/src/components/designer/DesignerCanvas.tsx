@@ -347,6 +347,7 @@ export function DesignerCanvas({
       if (!canvas) return;
 
       const activeObject = canvas.getActiveObject();
+      const isEditingText = Boolean((activeObject as any)?.isEditing);
       const isFabricHiddenTextarea = Boolean(
         targetElement &&
         activeObject &&
@@ -363,7 +364,7 @@ export function DesignerCanvas({
       }
 
       /* Hold Space to temporarily pan the zoomed artwork, Canva-style. */
-      if (event.code === 'Space') {
+      if (event.code === 'Space' && !isEditingText) {
         event.preventDefault();
 
         if (!isSpacePressedRef.current) {
