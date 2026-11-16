@@ -96,14 +96,7 @@ class CustomerOrderReviewController extends Controller
         if ($link->status === 'revoked' || $link->revoked_at !== null) {
             return response()->json([
                 'success' => false,
-                'message' => 'This review link has been revoked by our prepress team. Please contact us for an updated link.',
-            ], 410);
-        }
-
-        if ($link->expires_at && $link->expires_at->isPast()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'This review link has expired. Please contact us to generate a fresh link.',
+                'message' => 'This order link has been deactivated. Your order details are hidden for now. If you would like to continue, please contact our team.',
             ], 410);
         }
 

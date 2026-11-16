@@ -795,6 +795,10 @@ Route::middleware(['auth:sanctum', 'admin.access'])
                 \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
                 'revokeLink',
             ]);
+            Route::patch('/manual-orders/{id}/review-link-status', [
+                \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
+                'setReviewLinkActive',
+            ]);
             Route::post('/manual-orders/{id}/send-reminder', [
                 \App\Http\Controllers\Api\V1\Admin\ManualOrderController::class,
                 'sendReminder',

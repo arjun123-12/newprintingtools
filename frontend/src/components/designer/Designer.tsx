@@ -1290,7 +1290,10 @@ export default function Designer({
         }
 
         if (payloadFingerprint === lastSavedPayloadFingerprintRef.current) {
-          setSaveStatus('saved');
+          // CanvasManager can report UI-only changes (selection/viewport and
+          // related events). Keep identical payloads silent: no API write and
+          // no repeated "All changes saved" notification.
+          setSaveStatus('idle');
           setSaveError(null);
           return;
         }
@@ -2693,26 +2696,12 @@ export default function Designer({
         </div>
       )}
 
-      {/* Autosave status */}
-      {saveStatus !== 'idle' && (
+      {/* Keep routine autosave quiet; only surface a problem or local-only limitation. */}
+      {(saveStatus === 'error' || saveStatus === 'local-only') && (
         <div
-          className={`fixed right-4 top-16 z-[70] max-w-sm rounded-lg border px-3 py-1.5 text-xs font-medium shadow-lg backdrop-blur-sm ${saveStatus === 'error'
-            ? 'border-red-200 bg-red-50/95 text-red-700'
-            : saveStatus === 'saving' || saveStatus === 'unsaved'
-              ? 'border-amber-200 bg-amber-50/95 text-amber-700'
-              : saveStatus === 'local-only'
-                ? 'border-blue-200 bg-blue-50/95 text-blue-700'
-                : 'border-emerald-200 bg-emerald-50/95 text-emerald-700'
-            }`}
+          className={`fixed right-4 top-16 z-[70] max-w-sm rounded-lg border px-3 py-1.5 text-xs font-medium shadow-lg backdrop-blur-sm ${saveStatus === 'error' ? 'border-red-200 bg-red-50/95 text-red-700' : 'border-blue-200 bg-blue-50/95 text-blue-700'}`}
           title={saveError ?? undefined}
         >
-          {saveStatus === 'unsaved' && 'Unsaved changes'}
-          {saveStatus === 'saving' && 'Saving…'}
-          {saveStatus === 'saved' &&
-            `All changes saved${lastSavedAt
-              ? ` at ${lastSavedAt.toLocaleTimeString()}`
-              : ''
-            }`}
           {saveStatus === 'local-only' && 'Saved locally — product ID required for cloud save'}
           {saveStatus === 'error' &&
             `Save failed: ${saveError ?? 'Unknown error'}`}

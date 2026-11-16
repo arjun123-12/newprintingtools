@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { manualOrderService, ManualOrderListItem } from '@/services/admin/manualOrderService';
-import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle, Trash2, Pencil, Copy, Clock, Gift } from 'lucide-react';
+import { Plus, Search, RefreshCw, ExternalLink, Eye, AlertCircle, Trash2, Pencil, Copy, Clock, Gift, Power } from 'lucide-react';
 import TurnaroundCell from '@/components/admin/orders/TurnaroundCell';
 import TurnaroundModal from '@/components/admin/orders/TurnaroundModal';
 import { spinWinService } from '@/services/spinWinService';
@@ -47,6 +47,7 @@ export default function AdminOrdersPage() {
   // Modal state for editing turnaround time directly from the table
   const [editingTurnaroundOrder, setEditingTurnaroundOrder] = useState<ManualOrderListItem | null>(null);
   const [sendingSpinOrderId, setSendingSpinOrderId] = useState<string | null>(null);
+  const [togglingReviewLinkOrderId, setTogglingReviewLinkOrderId] = useState<string | null>(null);
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -98,6 +99,26 @@ export default function AdminOrdersPage() {
       alert(err?.response?.data?.message || err.message || 'Could not send the Spin Wheel invitation.');
     } finally {
       setSendingSpinOrderId(null);
+    }
+  };
+
+  const handleToggleReviewLink = async (order: ManualOrderListItem) => {
+    if (!order.review_link) return;
+    const activate = !order.review_link.is_valid;
+    const action = activate ? 'activate' : 'deactivate';
+    if (!confirm(`${action === 'activate' ? 'Activate' : 'Deactivate'} the customer link for ${order.order_number}? ${activate ? 'The same link will work again until an admin deactivates it.' : 'The customer will see that the order link is inactive and should contact your team. They will also receive an email notification.'}`)) return;
+    setTogglingReviewLinkOrderId(order.id);
+    try {
+      const result = await manualOrderService.setReviewLinkActive(order.id, activate);
+      if (!result?.success) throw new Error(result?.message || `Could not ${action} the customer link.`);
+      if (!activate && result?.data?.notification_sent === false) {
+        alert(result.message || 'The customer link was deactivated, but the email notification could not be sent.');
+      }
+      await loadOrders();
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err.message || `Could not ${action} the customer link.`);
+    } finally {
+      setTogglingReviewLinkOrderId(null);
     }
   };
 
@@ -234,13 +255,17 @@ export default function AdminOrdersPage() {
                         </span>
                         {order.review_link && (
                           <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded ${order.review_link.open_count > 0
+                            className={`text-[10px] px-1.5 py-0.5 rounded ${!order.review_link.is_valid
+                                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                : order.review_link.open_count > 0
                                 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                                 : 'bg-slate-800 text-slate-400 border border-slate-700'
                               }`}
-                            title={`Opened ${order.review_link.open_count} time(s)`}
+                            title={!order.review_link.is_valid ? 'Order link is inactive or expired' : `Opened ${order.review_link.open_count} time(s)`}
                           >
-                            {order.review_link.open_count > 0
+                            {!order.review_link.is_valid
+                              ? 'Inactive'
+                              : order.review_link.open_count > 0
                               ? `Opened ${order.review_link.open_count}x`
                               : 'Link sent'}
                           </span>
@@ -276,6 +301,20 @@ export default function AdminOrdersPage() {
                     </td>
                     <td className="px-6 py-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-2">
+                        {order.review_link && (
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleReviewLink(order)}
+                            disabled={togglingReviewLinkOrderId === order.id}
+                            className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${order.review_link.is_valid
+                              ? 'border-rose-500/20 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20'
+                              : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'}`}
+                            title={order.review_link.is_valid ? 'Deactivate customer order link and notify the customer' : 'Activate customer order link'}
+                          >
+                            <Power className="h-3 w-3" />
+                            <span>{togglingReviewLinkOrderId === order.id ? 'Updating…' : order.review_link.is_valid ? 'Deactivate' : 'Activate'}</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => void handleSendSpinInvitation(order)}

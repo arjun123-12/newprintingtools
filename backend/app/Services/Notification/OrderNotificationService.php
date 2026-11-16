@@ -610,6 +610,34 @@ HTML;
         }
     }
 
+    /** Notify a customer after staff deactivates their secure order review link. */
+    public function sendReviewLinkDeactivated(Order $order, string $customerEmail): bool
+    {
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $customerName = $order->user?->name ?? 'Valued Customer';
+        $orderNumber = $order->order_number;
+        $subject = "Order link deactivated: {$orderNumber} | Erry Imprints";
+        $body = "Dear {$customerName},\n\n"
+            . "The secure link for order {$orderNumber} has been deactivated by our team, so its order details are no longer available through that link.\n\n"
+            . "If you would like to continue with this order or need the link reactivated, please contact our team at Info@erryimprints.com.au.\n\n"
+            . "Warm regards,\n"
+            . "Erry Imprints Team";
+
+        try {
+            Mail::raw($body, function ($message) use ($customerEmail, $subject, $fromEmail, $fromName) {
+                $message->to($customerEmail)
+                    ->from($fromEmail, $fromName)
+                    ->replyTo($fromEmail, $fromName)
+                    ->subject($subject);
+            });
+            return true;
+        } catch (Throwable $e) {
+            Log::warning("Failed sending order link deactivation email for {$orderNumber} to {$customerEmail}: {$e->getMessage()}");
+            return false;
+        }
+    }
+
     /**
      * Send order production/shipping status update notification to customer.
      */

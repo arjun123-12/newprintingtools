@@ -37,7 +37,7 @@ class ManualOrderController extends Controller
             ->with([
                 'user:id,name,email,company_name,phone',
                 'items.product:id,name,slug',
-               'activeReviewLink',
+                'latestReviewLink',
                 'payments:id,order_id,amount,status,transaction_id,created_at',
             ])
             ->latest('created_at');
@@ -125,10 +125,9 @@ class ManualOrderController extends Controller
 
         // Format orders for staff table
         $orders->getCollection()->transform(function ($order) {
-            $activeLink = $order->activeReviewLink;
+            $activeLink = $order->latestReviewLink;
             $firstItem = $order->items->first();
             $itemsCount = $order->items->count();
-
             $productSummary = $firstItem
                 ? ($firstItem->product_name . ($itemsCount > 1 ? " (+".($itemsCount-1)." more)" : ""))
                 : 'Custom Print';
@@ -169,6 +168,8 @@ class ManualOrderController extends Controller
                     'open_count' => $activeLink->open_count,
                     'last_opened_at' => $activeLink->last_opened_at?->diffForHumans(),
                     'expires_at' => $activeLink->expires_at?->toIso8601String(),
+                    'is_valid' => $activeLink->status === 'active'
+                        && $activeLink->revoked_at === null,
                 ] : null,
             ];
         });
@@ -618,11 +619,14 @@ class ManualOrderController extends Controller
         $order = Order::where('id', $id)->orWhere('order_number', $id)->firstOrFail();
 
         try {
-            $this->manualOrderService->revokeReviewLink($order, $request->user());
+            $result = $this->manualOrderService->deactivateReviewLink($order, $request->user());
 
             return response()->json([
                 'success' => true,
-                'message' => 'Customer review link revoked successfully.',
+                'message' => $result['notification_sent']
+                    ? 'Customer review link deactivated and notification email sent.'
+                    : 'Customer review link deactivated, but the notification email could not be sent. Check the customer email and mail settings.',
+                'data' => $result,
             ]);
         } catch (Throwable $e) {
             report($e);
@@ -631,6 +635,51 @@ class ManualOrderController extends Controller
                 'message' => $e->getMessage() ?: 'Failed to revoke review link.',
             ], 422);
         }
+    }
+
+    /** Toggle the latest customer review link without changing the order record. */
+    public function setReviewLinkActive(Request $request, string $id): JsonResponse
+    {
+        $validated = $request->validate(['active' => ['required', 'boolean']]);
+        $order = Order::where('id', $id)->orWhere('order_number', $id)->firstOrFail();
+        $link = $order->latestReviewLink()->first();
+
+        if (!$link) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Generate a customer review link before activating or deactivating it.',
+            ], 422);
+        }
+
+        $notificationSent = null;
+        if ($validated['active']) {
+            $link->update([
+                'status' => 'active',
+                'revoked_at' => null,
+                'revoked_by' => null,
+                'expires_at' => null,
+            ]);
+            OrderActivity::record($order->id, 'review_link_activated', 'Customer order link reactivated by ' . ($request->user()->name ?: 'Staff'), 'staff', $request->user());
+        } else {
+            $deactivation = $this->manualOrderService->deactivateReviewLink($order, $request->user());
+            $notificationSent = $deactivation['notification_sent'];
+        }
+        $link->refresh();
+
+        return response()->json([
+            'success' => true,
+            'message' => $validated['active']
+                ? 'Customer order link activated.'
+                : ($notificationSent
+                    ? 'Customer order link deactivated and notification email sent.'
+                    : 'Customer order link deactivated, but notification email could not be sent. Check the customer email and mail settings.'),
+            'data' => [
+                'status' => $link->status,
+                'expires_at' => $link->expires_at?->toIso8601String(),
+                'is_valid' => $link->isValid(),
+                'notification_sent' => $notificationSent,
+            ],
+        ]);
     }
 
     /**

@@ -600,9 +600,9 @@ class ManualOrderService
     /**
      * Generate or regenerate a cryptographically secure customer review link.
      */
-    public function generateReviewLink(Order $order, ?User $staffUser = null, int $expiresInDays = 30): OrderReviewLink
+    public function generateReviewLink(Order $order, ?User $staffUser = null): OrderReviewLink
     {
-        return DB::transaction(function () use ($order, $staffUser, $expiresInDays) {
+        return DB::transaction(function () use ($order, $staffUser) {
             // Revoke any existing active links for this order
             OrderReviewLink::where('order_id', $order->id)
                 ->where('status', 'active')
@@ -621,7 +621,7 @@ class ManualOrderService
                 'token' => $token,
                 'token_hash' => $tokenHash,
                 'status' => 'active',
-                'expires_at' => now()->addDays($expiresInDays),
+                'expires_at' => null,
                 'created_by' => $staffUser?->id,
             ]);
 
@@ -642,6 +642,12 @@ class ManualOrderService
      */
     public function revokeReviewLink(Order $order, User $staffUser): bool
     {
+        return $this->deactivateReviewLink($order, $staffUser)['deactivated'];
+    }
+
+    /** Deactivate the customer's link and email them about it. */
+    public function deactivateReviewLink(Order $order, User $staffUser): array
+    {
         $updated = OrderReviewLink::where('order_id', $order->id)
             ->where('status', 'active')
             ->update([
@@ -650,6 +656,7 @@ class ManualOrderService
                 'revoked_by' => $staffUser->id,
             ]);
 
+        $notificationSent = false;
         if ($updated > 0) {
             OrderActivity::record(
                 $order->id,
@@ -658,9 +665,17 @@ class ManualOrderService
                 'staff',
                 $staffUser
             );
+
+            $order->loadMissing('user');
+            $customerEmail = $order->shipping_address['email']
+                ?? $order->billing_address['email']
+                ?? $order->user?->email;
+            if ($customerEmail) {
+                $notificationSent = $this->notificationService->sendReviewLinkDeactivated($order, $customerEmail);
+            }
         }
 
-        return $updated > 0;
+        return ['deactivated' => $updated > 0, 'notification_sent' => $notificationSent];
     }
 
     /**

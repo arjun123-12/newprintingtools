@@ -93,6 +93,7 @@ export interface ManualOrderListItem {
     open_count: number;
     last_opened_at?: string;
     expires_at?: string;
+    is_valid: boolean;
   } | null;
 }
 
@@ -341,6 +342,11 @@ export const manualOrderService = {
    */
   async revokeLink(id: string) {
     const response = await apiClient.post(`/admin/manual-orders/${id}/revoke-link`);
+    return response.data;
+  },
+
+  async setReviewLinkActive(id: string, active: boolean) {
+    const response = await apiClient.patch(`/admin/manual-orders/${id}/review-link-status`, { active });
     return response.data;
   },
 
