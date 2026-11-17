@@ -347,9 +347,12 @@ export default function Designer({
   activePageIndexRef.current = activePageIndex;
   const designTemplateIdRef = useRef<string | null>(null);
   const loadedTemplateKeyRef = useRef<string | null>(null);
+  const adminTemplateActiveRef = useRef(false);
+  const adminTemplateReadyRef = useRef(false);
   const loadSequenceRef = useRef<number>(0);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleAutosaveRef = useRef<() => void>(() => { });
+  const handleSaveDraftRef = useRef<() => Promise<void>>(async () => { });
   const saveInProgressRef = useRef<boolean>(false);
   const saveQueuedRef = useRef<boolean>(false);
   const lastSavedPayloadFingerprintRef = useRef<string | null>(null);
@@ -1098,6 +1101,13 @@ export default function Designer({
       throw new Error('Template ID is missing.');
     }
 
+    const isAdminTemplateMode = mode === 'admin-template' ||
+      (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'admin-template');
+    if (isAdminTemplateMode && !adminTemplateReadyRef.current) {
+      saveQueuedRef.current = true;
+      return;
+    }
+
     const productIdFromUrl =
       typeof window !== 'undefined'
         ? new URLSearchParams(window.location.search).get('productId')
@@ -1198,12 +1208,13 @@ export default function Designer({
     await updateTemplateDesign(
       activeTemplateId,
       frontCanvasJson,
-      publish,
+      publish || adminTemplateActiveRef.current,
       thumbnailUrl,
       artworkConfig,
       backCanvasJson,
       printSettings
     );
+    if (publish) adminTemplateActiveRef.current = true;
   }, [canvasManager, templateId, productId, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex, printSides]);
 
   const handleSaveDraft = useCallback(async (): Promise<void> => {
@@ -1215,7 +1226,15 @@ export default function Designer({
         'admin-template');
 
     if (isAdminTemplateMode) {
-      if (saveInProgressRef.current) return;
+      if (!adminTemplateReadyRef.current) {
+        saveQueuedRef.current = true;
+        return;
+      }
+      if (saveInProgressRef.current) {
+        // Do not drop edits made while a template save is in flight.
+        saveQueuedRef.current = true;
+        return;
+      }
       saveInProgressRef.current = true;
       try {
         setSaveStatus('saving');
@@ -1228,6 +1247,10 @@ export default function Designer({
         setSaveError(err.message || 'Could not save admin template.');
       } finally {
         saveInProgressRef.current = false;
+        if (saveQueuedRef.current) {
+          saveQueuedRef.current = false;
+          scheduleAutosaveRef.current();
+        }
       }
       return;
     }
@@ -1375,6 +1398,10 @@ export default function Designer({
     }
   }, [handleSaveAdminTemplate, mode, orderId, orderItemId, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex]);
 
+  useEffect(() => {
+    handleSaveDraftRef.current = handleSaveDraft;
+  }, [handleSaveDraft]);
+
   const handleAddToCartClick = useCallback(async () => {
     if (canvasManagerRef.current) {
       try {
@@ -1437,17 +1464,12 @@ export default function Designer({
   useEffect(() => {
     if (!canvasManager) return;
 
-    const unsubscribe = canvasManager.onChange(scheduleAutosave);
+    const unsubscribe = canvasManager.onChange(() => scheduleAutosaveRef.current());
 
     return () => {
       unsubscribe();
-
-      if (autosaveTimerRef.current !== null) {
-        clearTimeout(autosaveTimerRef.current);
-        autosaveTimerRef.current = null;
-      }
     };
-  }, [canvasManager, scheduleAutosave]);
+  }, [canvasManager]);
 
   // Canvas events do not cover document-name edits, so save metadata too.
   useEffect(() => {
@@ -1460,6 +1482,15 @@ export default function Designer({
 
     scheduleAutosave();
   }, [canvasManager, designName, documentSettings, scheduleAutosave]);
+
+  useEffect(() => () => {
+    if (autosaveTimerRef.current !== null) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+      // Flush the final debounced change when leaving the designer.
+      void handleSaveDraftRef.current();
+    }
+  }, []);
 
   const [templateSavedMsg, setTemplateSavedMsg] = useState<string | null>(null);
 
@@ -1486,6 +1517,7 @@ export default function Designer({
 
     let isMounted = true;
     const currentSequence = ++loadSequenceRef.current;
+    if (mode === 'admin-template') adminTemplateReadyRef.current = false;
 
     const fetchTemplate = async () => {
       try {
@@ -1533,6 +1565,7 @@ export default function Designer({
         if (result.success && result.data && isMounted) {
           loadedTemplateKeyRef.current = loadKey;
           designTemplateIdRef.current = String(result.data.id);
+          adminTemplateActiveRef.current = Boolean(result.data.is_active);
 
           const loadedProductId =
             result.data.product_id ??
@@ -1708,8 +1741,16 @@ export default function Designer({
               });
             }
           }
+          if (mode === 'admin-template') {
+            adminTemplateReadyRef.current = true;
+            if (saveQueuedRef.current) {
+              saveQueuedRef.current = false;
+              scheduleAutosaveRef.current();
+            }
+          }
         }
       } catch (err) {
+        if (mode === 'admin-template') adminTemplateReadyRef.current = false;
         console.warn('Could not pre-load template:', err);
       }
     };

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Type, Sparkles } from 'lucide-react';
+import { Type, Sparkles, Loader2 } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { SelectedObjectState } from '@/types/designer';
 import { DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
@@ -161,6 +161,8 @@ function extractResponseArray<T>(response: any): T[] {
   return [];
 }
 
+const TEXT_PRESETS_PAGE_SIZE = 30;
+
 export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected }) => {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
   const [newTextColor, setNewTextColor] = useState('#111827');
@@ -176,6 +178,9 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
   const [presets, setPresets] = useState<DesignAsset[]>([]);
   const [categories, setCategories] = useState<DesignAssetCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [presetPage, setPresetPage] = useState(1);
+  const [hasMorePresets, setHasMorePresets] = useState(false);
+  const [loadingMorePresets, setLoadingMorePresets] = useState(false);
   const [, setFontsLoadedTick] = useState(0);
 
   const cleanFontName = (family: string = '') => {
@@ -204,19 +209,11 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
       try {
         setLoading(true);
         const [firstAssetsPage, catsRes] = await Promise.all([
-          designAssetService.getPublicAssets({ asset_type: 'text', per_page: 100, page: 1 }),
+          designAssetService.getPublicAssets({ asset_type: 'text', per_page: TEXT_PRESETS_PAGE_SIZE, page: 1 }),
           designAssetService.getPublicCategories('text'),
         ]);
         const nextPresets = extractResponseArray<DesignAsset>(firstAssetsPage);
         const lastPage = Math.max(1, Number((firstAssetsPage as any)?.last_page) || 1);
-        for (let page = 2; page <= lastPage; page += 1) {
-          const pageResponse = await designAssetService.getPublicAssets({
-            asset_type: 'text',
-            per_page: 100,
-            page,
-          });
-          nextPresets.push(...extractResponseArray<DesignAsset>(pageResponse));
-        }
         const nextCategories = extractResponseArray<DesignAssetCategory>(catsRes)
           .filter(
             (category) =>
@@ -225,6 +222,8 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
           .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
         setPresets(nextPresets);
+        setPresetPage(1);
+        setHasMorePresets(lastPage > 1);
         setCategories(nextCategories);
       } catch (err) {
         console.error('Failed to load text presets:', err);
@@ -234,6 +233,30 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     };
     fetchData();
   }, []);
+
+  const handleLoadMorePresets = async () => {
+    if (loadingMorePresets || !hasMorePresets) return;
+    const nextPage = presetPage + 1;
+    try {
+      setLoadingMorePresets(true);
+      const response = await designAssetService.getPublicAssets({
+        asset_type: 'text',
+        per_page: TEXT_PRESETS_PAGE_SIZE,
+        page: nextPage,
+      });
+      const nextPresets = extractResponseArray<DesignAsset>(response);
+      setPresets((current) => {
+        const existingIds = new Set(current.map((preset) => preset.id));
+        return [...current, ...nextPresets.filter((preset) => !existingIds.has(preset.id))];
+      });
+      setPresetPage(nextPage);
+      setHasMorePresets(nextPage < Math.max(1, Number((response as any)?.last_page) || 1));
+    } catch (err) {
+      console.error('Failed to load more text presets:', err);
+    } finally {
+      setLoadingMorePresets(false);
+    }
+  };
 
   // Preload custom fonts
   useEffect(() => {
@@ -618,6 +641,18 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
             })
           )}
         </div>
+        {!loading && hasMorePresets && (
+          <button
+            type="button"
+            onClick={() => void handleLoadMorePresets()}
+            disabled={loadingMorePresets}
+            className="w-full rounded-xl border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 transition hover:bg-purple-100 disabled:cursor-wait disabled:opacity-60"
+          >
+            {loadingMorePresets ? (
+              <span className="inline-flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading more…</span>
+            ) : 'Load more presets'}
+          </button>
+        )}
       </div>
     </div>
   );
