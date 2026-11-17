@@ -456,7 +456,7 @@ export default function ClientBriefDetailPage() {
                             <h2 className="text-base font-bold text-slate-900">Create order & collect payment</h2>
                             <p className="mt-1 text-sm text-slate-600">Confirm the catalog product, quantity, and price. The customer pays first; artwork upload becomes available only after payment is verified.</p>
                         </div>
-                        {brief.linked_order ? (
+                        {brief.linked_order && (
                             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
                                 <div>
                                     <p className="font-bold text-slate-900">Order {brief.linked_order.order_number}</p>
@@ -467,7 +467,8 @@ export default function ClientBriefDetailPage() {
                                     <Link href={`/admin/orders/${brief.linked_order.id}`} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white">View order</Link>
                                 </div>
                             </div>
-                        ) : (
+                        )}
+                        {(!brief.linked_order || (!brief.linked_order.payment_url && brief.linked_order.payment_status !== 'paid')) && (
                             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                                 <label className="text-xs font-semibold text-slate-600">Catalog product<input value={orderProductName} onChange={(event) => setOrderProductName(event.target.value)} placeholder="Exact product name" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" /></label>
                                 <label className="text-xs font-semibold text-slate-600">Quantity<input type="number" min={1} value={orderQuantity} readOnly={brief.quantity != null || brief.spin_reward?.required_order_quantity != null} onChange={(event) => setOrderQuantity(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm read-only:bg-slate-100" />{(brief.quantity != null || brief.spin_reward?.required_order_quantity != null) && <span className="mt-1 block text-[10px] text-slate-500">Fixed by the submitted design request or reward terms.</span>}</label>

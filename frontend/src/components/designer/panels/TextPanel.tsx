@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Type, Sparkles, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Type, Sparkles, Loader2, Search, SlidersHorizontal, ChevronRight, Check, Crown } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { SelectedObjectState } from '@/types/designer';
 import { DesignAsset, DesignAssetCategory, designAssetService } from '@/services/designAssetService';
 import { LoadingState, EmptyState } from '@/components/admin/shared';
-import { loadCustomFont } from '../utils/fonts';
+import { POPULAR_FONTS, loadCustomFont, loadFont } from '../utils/fonts';
+import type { FontFamilyItem } from '../utils/fonts';
 import { formatImageUrl, getProxiedImageUrl } from '@/utils/imageUrl';
 
 function hexToRgba(hex?: string, opacity: number = 1): string {
@@ -164,6 +165,11 @@ function extractResponseArray<T>(response: any): T[] {
 const TEXT_PRESETS_PAGE_SIZE = 30;
 
 export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected }) => {
+  const [activeTab, setActiveTab] = useState<'font' | 'styles'>('font');
+  const [fontSearch, setFontSearch] = useState('');
+  const [showFontFilters, setShowFontFilters] = useState(false);
+  const [fontCategory, setFontCategory] = useState<string>('all');
+  const [visibleFontCount, setVisibleFontCount] = useState(30);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
   const [newTextColor, setNewTextColor] = useState('#111827');
   const normalizedSelectedType = String(selected?.type || '')
@@ -186,6 +192,34 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
   const cleanFontName = (family: string = '') => {
     return family.split(',')[0].replace(/['"]/g, '').trim() || 'Inter';
   };
+
+  const uploadedFontRows = useMemo(() => presets.flatMap((asset) => {
+    const config = asset.fabric_json || {};
+    const textStyle = asset.metadata?.textStyle || asset.metadata?.textEffectConfig || {};
+    const rawFamily = config.fontFamily || textStyle.fontFamily || asset.metadata?.fontFamily || '';
+    const rawUrl = asset.file_url || asset.file_path || asset.metadata?.fontUrl || textStyle.fontUrl || config.fontUrl || '';
+    if (!rawFamily || !rawUrl) return [];
+    return [{
+      id: `uploaded-${asset.id}`,
+      name: cleanFontName(String(rawFamily)),
+      family: String(rawFamily),
+      category: 'custom' as const,
+      fontUrl: getProxiedImageUrl(String(rawUrl)) || formatImageUrl(String(rawUrl)),
+    }];
+  }), [presets]);
+
+  const filteredBrowseFonts = useMemo(() => {
+    const query = fontSearch.trim().toLowerCase();
+    const builtIn = POPULAR_FONTS.filter((font) => fontCategory === 'all' || font.category === fontCategory)
+      .filter((font) => !query || font.name.toLowerCase().includes(query) || font.category.includes(query));
+    const uploaded = uploadedFontRows.filter((font) =>
+      (!query || font.name.toLowerCase().includes(query)) &&
+      (fontCategory === 'all' || fontCategory === 'custom')
+    );
+    return { uploaded, builtIn };
+  }, [fontSearch, fontCategory, uploadedFontRows]);
+
+  useEffect(() => setVisibleFontCount(30), [fontSearch, fontCategory]);
 
   const isCurrentFont = (fontFamilyName?: string) => {
     if (!fontFamilyName || !selected?.fontFamily) return false;
@@ -345,6 +379,32 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     canvasManager.updateSelectedProperty('fontFamily', cleanFamily);
   };
 
+  const handleBrowseFont = async (font: FontFamilyItem, fontUrl?: string) => {
+    if (fontUrl) {
+      await loadCustomFont(font.name, fontUrl);
+    } else {
+      await loadFont(font);
+    }
+
+    const activeText = getActiveTextObject();
+    if (isTextSelected && activeText && canvasManager) {
+      canvasManager.updateSelectedProperty('fontFamily', font.name);
+      return;
+    }
+
+    if (canvasManager) {
+      void canvasManager.addText({
+        text: 'Add a heading',
+        fontFamily: font.name,
+        fontSizePt: 32,
+        fontWeight: 'bold',
+        fill: newTextColor,
+        textAlign: 'center',
+        name: 'Heading',
+      });
+    }
+  };
+
   const handleSelectPreset = (asset: DesignAsset) => {
     // If no text object is selected, do not modify or create anything.
     if (!isTextSelected || !getActiveTextObject()) {
@@ -420,17 +480,56 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
 
   return (
     <div className="p-4 space-y-5 h-full overflow-y-auto custom-scrollbar">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-purple-100 text-purple-600 flex items-center justify-center shadow-sm">
-            <Type className="w-3.5 h-3.5" />
-          </div>
-          <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-            Text & Font Library
-          </h3>
-        </div>
+      <div className="sticky top-0 z-10 -mx-4 -mt-4 flex border-b border-gray-200 bg-white px-4">
+        <button type="button" onClick={() => setActiveTab('font')} className={`flex-1 border-b-2 py-3 text-sm font-semibold transition ${activeTab === 'font' ? 'border-purple-600 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>Font</button>
+        <button type="button" onClick={() => setActiveTab('styles')} className={`flex-1 border-b-2 py-3 text-sm font-semibold transition ${activeTab === 'styles' ? 'border-purple-600 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>Text styles</button>
       </div>
+
+      {activeTab === 'font' ? (
+        <div className="space-y-4">
+          <div className="relative flex items-center">
+            <Search className="pointer-events-none absolute left-3 h-4 w-4 text-gray-500" />
+            <input value={fontSearch} onChange={(event) => setFontSearch(event.target.value)} placeholder="Try ‘Calligraphy’ or ‘Open Sans’" className="h-11 w-full rounded-xl border border-gray-300 bg-white pl-10 pr-11 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100" />
+            <button type="button" onClick={() => setShowFontFilters((current) => !current)} title="Filter fonts" aria-label="Filter fonts" className={`absolute right-2 rounded-lg p-2 ${showFontFilters ? 'bg-purple-100 text-purple-700' : 'text-gray-600 hover:bg-gray-100'}`}><SlidersHorizontal className="h-4 w-4" /></button>
+          </div>
+
+          {showFontFilters && <div className="flex flex-wrap gap-1.5">
+            {[
+              ['all', 'All'], ['sans-serif', 'Sans'], ['serif', 'Serif'],
+              ['display', 'Display'], ['handwriting', 'Handwriting'], ['custom', 'Uploaded'],
+            ].map(([key, label]) => <button key={key} type="button" onClick={() => setFontCategory(key)} className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${fontCategory === key ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{label}</button>)}
+          </div>}
+
+          {isTextSelected && <div className="truncate rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">Selected font: <strong className="text-gray-900">{cleanFontName(selected?.fontFamily)}</strong></div>}
+
+          {fontCategory === 'all' || fontCategory === 'custom' ? <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+            <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-3">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-gray-700"><Type className="h-4 w-4" /></span>
+              <span className="flex-1 text-sm font-bold text-gray-800">Brand Kit</span>
+              <Crown className="h-4 w-4 text-gray-400" />
+            </div>
+            {filteredBrowseFonts.uploaded.length ? <div className="p-1.5">
+              {filteredBrowseFonts.uploaded.map((font) => {
+                const current = cleanFontName(selected?.fontFamily).toLowerCase() === font.name.toLowerCase();
+                return <button key={font.id} type="button" onClick={() => void handleBrowseFont({ id: font.id, name: font.name, family: font.family, category: 'custom', source: 'custom' }, font.fontUrl)} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left transition ${current ? 'bg-purple-100 text-gray-900' : 'text-gray-800 hover:bg-gray-50'}`}><ChevronRight className="h-3.5 w-3.5 text-gray-500" /><span className="flex-1 truncate text-sm" style={{ fontFamily: font.family }}>{font.name}</span>{current && <Check className="h-4 w-4 text-purple-700" />}</button>;
+              })}
+            </div> : <p className="px-4 py-5 text-center text-xs text-gray-500">No brand fonts set for this Brand Kit.</p>}
+          </section> : null}
+
+          {fontCategory !== 'custom' && <section className="space-y-1.5">
+            <p className="flex items-center gap-2 px-1 py-1 text-xs font-bold text-gray-800"><Sparkles className="h-4 w-4" />Popular fonts</p>
+            {filteredBrowseFonts.builtIn.slice(0, visibleFontCount).map((font) => {
+              const current = cleanFontName(selected?.fontFamily).toLowerCase() === cleanFontName(font.family).toLowerCase();
+              return <button key={font.id} type="button" onClick={() => void handleBrowseFont(font)} className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left transition ${current ? 'bg-purple-100 text-gray-900' : 'text-gray-800 hover:bg-gray-100'}`}><ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-500" /><span className="flex-1 truncate text-sm" style={{ fontFamily: font.family }}>{font.name}</span>{font.popular && <Crown className="h-3.5 w-3.5 text-gray-400" />}{current && <Check className="h-4 w-4 shrink-0 text-gray-900" />}</button>;
+            })}
+            {filteredBrowseFonts.builtIn.length > visibleFontCount && <button type="button" onClick={() => setVisibleFontCount((count) => count + 30)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50">Load more fonts</button>}
+            {!filteredBrowseFonts.builtIn.length && fontCategory !== 'custom' && <p className="px-2 py-8 text-center text-sm text-gray-500">No fonts found.</p>}
+          </section>}
+
+          {fontCategory === 'all' && hasMorePresets && <button type="button" onClick={() => void handleLoadMorePresets()} disabled={loadingMorePresets} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-60">{loadingMorePresets ? 'Loading uploaded fonts…' : 'Load more uploaded fonts'}</button>}
+        </div>
+      ) : (
+      <>
 
       {/* Selection Status Banner */}
       {isTextSelected ? (
@@ -654,6 +753,8 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
           </button>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 };

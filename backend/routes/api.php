@@ -123,6 +123,9 @@ Route::prefix('client-brief')
             ->middleware('throttle:20,1');
         Route::post('/{token}/messages', [ClientBriefController::class, 'message'])->where('token', '[A-Za-z0-9]+')->middleware('throttle:20,1');
         Route::post('/{token}/accept-design-fee', [ClientBriefController::class, 'acceptDesignFee'])->where('token', '[A-Za-z0-9]+')->middleware('throttle:10,1');
+        Route::post('/{token}/reward-order-request', [ClientBriefController::class, 'createRewardOrderRequest'])
+            ->where('token', '[A-Za-z0-9]+')
+            ->middleware('throttle:10,1');
         Route::post('/{token}/approve', [ClientBriefController::class, 'approve'])->where('token', '[A-Za-z0-9]+')->middleware('throttle:10,1');
     });
 

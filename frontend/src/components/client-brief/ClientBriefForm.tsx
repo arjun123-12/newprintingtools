@@ -645,6 +645,25 @@ export default function ClientBriefForm({
             } catch (e) { setError(e instanceof Error ? e.message : 'Could not approve this design.'); }
             finally { setPortalBusy(false); }
         };
+        const requestRewardOrder = async () => {
+            setPortalBusy(true);
+            setError(null);
+            try {
+                const response = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}/reward-order-request`, {
+                    method: 'POST',
+                    headers: { Accept: 'application/json' },
+                });
+                const result = await response.json().catch(() => null);
+                if (!response.ok) throw new Error(result?.message ?? 'Could not create your order request.');
+                const refreshed = await fetch(`${API_URL}/client-brief/${encodeURIComponent(token)}`);
+                const refreshedResult = await refreshed.json();
+                if (refreshed.ok && refreshedResult?.data) setPortal(refreshedResult.data);
+            } catch (e) {
+                setError(e instanceof Error ? e.message : 'Could not create your order request.');
+            } finally {
+                setPortalBusy(false);
+            }
+        };
         return (
             <main className="min-h-screen bg-[#f5f8fc] text-[#111827]">
                 <header className="border-b border-[#dbe5ed] bg-white">
@@ -695,10 +714,16 @@ export default function ClientBriefForm({
                             {portal.spin_reward.terms_text && <p className="whitespace-pre-wrap"><strong>Terms:</strong> {portal.spin_reward.terms_text}</p>}
                             {portal.spin_reward.how_to_use && <p className="whitespace-pre-wrap"><strong>How to use:</strong> {portal.spin_reward.how_to_use}</p>}
                             {portal.spin_reward.expires_at && <p><strong>Expires:</strong> {new Date(portal.spin_reward.expires_at).toLocaleString()}</p>}
+                            {!portal.linked_order && <div className="pt-2">
+                                <p className="mb-3 text-sm">Confirm your reward to create an order request. Our team will confirm the final price and send a secure payment link.</p>
+                                <button type="button" disabled={portalBusy} onClick={() => void requestRewardOrder()} className="rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60">
+                                    {portalBusy ? 'Creating order request…' : 'Confirm reward & create order request'}
+                                </button>
+                            </div>}
                         </div>}
                         {portal.linked_order && <div className={`mt-4 rounded-xl border p-4 ${portal.linked_order.payment_status === 'paid' ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
                             <p className="font-bold">Order {portal.linked_order.order_number} · Payment {String(portal.linked_order.payment_status).replaceAll('_', ' ')}</p>
-                            {portal.linked_order.payment_status === 'paid' ? <p className="mt-1 text-sm">Payment confirmed. Our team can now prepare and send your artwork for approval.</p> : <><p className="mt-1 text-sm">Please complete payment before our team prepares your artwork. Artwork approval and production will be available after payment is confirmed.</p>{portal.linked_order.payment_url && <a href={portal.linked_order.payment_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-lg bg-amber-700 px-4 py-2 text-sm font-bold text-white">Pay order securely</a>}</>}
+                            {portal.linked_order.payment_status === 'paid' ? <p className="mt-1 text-sm">Payment confirmed. Our team can now prepare and send your artwork for approval.</p> : portal.linked_order.status === 'draft' ? <p className="mt-1 text-sm">Your order request is in. Our team will confirm the final price and reward, then send your secure payment link.</p> : <><p className="mt-1 text-sm">Please complete payment before our team prepares your artwork. Artwork approval and production will be available after payment is confirmed.</p>{portal.linked_order.payment_url && <a href={portal.linked_order.payment_url} target="_blank" rel="noreferrer" className="mt-3 inline-flex rounded-lg bg-amber-700 px-4 py-2 text-sm font-bold text-white">Pay order securely</a>}</>}
                         </div>}
                         {!portal.linked_order && <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">Our team is preparing your order and secure payment link. Artwork preparation starts after payment is confirmed.</p>}
                         {portal.design_fee > 0 && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4"><p className="font-bold">Design service: AUD ${Number(portal.design_fee).toFixed(2)}</p><p className="mt-1 text-sm">This fee is set by our team and is separate from print pricing.</p>{portal.design_fee_accepted ? <p className="mt-2 text-sm font-semibold text-emerald-700">Fee accepted</p> : <button disabled={portalBusy} onClick={() => void acceptFee()} className="mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white">{portalBusy ? 'Saving…' : 'Accept design fee'}</button>}</div>}

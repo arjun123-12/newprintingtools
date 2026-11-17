@@ -290,11 +290,7 @@ class ClientBriefController extends Controller
         ]);
 
         $existingOrder = $brief->order()->with('activeReviewLink')->first();
-        if ($existingOrder) {
-            if (($existingOrder->payment_status->value ?? (string) $existingOrder->payment_status) !== 'paid'
-                && ($existingOrder->status->value ?? (string) $existingOrder->status) === 'draft') {
-                $existingOrder->update(['status' => 'pending_payment']);
-            }
+        if ($existingOrder && ($existingOrder->payment_status->value ?? (string) $existingOrder->payment_status) === 'paid') {
             $activeLink = $existingOrder->activeReviewLink ?: $orders->generateReviewLink($existingOrder, $request->user());
             return response()->json([
                 'success' => true,
@@ -360,9 +356,18 @@ class ClientBriefController extends Controller
                 'shipping_fee' => $data['shipping_fee'] ?? null,
                 'items' => [$item],
             ];
-            $order = $orders->createManualOrder($request->user(), $orderData);
+            if ($reward && $existingOrder) {
+                $existingOrder->update([
+                    'applied_reward_code' => $reward->reward_code,
+                    'applied_reward_title' => $reward->title,
+                    'applied_reward_type' => $reward->reward_type,
+                ]);
+            }
+            $order = $existingOrder
+                ? $orders->updateManualOrder($existingOrder, $request->user(), $orderData)
+                : $orders->createManualOrder($request->user(), $orderData);
 
-            if ($reward) {
+            if ($reward && !$existingOrder) {
                 $order->update([
                     'applied_reward_code' => $reward->reward_code,
                     'applied_reward_title' => $reward->title,

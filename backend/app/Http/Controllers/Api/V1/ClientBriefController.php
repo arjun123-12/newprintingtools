@@ -668,6 +668,107 @@ class ClientBriefController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /** Create a draft order request from the server-stored Spin Wheel reward. */
+    public function createRewardOrderRequest(
+        string $token,
+        ManualOrderService $orders,
+        OrderNotificationService $notifications
+    ): JsonResponse {
+        $brief = $this->findSubmitted($token);
+        if ($brief instanceof JsonResponse) return $brief;
+        if (!$brief->spin_reward_ledger_id) {
+            return response()->json(['success' => false, 'message' => 'This design request is not linked to a Spin Wheel reward.'], 422);
+        }
+
+        $brief->load('rewardLedger.spinReward');
+        $reward = $brief->rewardLedger;
+        if (!$reward || $reward->status !== 'active' || ($reward->expires_at && $reward->expires_at->isPast())) {
+            return response()->json(['success' => false, 'message' => 'This reward has expired or is no longer available.'], 410);
+        }
+
+        $existing = $brief->order()->with('items')->first();
+        if ($existing) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Your order request has already been created.',
+                'data' => ['order_id' => $existing->id, 'order_number' => $existing->order_number, 'status' => $existing->status->value ?? (string) $existing->status],
+            ]);
+        }
+
+        $productName = trim((string) ($reward->target_product ?: $brief->product ?: 'Print order'));
+        $product = Product::query()
+            ->where('is_active', true)
+            ->whereRaw('LOWER(name) = ?', [mb_strtolower($productName)])
+            ->first()
+            ?? Product::query()->where('is_active', true)->where('name', 'like', '%custom%')->first()
+            ?? Product::query()->where('is_active', true)->first();
+        if (!$product) {
+            return response()->json(['success' => false, 'message' => 'The team could not match this reward to an active product. Please contact us.'], 422);
+        }
+
+        $quantity = max(1, (int) ($brief->quantity ?: 1));
+        try {
+            $order = DB::transaction(function () use ($brief, $orders, $product, $productName, $quantity, $reward) {
+                $lockedBrief = ClientBrief::whereKey($brief->id)->lockForUpdate()->firstOrFail();
+                $existingOrder = $lockedBrief->order()->first();
+                if ($existingOrder) return $existingOrder;
+
+                $description = trim(implode("\n", array_filter([
+                    'Customer confirmed Spin Wheel reward: ' . $reward->title,
+                    'Reward code: ' . $reward->reward_code,
+                    $reward->spinReward?->description,
+                    'Terms: ' . $reward->terms,
+                    'How to use: ' . $reward->how_to_use,
+                    $brief->description,
+                    $brief->additional_notes,
+                ])));
+                $order = $orders->createManualOrder(null, [
+                    'client_brief_id' => $lockedBrief->id,
+                    'customer_name' => $lockedBrief->client_name,
+                    'customer_email' => $lockedBrief->email,
+                    'customer_phone' => $lockedBrief->phone,
+                    'company_name' => $lockedBrief->company_name,
+                    'delivery_method' => $lockedBrief->fulfilment === 'pickup' ? 'Pickup' : 'Standard delivery (Free)',
+                    'delivery_address' => $lockedBrief->delivery_address ?: 'To be confirmed',
+                    'customer_notes' => 'Customer confirmed Spin Wheel reward ' . $reward->reward_code . ' and requested an order. Confirm final pricing and reward application before sending payment link.',
+                    'internal_notes' => 'Reward order request from design query #' . $lockedBrief->id . '. Draft created automatically after customer confirmation; set/verify pricing before sending payment link.',
+                    'items' => [[
+                        'product_id' => $product->id,
+                        'product_name' => $productName,
+                        'quantity' => $quantity,
+                        'unit_price_ex_gst' => 0,
+                        'specifications' => $description,
+                        'options' => ['client_brief_id' => $lockedBrief->id, 'reward_code' => $reward->reward_code],
+                    ]],
+                ]);
+                $order->update([
+                    'applied_reward_code' => $reward->reward_code,
+                    'applied_reward_title' => $reward->title,
+                    'applied_reward_type' => $reward->reward_type,
+                ]);
+                $lockedBrief->messages()->create([
+                    'author' => 'customer',
+                    'message' => 'I confirmed my Spin Wheel reward and requested an order. The team will confirm the final quote and send a secure payment link.',
+                ]);
+                return $order;
+            });
+        } catch (Throwable $exception) {
+            report($exception);
+            return response()->json(['success' => false, 'message' => 'Could not create your order request. Please try again or contact our team.'], 422);
+        }
+
+        if ($order->wasRecentlyCreated) {
+            $notifications->sendClientBriefRewardOrderRequestAlert($brief->fresh(), $order, $reward);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Your order request has been created. Our team will confirm pricing and send your secure payment link.',
+            'data' => ['order_id' => $order->id, 'order_number' => $order->order_number, 'status' => $order->status->value ?? (string) $order->status],
+            'created' => $order->wasRecentlyCreated,
+        ], $order->wasRecentlyCreated ? 201 : 200);
+    }
+
     public function approve(string $token, ManualOrderService $manualOrderService): JsonResponse
     {
         $brief = $this->findSubmitted($token);

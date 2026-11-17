@@ -84,6 +84,39 @@ class OrderNotificationService
         }
     }
 
+    /** Notify admin when a customer confirms their Spin Wheel reward and requests an order. */
+    public function sendClientBriefRewardOrderRequestAlert(ClientBrief $brief, Order $order, CustomerRewardLedger $reward): bool
+    {
+        $fromEmail = config('mail.from.address', env('MAIL_FROM_ADDRESS', self::DEFAULT_FROM_EMAIL));
+        $fromName = config('mail.from.name', env('MAIL_FROM_NAME', self::DEFAULT_FROM_NAME));
+        $recipient = env('ADMIN_ORDER_NOTIFICATION_EMAIL', env('ADMIN_NOTIFICATION_EMAIL', self::LINKED_ADMIN_EMAIL));
+        $reference = 'DQ-' . str_pad((string) $brief->id, 4, '0', STR_PAD_LEFT);
+        $frontendUrl = rtrim(config('app.frontend_url', env('FRONTEND_URL', 'https://www.erryimprints.com.au')), '/');
+        $body = "A customer confirmed their Spin Wheel reward and requested an order.\n\n"
+            . "Order: {$order->order_number}\n"
+            . "Design query: {$reference}\n"
+            . "Customer: " . ($brief->client_name ?: 'Customer') . " ({$brief->email})\n"
+            . "Product: " . ($brief->product ?: $reward->target_product ?: 'Print order') . "\n"
+            . "Quantity: " . ($brief->quantity ?: 'Please confirm') . "\n"
+            . "Reward: {$reward->title} ({$reward->reward_code})\n"
+            . "Reward terms: {$reward->terms}\n\n"
+            . "The order has been created as a draft. Please confirm the final price and reward application before sending a payment link.\n"
+            . "Open the Design Queries section: {$frontendUrl}/admin/design-queries\n";
+
+        try {
+            Mail::raw($body, function ($mail) use ($recipient, $order, $fromEmail, $fromName, $brief) {
+                $mail->to($recipient)
+                    ->from($fromEmail, $fromName)
+                    ->replyTo($brief->email, $brief->client_name ?: 'Customer')
+                    ->subject("Customer confirmed reward — order {$order->order_number} | Erry Imprints");
+            });
+            return true;
+        } catch (Throwable $e) {
+            Log::warning("Could not notify admin about reward order {$order->order_number}: {$e->getMessage()}");
+            return false;
+        }
+    }
+
     /** Email the customer whenever the design team replies or uploads a proof. */
     public function sendClientBriefCustomerUpdate(ClientBrief $brief, string $messageText, bool $designUploaded = false): bool
     {
