@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { StatusBadge } from '@/components/admin/shared';
 import { TemplateListItem } from './templateForm/types';
 import { Edit2, Palette, Trash2, LayoutTemplate } from 'lucide-react';
@@ -22,24 +23,40 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
   onToggleSelect,
   onDeleteTemplate,
 }) => {
+  const router = useRouter();
   const productName = template.product?.name || 'Unassigned';
   const imgUrl = template.thumbnail_url;
   const designerUrl = template.product_id
     ? `/admin/designer?productId=${template.product_id}&templateId=${template.id}`
     : null;
+  const openUrl = designerUrl || `/admin/templates/${template.id}/edit`;
+
+  const openTemplate = (event: React.MouseEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest('a, button, input, label')) return;
+    router.push(openUrl);
+  };
 
   return (
     <div
+      role="link"
+      tabIndex={0}
+      onClick={openTemplate}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          router.push(openUrl);
+        }
+      }}
       className={`bg-white rounded-xl border shadow-xs transition-all overflow-hidden flex flex-col group relative ${
         isSelected
           ? 'border-blue-500 ring-2 ring-blue-500/30 bg-blue-50/10'
           : 'border-gray-200 hover:shadow-sm hover:border-gray-300'
-      }`}
+      } cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
     >
       {/* Thumbnail */}
       <div
-        className="aspect-[4/3] bg-gray-100 relative overflow-hidden flex items-center justify-center border-b border-gray-100 cursor-pointer"
-        onClick={() => onToggleSelect?.(template.id)}
+        className="aspect-[4/3] bg-gray-100 relative overflow-hidden flex items-center justify-center border-b border-gray-100"
       >
         {/* Selection Checkbox */}
         {onToggleSelect && (
