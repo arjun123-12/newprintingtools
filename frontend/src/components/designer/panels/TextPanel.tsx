@@ -203,11 +203,20 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [assetsRes, catsRes] = await Promise.all([
-          designAssetService.getPublicAssets({ asset_type: 'text', per_page: 50 }),
-          designAssetService.getPublicCategories('text')
+        const [firstAssetsPage, catsRes] = await Promise.all([
+          designAssetService.getPublicAssets({ asset_type: 'text', per_page: 100, page: 1 }),
+          designAssetService.getPublicCategories('text'),
         ]);
-        const nextPresets = extractResponseArray<DesignAsset>(assetsRes);
+        const nextPresets = extractResponseArray<DesignAsset>(firstAssetsPage);
+        const lastPage = Math.max(1, Number((firstAssetsPage as any)?.last_page) || 1);
+        for (let page = 2; page <= lastPage; page += 1) {
+          const pageResponse = await designAssetService.getPublicAssets({
+            asset_type: 'text',
+            per_page: 100,
+            page,
+          });
+          nextPresets.push(...extractResponseArray<DesignAsset>(pageResponse));
+        }
         const nextCategories = extractResponseArray<DesignAssetCategory>(catsRes)
           .filter(
             (category) =>

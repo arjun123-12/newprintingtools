@@ -4,7 +4,7 @@ export interface FontFamilyItem {
   id: string;
   name: string;
   family: string;
-  category: 'sans-serif' | 'serif' | 'display' | 'handwriting' | 'monospace';
+  category: 'sans-serif' | 'serif' | 'display' | 'handwriting' | 'monospace' | 'custom';
   googleFont?: string; // Query string for Google Fonts API fallback
   popular?: boolean;
   source?: 'system' | 'fontsource' | 'custom';

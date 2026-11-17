@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ChevronDown, Search, Check, Sparkles } from 'lucide-react';
-import { POPULAR_FONTS, FontFamilyItem, loadFont } from '../utils/fonts';
+import { POPULAR_FONTS, FontFamilyItem, loadFont, loadCustomFont } from '../utils/fonts';
+import { DesignAsset, designAssetService } from '@/services/designAssetService';
+import { formatImageUrl, getProxiedImageUrl } from '@/utils/imageUrl';
 
 interface FontSelectorProps {
   value?: string;
@@ -16,12 +18,71 @@ export const FontSelector: React.FC<FontSelectorProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
+  const [uploadedFonts, setUploadedFonts] = useState<FontFamilyItem[]>([]);
+  const [uploadedFontUrls, setUploadedFontUrls] = useState<Record<string, string>>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchUploadedFonts = async () => {
+      try {
+        const firstPage = await designAssetService.getPublicAssets({ asset_type: 'text', per_page: 100 });
+        const assets = [...(firstPage?.data || [])];
+        for (let page = 2; page <= (firstPage?.last_page || 1); page += 1) {
+          const nextPage = await designAssetService.getPublicAssets({ asset_type: 'text', per_page: 100, page });
+          assets.push(...(nextPage?.data || []));
+        }
+
+        const found: FontFamilyItem[] = [];
+        const urls: Record<string, string> = {};
+        const seen = new Set<string>();
+        assets.forEach((asset: DesignAsset) => {
+          const family = String(
+            asset.fabric_json?.fontFamily || asset.metadata?.textStyle?.fontFamily || asset.metadata?.fontFamily || ''
+          ).replace(/^['"]|['"]$/g, '').trim();
+          const rawUrl = String(
+            asset.file_url || asset.metadata?.fontUrl || asset.metadata?.textStyle?.fontUrl || asset.fabric_json?.fontUrl || ''
+          ).trim();
+          if (!family || !rawUrl || seen.has(family.toLowerCase())) return;
+          seen.add(family.toLowerCase());
+          const fontUrl = getProxiedImageUrl(rawUrl) || formatImageUrl(rawUrl);
+          found.push({
+            id: `uploaded-${asset.id}`,
+            name: family,
+            family,
+            category: 'custom',
+            source: 'custom',
+          });
+          urls[family.toLowerCase()] = fontUrl;
+          void loadCustomFont(family, fontUrl);
+        });
+        if (isMounted) {
+          setUploadedFonts(found);
+          setUploadedFontUrls(urls);
+        }
+      } catch (error) {
+        console.warn('Could not load uploaded fonts for the designer font picker:', error);
+      }
+    };
+    void fetchUploadedFonts();
+    return () => { isMounted = false; };
+  }, []);
+
+  const availableFonts = useMemo(() => {
+    const merged = [...uploadedFonts, ...POPULAR_FONTS];
+    const seen = new Set<string>();
+    return merged.filter((font) => {
+      const key = font.name.toLowerCase().trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [uploadedFonts]);
 
   // Find currently selected font item
   const currentFont =
-    POPULAR_FONTS.find((f) => f.family === value || f.name.toLowerCase() === value.toLowerCase()) ||
-    POPULAR_FONTS[0];
+    availableFonts.find((f) => f.family === value || f.name.toLowerCase() === value.toLowerCase()) ||
+    (value ? { id: `current-${value}`, name: value.split(',')[0].replace(/^['"]|['"]$/g, ''), family: value, category: 'custom' as const, source: 'custom' as const } : availableFonts[0]) || POPULAR_FONTS[0];
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -33,7 +94,7 @@ export const FontSelector: React.FC<FontSelectorProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredFonts = POPULAR_FONTS.filter((font) => {
+  const filteredFonts = availableFonts.filter((font) => {
     const matchesSearch =
       font.name.toLowerCase().includes(search.toLowerCase()) ||
       font.category.toLowerCase().includes(search.toLowerCase());
@@ -42,7 +103,9 @@ export const FontSelector: React.FC<FontSelectorProps> = ({
   });
 
   const handleSelectFont = async (font: FontFamilyItem) => {
-    await loadFont(font);
+    const uploadedUrl = uploadedFontUrls[font.name.toLowerCase()];
+    if (uploadedUrl) await loadCustomFont(font.name, uploadedUrl);
+    else await loadFont(font);
     onChange(font.family, font);
     setIsOpen(false);
   };
@@ -84,7 +147,7 @@ export const FontSelector: React.FC<FontSelectorProps> = ({
 
             {/* Categories */}
             <div className="flex items-center gap-1 mt-2 overflow-x-auto custom-scrollbar pb-0.5 text-[10px]">
-              {['all', 'sans-serif', 'serif', 'display', 'handwriting'].map((cat) => (
+              {['all', 'custom', 'sans-serif', 'serif', 'display', 'handwriting'].map((cat) => (
                 <button
                   key={cat}
                   type="button"
@@ -95,7 +158,7 @@ export const FontSelector: React.FC<FontSelectorProps> = ({
                       : 'text-gray-500 hover:bg-gray-100'
                   }`}
                 >
-                  {cat === 'all' ? 'All' : cat.replace('-serif', '')}
+                  {cat === 'all' ? 'All' : cat === 'custom' ? 'Uploaded' : cat.replace('-serif', '')}
                 </button>
               ))}
             </div>
