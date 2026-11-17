@@ -20,12 +20,14 @@ class OrderSpinEntitlement extends Model
         'assigned_reward_id',
         'spin_token',
         'status',
+        'invited_at',
         'spun_at',
         'client_ip',
     ];
 
     protected $casts = [
         'spun_at' => 'datetime',
+        'invited_at' => 'datetime',
     ];
 
     public function order(): BelongsTo

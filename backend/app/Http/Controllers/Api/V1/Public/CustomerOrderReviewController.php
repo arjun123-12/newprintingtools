@@ -994,16 +994,6 @@ class CustomerOrderReviewController extends Controller
                     $result['receipt_number'] ?? null
                 );
 
-                // Send Spin & Win invitation if auto-send is enabled
-                try {
-                    $autoSendSpin = (bool) \App\Models\SpinWinSetting::get('auto_send_on_payment', true);
-                    if ($autoSendSpin) {
-                        app(\App\Services\Rewards\SpinRewardService::class)->sendSpinInvitationForOrder($order);
-                    }
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::error("Automatic spin wheel invitation failed on review payment for order {$order->order_number}: " . $e->getMessage());
-                }
-
                 return response()->json([
                     'success' => true,
                     'message' => $order->approved_proof_version

@@ -61,7 +61,7 @@ class AdminSpinRewardController extends Controller
             'proof_watermark_opacity' => (int) SpinWinSetting::get('proof_watermark_opacity', 40),
             'order_cutoff_time' => (string) SpinWinSetting::get('order_cutoff_time', '10:00'),
             'order_cutoff_timezone' => (string) SpinWinSetting::get('order_cutoff_timezone', 'Australia/Adelaide'),
-            'auto_send_on_payment' => (bool) SpinWinSetting::get('auto_send_on_payment', true),
+            'auto_send_on_payment' => false,
             'invitation_subject' => (string) SpinWinSetting::get('invitation_subject', '🎁 Spin to Win Your Exclusive Print Reward! | Erry Imprints'),
             'invitation_headline' => (string) SpinWinSetting::get('invitation_headline', "You've Unlocked a Free Spin!"),
             'invitation_message' => (string) SpinWinSetting::get('invitation_message', "Thank you for completing your payment! As a special reward, you are invited to spin our prize wheel to unlock exclusive discounts, print credits, and free delivery upgrades on your next order."),
@@ -168,9 +168,8 @@ class AdminSpinRewardController extends Controller
 
         SpinWinSetting::set('enabled', $validated['enabled']);
         SpinWinSetting::set('min_order_spend', (float) $validated['min_order_spend']);
-        if (array_key_exists('auto_send_on_payment', $validated)) {
-            SpinWinSetting::set('auto_send_on_payment', (bool) $validated['auto_send_on_payment']);
-        }
+        // Wheel invitations are sent manually by an admin to selected recipients.
+        SpinWinSetting::set('auto_send_on_payment', false);
         if (isset($validated['invitation_subject'])) {
             SpinWinSetting::set('invitation_subject', $validated['invitation_subject']);
         }

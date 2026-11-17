@@ -404,7 +404,7 @@ export default function SpinWheel({
 
   // Handle Spin Launch
   const handleSpin = async () => {
-    if (isSpinning) return;
+    if (isSpinning || (!isPreview && wonPrize)) return;
     if (!isPreview && (!canSpin || eligibilityState !== 'ready' || !(serverSpinToken || token))) {
       setErrorMessage('Your personal Spin Wheel link is still loading or is unavailable.');
       return;
@@ -452,6 +452,16 @@ export default function SpinWheel({
             termsText: serverPrize.terms_text,
             howToUse: serverPrize.how_to_use,
           };
+
+          // A prior spin is returned idempotently by the server. Restore that
+          // saved result without replaying the wheel as if this were a new spin.
+          if (response.already_spun) {
+            setWonPrize(resolvedPrize);
+            setWinningIndex(targetIndex);
+            setRotationDegrees(360 * 3 + (360 - (targetIndex * sliceAngle + sliceAngle / 2)));
+            setShowResultModal(true);
+            return;
+          }
         }
       } catch (err: any) {
         const msg = err.response?.data?.message || err.message || 'Unable to execute spin.';
@@ -892,14 +902,14 @@ export default function SpinWheel({
           <button
             type="button"
             onClick={() => void handleSpin()}
-            disabled={isSpinning || (!isPreview && (!canSpin || eligibilityState !== 'ready'))}
-            aria-label="Spin the wheel"
+            disabled={isSpinning || (!isPreview && (Boolean(wonPrize) || !canSpin || eligibilityState !== 'ready'))}
+            aria-label={!isPreview && wonPrize ? 'Spin already used' : 'Spin the wheel'}
             className="group relative flex h-20 w-20 sm:h-24 sm:w-24 items-center justify-center rounded-full border-4 border-amber-300 bg-gradient-to-tr from-amber-700 via-amber-500 to-yellow-300 font-black tracking-widest text-slate-950 uppercase shadow-[0_6px_20px_rgba(0,0,0,0.5),inset_0_2px_4px_rgba(255,255,255,0.7)] transition-all hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-90"
           >
             {/* Inner Ring with Metallic Sheen */}
             <div className="flex h-16 w-16 sm:h-18 sm:w-18 items-center justify-center rounded-full border border-amber-200/60 bg-gradient-to-br from-amber-400 via-yellow-200 to-amber-600 shadow-inner">
               <span className="text-sm sm:text-base font-black text-amber-950 drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
-                {isSpinning ? 'SPINNING' : eligibilityState === 'loading' && !isPreview ? 'LOADING' : eligibilityState === 'unavailable' && !isPreview ? 'LOCKED' : 'SPIN'}
+                {isSpinning ? 'SPINNING' : !isPreview && wonPrize ? 'DONE' : eligibilityState === 'loading' && !isPreview ? 'LOADING' : eligibilityState === 'unavailable' && !isPreview ? 'LOCKED' : 'SPIN'}
               </span>
             </div>
           </button>

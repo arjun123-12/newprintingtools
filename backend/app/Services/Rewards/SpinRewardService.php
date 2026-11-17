@@ -287,15 +287,18 @@ class SpinRewardService
 
         $order = $this->resolveOrderFromRequest($orderNumber, $reviewToken, $user, $spinToken);
 
-        // A valid admin-issued spin token is an explicit invitation and permits
-        // the customer to spin even when the order is still awaiting payment.
-        $invited = $spinToken && OrderSpinEntitlement::where('order_id', $order->id)
-            ->where('spin_token', $spinToken)
-            ->exists();
-        if (! $this->isPaymentGenuinelyVerified($order) && ! $invited) {
+        // Paid orders do not receive Spin & Win automatically. The admin must
+        // issue an entitlement first; a valid invitation also permits an
+        // unpaid order to spin when the admin explicitly chooses to invite it.
+        $entitlement = OrderSpinEntitlement::where('order_id', $order->id)
+            ->whereNotNull('invited_at')
+            ->first();
+        $invited = $entitlement && (! $spinToken || hash_equals($entitlement->spin_token, $spinToken));
+        if (! $invited) {
             return [
                 'eligible' => false,
-                'reason' => 'Payment has not been completed or verified and no Spin Wheel invitation is available.',
+                'has_spun' => false,
+                'reason' => 'The admin has not sent a Spin Wheel invitation for this order.',
             ];
         }
 
@@ -312,18 +315,6 @@ class SpinRewardService
         // Category resolution with Default fallback
         $category = $this->resolveCategoryForOrder($order, $user);
         $segments = $this->getActiveSegments($category);
-
-        // Safe entitlement retrieval or creation in atomic transaction
-        $entitlement = DB::transaction(function () use ($order) {
-            return OrderSpinEntitlement::firstOrCreate(
-                ['order_id' => $order->id],
-                [
-                    'user_id' => $order->user_id,
-                    'spin_token' => Str::random(48),
-                    'status' => 'eligible',
-                ]
-            );
-        });
 
         if ($entitlement->assigned_reward_id) {
             $assignedReward = SpinReward::with('category')->find($entitlement->assigned_reward_id);
@@ -417,6 +408,7 @@ class SpinRewardService
         // for orders that have not been paid yet.
         $invited = OrderSpinEntitlement::where('order_id', $order->id)
             ->where('spin_token', $spinToken)
+            ->whereNotNull('invited_at')
             ->exists();
         if (! $this->isPaymentGenuinelyVerified($order) && ! $invited) {
             throw new RuntimeException('Cannot spin. Payment has not been completed or verified and this order has no Spin Wheel invitation.');
@@ -427,6 +419,7 @@ class SpinRewardService
             /** @var OrderSpinEntitlement $entitlement */
             $entitlement = OrderSpinEntitlement::where('order_id', $order->id)
                 ->where('spin_token', $spinToken)
+                ->whereNotNull('invited_at')
                 ->lockForUpdate()
                 ->first();
 
@@ -1032,6 +1025,8 @@ class SpinRewardService
             customHeadline: $customHeadline,
             customMessage: $customMessage
         ));
+
+        $entitlement->forceFill(['invited_at' => now()])->save();
 
         // Audit log in order activities (non-blocking)
         try {

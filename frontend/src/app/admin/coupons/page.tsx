@@ -12,7 +12,6 @@ import {
   Send,
   Tag,
   Sparkles,
-  Crown,
   Trophy,
   RefreshCw,
   Check,
@@ -105,7 +104,7 @@ export default function AdminCouponsPage() {
   // Spin & Win Wheel Promotion State
   const [spinSettings, setSpinSettings] = useState({
     enabled: true,
-    auto_send_on_payment: true,
+    auto_send_on_payment: false,
     min_order_spend: 0,
     banner_title: 'SPIN & WIN',
     banner_subtitle: 'AMAZING PRINTING REWARDS AWAIT!',
@@ -375,34 +374,6 @@ export default function AdminCouponsPage() {
       await load();
     } catch (e) {
       setMessage({ good: false, text: e instanceof Error ? e.message : 'Campaign failed.' });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleAutoSend = async (enabled: boolean) => {
-    setBusy(true);
-    try {
-      const updated = {
-        ...spinSettings,
-        auto_send_on_payment: enabled,
-      };
-      const response = await fetch(`${API_URL}/admin/spin-win/settings`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(updated),
-      });
-      if (response.ok) {
-        setSpinSettings((prev) => ({ ...prev, auto_send_on_payment: enabled }));
-        setMessage({
-          good: true,
-          text: enabled
-            ? 'Automatic Spin Wheel invitation enabled for all verified completed payments.'
-            : 'Automatic Spin Wheel invitation disabled. Invitations are now managed manually by admin.',
-        });
-      }
-    } catch (e) {
-      setMessage({ good: false, text: 'Could not update auto-send setting.' });
     } finally {
       setBusy(false);
     }
@@ -1016,46 +987,11 @@ export default function AdminCouponsPage() {
           <div className="space-y-6">
             {spinError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"><span>{spinError}</span><button type="button" onClick={() => void loadSpinData()} className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-bold">Retry loading data</button></div>}
             {/* Top Automation Card: Auto-send on Payment Completion */}
-            <div className="rounded-2xl border border-amber-300/50 bg-gradient-to-r from-amber-50 via-white to-pink-50 p-5 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-amber-400/20 p-2 text-amber-700">
-                    <Crown size={22} />
-                  </div>
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900">
-                      Automatic Wheel Invitation on Completed Payment
-                    </h2>
-                    <p className="text-xs text-slate-600 max-w-xl">
-                      When a customer completes payment via checkout or customer review link,
-                      automatically email them an exclusive invitation link to spin the prize wheel.
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-semibold">
-                      <span className={`rounded-full px-2 py-1 ${spinSettings.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>Wheel {spinSettings.enabled ? 'enabled' : 'paused'}</span>
-                      <span className="rounded-full bg-white/80 px-2 py-1 text-slate-700">Minimum qualifying order: AUD ${Number(spinSettings.min_order_spend || 0).toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className="text-xs font-semibold text-slate-700">
-                    {spinSettings.auto_send_on_payment ? 'Auto-send Enabled' : 'Auto-send Disabled'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void toggleAutoSend(!spinSettings.auto_send_on_payment)}
-                    disabled={busy}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      spinSettings.auto_send_on_payment ? 'bg-emerald-600' : 'bg-slate-300'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        spinSettings.auto_send_on_payment ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
+              <h2 className="text-base font-bold text-slate-900">Manual Spin Wheel invitations</h2>
+              <p className="mt-1 max-w-xl text-xs text-slate-600">
+                Payment does not send a wheel link automatically. Select recipients in this campaign and send invitations when you choose.
+              </p>
             </div>
 
             {/* Split Grid: Live Wheel Interactive Preview + Email Campaign Dispatcher */}

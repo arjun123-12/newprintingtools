@@ -297,16 +297,6 @@ class PaymentGatewayService
                     // Non-blocking log
                 }
 
-                // Send Spin & Win invitation if auto-send is enabled
-                try {
-                    $autoSendSpin = (bool) \App\Models\SpinWinSetting::get('auto_send_on_payment', true);
-                    if ($autoSendSpin) {
-                        app(\App\Services\Rewards\SpinRewardService::class)->sendSpinInvitationForOrder($order);
-                    }
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::error("Automatic spin wheel invitation failed on payment for order {$order->order_number}: " . $e->getMessage());
-                }
-
                 return [
                     'success' => true,
                     'paid' => true,

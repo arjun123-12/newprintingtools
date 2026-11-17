@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { getAuthToken } from '@/utils/storageHelper';
 import {
   Sparkles,
-  Crown,
   Trophy,
   Mail,
   Send,
@@ -46,7 +45,7 @@ export default function AdminSpinWheelPage() {
   // Settings State
   const [settings, setSettings] = useState({
     enabled: true,
-    auto_send_on_payment: true,
+    auto_send_on_payment: false,
     min_order_spend: 0,
     banner_title: 'SPIN & WIN',
     banner_subtitle: 'AMAZING PRINTING REWARDS AWAIT!',
@@ -180,34 +179,6 @@ export default function AdminSpinWheelPage() {
   useEffect(() => {
     void loadData();
   }, []);
-
-  const toggleAutoSend = async (enabled: boolean) => {
-    setBusy(true);
-    try {
-      const updated = {
-        ...settings,
-        auto_send_on_payment: enabled,
-      };
-      const response = await fetch(`${API_URL}/admin/spin-win/settings`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(updated),
-      });
-      if (response.ok) {
-        setSettings((prev) => ({ ...prev, auto_send_on_payment: enabled }));
-        setMessage({
-          good: true,
-          text: enabled
-            ? 'Automatic Spin Wheel invitation enabled for all verified completed payments.'
-            : 'Automatic Spin Wheel invitation disabled. Wheel invitations are now sent manually by admin.',
-        });
-      }
-    } catch (e) {
-      setMessage({ good: false, text: 'Could not update auto-send setting.' });
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const sendInvitationCampaign = async () => {
     if (
@@ -353,42 +324,11 @@ export default function AdminSpinWheelPage() {
         )}
 
         {/* Top Feature Card: Payment Completion Automation */}
-        <section className="rounded-2xl border border-amber-300/60 bg-gradient-to-r from-amber-50 via-white to-pink-50 p-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex items-start gap-3.5">
-              <div className="rounded-xl bg-amber-400/20 p-2 text-amber-700">
-                <Crown size={22} />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-slate-900">
-                  Automatic Wheel Invitation on Completed Payment
-                </h2>
-                <p className="text-xs text-slate-600 max-w-xl mt-0.5">
-                  When a customer completes payment through checkout or customer review link,
-                  automatically send them an invitation email with a direct link to spin the prize wheel.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <span className="text-xs font-semibold text-slate-700">
-                {settings.auto_send_on_payment ? 'Auto-send Enabled' : 'Auto-send Disabled'}
-              </span>
-              <button
-                type="button"
-                onClick={() => void toggleAutoSend(!settings.auto_send_on_payment)}
-                disabled={busy}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  settings.auto_send_on_payment ? 'bg-emerald-600' : 'bg-slate-300'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    settings.auto_send_on_payment ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
+        <section className="rounded-2xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
+          <h2 className="text-base font-bold text-slate-900">Manual Spin Wheel invitations</h2>
+          <p className="mt-1 max-w-3xl text-xs text-slate-600">
+            Customers can spin only after an admin selects them and sends an invitation below. Payment alone does not create a spin link.
+          </p>
         </section>
 
         {/* Two-Column Layout: Live Wheel Preview (Left) & Send Campaign Form (Right) */}
