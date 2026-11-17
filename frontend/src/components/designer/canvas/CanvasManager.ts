@@ -1937,15 +1937,15 @@ export class CanvasManager {
       fabricObject.set({
         selectable: true,
         evented: true,
-        lockMovementX: false,
-        lockMovementY: false,
+        lockMovementX: true,
+        lockMovementY: true,
         lockRotation: true,
         lockScalingX: true,
         lockScalingY: true,
         hasControls: false,
         hasBorders: true,
-        hoverCursor: 'move',
-        moveCursor: 'move',
+        hoverCursor: 'default',
+        moveCursor: 'default',
         ...(isText ? { editable: false } : {}),
       });
     } else {
@@ -7606,14 +7606,14 @@ export class CanvasManager {
     if (obj) {
       obj.set('isLocked' as any, isLocked);
       obj.set({
-        lockMovementX: false,
-        lockMovementY: false,
+        lockMovementX: isLocked,
+        lockMovementY: isLocked,
         lockRotation: isLocked,
         lockScalingX: isLocked,
         lockScalingY: isLocked,
         hasControls: !isLocked,
-        hoverCursor: 'move',
-        moveCursor: 'move',
+        hoverCursor: isLocked ? 'default' : 'move',
+        moveCursor: isLocked ? 'default' : 'move',
         selectable: true,
         evented: true,
       });
@@ -8727,14 +8727,14 @@ export class CanvasManager {
       const locked = value as boolean;
       active.set('isLocked' as any, locked);
       active.set({
-        lockMovementX: false,
-        lockMovementY: false,
+        lockMovementX: locked,
+        lockMovementY: locked,
         lockRotation: locked,
         lockScalingX: locked,
         lockScalingY: locked,
         hasControls: !locked,
-        hoverCursor: 'move',
-        moveCursor: 'move',
+        hoverCursor: locked ? 'default' : 'move',
+        moveCursor: locked ? 'default' : 'move',
         selectable: true,
         evented: true,
       });

@@ -1730,15 +1730,16 @@ export function applyCanvaControlsGlobal(): void {
     const origExitEditing = prototype.exitEditing;
     prototype.exitEditing = function () {
       const res = origExitEditing.call(this);
-      this.hoverCursor = 'move';
       this.selectable = true;
       this.evented = true;
       const isLocked =
         typeof this.get === 'function'
           ? this.get('isLocked') === true
           : (this as any).isLocked === true;
-      this.lockMovementX = false;
-      this.lockMovementY = false;
+      this.lockMovementX = isLocked;
+      this.lockMovementY = isLocked;
+      this.hoverCursor = isLocked ? 'default' : 'move';
+      this.moveCursor = isLocked ? 'default' : 'move';
       this.hasBorders = true;
       if (!isLocked) {
         this.hasControls = true;
@@ -1747,7 +1748,7 @@ export function applyCanvaControlsGlobal(): void {
       }
       this.setCoords?.();
       if (this.canvas) {
-        this.canvas.setCursor('move');
+        this.canvas.setCursor(isLocked ? 'default' : 'move');
         this.canvas.requestRenderAll();
       }
       return res;

@@ -61,6 +61,8 @@ export default function AdminCouponsPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [contacts, setContacts] = useState<MarketingContact[]>([]);
   const [loading, setLoading] = useState(true);
+  const [spinLoading, setSpinLoading] = useState(false);
+  const [spinError, setSpinError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ good: boolean; text: string } | null>(null);
 
@@ -116,6 +118,8 @@ export default function AdminCouponsPage() {
   const [paidOrders, setPaidOrders] = useState<PaidOrderRecipient[]>([]);
   const [spinLedger, setSpinLedger] = useState<any[]>([]);
   const [spinStats, setSpinStats] = useState<any>(null);
+  const [ledgerSearch, setLedgerSearch] = useState('');
+  const [ledgerStatus, setLedgerStatus] = useState('');
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [selectedSpinCustomerIds, setSelectedSpinCustomerIds] = useState<number[]>([]);
   const [allPaidSelected, setAllPaidSelected] = useState(false);
@@ -159,12 +163,20 @@ export default function AdminCouponsPage() {
   };
 
   const loadSpinData = async () => {
+    setSpinLoading(true);
+    setSpinError(null);
     try {
+      const ledgerParams = new URLSearchParams();
+      if (ledgerSearch.trim()) ledgerParams.set('search', ledgerSearch.trim());
+      if (ledgerStatus) ledgerParams.set('status', ledgerStatus);
       const [settingsRes, recipRes, ledgerRes] = await Promise.all([
         fetch(`${API_URL}/admin/spin-win/settings`, { headers }),
         fetch(`${API_URL}/admin/spin-win/campaign-recipients`, { headers }),
-        fetch(`${API_URL}/admin/spin-win/ledger`, { headers }),
+        fetch(`${API_URL}/admin/spin-win/ledger?${ledgerParams.toString()}`, { headers }),
       ]);
+      if (!settingsRes.ok || !recipRes.ok || !ledgerRes.ok) {
+        throw new Error('Some Spin & Win panels could not load. Check your access and retry.');
+      }
       if (settingsRes.ok) {
         const sj = await settingsRes.json();
         if (sj.data?.settings) {
@@ -194,6 +206,9 @@ export default function AdminCouponsPage() {
       }
     } catch (e) {
       console.error('Could not load spin data', e);
+      setSpinError(e instanceof Error ? e.message : 'Could not load Spin & Win data.');
+    } finally {
+      setSpinLoading(false);
     }
   };
 
@@ -201,6 +216,12 @@ export default function AdminCouponsPage() {
     void load();
     void loadSpinData();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'spin_wheel') return;
+    const timer = window.setInterval(() => void loadSpinData(), 30000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, ledgerSearch, ledgerStatus]);
 
   const addRecipient = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -462,10 +483,15 @@ export default function AdminCouponsPage() {
             </div>
           </div>
           {spinStats && (
-            <div className="flex items-center gap-3 bg-white border rounded-xl px-4 py-2 shadow-sm text-xs">
+            <div className="flex flex-wrap items-center gap-3 bg-white border rounded-xl px-4 py-2 shadow-sm text-xs">
               <div>
                 <span className="block text-slate-500">Total Spins</span>
                 <span className="font-bold text-slate-900">{spinStats.total_spins}</span>
+              </div>
+              <div className="h-6 w-px bg-slate-200" />
+              <div>
+                <span className="block text-slate-500">Rewards Issued</span>
+                <span className="font-bold text-violet-700">{spinStats.total_rewards_issued}</span>
               </div>
               <div className="h-6 w-px bg-slate-200" />
               <div>
@@ -477,8 +503,14 @@ export default function AdminCouponsPage() {
                 <span className="block text-slate-500">Redeemed</span>
                 <span className="font-bold text-emerald-600">{spinStats.total_redeemed}</span>
               </div>
+              <div className="h-6 w-px bg-slate-200" />
+              <div>
+                <span className="block text-slate-500">Active Reward Groups</span>
+                <span className="font-bold text-sky-700">{spinStats.active_categories} / {spinStats.total_categories}</span>
+              </div>
             </div>
           )}
+          {!spinStats && spinLoading && <div className="rounded-lg border bg-white px-4 py-3 text-xs text-slate-500">Loading Spin &amp; Win statistics…</div>}
         </header>
 
         {/* Global Feedback Alert */}
@@ -982,6 +1014,7 @@ export default function AdminCouponsPage() {
         {/* TAB 2: SPIN & WIN WHEEL PROMOTIONS */}
         {activeTab === 'spin_wheel' && (
           <div className="space-y-6">
+            {spinError && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"><span>{spinError}</span><button type="button" onClick={() => void loadSpinData()} className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-bold">Retry loading data</button></div>}
             {/* Top Automation Card: Auto-send on Payment Completion */}
             <div className="rounded-2xl border border-amber-300/50 bg-gradient-to-r from-amber-50 via-white to-pink-50 p-5 shadow-sm">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -997,6 +1030,10 @@ export default function AdminCouponsPage() {
                       When a customer completes payment via checkout or customer review link,
                       automatically email them an exclusive invitation link to spin the prize wheel.
                     </p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-semibold">
+                      <span className={`rounded-full px-2 py-1 ${spinSettings.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>Wheel {spinSettings.enabled ? 'enabled' : 'paused'}</span>
+                      <span className="rounded-full bg-white/80 px-2 py-1 text-slate-700">Minimum qualifying order: AUD ${Number(spinSettings.min_order_spend || 0).toFixed(2)}</span>
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
@@ -1295,7 +1332,20 @@ export default function AdminCouponsPage() {
                 </button>
               </div>
 
-              {spinLedger.length === 0 ? (
+              <form className="mb-4 flex flex-col gap-2 sm:flex-row" onSubmit={(event) => { event.preventDefault(); void loadSpinData(); }}>
+                <input value={ledgerSearch} onChange={(event) => setLedgerSearch(event.target.value)} placeholder="Search customer, email, code, or order number" className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs" />
+                <select value={ledgerStatus} onChange={(event) => { setLedgerStatus(event.target.value); }} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">
+                  <option value="">All reward statuses</option>
+                  <option value="active">Active</option>
+                  <option value="redeemed">Redeemed</option>
+                  <option value="expired">Expired</option>
+                </select>
+                <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white">Search</button>
+              </form>
+
+              {spinLoading && spinLedger.length === 0 ? (
+                <p className="py-4 text-center text-xs text-slate-500">Loading spin reward records…</p>
+              ) : spinLedger.length === 0 ? (
                 <p className="text-xs text-slate-500 py-4 text-center">
                   No spin rewards recorded yet. Once customers spin the wheel, their won prizes will appear here.
                 </p>
@@ -1304,8 +1354,8 @@ export default function AdminCouponsPage() {
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="border-b bg-slate-50 text-slate-600">
-                        <th className="py-2.5 px-3">Customer / Order</th>
-                        <th className="py-2.5 px-3">Prize Won</th>
+                        <th className="py-2.5 px-3">Customer / Order request</th>
+                        <th className="py-2.5 px-3">Full reward details</th>
                         <th className="py-2.5 px-3">Voucher Code</th>
                         <th className="py-2.5 px-3">Value</th>
                         <th className="py-2.5 px-3">Expires</th>
@@ -1319,18 +1369,21 @@ export default function AdminCouponsPage() {
                             <span className="font-semibold block text-slate-900">
                               {row.user?.name || row.order?.user?.name || 'Customer'}
                             </span>
-                            <span className="font-mono text-[11px] text-slate-400">
-                              {row.order?.order_number ? `#${row.order.order_number}` : 'Promo Spin'}
-                            </span>
+                            <span className="block text-[11px] text-slate-500">{row.user?.email || 'No email on account'}</span>
+                            {row.order?.order_number ? <a href={`/admin/orders/${row.order.id}`} className="mt-1 inline-block font-mono text-[11px] text-sky-700 hover:underline">Order #{row.order.order_number} · AUD ${Number(row.order.total_inc_gst || 0).toFixed(2)} · {row.order.payment_status}</a> : <span className="mt-1 block font-mono text-[11px] text-slate-400">Promo Spin</span>}
+                            {row.client_brief && <a href={row.client_brief.url} className="mt-1 block max-w-56 text-[11px] font-semibold text-violet-700 hover:underline">Order request: {row.client_brief.product || 'Reward order'}{row.client_brief.quantity ? ` · Qty ${row.client_brief.quantity}` : ''} · {row.client_brief.status}</a>}
                           </td>
                           <td className="py-2.5 px-3">
                             <span className="font-semibold text-slate-800">{row.title}</span>
+                            <span className="block capitalize text-[10px] text-slate-500">{String(row.reward_type || row.spin_reward?.reward_type || '').replaceAll('_', ' ')}{row.category_name ? ` · ${row.category_name}` : ''}</span>
+                            {row.target_product && <span className="block text-[10px] text-slate-600">Product: {row.target_product}</span>}
+                            {(row.spin_reward?.description || row.terms || row.how_to_use) && <details className="mt-1 max-w-sm text-[10px] text-slate-600"><summary className="cursor-pointer font-semibold text-sky-700">Description, terms &amp; instructions</summary><div className="mt-1 space-y-1 whitespace-pre-wrap">{row.spin_reward?.description && <p><strong>Description:</strong> {row.spin_reward.description}</p>}{row.terms && <p><strong>Terms:</strong> {row.terms}</p>}{row.how_to_use && <p><strong>How to use:</strong> {row.how_to_use}</p>}</div></details>}
                           </td>
                           <td className="py-2.5 px-3 font-mono font-bold text-violet-700">
                             {row.reward_code}
                           </td>
                           <td className="py-2.5 px-3 font-semibold">
-                            AUD ${Number(row.value).toFixed(2)}
+                            {row.reward_type === 'product_discount' ? `${Number(row.value).toFixed(2)}%` : row.reward_type === 'free_product' ? '1 free unit' : row.reward_type === 'premium_upgrade' ? 'Premium upgrade' : row.reward_type === 'shipping_upgrade' ? 'Shipping upgrade' : `AUD $${Number(row.value).toFixed(2)}`}
                           </td>
                           <td className="py-2.5 px-3 text-slate-500">
                             {row.expires_at ? new Date(row.expires_at).toLocaleDateString() : '—'}

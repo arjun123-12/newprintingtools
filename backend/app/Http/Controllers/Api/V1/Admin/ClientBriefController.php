@@ -200,6 +200,10 @@ class ClientBriefController extends Controller
                     'reward_type' => $brief->rewardLedger->reward_type,
                     'target_product' => $brief->rewardLedger->target_product,
                     'value' => (float) $brief->rewardLedger->value,
+                    'description' => $brief->rewardLedger->spinReward?->description,
+                    'terms_text' => $brief->rewardLedger->terms,
+                    'how_to_use' => $brief->rewardLedger->how_to_use,
+                    'expires_at' => $brief->rewardLedger->expires_at?->toIso8601String(),
                     'required_order_quantity' => $this->rewardOrderQuantity($brief->rewardLedger),
                 ] : null,
                 'linked_order' => $linkedOrder ? [
@@ -334,6 +338,9 @@ class ClientBriefController extends Controller
                 $brief->width && $brief->height ? "Size: {$brief->width} × {$brief->height} {$brief->unit}" : null,
                 'Reward: ' . ($reward?->title ?? 'None'),
                 'Reward code: ' . ($reward?->reward_code ?? 'None'),
+                $reward?->spinReward?->description ? 'Reward description: ' . $reward->spinReward->description : null,
+                $reward?->terms ? 'Reward terms: ' . $reward->terms : null,
+                $reward?->how_to_use ? 'Reward instructions: ' . $reward->how_to_use : null,
             ]))),
             'options' => ['client_brief_id' => $brief->id, 'reward_code' => $reward?->reward_code],
         ];

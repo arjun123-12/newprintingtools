@@ -51,8 +51,15 @@ class ClientBriefController extends Controller
                 'company_name' => $user->company_name, 'email' => $user->email, 'phone' => $user->phone,
                 'product' => $product, 'quantity' => $configuredQuantity,
                 'request_type' => $data['request_type'] ?? ($configuredQuantity ? 'quote' : 'design'),
-                'description' => ($configuredQuantity ? 'Quote request for ' . number_format($configuredQuantity) . ' ' . ($product ?: 'print items') . '. ' : 'Reward-based order request. ')
-                    . 'Spin reward: ' . $ledger->title . ' (' . $ledger->reward_code . ')',
+                'description' => trim(implode("\n", array_filter([
+                    $configuredQuantity
+                        ? 'Quote request for ' . number_format($configuredQuantity) . ' ' . ($product ?: 'print items') . '.'
+                        : 'Reward-based order request.',
+                    'Spin reward: ' . $ledger->title . ' (' . $ledger->reward_code . ')',
+                    $ledger->spinReward?->description,
+                    'Reward terms: ' . $ledger->terms,
+                    'How to use: ' . $ledger->how_to_use,
+                ]))),
                 'submitted_at' => now(),
             ]);
         } elseif ($brief->status === 'draft' && !$brief->submitted_at) {
@@ -163,6 +170,10 @@ class ClientBriefController extends Controller
                     'reward_type' => $brief->rewardLedger?->reward_type,
                     'target_product' => $brief->rewardLedger?->target_product,
                     'value' => (float) ($brief->rewardLedger?->value ?? 0),
+                    'description' => $brief->rewardLedger?->spinReward?->description,
+                    'terms_text' => $brief->rewardLedger?->terms,
+                    'how_to_use' => $brief->rewardLedger?->how_to_use,
+                    'expires_at' => $brief->rewardLedger?->expires_at?->toIso8601String(),
                     'product_locked' => $brief->spin_reward_ledger_id && (
                         filled($brief->rewardLedger?->target_product)
                         || ($brief->rewardLedger?->reward_type === 'free_product' && filled($brief->product))

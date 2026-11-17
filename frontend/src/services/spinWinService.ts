@@ -22,6 +22,7 @@ export interface WheelSegment {
   code: string;
   title: string;
   badge_text?: string | null;
+  description?: string | null;
   reward_type: 'print_credit' | 'product_discount' | 'free_product' | 'premium_upgrade' | 'shipping_upgrade';
   target_product?: string | null;
   value: number;
@@ -40,6 +41,7 @@ export interface WonPrize {
   reward_code: string;
   title: string;
   badge_text?: string | null;
+  description?: string | null;
   reward_type: 'print_credit' | 'product_discount' | 'free_product' | 'premium_upgrade' | 'shipping_upgrade';
   target_product?: string | null;
   value: number;

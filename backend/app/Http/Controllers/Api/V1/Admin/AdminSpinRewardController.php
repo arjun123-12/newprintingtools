@@ -424,7 +424,8 @@ class AdminSpinRewardController extends Controller
                 'order:id,order_number,total_inc_gst,payment_status',
                 'user:id,name,email,business_category',
                 'category',
-                'spinReward:id,code,title,reward_type,category_id',
+                'spinReward:id,code,title,reward_type,category_id,description,terms_text,how_to_use',
+                'clientBrief:id,spin_reward_ledger_id,uuid,token,product,quantity,status,submitted_at',
             ])
             ->latest();
 
@@ -455,6 +456,20 @@ class AdminSpinRewardController extends Controller
         }
 
         $ledger = $query->paginate(20);
+        $frontendUrl = rtrim((string) config('app.frontend_url', env('FRONTEND_URL', 'https://www.erryimprints.com.au')), '/');
+        $ledger->getCollection()->transform(function (CustomerRewardLedger $row) use ($frontendUrl) {
+            $brief = $row->clientBrief;
+            $row->unsetRelation('clientBrief');
+            $row->setAttribute('client_brief', $brief ? [
+                'id' => $brief->id,
+                'product' => $brief->product,
+                'quantity' => $brief->quantity,
+                'status' => $brief->status,
+                'submitted_at' => $brief->submitted_at?->toIso8601String(),
+                'url' => $frontendUrl . '/admin/client-briefs/' . $brief->id,
+            ] : null);
+            return $row;
+        });
         $printCreditBalances = CustomerRewardLedger::query()
             ->selectRaw('user_id, SUM(value) as balance, COUNT(*) as reward_count')
             ->where('status', 'active')
@@ -489,6 +504,7 @@ class AdminSpinRewardController extends Controller
     public function getCampaignRecipients(): JsonResponse
     {
         $orders = Order::query()
+            ->where('payment_status', PaymentStatus::PAID)
             ->with(['user:id,name,email,company_name', 'spinEntitlement:id,order_id,status,spun_at'])
             ->latest('created_at')
             ->take(100)

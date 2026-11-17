@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { Sparkles, Trophy, Check, Copy, X, ArrowRight, RotateCcw, Lock, Loader2, BadgeCheck } from 'lucide-react';
+import { Sparkles, Trophy, Check, Copy, X, ArrowRight, RotateCcw, Loader2, BadgeCheck } from 'lucide-react';
 import { spinWinService, WonPrize } from '@/services/spinWinService';
 import RewardExpiryCountdown from '@/components/rewards/RewardExpiryCountdown';
 import { useAuth } from '@/context/AuthContext';
@@ -231,7 +231,7 @@ export default function SpinWheel({
   isPreview = false,
   canSpin = true,
 }: SpinWheelProps) {
-  const { user, isAuthenticated, login, logout } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const [fetchedSegments, setFetchedSegments] = useState<SpinSegment[] | null>(null);
   // Normalize segments
   const segments = useMemo(() => {
@@ -254,16 +254,16 @@ export default function SpinWheel({
     subtitle?: string;
     expiresAt?: string;
     claimToken?: string;
+    description?: string | null;
+    termsText?: string | null;
+    howToUse?: string | null;
     rewardType?: WonPrize['reward_type'];
     value?: number;
     targetProduct?: string | null;
   } | null>(null);
   const [startingDesignQuery, setStartingDesignQuery] = useState(false);
   const [designQueryError, setDesignQueryError] = useState<string | null>(null);
-  const autoOpenedDesignQuery = useRef(false);
   const [copiedCode, setCopiedCode] = useState(false);
-  const [claimEmail, setClaimEmail] = useState('');
-  const [claimPassword, setClaimPassword] = useState('');
   const [claimStatus, setClaimStatus] = useState<'idle' | 'claiming' | 'claimed' | 'error'>('idle');
   const [claimError, setClaimError] = useState<string | null>(null);
   const [isTicking, setIsTicking] = useState(false);
@@ -279,8 +279,7 @@ export default function SpinWheel({
   if (orderNumber) rewardReturnParams.set('order', orderNumber);
   if (reviewToken) rewardReturnParams.set('review_token', reviewToken);
   const rewardReturnUrl = `/rewards/spin?${rewardReturnParams.toString()}`;
-  const registerUrl = `/register?redirect=${encodeURIComponent(rewardReturnUrl)}`;
-  const forgotPasswordUrl = `/forgot-password?redirect=${encodeURIComponent(rewardReturnUrl)}${claimEmail.trim() ? `&email=${encodeURIComponent(claimEmail.trim())}` : ''}`;
+  const loginUrl = `/login?redirect=${encodeURIComponent(rewardReturnUrl)}`;
 
   // Sparkles in the background (8 randomized twinkling points)
   const sparkles = useMemo(() => {
@@ -340,6 +339,9 @@ export default function SpinWheel({
             subtitle: data.prize.badge_text || 'Your saved reward voucher',
             expiresAt: data.prize.expires_at,
             claimToken: data.prize.claim_token || undefined,
+            description: data.prize.description || undefined,
+            termsText: data.prize.terms_text || undefined,
+            howToUse: data.prize.how_to_use || undefined,
             rewardType: data.prize.reward_type,
             value: data.prize.value,
             targetProduct: data.prize.target_product,
@@ -392,13 +394,6 @@ export default function SpinWheel({
     }
   }, [wonPrize?.claimToken, startingDesignQuery]);
 
-  useEffect(() => {
-    if (!isPreview && claimStatus === 'claimed' && wonPrize?.claimToken && !autoOpenedDesignQuery.current) {
-      autoOpenedDesignQuery.current = true;
-      void openDesignQuery();
-    }
-  }, [isPreview, claimStatus, wonPrize?.claimToken, openDesignQuery]);
-
   // Pointer tick sound / visual effect
   const tickRef = useRef<number | null>(null);
   const triggerTickAnimation = useCallback(() => {
@@ -418,7 +413,19 @@ export default function SpinWheel({
     setShowResultModal(false);
 
     let targetIndex = Math.floor(Math.random() * totalSlices);
-    let resolvedPrize: { title: string; code: string; subtitle?: string; expiresAt?: string; claimToken?: string; rewardType?: WonPrize['reward_type']; value?: number; targetProduct?: string | null } | null = null;
+    let resolvedPrize: {
+      title: string;
+      code: string;
+      subtitle?: string;
+      expiresAt?: string;
+      claimToken?: string;
+      description?: string | null;
+      termsText?: string | null;
+      howToUse?: string | null;
+      rewardType?: WonPrize['reward_type'];
+      value?: number;
+      targetProduct?: string | null;
+    } | null = null;
 
     // Check if we have server credentials to execute a verified spin
     const activeToken = serverSpinToken || token;
@@ -441,6 +448,9 @@ export default function SpinWheel({
             rewardType: serverPrize.reward_type,
             value: serverPrize.value,
             targetProduct: serverPrize.target_product,
+            description: serverPrize.description,
+            termsText: serverPrize.terms_text,
+            howToUse: serverPrize.how_to_use,
           };
         }
       } catch (err: any) {
@@ -956,7 +966,7 @@ export default function SpinWheel({
       {/* Winning Reward Result Modal */}
       {showResultModal && wonPrize && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden bg-[radial-gradient(ellipse_at_50%_35%,rgba(124,58,237,0.38),transparent_55%),radial-gradient(ellipse_at_50%_100%,rgba(245,158,11,0.2),transparent_50%),rgba(2,6,23,0.86)] p-4 backdrop-blur-lg"
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[radial-gradient(ellipse_at_50%_35%,rgba(124,58,237,0.38),transparent_55%),radial-gradient(ellipse_at_50%_100%,rgba(245,158,11,0.2),transparent_50%),rgba(2,6,23,0.86)] p-4 backdrop-blur-lg"
           style={{ animation: 'fadeIn 0.25s ease-out' }}
         >
           {!NO_CONFETTI_LABELS.some((text) => wonPrize.title.toUpperCase().includes(text)) && (
@@ -981,18 +991,18 @@ export default function SpinWheel({
             </div>
           )}
           <div
-            className="celebration-card relative z-[55] w-full max-w-sm rounded-[2rem] border border-amber-300/40 bg-gradient-to-b from-slate-900/95 via-indigo-950/95 to-slate-950/95 p-6 text-center text-white shadow-[0_24px_100px_rgba(0,0,0,0.65),0_0_55px_rgba(245,158,11,0.18)] backdrop-blur-xl sm:p-7"
+            className="celebration-card relative z-[55] max-h-[calc(100svh-2rem)] w-full max-w-sm overflow-y-auto rounded-[2rem] border border-amber-300/40 bg-gradient-to-b from-slate-900/95 via-indigo-950/95 to-slate-950/95 p-6 text-center text-white shadow-[0_24px_100px_rgba(0,0,0,0.65),0_0_55px_rgba(245,158,11,0.18)] backdrop-blur-xl sm:p-7"
             style={{ animation: 'pop 0.35s cubic-bezier(0.18, 0.89, 0.32, 1)' }}
           >
             {/* Close Button */}
-            <button
+            {(isPreview || !wonPrize.claimToken) && <button
               type="button"
               onClick={() => setShowResultModal(false)}
               className="absolute top-4 right-4 rounded-full bg-slate-800 p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white"
               aria-label="Close"
             >
               <X size={16} />
-            </button>
+            </button>}
 
             {/* Trophy Icon */}
             <div className="celebration-medallion mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-[1.35rem] border border-white/50 bg-gradient-to-tr from-amber-300 via-yellow-200 to-amber-500 text-amber-950 shadow-[0_0_34px_rgba(251,191,36,0.38)]">
@@ -1041,9 +1051,8 @@ export default function SpinWheel({
                     <div>
                       <p className="text-xs font-bold">Reward added to your account</p>
                       <p className="mt-1 text-[10px] text-slate-300">
-                        {wonPrize.rewardType === 'print_credit' ? `AUD $${Number(wonPrize.value || 0).toFixed(2)} is now in your Print Bank.` : 'You can find this reward in My Print Bank.'}
+                        {wonPrize.rewardType === 'print_credit' ? `AUD $${Number(wonPrize.value || 0).toFixed(2)} is saved in your Print Bank. Choose whether to use it for an order now or later.` : 'This reward is saved in your account. Choose whether to use it for an order now or later.'}
                       </p>
-                      <Link href="/account" className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300 hover:text-emerald-100">View My Print Bank <ArrowRight className="h-3 w-3" /></Link>
                     </div>
                   </div>
                 ) : isAuthenticated ? (
@@ -1057,50 +1066,36 @@ export default function SpinWheel({
                   </div>
                 ) : (
                   <div>
-                    <p className="text-xs font-bold text-white">Log in to add this reward to your account</p>
-                    <p className="mt-1 text-[10px] text-slate-300">{wonPrize.rewardType === 'print_credit' ? `Your AUD $${Number(wonPrize.value || 0).toFixed(2)} print credit will appear in your Print Bank.` : 'Keep this reward in your account and use it on a future order.'}</p>
-                    <form className="mt-3 space-y-2" onSubmit={async (event) => {
-                      event.preventDefault();
-                      setClaimError(null);
-                      try {
-                        await login({ email: claimEmail.trim(), password: claimPassword });
-                      } catch (err: any) {
-                        setClaimError(err.response?.status === 401
-                          ? 'Email or password did not match. Use the email that received this reward, or reset your password below.'
-                          : err.response?.data?.message || err.message || 'Login failed. Please try again.');
-                      }
-                    }}>
-                      <input type="email" required autoComplete="email" value={claimEmail} onChange={(event) => setClaimEmail(event.target.value)} placeholder="Email used for this invitation" className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-white outline-none focus:border-amber-300" />
-                      <input type="password" required autoComplete="current-password" value={claimPassword} onChange={(event) => setClaimPassword(event.target.value)} placeholder="Password" className="w-full rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-white outline-none focus:border-amber-300" />
-                      {claimError && <p role="alert" className="text-[10px] text-rose-300">{claimError}</p>}
-                      <div className="text-right"><Link href={forgotPasswordUrl} className="text-[10px] font-bold text-amber-200 underline hover:text-amber-100">Forgot password?</Link></div>
-                      <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3 py-2.5 text-xs font-extrabold text-emerald-950 transition hover:bg-emerald-400"><Lock className="h-3.5 w-3.5" /> Log in &amp; save reward</button>
-                    </form>
-                    <p className="mt-2 text-center text-[10px] text-slate-400">New here? <Link href={registerUrl} className="font-bold text-amber-200 underline">Create an account</Link></p>
+                    <p className="text-xs font-bold text-white">Sign in to save this reward</p>
+                    <p className="mt-1 text-[10px] text-slate-300">Use the customer account linked to the invitation. Your reward details will still be here when you return.</p>
+                    {claimError && <p role="alert" className="mt-2 text-[10px] text-rose-300">{claimError}</p>}
                   </div>
                 )}
               </div>
             )}
-            {wonPrize.targetProduct && <p className="mt-3 rounded-xl bg-violet-500/10 px-3 py-2 text-left text-xs text-violet-100">Reward applies to: <strong>{wonPrize.targetProduct}</strong>{wonPrize.rewardType === 'product_discount' ? ` · ${wonPrize.value}% off` : wonPrize.rewardType === 'free_product' ? ' · one free unit' : ''}</p>}
-            {wonPrize.claimToken && claimStatus === 'claimed' && (
-              <div className="mt-3">
-                <button type="button" disabled={startingDesignQuery} onClick={() => void openDesignQuery()} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3 text-sm font-extrabold text-white shadow-lg disabled:opacity-60">
-                  {startingDesignQuery ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                  {startingDesignQuery ? 'Opening design request…' : 'Upload artwork / start design query'}
-                </button>
-                {designQueryError && <p role="alert" className="mt-2 text-left text-xs text-rose-300">{designQueryError}</p>}
-              </div>
-            )}
+            <div className="mt-3 space-y-2 rounded-xl border border-violet-300/20 bg-violet-500/10 p-3 text-left text-xs text-violet-100">
+              <p className="font-bold text-violet-50">Full reward details</p>
+              <p>{wonPrize.description || wonPrize.subtitle || 'Exclusive reward from Erry Imprints.'}</p>
+              <p><strong>Reward:</strong> {wonPrize.rewardType === 'product_discount' ? `${wonPrize.value}% product discount` : wonPrize.rewardType === 'free_product' ? 'One free product unit' : wonPrize.rewardType === 'premium_upgrade' ? 'Premium product upgrade' : wonPrize.rewardType === 'shipping_upgrade' ? 'Shipping upgrade' : `AUD $${Number(wonPrize.value || 0).toFixed(2)} print credit`}</p>
+              {wonPrize.targetProduct && <p><strong>Applies to:</strong> {wonPrize.targetProduct}</p>}
+              {wonPrize.termsText && <p className="whitespace-pre-wrap"><strong>Terms:</strong> {wonPrize.termsText}</p>}
+              {wonPrize.howToUse && <p className="whitespace-pre-wrap"><strong>How to use:</strong> {wonPrize.howToUse}</p>}
+            </div>
+            {wonPrize.claimToken && claimStatus === 'claimed' && designQueryError && <p role="alert" className="mt-2 text-left text-xs text-rose-300">{designQueryError}</p>}
 
             {/* Action Buttons */}
             <div className="mt-5 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setShowResultModal(false)}
-                className="flex-1 rounded-xl border border-slate-700 bg-slate-800/80 py-2.5 text-xs font-semibold text-slate-300 hover:bg-slate-700"
-              >
-                Close
-              </button>
+              {wonPrize.claimToken && !isPreview ? (
+                <>
+                  <button type="button" onClick={() => setShowResultModal(false)} className="flex-1 rounded-xl border border-slate-700 bg-slate-800/80 py-2.5 text-xs font-semibold text-slate-300 hover:bg-slate-700">Maybe later</button>
+                  {isAuthenticated ? <button type="button" disabled={claimStatus !== 'claimed' || startingDesignQuery} onClick={() => void openDesignQuery()} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 py-2.5 text-xs font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50">
+                    {startingDesignQuery ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+                    {startingDesignQuery ? 'Sending request…' : claimStatus === 'claimed' ? 'Use reward for an order' : claimStatus === 'claiming' ? 'Saving reward…' : 'Saving reward…'}
+                  </button> : <Link href={loginUrl} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 py-2.5 text-xs font-extrabold text-white"><ArrowRight size={14} /> Sign in to use reward</Link>}
+                </>
+              ) : (
+                <button type="button" onClick={() => setShowResultModal(false)} className="flex-1 rounded-xl border border-slate-700 bg-slate-800/80 py-2.5 text-xs font-semibold text-slate-300 hover:bg-slate-700">Close</button>
+              )}
               {isPreview && (
                 <button
                   type="button"

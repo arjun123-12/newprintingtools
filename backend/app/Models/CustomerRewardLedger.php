@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class CustomerRewardLedger extends Model
 {
@@ -67,6 +68,11 @@ class CustomerRewardLedger extends Model
     public function spinReward(): BelongsTo
     {
         return $this->belongsTo(SpinReward::class);
+    }
+
+    public function clientBrief(): HasOne
+    {
+        return $this->hasOne(ClientBrief::class, 'spin_reward_ledger_id');
     }
 
     public function redeemedOrder(): BelongsTo

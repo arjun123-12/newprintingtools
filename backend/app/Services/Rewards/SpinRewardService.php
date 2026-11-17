@@ -121,6 +121,7 @@ class SpinRewardService
                 'code' => $reward->code,
                 'title' => $reward->title,
                 'badge_text' => $reward->badge_text,
+                'description' => $reward->description,
                 'reward_type' => $reward->reward_type,
                 'target_product' => $reward->target_product,
                 'value' => (float) $reward->value,
@@ -275,6 +276,7 @@ class SpinRewardService
                 'prize' => $ledger ? [
                     'id' => $ledger->id, 'category_id' => $ledger->category_id, 'category_name' => $ledger->category_name,
                     'reward_code' => $ledger->reward_code, 'title' => $ledger->title, 'badge_text' => $ledger->badge_text,
+                    'description' => $ledger->spinReward?->description,
                     'reward_type' => $ledger->reward_type, 'target_product' => $ledger->target_product, 'value' => (float) $ledger->value,
                     'segment_index' => $segments->firstWhere('id', $ledger->spin_reward_id)['index'] ?? 0,
                     'terms_text' => $ledger->terms, 'how_to_use' => $ledger->how_to_use,
@@ -366,6 +368,7 @@ class SpinRewardService
                     'reward_code' => $ledger->reward_code,
                     'title' => $ledger->title,
                     'badge_text' => $ledger->badge_text,
+                    'description' => $ledger->spinReward?->description,
                     'reward_type' => $ledger->reward_type,
                     'target_product' => $ledger->target_product,
                     'value' => (float) $ledger->value,
@@ -461,6 +464,7 @@ class SpinRewardService
                             'reward_code' => $existingLedger->reward_code,
                             'title' => $existingLedger->title,
                             'badge_text' => $existingLedger->badge_text,
+                            'description' => $existingLedger->spinReward?->description,
                             'reward_type' => $existingLedger->reward_type,
                             'target_product' => $existingLedger->target_product,
                             'value' => (float) $existingLedger->value,
@@ -661,6 +665,7 @@ class SpinRewardService
                     'reward_code' => $ledger->reward_code,
                     'title' => $ledger->title,
                     'badge_text' => $ledger->badge_text,
+                    'description' => $ledger->spinReward?->description,
                     'reward_type' => $ledger->reward_type,
                     'target_product' => $ledger->target_product,
                     'value' => (float) $ledger->value,
@@ -698,7 +703,7 @@ class SpinRewardService
                 if ($ledger) {
                     return ['success' => true, 'already_spun' => true, 'category' => null, 'prize' => [
                         'id' => $ledger->id, 'reward_code' => $ledger->reward_code, 'title' => $ledger->title,
-                        'badge_text' => $ledger->badge_text, 'reward_type' => $ledger->reward_type, 'target_product' => $ledger->target_product, 'value' => (float) $ledger->value,
+                        'badge_text' => $ledger->badge_text, 'description' => $ledger->spinReward?->description, 'reward_type' => $ledger->reward_type, 'target_product' => $ledger->target_product, 'value' => (float) $ledger->value,
                         'segment_index' => $segments->firstWhere('id', $ledger->spin_reward_id)['index'] ?? 0,
                         'terms_text' => $ledger->terms, 'how_to_use' => $ledger->how_to_use,
                         'expires_at' => $ledger->expires_at?->toIso8601String(), 'claim_token' => $ledger->claim_token,
@@ -731,6 +736,7 @@ class SpinRewardService
             ], 'prize' => [
                 'id' => $ledger->id, 'category_id' => $ledger->category_id, 'category_name' => $ledger->category_name,
                 'reward_code' => $ledger->reward_code, 'title' => $ledger->title, 'badge_text' => $ledger->badge_text,
+                'description' => $ledger->spinReward?->description,
                 'reward_type' => $ledger->reward_type, 'value' => (float) $ledger->value,
                 'target_product' => $ledger->target_product,
                 'segment_index' => $target['index'], 'terms_text' => $ledger->terms, 'how_to_use' => $ledger->how_to_use,

@@ -23,7 +23,7 @@ class SpinRewardDesignQueryFlowTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_spun_reward_flows_through_design_query_approval_into_order_pricing(): void
+    public function test_spun_reward_requires_payment_before_artwork_and_starts_production_after_approval(): void
     {
         $this->seed(SpinRewardSeeder::class);
         Mail::fake();
@@ -60,7 +60,7 @@ class SpinRewardDesignQueryFlowTest extends TestCase
         ])->assertOk()->assertJsonPath('data.prize.reward_type', 'free_product');
         $claimToken = $spin->json('data.prize.claim_token');
 
-        // Sign-in links the won reward to the customer's account, then opens the prefilled query.
+        // Sign-in links the won reward to the customer's account, then opens a submitted query.
         $this->actingAs($customer, 'sanctum')
             ->postJson('/api/v1/rewards/claim-spin-reward', ['claim_token' => $claimToken])
             ->assertOk();
@@ -74,30 +74,7 @@ class SpinRewardDesignQueryFlowTest extends TestCase
             ->assertJsonPath('data.email', $customer->email)
             ->assertJsonPath('data.spin_reward.target_product', 'Business Cards');
 
-        $this->postJson("/api/v1/client-brief/{$token}/submit", [
-            'request_type' => 'design',
-            'contact' => $customer->name,
-            'company' => $customer->company_name,
-            'email' => $customer->email,
-            'phone' => $customer->phone,
-            'product' => 'Business Cards',
-            'quantity' => 250,
-            'unit' => 'mm',
-            'print_sides' => 'both',
-            'fulfilment' => 'pickup',
-            'specs' => 'Please create a fresh branded business card design.',
-            'files' => [UploadedFile::fake()->image('reference.png')],
-        ])->assertCreated();
-
         $brief = ClientBrief::where('token', $token)->firstOrFail();
-        $this->actingAs($admin, 'sanctum')
-            ->putJson("/api/v1/admin/design-queries/{$brief->id}/fee", ['design_fee' => 50])
-            ->assertOk();
-        $this->assertDatabaseHas('client_brief_messages', [
-            'client_brief_id' => $brief->id,
-            'author' => 'employee',
-        ]);
-
         $productCategory = Category::create([
             'name' => 'Print Products',
             'slug' => 'print-products-' . Str::random(6),
@@ -112,48 +89,150 @@ class SpinRewardDesignQueryFlowTest extends TestCase
             'is_active' => true,
         ]);
 
+        $paymentOrder = $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/v1/admin/client-briefs/{$brief->id}/payment-order", [
+                'product_name' => 'Business Cards',
+                'quantity' => 250,
+                'unit_price_ex_gst' => 100,
+                'shipping_fee' => 0,
+            ])->assertCreated()
+            ->assertJsonPath('data.payment_status', 'unpaid');
+        $order = Order::findOrFail($paymentOrder->json('data.order_id'));
+        $this->assertSame('pending_payment', $order->status->value);
+        $this->assertSame($customer->id, $order->user_id);
+
+        // Artwork stays locked until the payment gateway confirms payment.
         $this->actingAs($admin, 'sanctum')
-            ->postJson("/api/v1/admin/design-queries/{$brief->id}/design", [
+            ->postJson("/api/v1/admin/client-briefs/{$brief->id}/design", [
+                'file' => UploadedFile::fake()->create('final-proof.pdf', 20, 'application/pdf'),
+                'message' => 'Your design is ready to approve.',
+            ])->assertStatus(409);
+
+        // Simulate the verified gateway callback; only then can the admin send artwork.
+        $order->update(['payment_status' => 'paid']);
+        $this->actingAs($admin, 'sanctum')
+            ->postJson("/api/v1/admin/client-briefs/{$brief->id}/design", [
                 'file' => UploadedFile::fake()->create('final-proof.pdf', 20, 'application/pdf'),
                 'message' => 'Your design is ready to approve.',
             ])->assertOk();
 
-        // The customer cannot approve a proof until accepting the fee.
-        $this->postJson("/api/v1/client-brief/{$token}/approve")
-            ->assertStatus(422)
-            ->assertJsonPath('message', 'Please accept the design service fee before approving the design.');
-        $this->postJson("/api/v1/client-brief/{$token}/accept-design-fee")
-            ->assertOk();
-
-        $approved = $this->postJson("/api/v1/client-brief/{$token}/approve")
+        $approved = $this->actingAs($customer, 'sanctum')
+            ->postJson("/api/v1/client-brief/{$token}/approve")
             ->assertOk()
             ->assertJsonPath('success', true);
         $order = Order::findOrFail($approved->json('data.order_id'));
         $this->assertSame($customer->id, $order->user_id);
         $this->assertSame($brief->id, $order->client_brief_id);
-        $this->assertSame('pending_payment', $order->status->value);
+        $this->assertSame('in_production', $order->status->value);
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
             'applied_reward_code' => $spin->json('data.prize.reward_code'),
         ]);
         $this->assertDatabaseHas('order_items', [
             'order_id' => $order->id,
-            'product_name' => 'Graphic design service',
-            'unit_price_ex_gst' => 50,
+            'product_name' => 'Business Cards',
+            'quantity' => 250,
+            'production_status' => 'printing',
         ]);
-
-        // Admin sets the print quote; the free-product reward deducts one target-product unit.
-        app(\App\Services\Order\ManualOrderService::class)->updateManualOrder($order, $admin, [
-            'items' => [
-                ['product_id' => $product->id, 'product_name' => 'Business Cards', 'quantity' => 1, 'price' => 100],
-                ['product_name' => 'Graphic design service', 'quantity' => 1, 'price' => 50, 'options' => ['non_production' => true]],
-            ],
-            'delivery_method' => 'Pickup',
-        ]);
-
-        $order->refresh();
-        $this->assertSame(110.0, (float) $order->discount_amount);
-        $this->assertSame(55.0, (float) $order->total_inc_gst);
         $this->assertSame('active', $brief->rewardLedger()->firstOrFail()->status);
+    }
+
+    public function test_quantity_based_label_and_a3_rewards_spin_create_fixed_quantity_queries_and_discount_orders(): void
+    {
+        $this->seed(SpinRewardSeeder::class);
+        Mail::fake();
+
+        $admin = User::factory()->create([
+            'role' => 'admin',
+            'is_super_admin' => false,
+            'permissions' => ['design_queries', 'pricing'],
+        ]);
+
+        $cases = [
+            [
+                'reward_code' => '500_free_4x4_labels_on_2000',
+                'product_name' => 'Gloss Product Packaging Roll Labels',
+                'quantity' => 2000,
+                'unit_price' => 1.00,
+                'discount_percent' => 25.0,
+                'expected_discount' => 550.0,
+                'expected_total' => 1650.0,
+            ],
+            [
+                'reward_code' => 'a3_poster_free',
+                'product_name' => 'A3 Vibrant Artpaper Posters (297 x 420mm)',
+                'quantity' => 500,
+                'unit_price' => 1.00,
+                'discount_percent' => 20.0,
+                'expected_discount' => 110.0,
+                'expected_total' => 440.0,
+            ],
+        ];
+
+        foreach ($cases as $index => $case) {
+            $customer = User::factory()->create([
+                'email' => 'quantity-reward-' . $index . '@example.com',
+                'company_name' => 'Reward Test Co',
+            ]);
+            $reward = SpinReward::where('code', $case['reward_code'])->firstOrFail();
+            $this->assertSame('product_discount', $reward->reward_type);
+            $this->assertSame($case['discount_percent'], (float) $reward->value);
+
+            $entitlement = OrderSpinEntitlement::create([
+                'user_id' => $customer->id,
+                'email' => $customer->email,
+                'name' => $customer->name,
+                'assigned_reward_id' => $reward->id,
+                'spin_token' => Str::random(48),
+                'status' => 'eligible',
+            ]);
+
+            $spin = $this->postJson('/api/v1/spin-win/spin', [
+                'spin_token' => $entitlement->spin_token,
+            ])->assertOk()
+                ->assertJsonPath('data.prize.title', $reward->title)
+                ->assertJsonPath('data.prize.reward_type', 'product_discount');
+            $this->assertEquals($case['discount_percent'], (float) $spin->json('data.prize.value'));
+
+            $claimToken = $spin->json('data.prize.claim_token');
+            $this->actingAs($customer, 'sanctum')
+                ->postJson('/api/v1/rewards/claim-spin-reward', ['claim_token' => $claimToken])
+                ->assertOk();
+            $started = $this->postJson('/api/v1/client-brief/start-from-reward', ['claim_token' => $claimToken])
+                ->assertCreated()
+                ->assertJsonPath('data.product', $case['product_name'])
+                ->assertJsonPath('data.quantity', $case['quantity']);
+
+            $brief = ClientBrief::where('token', $started->json('data.token'))->firstOrFail();
+            if ($index === 0) {
+                $this->assertStringContainsString('4×4', $brief->description);
+            }
+            $category = Category::create([
+                'name' => 'Spin Reward Products ' . $index,
+                'slug' => 'spin-reward-products-' . $index . '-' . Str::random(5),
+                'is_active' => true,
+            ]);
+            Product::create([
+                'category_id' => $category->id,
+                'name' => $case['product_name'],
+                'slug' => 'spin-reward-product-' . $index . '-' . Str::random(5),
+                'sku' => 'SPIN-' . $index . '-' . Str::random(5),
+                'base_price' => 1.00,
+                'is_active' => true,
+            ]);
+            $orderResponse = $this->actingAs($admin, 'sanctum')
+                ->postJson('/api/v1/admin/client-briefs/' . $brief->id . '/payment-order', [
+                    'product_name' => $case['product_name'],
+                    'quantity' => $case['quantity'],
+                    'unit_price_ex_gst' => $case['unit_price'],
+                    'shipping_fee' => 0,
+                ])->assertCreated()
+                ->assertJsonPath('data.payment_status', 'unpaid');
+            $order = Order::findOrFail($orderResponse->json('data.order_id'));
+            $this->assertSame('pending_payment', $order->status->value);
+
+            $this->assertSame($case['expected_discount'], (float) $order->discount_amount);
+            $this->assertSame($case['expected_total'], (float) $order->total_inc_gst);
+        }
     }
 }
