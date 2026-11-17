@@ -1195,7 +1195,9 @@ export default function AdminOrderDetailPage({ params }: PageProps) {
               <p className="text-slate-400">{order.customer.email}</p>
               {order.customer.phone && <p className="text-slate-400">{order.customer.phone}</p>}
               <div className="border-t border-slate-800 pt-2 mt-2">
-                <span className="text-slate-500 font-medium block">Delivery Address:</span>
+                <span className="text-slate-500 font-medium block">
+                  {order.delivery_method?.toLowerCase().includes('pickup') ? 'Pickup Address:' : 'Delivery Address:'}
+                </span>
                 <p className="text-slate-300 mt-0.5">{order.delivery_address}</p>
               </div>
             </div>

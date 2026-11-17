@@ -688,19 +688,15 @@ export default function OrderReviewPage({ params }: PageProps) {
         if (isPostReviewStatus || (res.data.proof?.is_approved && res.data.payment_status === 'paid')) {
           setCurrentStep('production');
         } else if (!res.data.proof?.is_approved) {
-          // Payment can be collected before artwork is ready. If already paid,
-          // return to proof review and hold production until customer approval.
-          if (res.data.payment_status === 'paid') {
-            setCurrentStep('review');
-            setGatewayStatus('success');
-          } else {
-            setCurrentStep('payment');
-          }
-        } else if (res.data.invoice && res.data.payment_status !== 'paid') {
-          setCurrentStep('payment');
+          // Always let the customer review and approve artwork before payment.
+          // This also applies to invoice orders; approval advances them to payment.
+          setCurrentStep('review');
         } else if (res.data.proof?.is_approved) {
           setCurrentStep('payment');
-          if (res.data.payment_status === 'paid') setGatewayStatus('success');
+          if (res.data.payment_status === 'paid') {
+            setCurrentStep('production');
+            setGatewayStatus('success');
+          }
         } else {
           setCurrentStep('review');
         }
@@ -1414,7 +1410,7 @@ export default function OrderReviewPage({ params }: PageProps) {
       <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-sm space-y-3">
         <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
           <Truck className="w-3.5 h-3.5 text-slate-600" />
-          <span>Delivery Address</span>
+          <span>{orderData.delivery_summary.method?.toLowerCase().includes('pickup') ? 'Pickup Address' : 'Delivery Address'}</span>
         </div>
         <p className="text-xs text-slate-700 leading-relaxed font-medium">
           {orderData.delivery_summary.full_address || 'Standard Delivery'}

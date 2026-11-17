@@ -1312,9 +1312,11 @@ export default function QuoteManager({
                 </div>
               </div>
 
-              {/* Delivery Address */}
+              {/* Delivery / Pickup Address */}
               <div className="md:col-span-2">
-                <label className="block text-slate-400 mb-1.5 font-medium">Delivery address</label>
+                <label className="block text-slate-400 mb-1.5 font-medium">
+                  {deliveryMethod.toLowerCase().includes('pickup') ? 'Pickup address' : 'Delivery address'}
+                </label>
                 <input
                   type="text"
                   value={deliveryAddress}
