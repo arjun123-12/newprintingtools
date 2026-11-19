@@ -53,27 +53,33 @@ export const DesignerProperties: React.FC<DesignerPropertiesProps> = ({
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
   const [is3DMode, setIs3DMode] = useState<boolean>(false);
   const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const previewRequestRef = useRef(0);
 
   // Generate live artwork preview thumbnail
   const refreshPreview = useCallback(() => {
     if (!canvasManager) return;
+    const requestId = ++previewRequestRef.current;
     if (updateTimerRef.current) {
       clearTimeout(updateTimerRef.current);
     }
+    // Building a clean PNG temporarily rerenders the complete Fabric canvas.
+    // Wait until the user has paused, and never compete with text editing or a
+    // pointer transform for the live canvas.
     updateTimerRef.current = setTimeout(async () => {
       try {
         const cv = canvasManager.getCanvas();
-        if (cv && (cv as any)._currentTransform) {
+        const activeObject = cv?.getActiveObject() as any;
+        if (cv && ((cv as any)._currentTransform || activeObject?.isEditing)) {
           return;
         }
         const url = await canvasManager.getCleanPreviewDataUrl(1.0);
-        if (url) {
+        if (url && requestId === previewRequestRef.current) {
           setPreviewUrl(url);
         }
       } catch (err) {
         console.error('Failed to generate sidebar preview:', err);
       }
-    }, 250);
+    }, 700);
   }, [canvasManager]);
 
   useEffect(() => {

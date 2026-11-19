@@ -2425,12 +2425,21 @@ export class CanvasManager {
     if (!this.canvas) return null;
 
     // Do NOT generate previews if user is actively dragging or transforming an object
-    if ((this.canvas as any)._currentTransform) {
+    const initialActiveObject = this.canvas.getActiveObject() as any;
+    if ((this.canvas as any)._currentTransform || initialActiveObject?.isEditing) {
       return null;
     }
 
     // Ensure all canvas textures are fully loaded and decoded
     await this.waitForAllImagesToLoad();
+
+    // Image decoding may yield to the browser. Recheck after the await so a
+    // preview queued before a drag or text edit cannot rerender the live canvas
+    // in the middle of that interaction.
+    const activeObject = this.canvas.getActiveObject() as any;
+    if ((this.canvas as any)._currentTransform || activeObject?.isEditing) {
+      return null;
+    }
 
     const wasGuidesVisible = this.guides.getVisible();
     const cachedStates = new Map<any, boolean>();
