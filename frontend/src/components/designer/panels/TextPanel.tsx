@@ -238,6 +238,19 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     return null;
   };
 
+  const getProductRelativeTextSize = () => {
+    const dimensions = canvasManager?.getDimensions?.();
+    const width = Number(dimensions?.widthPx) || 0;
+    const height = Number(dimensions?.heightPx) || 0;
+    const shortSide = Math.min(width, height);
+    return Math.max(48, Math.min(1200, Math.round(shortSide * 0.25)));
+  };
+
+  const getProductRelativeTextWidth = () => {
+    const dimensions = canvasManager?.getDimensions?.();
+    return Math.max(420, Math.round((Number(dimensions?.widthPx) || 1063) * 0.85));
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -374,9 +387,12 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
       }
     }
 
-    // Apply font to the currently selected text object in place.
-    // Preserves content, position, size, scale, rotation, color, alignment, etc.
+    // Apply the font in place and raise undersized text to a readable,
+    // product-relative size while preserving its content and positioning.
     canvasManager.updateSelectedProperty('fontFamily', cleanFamily);
+    const currentSize = Number(activeText.fontSize) || 0;
+    const readableSize = getProductRelativeTextSize();
+    if (currentSize < readableSize) canvasManager.updateSelectedProperty('fontSize', readableSize);
   };
 
   const handleBrowseFont = async (font: FontFamilyItem, fontUrl?: string) => {
@@ -389,6 +405,9 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     const activeText = getActiveTextObject();
     if (isTextSelected && activeText && canvasManager) {
       canvasManager.updateSelectedProperty('fontFamily', font.name);
+      if ((Number(activeText.fontSize) || 0) < getProductRelativeTextSize()) {
+        canvasManager.updateSelectedProperty('fontSize', getProductRelativeTextSize());
+      }
       return;
     }
 
@@ -396,7 +415,8 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
       void canvasManager.addText({
         text: 'Add a heading',
         fontFamily: font.name,
-        fontSizePt: 32,
+        fontSize: getProductRelativeTextSize(),
+        width: getProductRelativeTextWidth(),
         fontWeight: 'bold',
         fill: newTextColor,
         textAlign: 'center',
@@ -448,15 +468,14 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
 
     const activeText = getActiveTextObject();
     const styles = {
-      heading: { text: 'Add a heading', fontSizePt: 32, fontWeight: 'bold', name: 'Heading' },
-      subheading: { text: 'Add a subheading', fontSizePt: 24, fontWeight: 600, name: 'Subheading' },
-      body: { text: 'Add body text', fontSizePt: 16, fontWeight: 'normal', name: 'Body Text' },
+      heading: { text: 'Add a heading', fontSize: 32, fontWeight: 'bold', name: 'Heading' },
+      subheading: { text: 'Add a subheading', fontSize: 24, fontWeight: 600, name: 'Subheading' },
+      body: { text: 'Add body text', fontSize: 16, fontWeight: 'normal', name: 'Body Text' },
     };
     const style = styles[textKind];
     if (isTextSelected && activeText) {
-      const dpi = Math.max(72, Number(canvasManager.getDimensions().dpi) || 96);
       canvasManager.updateSelectedProperty('fontFamily', family);
-      canvasManager.updateSelectedProperty('fontSize', Math.round((style.fontSizePt * dpi) / 72));
+      canvasManager.updateSelectedProperty('fontSize', Math.max(getProductRelativeTextSize(), Number(activeText.fontSize) || 0));
       canvasManager.updateSelectedProperty('fontWeight', style.fontWeight);
       return;
     }
@@ -464,6 +483,8 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     void canvasManager.addText({
       ...style,
       fontFamily: family,
+      fontSize: getProductRelativeTextSize(),
+      width: getProductRelativeTextWidth(),
       fill: newTextColor,
       textAlign: 'center',
     });
@@ -672,9 +693,6 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
                 <button
                   key={preset.id}
                   type="button"
-                  onMouseEnter={() => {
-                    if (isTextSelected) handleSelectPreset(preset);
-                  }}
                   onClick={() => {
                     if (isTextSelected && getActiveTextObject()) {
                       handleSelectPreset(preset);
@@ -699,7 +717,8 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
                     void canvasManager.addText({
                       text: previewText,
                       fontFamily: rawFamily,
-                      fontSize: Number(config.fontSize || textStyle.fontSize) || 36,
+                      fontSize: Math.max(Number(config.fontSize || textStyle.fontSize) || 36, getProductRelativeTextSize()),
+                      width: getProductRelativeTextWidth(),
                       fontWeight: config.fontWeight || textStyle.fontWeight || 'normal',
                       fontStyle: config.fontStyle || textStyle.fontStyle || 'normal',
                       fill: typeof config.fill === 'string'
@@ -709,32 +728,18 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
                       name: preset.name || 'Text',
                     });
                   }}
-                  className={`w-full text-left p-3.5 rounded-2xl border transition shadow-2xs flex flex-col gap-1 relative overflow-hidden group ${isSelectedFont && isTextSelected
-                    ? 'border-purple-500 bg-purple-50/80 shadow-xs ring-2 ring-purple-400/30'
-                    : 'border-gray-200 bg-white hover:bg-purple-50/70 hover:border-purple-300 cursor-pointer'
+                  className={`flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition ${isSelectedFont && isTextSelected
+                    ? 'bg-purple-100 text-gray-900'
+                    : 'text-gray-800 hover:bg-gray-100'
                     }`}
                 >
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-purple-600 bg-purple-100/80 px-2 py-0.5 rounded-md w-fit">
-                      {preset.category?.name || 'Standard Text Presets'}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      {isSelectedFont && isTextSelected && (
-                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
-                          Current
-                        </span>
-                      )}
-                      <span className="text-[10px] text-gray-500 font-semibold truncate max-w-[120px]">
-                        {fontName}
-                      </span>
-                    </div>
-                  </div>
                   <span
-                    className="text-lg transition-colors truncate mt-0.5 block select-none"
-                    style={previewStyle}
+                    className="min-w-0 flex-1 truncate text-[21px] leading-8 transition-colors select-none"
+                    style={{ ...previewStyle, fontFamily: `\"${String(fontName).replace(/[\"']/g, '')}\", sans-serif` }}
                   >
-                    {previewText}
+                    {fontName || previewText}
                   </span>
+                  {isSelectedFont && isTextSelected ? <Check className="h-4 w-4 shrink-0 text-purple-700" /> : <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />}
                 </button>
               );
             })

@@ -84,7 +84,7 @@ class CustomerImportService
         ],
         'email' => [
             'label' => 'Email',
-            'required' => true,
+            'required' => false,
             'synonyms' => ['email', 'email address', 'e-mail', 'mail'],
         ],
     ];
@@ -350,7 +350,7 @@ class CustomerImportService
     }
 
     /**
-     * Validate all rows against mapping, schema rules, Australian formatting, and duplicates.
+     * Validate required customer identity fields and skip duplicate email/name rows.
      */
     protected function validateRows(array $rows, array $mapping, bool $skipDuplicates): array
     {
@@ -359,8 +359,9 @@ class CustomerImportService
         $invalid = [];
         $previewItems = [];
 
-        // Track seen emails within this CSV batch
+        // Track customer identity values within this CSV batch.
         $seenEmails = [];
+        $seenNames = [];
 
         // Preload existing emails for quick lookup
         $csvEmails = [];
@@ -376,9 +377,28 @@ class CustomerImportService
 
         $existingDbEmails = [];
         if (!empty($csvEmails)) {
-            $existingDbEmails = User::whereIn('email', array_unique($csvEmails))
+            $existingDbEmails = User::where('role', User::ROLE_CUSTOMER)
+                ->whereIn('email', array_unique($csvEmails))
                 ->pluck('email')
                 ->map(fn ($em) => strtolower(trim($em)))
+                ->flip()
+                ->toArray();
+        }
+
+        $csvNames = [];
+        foreach ($rows as $row) {
+            $name = $this->getMappedValue($row['data'], $mapping, 'name');
+            $company = $this->getMappedValue($row['data'], $mapping, 'company_name');
+            $displayName = trim($name) ?: trim($company);
+            if ($displayName !== '') $csvNames[] = $this->normalizeDuplicateName($displayName);
+        }
+        $csvNames = array_values(array_unique(array_filter($csvNames)));
+        $existingDbNames = [];
+        if ($csvNames) {
+            $existingDbNames = User::where('role', User::ROLE_CUSTOMER)
+                ->whereIn(DB::raw('LOWER(TRIM(name))'), $csvNames)
+                ->pluck('name')
+                ->map(fn ($existingName) => $this->normalizeDuplicateName($existingName))
                 ->flip()
                 ->toArray();
         }
@@ -402,7 +422,7 @@ class CustomerImportService
             // 1. Email validation
             $email = strtolower(trim((string) $emailRaw));
             if ($email === '') {
-                $errors[] = 'Email address is required.';
+                $email = null;
             } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $errors[] = "Invalid email address format ('{$emailRaw}').";
             }
@@ -416,8 +436,10 @@ class CustomerImportService
                 $errors[] = 'Customer Name or Company Name is required.';
             }
 
-            // 3. Address validation
+            // Address is optional: only store it when the whole address is
+            // complete and valid. A partial address must not block the customer.
             $addressData = null;
+            $addressIssues = [];
             $hasAnyAddress = ($streetAddress !== '' || $citySuburb !== '' || $stateRaw !== '' || $postcodeRaw !== '');
 
             $normalizedState = null;
@@ -426,25 +448,25 @@ class CustomerImportService
 
             if ($hasAnyAddress) {
                 if ($streetAddress === '') {
-                    $errors[] = 'Street Address is required when address fields are provided.';
+                    $addressIssues[] = 'Street Address is incomplete.';
                 }
                 if ($citySuburb === '') {
-                    $errors[] = 'City/Suburb is required when address fields are provided.';
+                    $addressIssues[] = 'City/Suburb is incomplete.';
                 }
 
                 // State validation
                 if ($stateRaw === '') {
-                    $errors[] = 'State is required when address fields are provided.';
+                    $addressIssues[] = 'State is incomplete.';
                 } else {
                     $normalizedState = $this->normalizeAustralianState($stateRaw);
                     if (!$normalizedState) {
-                        $errors[] = "Invalid Australian state '{$stateRaw}'. Must be one of: " . implode(', ', self::VALID_AU_STATES) . '.';
+                        $addressIssues[] = "Unrecognized Australian state '{$stateRaw}'.";
                     }
                 }
 
                 // Postcode validation
                 if ($postcodeRaw === '') {
-                    $errors[] = 'Postcode is required when address fields are provided.';
+                    $addressIssues[] = 'Postcode is incomplete.';
                 } else {
                     $cleanPostcode = preg_replace('/\s+/', '', (string) $postcodeRaw);
                     // Handle 3-digit postcodes with leading zero (e.g. Darwin 800 -> 0800)
@@ -453,13 +475,13 @@ class CustomerImportService
                     }
 
                     if (!preg_match('/^[0-9]{4}$/', $cleanPostcode)) {
-                        $errors[] = "Postcode '{$postcodeRaw}' must be a 4-digit Australian postcode.";
+                        $addressIssues[] = "Postcode '{$postcodeRaw}' is not a valid 4-digit Australian postcode.";
                     } elseif ($normalizedState && !$this->isValidAustralianPostcode($cleanPostcode, $normalizedState)) {
-                        $errors[] = "Postcode '{$cleanPostcode}' does not match Australian state {$normalizedState}.";
+                        $addressIssues[] = "Postcode '{$cleanPostcode}' does not match Australian state {$normalizedState}.";
                     }
                 }
 
-                if (empty($errors)) {
+                if (empty($addressIssues)) {
                     $addressData = [
                         'address_line_1' => $streetAddress,
                         'suburb' => $citySuburb,
@@ -470,20 +492,28 @@ class CustomerImportService
                 }
             }
 
-            // 4. Duplicate Check
-            $isDuplicate = false;
-            $duplicateReason = null;
-
-            if ($email !== '' && empty($errors)) {
+            // 4. Duplicate Check: a matching email OR name is a duplicate.
+            $normalizedName = $this->normalizeDuplicateName($displayName);
+            $duplicateReasons = [];
+            if ($email !== null) {
                 if (isset($existingDbEmails[$email])) {
-                    $isDuplicate = true;
-                    $duplicateReason = "Customer with email '{$email}' already exists in database.";
+                    $duplicateReasons[] = "Customer with email '{$email}' already exists in database.";
                 } elseif (isset($seenEmails[$email])) {
-                    $isDuplicate = true;
-                    $duplicateReason = "Duplicate email '{$email}' in CSV (first occurrence on Row {$seenEmails[$email]}).";
-                } else {
-                    $seenEmails[$email] = $rowNumber;
+                    $duplicateReasons[] = "Duplicate email '{$email}' in CSV (first occurrence on Row {$seenEmails[$email]}).";
                 }
+            }
+            if ($normalizedName !== '') {
+                if (isset($existingDbNames[$normalizedName])) {
+                    $duplicateReasons[] = "Customer named '{$displayName}' already exists in database.";
+                } elseif (isset($seenNames[$normalizedName])) {
+                    $duplicateReasons[] = "Duplicate name '{$displayName}' in CSV (first occurrence on Row {$seenNames[$normalizedName]}).";
+                }
+            }
+            $isDuplicate = !empty($duplicateReasons);
+            $duplicateReason = implode(' | ', $duplicateReasons);
+            if (empty($errors)) {
+                if ($email !== null && !isset($seenEmails[$email])) $seenEmails[$email] = $rowNumber;
+                if ($normalizedName !== '' && !isset($seenNames[$normalizedName])) $seenNames[$normalizedName] = $rowNumber;
             }
 
             // Build Row Result
@@ -527,6 +557,12 @@ class CustomerImportService
                     $previewItems[] = $invalidItem;
                 }
             } else {
+                if ($addressIssues) {
+                    $addressData = null;
+                    $addressNotice = 'Ready for import. Incomplete or invalid address will be skipped.';
+                } else {
+                    $addressNotice = 'Ready for import';
+                }
                 $validItem = [
                     'row_number' => $rowNumber,
                     'status' => 'valid',
@@ -542,7 +578,7 @@ class CustomerImportService
                 $previewItems[] = array_merge($rowSummary, [
                     'status' => 'valid',
                     'errors' => [],
-                    'reason' => 'Ready for import',
+                    'reason' => $addressNotice,
                 ]);
             }
         }
@@ -558,6 +594,12 @@ class CustomerImportService
     /**
      * Get mapped column value from raw row.
      */
+    protected function normalizeDuplicateName(?string $name): string
+    {
+        $normalized = mb_strtolower(trim((string) $name));
+        return preg_replace('/\\s+/', ' ', $normalized) ?: '';
+    }
+
     protected function getMappedValue(array $rawRow, array $mapping, string $fieldKey): string
     {
         $headerName = $mapping[$fieldKey] ?? null;

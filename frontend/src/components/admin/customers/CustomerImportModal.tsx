@@ -56,8 +56,8 @@ const TARGET_FIELDS: FieldDefinition[] = [
   {
     key: 'email',
     label: 'Email Address',
-    required: true,
-    description: 'Unique login email address for the customer.',
+    required: false,
+    description: 'Optional. If supplied, it must be valid and unique; customers without email can be added to the directory but cannot log in yet.',
     example: 'jane.smith@example.com.au',
   },
   {
@@ -608,9 +608,9 @@ export default function CustomerImportModal({
                 />
                 <label htmlFor="skip_duplicates_toggle" className="text-xs text-slate-300 cursor-pointer select-none">
                   <span className="font-semibold text-white block mb-0.5">
-                    Skip duplicate emails by default (Recommended)
+                    Skip duplicate emails or customer names (Recommended)
                   </span>
-                  If an email already exists in your store or appears earlier in the CSV, that row will be safely skipped and reported instead of overwriting existing customer records.
+                  If the email or customer name already exists in your store or appeared earlier in the CSV, that row will be skipped and reported. Incomplete addresses will not block customer import; the address will be left empty for later update.
                 </label>
               </div>
             </div>
