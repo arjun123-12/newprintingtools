@@ -36,6 +36,7 @@ import {
   Maximize2,
   Copy,
   GripVertical,
+  Palette,
 } from 'lucide-react';
 import { SelectedObjectState, BrushSettings, BrushType, ActiveSidebarTab } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -897,6 +898,23 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
               {cleanFontName(selected.fontFamily)}
             </span>
           </div>
+
+          {/* Direct text fill color control */}
+          <label
+            title="Text Color"
+            className="relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50"
+          >
+            <span className="flex h-6 w-6 items-center justify-center rounded-md border border-gray-300" style={{ backgroundColor: normalizeHexColor(selected.fill) || '#111827' }}>
+              <Palette className="h-3.5 w-3.5 text-white drop-shadow" />
+            </span>
+            <input
+              type="color"
+              aria-label="Text color"
+              value={normalizeHexColor(selected.fill) || '#111827'}
+              onChange={(event) => handleUpdate('fill', event.target.value as any)}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            />
+          </label>
 
           {/* Font Size Stepper */}
           <div className="flex items-center h-9 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-2xs">
