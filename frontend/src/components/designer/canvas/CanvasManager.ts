@@ -8562,6 +8562,56 @@ export class CanvasManager {
         value as SelectedObjectState[keyof SelectedObjectState]
       );
 
+      // Font changes on grouped text need the same post-load refresh as a
+      // standalone text object. Otherwise Fabric keeps its cached fallback
+      // glyphs on the artwork even after the selected font has loaded.
+      if (prop === 'fontFamily') {
+        const requestedFamily = String(value);
+        const cleanTarget = requestedFamily
+          .replace(/[\"']/g, '')
+          .split(',')[0]
+          .trim()
+          .toLowerCase();
+        const fontItem = POPULAR_FONTS.find((font) =>
+          font.name.toLowerCase() === cleanTarget ||
+          font.family.replace(/[\"']/g, '').split(',')[0].trim().toLowerCase() === cleanTarget ||
+          font.id === cleanTarget
+        );
+
+        if (fontItem) {
+          void loadFont(fontItem).then(() => {
+            if (!this.canvas || this.canvas.getActiveObject() !== active) return;
+
+            this.applyPropertyToGroupChildren(active, 'fontFamily', fontItem.family);
+            const refreshText = (object: FabricObject) => {
+              if (object instanceof Group || object instanceof ActiveSelection) {
+                object.getObjects().forEach(refreshText);
+                object.set('dirty', true);
+                return;
+              }
+              if (!this.isTextObject(object)) return;
+
+              const textObject = object as Textbox | IText;
+              const previousWidth = textObject.width;
+              textObject.set({ fontFamily: fontItem.family, dirty: true });
+              textObject.initDimensions?.();
+              if (textObject instanceof Textbox && previousWidth) {
+                textObject.set('width', previousWidth);
+                textObject.initDimensions?.();
+              }
+              textObject.setCoords();
+            };
+
+            refreshText(active);
+            active.set('dirty', true);
+            active.setCoords();
+            this.canvas.requestRenderAll();
+            this.notifyChange();
+            this.notifySelection();
+          });
+        }
+      }
+
       // Summary properties keep toolbar controls synchronized with the group.
       active.set(prop as any, value as any);
       if (prop === 'rx' || prop === 'ry' || (prop as string) === 'cornerRadius') {
@@ -8795,7 +8845,9 @@ export class CanvasManager {
       });
       if (fontItem) {
         loadFont(fontItem).then(() => {
-          if (!this.canvas || !this.canvas.getObjects().includes(active)) return;
+          // Nested text remains a canvas member through its parent Group even
+          // though it is not present in canvas.getObjects().
+          if (!this.canvas || active.canvas !== this.canvas) return;
           const textObj = active as Textbox | IText;
           const prevWidth = textObj.width;
           textObj.set({ fontFamily: fontItem.family, dirty: true });
@@ -8814,7 +8866,7 @@ export class CanvasManager {
       (active as Textbox | IText).set('fontFamily', fontName);
       if (typeof document !== 'undefined' && document.fonts?.ready) {
         document.fonts.ready.then(() => {
-          if (!this.canvas || !this.canvas.getObjects().includes(active)) return;
+          if (!this.canvas || active.canvas !== this.canvas) return;
           const textObj = active as Textbox | IText;
           const prevWidth = textObj.width;
           textObj.set('dirty', true);
@@ -12551,6 +12603,15 @@ export class CanvasManager {
 
     this.canvas.on('mouse:dblclick', (opt: any) => {
       let target = opt?.target;
+
+      // Canva-style group editing: double-clicking text inside a group drills
+      // into that text object instead of leaving the group wrapper selected.
+      if (Array.isArray(opt?.subTargets)) {
+        const nestedText = [...opt.subTargets]
+          .reverse()
+          .find((subTarget: FabricObject) => this.isTextObject(subTarget));
+        if (nestedText) target = nestedText;
+      }
 
       // When text is curved, glyphs may exist outside straight Textbox aCoords.
       // If target hit-test missed, check active object or curved text visual bounds.

@@ -1377,16 +1377,18 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           </button>
           */}
 
-          {/* Canva Crop Button for Shape */}
-          <button
-            type="button"
-            onClick={() => setIsCropModalOpen(true)}
-            title="Crop Shape / Element"
-            className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
-          >
-            <Crop className="w-4 h-4 text-blue-600" />
-            <span>Crop</span>
-          </button>
+          {/* Frames already show the photo-in-frame crop action above. */}
+          {!selected.isFrame && (
+            <button
+              type="button"
+              onClick={() => setIsCropModalOpen(true)}
+              title="Crop Shape / Element"
+              className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
+            >
+              <Crop className="w-4 h-4 text-blue-600" />
+              <span>Crop</span>
+            </button>
+          )}
 
           {/* Canva Corner Rounding Icon Button (for Rect / Shapes / Polygons / Triangles / Stars / SVGs) */}
           {(isShape || selected.type === 'rect' || selected.type === 'shape' || selected.type === 'triangle' || selected.type === 'polygon' || selected.type === 'path') &&

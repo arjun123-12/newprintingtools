@@ -360,7 +360,7 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
     };
   }, [presets, canvasManager]);
 
-  const handleApplyFont = (
+  const handleApplyFont = async (
     targetFamily: string,
     fontUrl?: string,
     weight?: string,
@@ -374,41 +374,46 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
 
     const cleanFamily = cleanFontName(targetFamily || 'Inter');
 
-    // Apply the font in place and raise undersized text to a readable,
-    // product-relative size while preserving its content and positioning.
+    // Load first so Fabric measures and paints with the real glyph metrics,
+    // avoiding a fallback-font flash and a second layout jump on the canvas.
+    try {
+      if (fontUrl && cleanFamily) {
+        await loadCustomFont(cleanFamily, fontUrl, weight || 'normal', style || 'normal');
+      } else {
+        const fontItem = POPULAR_FONTS.find((font) =>
+          cleanFontName(font.family).toLowerCase() === cleanFamily.toLowerCase() ||
+          font.name.toLowerCase() === cleanFamily.toLowerCase()
+        );
+        if (fontItem) await loadFont(fontItem);
+      }
+    } catch (error) {
+      console.warn('Could not load selected font:', error);
+    }
+
     canvasManager.updateSelectedProperty('fontFamily', cleanFamily);
     const currentSize = Number(activeText.fontSize) || 0;
     const readableSize = getProductRelativeTextSize();
     if (currentSize < readableSize) canvasManager.updateSelectedProperty('fontSize', readableSize);
-
-    if (fontUrl && cleanFamily) {
-      void loadCustomFont(cleanFamily, fontUrl, weight || 'normal', style || 'normal')
-        .then(() => canvasManager.updateSelectedProperty('fontFamily', cleanFamily))
-        .catch((err) => console.warn('Could not load custom font:', err));
-    }
   };
 
-  const handleBrowseFont = (font: FontFamilyItem, fontUrl?: string) => {
+  const handleBrowseFont = async (font: FontFamilyItem, fontUrl?: string) => {
     const activeText = getActiveTextObject();
     if (isTextSelected && activeText && canvasManager) {
-      canvasManager.updateSelectedProperty('fontFamily', font.name);
+      if (fontUrl) await loadCustomFont(font.name, fontUrl);
+      else await loadFont(font);
+      canvasManager.updateSelectedProperty('fontFamily', font.family);
       if ((Number(activeText.fontSize) || 0) < getProductRelativeTextSize()) {
         canvasManager.updateSelectedProperty('fontSize', getProductRelativeTextSize());
-      }
-      if (fontUrl) {
-        void loadCustomFont(font.name, fontUrl)
-          .then(() => canvasManager.updateSelectedProperty('fontFamily', font.name))
-          .catch((error) => console.warn('Could not load uploaded font:', error));
-      } else {
-        void loadFont(font);
       }
       return;
     }
 
     if (canvasManager) {
-      const addTextPromise = canvasManager.addText({
+      if (fontUrl) await loadCustomFont(font.name, fontUrl);
+      else await loadFont(font);
+      await canvasManager.addText({
         text: 'Add a heading',
-        fontFamily: font.name,
+        fontFamily: font.family,
         fontSize: getProductRelativeTextSize(),
         width: getProductRelativeTextWidth(),
         fontWeight: 'bold',
@@ -416,14 +421,6 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
         textAlign: 'center',
         name: 'Heading',
       });
-      if (fontUrl) {
-        void addTextPromise
-          .then(() => loadCustomFont(font.name, fontUrl))
-          .then(() => canvasManager.updateSelectedProperty('fontFamily', font.name))
-          .catch((error) => console.warn('Could not load uploaded font:', error));
-      } else {
-        void loadFont(font);
-      }
     }
   };
 

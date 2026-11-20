@@ -95,6 +95,61 @@ export const POPULAR_FONTS: FontFamilyItem[] = ALL_DEFINED_FONTS.filter((font) =
 
 const loadedFonts = new Set<string>();
 
+// The designer already ships these Fontsource packages. Load their CSS on
+// demand so choosing a font does not depend on Google Fonts being reachable.
+const bundledFontLoaders: Record<string, () => Promise<unknown>> = {
+  'abril-fatface': () => import('@fontsource/abril-fatface/400.css'),
+  anton: () => import('@fontsource/anton/400.css'),
+  'archivo-black': () => import('@fontsource/archivo-black/400.css'),
+  'baloo-2': () => import('@fontsource/baloo-2/400.css'),
+  bangers: () => import('@fontsource/bangers/400.css'),
+  'barlow-condensed': () => import('@fontsource/barlow-condensed/400.css'),
+  'bebas-neue': () => import('@fontsource/bebas-neue/400.css'),
+  'bodoni-moda': () => import('@fontsource/bodoni-moda/400.css'),
+  caveat: () => import('@fontsource/caveat/400.css'),
+  cinzel: () => import('@fontsource/cinzel/400.css'),
+  comfortaa: () => import('@fontsource/comfortaa/400.css'),
+  cormorant: () => import('@fontsource/cormorant/400.css'),
+  'cormorant-garamond': () => import('@fontsource/cormorant-garamond/400.css'),
+  'dancing-script': () => import('@fontsource/dancing-script/400.css'),
+  'dm-sans': () => import('@fontsource/dm-sans/400.css'),
+  'exo-2': () => import('@fontsource/exo-2/400.css'),
+  fredoka: () => import('@fontsource/fredoka/400.css'),
+  'great-vibes': () => import('@fontsource/great-vibes/400.css'),
+  inter: () => import('@fontsource/inter/400.css'),
+  'josefin-sans': () => import('@fontsource/josefin-sans/400.css'),
+  kalam: () => import('@fontsource/kalam/400.css'),
+  'kaushan-script': () => import('@fontsource/kaushan-script/400.css'),
+  lato: () => import('@fontsource/lato/400.css'),
+  'league-spartan': () => import('@fontsource/league-spartan/400.css'),
+  'libre-baskerville': () => import('@fontsource/libre-baskerville/400.css'),
+  lobster: () => import('@fontsource/lobster/400.css'),
+  lora: () => import('@fontsource/lora/400.css'),
+  manrope: () => import('@fontsource/manrope/400.css'),
+  merriweather: () => import('@fontsource/merriweather/400.css'),
+  montserrat: () => import('@fontsource/montserrat/400.css'),
+  'nunito-sans': () => import('@fontsource/nunito-sans/400.css'),
+  'open-sans': () => import('@fontsource/open-sans/400.css'),
+  orbitron: () => import('@fontsource/orbitron/400.css'),
+  oswald: () => import('@fontsource/oswald/400.css'),
+  pacifico: () => import('@fontsource/pacifico/400.css'),
+  'patrick-hand': () => import('@fontsource/patrick-hand/400.css'),
+  'permanent-marker': () => import('@fontsource/permanent-marker/400.css'),
+  playfair: () => import('@fontsource/playfair-display/400.css'),
+  poppins: () => import('@fontsource/poppins/400.css'),
+  'press-start-2p': () => import('@fontsource/press-start-2p/400.css'),
+  quicksand: () => import('@fontsource/quicksand/400.css'),
+  raleway: () => import('@fontsource/raleway/400.css'),
+  righteous: () => import('@fontsource/righteous/400.css'),
+  roboto: () => import('@fontsource/roboto/400.css'),
+  'roboto-condensed': () => import('@fontsource/roboto-condensed/400.css'),
+  'russo-one': () => import('@fontsource/russo-one/400.css'),
+  satisfy: () => import('@fontsource/satisfy/400.css'),
+  'space-grotesk': () => import('@fontsource/space-grotesk/400.css'),
+  staatliches: () => import('@fontsource/staatliches/400.css'),
+  teko: () => import('@fontsource/teko/400.css'),
+};
+
 /**
  * Dynamically ensures a font is loaded into the browser font registry.
  * Supports Fontsource (@fontsource), Google Fonts, and standard system fonts.
@@ -103,6 +158,23 @@ export async function loadFont(font: FontFamilyItem): Promise<boolean> {
   if (typeof window === 'undefined') return false;
   if (loadedFonts.has(font.id)) {
     return true;
+  }
+
+  const bundledLoader = bundledFontLoaders[font.id];
+  if (bundledLoader) {
+    try {
+      await bundledLoader();
+      const family = font.family.replace(/[\"']/g, '').split(',')[0].trim();
+      if (document.fonts) {
+        await document.fonts.load(`400 16px "${family}"`);
+        await document.fonts.ready;
+      }
+      loadedFonts.add(font.id);
+      return true;
+    } catch (error) {
+      console.warn(`Failed to load bundled font: ${font.name}`, error);
+      // Keep the existing Google Fonts fallback for a missing local asset.
+    }
   }
 
   // Standard system fonts do not require network loading
