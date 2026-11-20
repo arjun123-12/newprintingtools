@@ -69,6 +69,7 @@ backend/test*.php
 *.zip
 *.sql
 *.tsbuildinfo
+tmp/
 
 # Turborepo
 .turbo/

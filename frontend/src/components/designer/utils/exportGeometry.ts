@@ -640,7 +640,7 @@ export function getArtworkExportBounds(
 /**
  * Draws visible TRIM MARKS (corner cut marks) onto a 2D canvas context.
  * Replaces the full black rectangle line with corner trim marks at the trim boundary.
- * Uses a subtle white casing so the trim marks are clearly visible over any artwork.
+ * Draws a single cut-color stroke for each trim mark.
  */
 export function renderVisibleTrimLineOnCanvas(
   ctx: CanvasRenderingContext2D,
@@ -680,10 +680,6 @@ export function renderVisibleTrimLineOnCanvas(
     };
     ctx.save();
     ctx.lineJoin = 'round';
-    trace();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.lineWidth = Math.max(1.5, 3 * scale);
-    ctx.stroke();
     trace();
     ctx.strokeStyle = cutLineColor || '#000000';
     ctx.lineWidth = Math.max(0.75, 1.25 * scale);
@@ -730,17 +726,7 @@ export function renderVisibleTrimLineOnCanvas(
   ctx.save();
   ctx.lineCap = 'square';
 
-  // White casing for maximum contrast against any background
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-  ctx.lineWidth = Math.max(1.5, 3 * scale);
-  ctx.beginPath();
-  for (const [x1, y1, x2, y2] of lines) {
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-  }
-  ctx.stroke();
-
-  // Crisp black trim mark lines
+  // Draw one trim line per mark; a white casing reads as a second line in PDFs.
   ctx.strokeStyle = cutLineColor || '#000000';
   ctx.lineWidth = Math.max(0.75, 1.25 * scale);
   ctx.beginPath();
@@ -805,7 +791,6 @@ export function injectVisibleTrimLineInSvg(
       contour.setAttribute('stroke-width', strokeWidth);
       g.appendChild(contour);
     };
-    makeContour('rgba(255, 255, 255, 0.85)', '3');
     makeContour(cutLineColor || '#000000', '1.25');
     svgDoc.documentElement.appendChild(g);
     return;
@@ -849,24 +834,12 @@ export function injectVisibleTrimLineInSvg(
   g.setAttribute('id', 'export-visible-trim-marks');
   g.setAttribute('data-print-trim-line', 'true');
 
-  const casingGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
-  casingGroup.setAttribute('stroke', 'rgba(255, 255, 255, 0.85)');
-  casingGroup.setAttribute('stroke-width', '3');
-  casingGroup.setAttribute('stroke-linecap', 'square');
-
   const blackGroup = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'g');
   blackGroup.setAttribute('stroke', cutLineColor || '#000000');
   blackGroup.setAttribute('stroke-width', '1.25');
   blackGroup.setAttribute('stroke-linecap', 'square');
 
   for (const [x1, y1, x2, y2] of lines) {
-    const casingLine = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'line');
-    casingLine.setAttribute('x1', String(x1));
-    casingLine.setAttribute('y1', String(y1));
-    casingLine.setAttribute('x2', String(x2));
-    casingLine.setAttribute('y2', String(y2));
-    casingGroup.appendChild(casingLine);
-
     const blackLine = svgDoc.createElementNS('http://www.w3.org/2000/svg', 'line');
     blackLine.setAttribute('x1', String(x1));
     blackLine.setAttribute('y1', String(y1));
@@ -875,7 +848,6 @@ export function injectVisibleTrimLineInSvg(
     blackGroup.appendChild(blackLine);
   }
 
-  g.appendChild(casingGroup);
   g.appendChild(blackGroup);
   svgDoc.documentElement.appendChild(g);
 }
