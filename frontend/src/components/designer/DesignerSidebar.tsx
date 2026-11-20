@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import {
   ChevronLeft,
   Crop,
@@ -85,6 +85,22 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
   onApplyTemplate,
 }) => {
   const [framesDetached, setFramesDetached] = useState(false);
+  const [loadMoreFontsRequest, setLoadMoreFontsRequest] = useState(0);
+  const [loadMoreUploadedFontsRequest, setLoadMoreUploadedFontsRequest] = useState(0);
+  const [fontPagination, setFontPagination] = useState({
+    hasMoreFonts: false,
+    hasMoreUploadedFonts: false,
+    loadingMoreUploadedFonts: false,
+  });
+  const updateFontPagination = useCallback((availability: typeof fontPagination) => {
+    setFontPagination((current) =>
+      current.hasMoreFonts === availability.hasMoreFonts &&
+      current.hasMoreUploadedFonts === availability.hasMoreUploadedFonts &&
+      current.loadingMoreUploadedFonts === availability.loadingMoreUploadedFonts
+        ? current
+        : availability
+    );
+  }, []);
   const [floatingPosition, setFloatingPosition] = useState({
     x: 110,
     y: 92,
@@ -384,15 +400,23 @@ export const DesignerSidebar: React.FC<DesignerSidebarProps> = ({
                 <FreepikPanel canvasManager={canvasManager} />
               )}
 
-              {activeTab === 'text' && (
+              <div className={activeTab === 'text' ? 'h-full' : 'hidden'}>
                 <TextPanel
                   canvasManager={canvasManager}
                   selected={selected}
+                  loadMoreFontsRequest={loadMoreFontsRequest}
+                  loadMoreUploadedFontsRequest={loadMoreUploadedFontsRequest}
+                  onFontPaginationAvailabilityChange={updateFontPagination}
                 />
-              )}
+              </div>
 
               {activeTab === 'uploads' && (
-                <UploadsPanel canvasManager={canvasManager} />
+                <UploadsPanel
+                  canvasManager={canvasManager}
+                  fontPagination={fontPagination}
+                  onLoadMoreFonts={() => setLoadMoreFontsRequest((count) => count + 1)}
+                  onLoadMoreUploadedFonts={() => setLoadMoreUploadedFontsRequest((count) => count + 1)}
+                />
               )}
 
               {activeTab === 'background' && (

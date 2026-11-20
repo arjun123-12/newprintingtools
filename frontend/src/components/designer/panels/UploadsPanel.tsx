@@ -19,6 +19,13 @@ import { getAuthToken } from '@/utils/storageHelper';
 
 interface UploadsPanelProps {
   canvasManager: CanvasManager | null;
+  fontPagination?: {
+    hasMoreFonts: boolean;
+    hasMoreUploadedFonts: boolean;
+    loadingMoreUploadedFonts: boolean;
+  };
+  onLoadMoreFonts?: () => void;
+  onLoadMoreUploadedFonts?: () => void;
 }
 
 const API_URL = (
@@ -366,6 +373,9 @@ async function convertTiffWithUtif(file: File): Promise<File> {
 
 export const UploadsPanel: React.FC<UploadsPanelProps> = ({
   canvasManager,
+  fontPagination,
+  onLoadMoreFonts,
+  onLoadMoreUploadedFonts,
 }) => {
   const [assets, setAssets] = useState<UploadedAsset[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -637,6 +647,38 @@ export const UploadsPanel: React.FC<UploadsPanelProps> = ({
           maxSizeMb={50}
         />
       </div>
+
+      {(fontPagination?.hasMoreFonts || fontPagination?.hasMoreUploadedFonts) && (
+        <section className="space-y-2 rounded-xl border border-gray-200 bg-white p-3">
+          <div className="flex items-center gap-2 text-xs font-bold text-gray-800">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-purple-50 text-purple-700">
+              <span className="text-sm font-bold">Aa</span>
+            </span>
+            Font Library
+          </div>
+          {fontPagination.hasMoreFonts && (
+            <button
+              type="button"
+              onClick={onLoadMoreFonts}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 transition hover:bg-gray-50"
+            >
+              Load more fonts
+            </button>
+          )}
+          {fontPagination.hasMoreUploadedFonts && (
+            <button
+              type="button"
+              onClick={onLoadMoreUploadedFonts}
+              disabled={fontPagination.loadingMoreUploadedFonts}
+              className="w-full rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-semibold text-purple-700 transition hover:bg-purple-100 disabled:cursor-wait disabled:opacity-60"
+            >
+              {fontPagination.loadingMoreUploadedFonts
+                ? 'Loading uploaded fonts…'
+                : 'Load more uploaded fonts'}
+            </button>
+          )}
+        </section>
+      )}
 
       {/* Validation / Error Banner */}
       {uploadError && (

@@ -153,6 +153,13 @@ function getPresetTextStyle(preset: DesignAsset): React.CSSProperties {
 interface TextPanelProps {
   canvasManager: CanvasManager | null;
   selected?: SelectedObjectState | null;
+  loadMoreFontsRequest?: number;
+  loadMoreUploadedFontsRequest?: number;
+  onFontPaginationAvailabilityChange?: (availability: {
+    hasMoreFonts: boolean;
+    hasMoreUploadedFonts: boolean;
+    loadingMoreUploadedFonts: boolean;
+  }) => void;
 }
 
 function extractResponseArray<T>(response: any): T[] {
@@ -164,7 +171,13 @@ function extractResponseArray<T>(response: any): T[] {
 
 const TEXT_PRESETS_PAGE_SIZE = 30;
 
-export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected }) => {
+export const TextPanel: React.FC<TextPanelProps> = ({
+  canvasManager,
+  selected,
+  loadMoreFontsRequest = 0,
+  loadMoreUploadedFontsRequest = 0,
+  onFontPaginationAvailabilityChange,
+}) => {
   const [activeTab, setActiveTab] = useState<'font' | 'styles'>('font');
   const [fontSearch, setFontSearch] = useState('');
   const [showFontFilters, setShowFontFilters] = useState(false);
@@ -220,6 +233,12 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
   }, [fontSearch, fontCategory, uploadedFontRows]);
 
   useEffect(() => setVisibleFontCount(30), [fontSearch, fontCategory]);
+
+  useEffect(() => {
+    if (loadMoreFontsRequest > 0) {
+      setVisibleFontCount((count) => count + 30);
+    }
+  }, [loadMoreFontsRequest]);
 
   const isCurrentFont = (fontFamilyName?: string) => {
     if (!fontFamilyName || !selected?.fontFamily) return false;
@@ -304,6 +323,28 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
       setLoadingMorePresets(false);
     }
   };
+
+  useEffect(() => {
+    if (loadMoreUploadedFontsRequest > 0) {
+      void handleLoadMorePresets();
+    }
+    // The request counter changes only when the Uploads panel asks for a page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadMoreUploadedFontsRequest]);
+
+  useEffect(() => {
+    onFontPaginationAvailabilityChange?.({
+      hasMoreFonts: POPULAR_FONTS.length > visibleFontCount,
+      hasMoreUploadedFonts: hasMorePresets,
+      loadingMoreUploadedFonts: loadingMorePresets,
+    });
+  }, [
+    filteredBrowseFonts.builtIn.length,
+    visibleFontCount,
+    hasMorePresets,
+    loadingMorePresets,
+    onFontPaginationAvailabilityChange,
+  ]);
 
   // Preload custom fonts
   useEffect(() => {
@@ -542,11 +583,9 @@ export const TextPanel: React.FC<TextPanelProps> = ({ canvasManager, selected })
               const current = cleanFontName(selected?.fontFamily).toLowerCase() === cleanFontName(font.family).toLowerCase();
               return <button key={font.id} type="button" onClick={() => void handleBrowseFont(font)} className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left transition ${current ? 'bg-purple-100 text-gray-900' : 'text-gray-800 hover:bg-gray-100'}`}><ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-500" /><span className="flex-1 truncate text-sm" style={{ fontFamily: font.family }}>{font.name}</span>{font.popular && <Crown className="h-3.5 w-3.5 text-gray-400" />}{current && <Check className="h-4 w-4 shrink-0 text-gray-900" />}</button>;
             })}
-            {filteredBrowseFonts.builtIn.length > visibleFontCount && <button type="button" onClick={() => setVisibleFontCount((count) => count + 30)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50">Load more fonts</button>}
             {!filteredBrowseFonts.builtIn.length && fontCategory !== 'custom' && <p className="px-2 py-8 text-center text-sm text-gray-500">No fonts found.</p>}
           </section>}
 
-          {fontCategory === 'all' && hasMorePresets && <button type="button" onClick={() => void handleLoadMorePresets()} disabled={loadingMorePresets} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-60">{loadingMorePresets ? 'Loading uploaded fonts…' : 'Load more uploaded fonts'}</button>}
         </div>
       ) : (
       <>
