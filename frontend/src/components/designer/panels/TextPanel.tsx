@@ -450,9 +450,6 @@ export const TextPanel: React.FC<TextPanelProps> = ({
     }
 
     canvasManager.updateSelectedProperty('fontFamily', cleanFamily);
-    const currentSize = Number(activeText.fontSize) || 0;
-    const readableSize = getProductRelativeTextSize();
-    if (currentSize < readableSize) canvasManager.updateSelectedProperty('fontSize', readableSize);
   };
 
   const handleBrowseFont = async (font: FontFamilyItem, fontUrl?: string) => {
@@ -461,9 +458,6 @@ export const TextPanel: React.FC<TextPanelProps> = ({
       if (fontUrl) await loadCustomFont(font.name, fontUrl);
       else await loadFont(font);
       canvasManager.updateSelectedProperty('fontFamily', font.family);
-      if ((Number(activeText.fontSize) || 0) < getProductRelativeTextSize()) {
-        canvasManager.updateSelectedProperty('fontSize', getProductRelativeTextSize());
-      }
       return;
     }
 
