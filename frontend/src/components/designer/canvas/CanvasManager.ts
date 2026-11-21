@@ -11713,7 +11713,23 @@ export class CanvasManager {
       : 1;
 
     const isText = this.isTextObject(active);
-    const textObj = isText ? (active as Textbox | IText) : null;
+    const selectedTextObjects: (Textbox | IText)[] = [];
+    const collectSelectedText = (object: FabricObject) => {
+      if (this.isTextObject(object)) {
+        selectedTextObjects.push(object);
+        return;
+      }
+      if (object instanceof Group || object instanceof ActiveSelection) {
+        object.getObjects().forEach(collectSelectedText);
+      }
+    };
+    collectSelectedText(active);
+    const textObj = selectedTextObjects[0] || null;
+    const normalizedFontFamilies = new Set(
+      selectedTextObjects
+        .map((object) => String(object.fontFamily || '').replace(/[\"']/g, '').split(',')[0].trim().toLowerCase())
+        .filter(Boolean)
+    );
 
     const isImage = active instanceof FabricImage || active.type === 'image' || active.type === 'fabricImage';
     const isFrameObject = Boolean(active.get('isFrame' as any)) ||
@@ -11915,6 +11931,8 @@ export class CanvasManager {
       curve: (active as any).curve || 0,
       paintFirst: (active.paintFirst as 'fill' | 'stroke') || 'fill',
       // Text
+      containsText: selectedTextObjects.length > 0,
+      hasMixedFonts: normalizedFontFamilies.size > 1,
       text: textObj ? textObj.text : undefined,
       fontSize: textObj
         ? Math.round((textObj.fontSize || 16) * Math.abs(textObj.scaleX || 1))

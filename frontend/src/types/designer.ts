@@ -184,6 +184,8 @@ export interface SelectedObjectState {
   isVisible: boolean;
   zIndex?: number;
   // Text specific properties
+  containsText?: boolean;
+  hasMixedFonts?: boolean;
   text?: string;
   fontSize?: number;
   fontFamily?: string;

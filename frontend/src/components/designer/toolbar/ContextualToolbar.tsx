@@ -45,6 +45,7 @@ import { TransparencyPopover } from './TransparencyPopover';
 import { PositionPopover } from './PositionPopover';
 import { RotatePopover } from './RotatePopover';
 import { MoreMenuPopover } from './MoreMenuPopover';
+import { FontPickerPopover } from './FontPickerPopover';
 import { BrushTypePopover, BRUSH_TOOLS_LIST } from './BrushTypePopover';
 import { BrushSizePopover } from './BrushSizePopover';
 import { BrushCapsPopover } from './BrushCapsPopover';
@@ -123,6 +124,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   const [activePopover, setActivePopover] = useState<ActivePopoverType>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [activeColorIndex, setActiveColorIndex] = useState<number>(0);
+  const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
 
   const editableColors = useMemo(() => {
     if (selected?.editableColors && selected.editableColors.length > 0) {
@@ -353,6 +355,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
     if (selected?.id !== previousSelectedIdRef.current) {
       previousSelectedIdRef.current = selected?.id;
       setActivePopover(null);
+      setIsFontPickerOpen(false);
       setRemoveBgError(null);
       setActiveColorIndex(0);
     }
@@ -1434,6 +1437,35 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       {/* ================================================================ */}
       {!isDrawing && isGroupedSelection && selected && (
         <>
+          {selected.containsText && (
+            <div className="relative">
+              <button
+                type="button"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setIsFontPickerOpen((open) => !open);
+                }}
+                title={selected.hasMixedFonts ? 'Selected text uses different fonts' : `Font: ${cleanFontName(selected.fontFamily)}`}
+                className={`h-9 max-w-[170px] rounded-xl border px-3 text-sm font-semibold shadow-2xs transition ${isFontPickerOpen
+                  ? 'border-purple-300 bg-purple-50 text-purple-800'
+                  : 'border-gray-200 bg-white text-gray-800 hover:bg-gray-50'
+                  }`}
+              >
+                <span className="block truncate">
+                  {selected.hasMixedFonts ? 'Mixed fonts' : cleanFontName(selected.fontFamily)}
+                </span>
+              </button>
+              {isFontPickerOpen && (
+                <FontPickerPopover
+                  currentFamily={selected.fontFamily || ''}
+                  onSelectFamily={(family) => canvasManager?.updateSelectedProperty('fontFamily', family)}
+                  onClose={() => setIsFontPickerOpen(false)}
+                />
+              )}
+            </div>
+          )}
+
           {/* Group Fill Color / Multi-Color Swatches */}
           {editableColors.length > 1 ? (
             renderMultiColorSwatches()
