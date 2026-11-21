@@ -188,10 +188,18 @@ export const TextPanel: React.FC<TextPanelProps> = ({
   const normalizedSelectedType = String(selected?.type || '')
     .toLowerCase()
     .replace(/[-_\s]/g, '');
+  const activeCanvasObject = canvasManager?.getCanvas()?.getActiveObject();
+  const selectionContainsText = (object: any): boolean => {
+    if (!object) return false;
+    if (canvasManager?.isTextObject(object)) return true;
+    return typeof object.getObjects === 'function' &&
+      object.getObjects().some((child: any) => selectionContainsText(child));
+  };
   const isTextSelected = Boolean(
     selected &&
-    !selected.isMultiple &&
-    (['itext', 'textbox', 'text'].includes(normalizedSelectedType) || selected.text !== undefined)
+    ((!selected.isMultiple &&
+      (['itext', 'textbox', 'text'].includes(normalizedSelectedType) || selected.text !== undefined)) ||
+      selectionContainsText(activeCanvasObject))
   );
 
   const [presets, setPresets] = useState<DesignAsset[]>([]);
@@ -254,7 +262,17 @@ export const TextPanel: React.FC<TextPanelProps> = ({
     if (active && canvasManager.isTextObject(active)) {
       return active;
     }
-    return null;
+    const findText = (object: any): any => {
+      if (!object) return null;
+      if (canvasManager.isTextObject(object)) return object;
+      if (typeof object.getObjects !== 'function') return null;
+      for (const child of object.getObjects()) {
+        const match = findText(child);
+        if (match) return match;
+      }
+      return null;
+    };
+    return findText(active);
   };
 
   const getProductRelativeTextSize = () => {
@@ -466,7 +484,9 @@ export const TextPanel: React.FC<TextPanelProps> = ({
   };
 
   const handleSelectPreset = (asset: DesignAsset) => {
-    // If no text object is selected, do not modify or create anything.
+    // A selected Group/ActiveSelection can contain text even though the
+    // active Fabric object itself is not a text object. Apply the style to
+    // that selection instead of adding another text object.
     if (!isTextSelected || !getActiveTextObject()) {
       return;
     }
@@ -495,7 +515,20 @@ export const TextPanel: React.FC<TextPanelProps> = ({
       fontUrl,
       config.fontWeight || textStyle.fontWeight || 'normal',
       config.fontStyle || textStyle.fontStyle || 'normal'
-    );
+    ).then(() => {
+      if (!canvasManager) return;
+      const fontWeight = config.fontWeight || textStyle.fontWeight;
+      const fontStyle = config.fontStyle || textStyle.fontStyle;
+      const textAlign = config.textAlign || textStyle.textAlign;
+      const charSpacing = config.charSpacing ?? textStyle.charSpacing;
+      const lineHeight = config.lineHeight ?? textStyle.lineHeight;
+
+      if (fontWeight !== undefined) canvasManager.updateSelectedProperty('fontWeight', fontWeight);
+      if (fontStyle !== undefined) canvasManager.updateSelectedProperty('fontStyle', fontStyle);
+      if (textAlign !== undefined) canvasManager.updateSelectedProperty('textAlign', textAlign);
+      if (charSpacing !== undefined) canvasManager.updateSelectedProperty('charSpacing', charSpacing);
+      if (lineHeight !== undefined) canvasManager.updateSelectedProperty('lineHeight', lineHeight);
+    });
   };
 
   const handleSelectDefaultFont = (
