@@ -55,6 +55,7 @@ export interface AddToCartPayload {
   selected_options?: Record<string, any>;
   artwork_id?: string | null;
   design_canvas_json?: any;
+  template_id?: string;
 }
 
 import { safeLocalStorage } from '@/utils/storageHelper';

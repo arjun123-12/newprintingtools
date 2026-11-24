@@ -68,6 +68,91 @@ class DesignerController extends Controller
         ]);
     }
 
+    public function gallery(Request $request): JsonResponse
+    {
+        $filters = $request->validate([
+            'category' => ['nullable', 'string', 'max:255'],
+            'search' => ['nullable', 'string', 'max:255'],
+            'page' => ['sometimes', 'integer', 'min:1'],
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:48'],
+        ]);
+
+        $category = mb_strtolower(explode(' ', $filters['category'] ?? '')[0]);
+        $search = mb_strtolower($filters['search'] ?? '');
+        $categoryProduct = null;
+
+        if ($category !== '') {
+            // Match the gallery's existing category-to-product selection order.
+            $categoryProduct = Product::query()
+                ->select('id', 'name', 'category_id')
+                ->with(['category:id,name', 'categories:id,name'])
+                ->latest()
+                ->get()
+                ->first(function (Product $product) use ($category): bool {
+                    $categoryName = $product->category?->name ?? $product->categories->first()?->name ?? 'Uncategorized';
+
+                    return str_contains(mb_strtolower("$product->name $categoryName"), $category);
+                });
+        }
+
+        $query = DesignTemplate::query()
+            ->join('products', 'products.id', '=', 'design_templates.product_id')
+            ->whereNull('products.deleted_at')
+            ->where('design_templates.is_active', true);
+
+        if ($categoryProduct) {
+            $query->where('design_templates.product_id', $categoryProduct->id);
+        }
+
+        $nameExpression = "LOWER(CONCAT(design_templates.name, ' ', products.name))";
+        $terms = array_filter([$categoryProduct ? '' : $category, $search], fn (string $term) => $term !== '');
+        foreach ($terms as $term) {
+            $escaped = strtr($term, ['!' => '!!', '%' => '!%', '_' => '!_']);
+            $query->whereRaw("$nameExpression LIKE ? ESCAPE '!'", ["%$escaped%"]);
+        }
+
+        $page = $query
+            ->orderByDesc('products.created_at')
+            ->orderBy('products.id')
+            ->orderByDesc('design_templates.created_at')
+            ->orderBy('design_templates.id')
+            ->simplePaginate($filters['per_page'] ?? 24, [
+                'design_templates.id',
+                'design_templates.product_id',
+                'design_templates.name',
+                'design_templates.thumbnail_url',
+                'design_templates.width_mm',
+                'design_templates.height_mm',
+                'design_templates.artwork_config',
+                'products.name as gallery_product_name',
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'items' => $page->getCollection()->map(function (DesignTemplate $template): array {
+                    $config = $template->artwork_config ?? [];
+
+                    return [
+                        'template' => [
+                            'id' => $template->id,
+                            'name' => $template->name,
+                            'thumbnail_url' => $template->thumbnail_url,
+                            'artwork_config' => [
+                                'width' => $config['width'] ?? (float) $template->width_mm,
+                                'height' => $config['height'] ?? (float) $template->height_mm,
+                                'unit' => $config['unit'] ?? 'mm',
+                            ],
+                        ],
+                        'product' => ['id' => $template->product_id, 'name' => $template->gallery_product_name],
+                    ];
+                })->values(),
+                'category_product' => $categoryProduct?->only(['id', 'name']),
+                'next_page' => $page->hasMorePages() ? $page->currentPage() + 1 : null,
+            ],
+        ]);
+    }
+
     /**
      * Return a single active template belonging to a product for customers.
      */

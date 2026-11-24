@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Plus, Trash2, Copy, Layers, Eye } from 'lucide-react';
+import { Plus, Trash2, Copy } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { renderCanvasJsonToThumbnail } from '../utils/canvasThumbnail';
 
@@ -25,7 +25,6 @@ interface PageManagerTrayProps {
   canvasManager: CanvasManager | null;
   printSides?: string;
   sideNames?: string[];
-  onOpenPreview?: () => void;
   onApplyDesignToBack?: () => void;
 }
 
@@ -41,7 +40,6 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
   canvasManager,
   printSides = 'both',
   sideNames,
-  onOpenPreview,
   onApplyDesignToBack,
 }) => {
   // Store real-time live thumbnails for all pages
@@ -106,7 +104,7 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
     };
   }, [pages, activePageIndex]);
 
-  // Real-time canvas listener: continuously updates active page thumbnail on any canvas modification
+  // Refresh the active thumbnail when artwork changes. The save path shares this snapshot.
   useEffect(() => {
     if (!canvasManager) return;
     let isMounted = true;
@@ -122,8 +120,8 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
             return;
           }
           const currentIdx = activePageIndexRef.current;
-          const dataUrl = await canvasManager.getCleanPreviewDataUrl(0.35);
-          if (dataUrl && isMounted) {
+          const dataUrl = await canvasManager.getPageThumbnail();
+          if (dataUrl && isMounted && currentIdx === activePageIndexRef.current) {
             setLiveThumbnails((prev) => ({ ...prev, [currentIdx]: dataUrl }));
             onUpdatePageThumbnailRef.current?.(currentIdx, dataUrl);
           }
@@ -133,27 +131,14 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
       }, 300);
     };
 
-    const fabric = canvasManager.getCanvas();
-    if (fabric) {
-      const events = [
-        'object:modified',
-        'object:added',
-        'object:removed',
-        'text:changed',
-        'path:created',
-        'canvas:cleared',
-        'template:loaded',
-      ];
+    const unsubscribe = canvasManager.onChange(scheduleThumbUpdate);
+    scheduleThumbUpdate();
 
-      events.forEach((ev) => fabric.on(ev as any, scheduleThumbUpdate));
-      scheduleThumbUpdate();
-
-      return () => {
-        isMounted = false;
-        if (debounceTimer) clearTimeout(debounceTimer);
-        events.forEach((ev) => fabric.off(ev as any, scheduleThumbUpdate));
-      };
-    }
+    return () => {
+      isMounted = false;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unsubscribe();
+    };
   }, [canvasManager]);
 
   // Derive human-friendly labels (Front, Back, Page 1, Page 2, etc.)
@@ -189,173 +174,95 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
   }, [pages]);
 
   return (
-    <div className="absolute right-4 top-1/2 z-30 -translate-y-1/2 flex flex-col items-center">
-      {/* Container card with backdrop blur and sleek borders */}
-      <div className="flex max-h-[78vh] flex-col items-center gap-3 overflow-y-auto px-2 py-3 custom-scrollbar bg-white/95 backdrop-blur-md rounded-2xl border border-gray-200/90 shadow-xl select-none">
-        {/* Tray Header */}
-        <div className="flex items-center justify-between w-full px-1 border-b border-gray-100 pb-1.5">
-          <div className="flex items-center gap-1.5 text-gray-700">
-            <Layers className="w-3.5 h-3.5 text-sky-600" />
-            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-700">
-              Pages
-            </span>
-          </div>
-          <span className="text-[10px] font-mono text-gray-400 font-bold bg-gray-100 px-1.5 py-0.5 rounded-full">
-            {displayPages.length}
-          </span>
-        </div>
+    <section
+      aria-label="Artwork pages"
+      className="min-w-0 max-w-full select-none"
+    >
+      <div className="custom-scrollbar flex items-start gap-2 overflow-x-auto px-1 py-1">
+        {displayPages.map((page, idx) => {
+          const isActive = activePageIndex === idx;
+          const label = getPageLabel(idx);
+          const thumbSrc = liveThumbnails[idx] || page.thumbnail;
 
-        {/* Pages List */}
-        <div className="flex flex-col items-center gap-3">
-          {displayPages.map((page, idx) => {
-            const isActive = activePageIndex === idx;
-            const label = getPageLabel(idx);
-            const thumbSrc = liveThumbnails[idx] || page.thumbnail;
-            const isFront = idx === 0;
-
-            return (
-              <div
-                key={page.id || idx}
-                className="group relative flex flex-col items-center gap-1.5"
-              >
-                {/* Thumbnail card */}
-                <div
-                  role="button"
-                  tabIndex={0}
+          return (
+            <div key={page.id || idx} className="group w-[88px] shrink-0">
+              <div className="relative">
+                <button
+                  type="button"
                   onClick={() => onPageSelect(idx)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onPageSelect(idx);
-                    }
-                  }}
-                  className={`relative flex h-[84px] w-[124px] items-center justify-center overflow-hidden rounded-lg bg-white transition-all cursor-pointer ${isActive
-                      ? 'border-2 border-sky-500 shadow-md ring-2 ring-sky-500/20'
-                      : 'border-2 border-gray-200 hover:border-gray-400 shadow-2xs'
-                    }`}
-                  title={`Switch to ${label}`}
+                  aria-label={`Switch to ${label}`}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`flex h-[54px] w-full items-center justify-center overflow-hidden rounded-lg border-2 bg-slate-50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 ${isActive
+                    ? 'border-violet-600'
+                    : 'border-slate-200 hover:border-slate-400'
+                  }`}
                 >
-                  {thumbSrc ? (
+                  {thumbSrc && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={thumbSrc}
-                      alt={label}
+                      alt=""
                       draggable={false}
-                      className="pointer-events-none h-full w-full select-none object-contain p-0.5"
+                      className="pointer-events-none h-full w-full object-contain p-0.5"
                     />
-                  ) : (
-                    <div className="h-full w-full bg-white flex items-center justify-center text-[10px] text-gray-300">
-                      Blank
-                    </div>
                   )}
+                </button>
 
-                  {/* Active Page Marker Indicator */}
-                  {isActive && (
-                    <div className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded bg-sky-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-xs">
-                      <span>{idx + 1}</span>
-                    </div>
-                  )}
-
-                  {/* Non-active index badge */}
-                  {!isActive && (
-                    <div className="absolute left-1.5 top-1.5 rounded bg-gray-900/60 px-1.5 py-0.5 text-[9px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span>{idx + 1}</span>
-                    </div>
-                  )}
-
-                  {/* Hover Actions Overlay: Duplicate & Delete */}
-                  <div className="absolute right-1 top-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-xs rounded-md p-0.5 shadow-sm border border-gray-200">
-                    {/* Duplicate Page Button */}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDuplicatePage(idx);
-                      }}
-                      className="p-1 text-gray-500 hover:text-sky-600 hover:bg-sky-50 rounded transition"
-                      title="Duplicate page"
-                    >
-                      <Copy className="w-3 h-3" />
-                    </button>
-
-                    {/* Delete Page Button */}
-                    {displayPages.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeletePage(idx);
-                        }}
-                        className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition"
-                        title="Delete page"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Page Label */}
-                <div className="flex items-center justify-center gap-1 w-full">
-                  <span
-                    className={`text-[11px] leading-tight transition ${isActive
-                        ? 'font-bold text-sky-600'
-                        : 'font-medium text-gray-700 group-hover:text-gray-900'
-                      }`}
-                  >
-                    {label}
-                  </span>
-                </div>
-
-                {/* "Apply this design to back page" Button (shown on Front page card) */}
-                {isFront && onApplyDesignToBack && (
+                <div className="absolute right-1 top-0.5 flex h-6 items-center gap-0.5 rounded-md border border-slate-200 bg-white p-px shadow-sm transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onApplyDesignToBack();
-                    }}
-                    title="Copy and apply front-page design to back page"
-                    className="flex items-center justify-center gap-1.5 w-[124px] py-1 px-1.5 rounded-md bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[10px] font-bold shadow-2xs transition active:scale-95 cursor-pointer"
+                    onClick={() => onDuplicatePage(idx)}
+                    className="rounded p-1 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    aria-label={`Duplicate ${label}`}
+                    title="Duplicate page"
                   >
-                    <Copy className="w-3 h-3 text-sky-600 shrink-0" />
-                    <span className="truncate">Apply to Back</span>
+                    <Copy aria-hidden="true" className="h-3 w-3" />
                   </button>
-                )}
+                  {displayPages.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => onDeletePage(idx)}
+                      className="rounded p-1 text-slate-600 hover:bg-red-50 hover:text-red-700"
+                      aria-label={`Delete ${label}`}
+                      title="Delete page"
+                    >
+                      <Trash2 aria-hidden="true" className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
               </div>
-            );
-          })}
-        </div>
 
-        {/* Canva-like "Add Page" Button */}
-        <div className="w-full pt-1 border-t border-gray-100 flex flex-col items-center gap-1.5">
-          {canAddPage && (
-            <button
-              type="button"
-              onClick={onAddPage}
-              className="flex items-center justify-center gap-1.5 w-[124px] py-2 px-2 rounded-xl border-2 border-dashed border-gray-300 hover:border-sky-500 hover:bg-sky-50/60 text-gray-600 hover:text-sky-700 transition cursor-pointer shadow-2xs group"
-              title="Add a new blank page with matching dimensions and bleed settings"
-            >
-              <Plus className="w-3.5 h-3.5 text-gray-400 group-hover:text-sky-600 transition" />
-              <span className="text-[11px] font-semibold">Add page</span>
-            </button>
-          )}
+              <div className={`mt-1 truncate text-center text-[11px] font-medium ${isActive ? 'text-violet-700' : 'text-slate-600'}`} title={label}>
+                {label}
+              </div>
 
-          {/* Quick Preview Toggle if handler provided */}
-          {onOpenPreview && (
-            <button
-              type="button"
-              onClick={onOpenPreview}
-              className="flex items-center justify-center gap-1 text-[10px] font-medium text-gray-400 hover:text-gray-700 py-0.5 transition"
-              title="Preview all artwork pages"
-            >
-              <Eye className="w-3 h-3" />
-              <span>Preview all</span>
-            </button>
-          )}
-        </div>
+              {idx === 0 && onApplyDesignToBack && (
+                <button
+                  type="button"
+                  onClick={onApplyDesignToBack}
+                  title="Copy and apply front-page design to back page"
+                  className="mt-0.5 w-full rounded px-0.5 py-1 text-center text-[10px] font-medium text-violet-700 hover:bg-violet-50"
+                >
+                  Apply to Back
+                </button>
+              )}
+            </div>
+          );
+        })}
+
+        {canAddPage && (
+          <button
+            type="button"
+            onClick={onAddPage}
+            aria-label="Add page"
+            title="Add a new blank page"
+            className="flex h-[54px] w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-300 text-slate-600 transition-colors hover:border-violet-400 hover:bg-violet-50 hover:text-violet-700"
+          >
+            <Plus aria-hidden="true" className="h-4 w-4" />
+          </button>
+        )}
       </div>
-    </div>
+    </section>
   );
 };
 

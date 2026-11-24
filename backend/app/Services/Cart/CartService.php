@@ -3,6 +3,8 @@
 namespace App\Services\Cart;
 
 use App\Models\Artwork;
+use App\Models\DesignTemplate;
+use Illuminate\Validation\ValidationException;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Product;
@@ -142,7 +144,7 @@ class CartService
         $artworkId = $data['artwork_id'] ?? null;
 
         // Verify product exists
-        Product::findOrFail($productId);
+        $product = Product::findOrFail($productId);
 
         // Verify artwork if provided
         if ($artworkId) {
@@ -163,6 +165,12 @@ class CartService
             'quantity' => $quantity,
             'selected_options' => $selectedOptions,
         ]);
+
+        if (!empty($data['template_id'])) {
+            $artwork = $this->createTemplateArtwork($cart, $product, $data['template_id']);
+            $artworkId = $artwork->id;
+            $selectedOptions['artwork_name'] = $artwork->name;
+        }
 
         // Check if an existing item has identical product, artwork, and options
         $existingItem = CartItem::where('cart_id', $cart->id)
@@ -207,6 +215,79 @@ class CartService
         $cart->touch();
 
         return $item;
+    }
+
+    private function createTemplateArtwork(Cart $cart, Product $product, string $templateId): Artwork
+    {
+        $template = DesignTemplate::query()
+            ->whereKey($templateId)
+            ->where('product_id', $product->id)
+            ->where('is_active', true)
+            ->with('pages.productSide')
+            ->first();
+
+        if (!$template || !$product->is_active) {
+            throw ValidationException::withMessages(['template_id' => 'This template is unavailable for this product.']);
+        }
+
+        $pages = $template->pages
+            ->sortBy(fn ($page) => $page->productSide?->sort_order ?? 0)
+            ->pluck('canvas_json')
+            ->values()
+            ->all();
+        if (!$pages) {
+            $canvas = $template->canvas_json ?? [];
+            $pages = array_is_list($canvas) ? $canvas : [$canvas];
+            if ($template->back_canvas_json && count($pages) < 2) {
+                $pages[] = $template->back_canvas_json;
+            }
+        }
+
+        if (!$pages || collect($pages)->contains(fn ($page) => !is_array($page) || !isset($page['objects']))) {
+            throw ValidationException::withMessages(['template_id' => 'This template has no printable artwork.']);
+        }
+
+        $config = $template->artwork_config ?? [];
+        $sides = $product->print_sides ?? $template->print_sides ?? 'front';
+        if (in_array($sides, ['both', 'double'], true) && count($pages) === 1) {
+            $pages[] = ['version' => $pages[0]['version'] ?? '6.0.0', 'objects' => [], 'background' => '#ffffff'];
+        }
+
+        $dpi = max(72, min(1200, (int) ($config['dpi'] ?? 300)));
+        $hasSizeInMm = ($product->width_mm && $product->height_mm) || ($template->width_mm && $template->height_mm);
+        $width = (float) ($product->width_mm ?: ($template->width_mm ?: ($config['width'] ?? 90)));
+        $height = (float) ($product->height_mm ?: ($template->height_mm ?: ($config['height'] ?? 50)));
+        $unit = $hasSizeInMm ? 'mm' : ($config['unit'] ?? 'mm');
+        $pixelsPerUnit = match ($unit) {
+            'px' => 1,
+            'in' => $dpi,
+            default => $dpi / 25.4,
+        };
+
+        return Artwork::create([
+            'user_id' => $cart->user_id,
+            'session_id' => $cart->user_id ? null : $cart->session_id,
+            'product_id' => $product->id,
+            'design_template_id' => $template->id,
+            'name' => $template->name,
+            'source_type' => 'designer',
+            'design_status' => 'draft',
+            'canvas_json' => $pages,
+            'document_settings' => array_replace($config, [
+                'width' => $width,
+                'height' => $height,
+                'unit' => $unit,
+                'dpi' => $dpi,
+                'printSides' => count($pages) > 1 ? 'both' : $sides,
+                'printLayout' => $product->print_layout ?? $config['print_layout'] ?? null,
+            ]),
+            'width_px' => max(1, (int) round($width * $pixelsPerUnit)),
+            'height_px' => max(1, (int) round($height * $pixelsPerUnit)),
+            'dpi' => $dpi,
+            'unit' => $unit,
+            'thumbnail_url' => $template->thumbnail_url,
+            'storage_disk' => config('filesystems.default', 'public'),
+        ]);
     }
 
     /**

@@ -574,6 +574,7 @@ export class CanvasManager {
   private redoStack: string[] = [];
   private isProcessingHistory: boolean = false;
   private maxHistoryLength: number = 25;
+  private pageThumbnail: Promise<string | null> | null = null;
   private historyDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private preventNativeDragHandler: ((e: DragEvent) => void) | null = null;
   private clipboardObject: FabricObject | null = null;
@@ -2414,6 +2415,31 @@ export class CanvasManager {
   }
 
   /**
+   * Share the small thumbnail between the page strip and artwork saves.
+   * Full previews and print exports use their own resolution.
+   */
+  public getPageThumbnail(): Promise<string | null> {
+    if (!this.canvas) return Promise.resolve(null);
+    if (this.pageThumbnail) return this.pageThumbnail;
+
+    const bleed = Math.max(0, Number(this.dimensions.bleedPx) || 0);
+    const longestSide = Math.max(this.dimensions.widthPx || 1063, this.dimensions.heightPx || 591) + 2 * bleed;
+    const multiplier = Math.min(0.35, 480 / longestSide);
+    const request: Promise<string | null> = this.getCleanPreviewDataUrl(multiplier, () => this.pageThumbnail === request)
+      .then((thumbnail) => {
+        if (this.pageThumbnail !== request) return null;
+        if (!thumbnail) this.pageThumbnail = null;
+        return thumbnail;
+      })
+      .catch(() => {
+        if (this.pageThumbnail === request) this.pageThumbnail = null;
+        return null;
+      });
+    this.pageThumbnail = request;
+    return request;
+  }
+
+  /**
    * Generates a clean Canva-style presentation snapshot without selection borders,
    * handles, or editor guides.
    */
@@ -2421,7 +2447,7 @@ export class CanvasManager {
    * Generates a clean Canva-style presentation snapshot without selection borders,
    * handles, or editor guides.
    */
-  public async getCleanPreviewDataUrl(multiplier: number = 1.0): Promise<string | null> {
+  public async getCleanPreviewDataUrl(multiplier: number = 1.0, isCurrent?: () => boolean): Promise<string | null> {
     if (!this.canvas) return null;
 
     // Do NOT generate previews if user is actively dragging or transforming an object
@@ -2432,6 +2458,7 @@ export class CanvasManager {
 
     // Ensure all canvas textures are fully loaded and decoded
     await this.waitForAllImagesToLoad();
+    if (!this.canvas || (isCurrent && !isCurrent())) return null;
 
     // Image decoding may yield to the browser. Recheck after the await so a
     // preview queued before a drag or text edit cannot rerender the live canvas
@@ -5629,7 +5656,7 @@ export class CanvasManager {
 
     // Notify normal editor listeners WITHOUT scheduling another debounced
     // history entry. The transaction is committed explicitly below.
-    this.changeListeners.forEach((cb) => cb());
+    this.emitArtworkChange();
     this.notifyPreflight();
 
     if (!wasProcessingHistory) {
@@ -11513,10 +11540,15 @@ export class CanvasManager {
   }
 
   public notifyChange(): void {
-    this.changeListeners.forEach((cb) => cb());
+    this.emitArtworkChange();
     this.notifyPreflight();
     this.scheduleHistorySave();
   }
+  private emitArtworkChange(): void {
+    this.pageThumbnail = null;
+    this.changeListeners.forEach((cb) => cb());
+  }
+
   public getSerializableJson(): Record<string, any> {
     if (!this.canvas) return {};
     return this.canvas.toObject(CUSTOM_CANVAS_PROPERTIES);
@@ -11638,7 +11670,7 @@ export class CanvasManager {
         this.notifySelection();
         this.notifyLayers();
         this.notifyPreflight();
-        this.changeListeners.forEach((cb) => cb());
+        this.emitArtworkChange();
       }
     } catch (e) {
       console.warn('Failed to undo:', e);
@@ -11666,7 +11698,7 @@ export class CanvasManager {
         this.notifySelection();
         this.notifyLayers();
         this.notifyPreflight();
-        this.changeListeners.forEach((cb) => cb());
+        this.emitArtworkChange();
       }
     } catch (e) {
       console.warn('Failed to redo:', e);
@@ -13602,6 +13634,7 @@ export class CanvasManager {
   }
 
   public dispose(): void {
+    this.pageThumbnail = null;
     if (this.zoomAnimationFrame !== null) {
       cancelAnimationFrame(this.zoomAnimationFrame);
       this.zoomAnimationFrame = null;

@@ -7,6 +7,7 @@ use App\Services\Cart\CartService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
 
 class CartController extends Controller
 {
@@ -68,13 +69,16 @@ class CartController extends Controller
                 Rule::exists('artworks', 'id'),
             ],
             'design_canvas_json' => ['nullable', 'array'],
+            'template_id' => ['nullable', 'uuid', 'prohibits:artwork_id,design_canvas_json'],
         ]);
 
         $user = $this->resolveUser($request);
         $sessionId = $this->resolveSessionId($request);
 
         $cart = $this->cartService->getOrCreateCart($sessionId, $user?->id);
-        $item = $this->cartService->addItem($cart, $validated);
+        $item = !empty($validated['template_id'])
+            ? DB::transaction(fn () => $this->cartService->addItem($cart, $validated))
+            : $this->cartService->addItem($cart, $validated);
 
         return response()->json([
             'success' => true,

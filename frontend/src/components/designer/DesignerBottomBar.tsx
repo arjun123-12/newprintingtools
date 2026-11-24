@@ -13,6 +13,7 @@ import { PreflightReport } from './utils/preflightCheck';
 import { CanvasManager } from './canvas/CanvasManager';
 
 interface DesignerBottomBarProps {
+  children: React.ReactNode;
   selected: SelectedObjectState | null;
   documentSettings: DocumentSettings;
   dimensions: CanvasDimensions;
@@ -29,6 +30,7 @@ interface DesignerBottomBarProps {
 }
 
 export const DesignerBottomBar: React.FC<DesignerBottomBarProps> = ({
+  children,
   selected,
   documentSettings,
   dimensions,
@@ -44,11 +46,11 @@ export const DesignerBottomBar: React.FC<DesignerBottomBarProps> = ({
   canvasManager,
 }) => {
   return (
-    <footer className="h-11 flex-shrink-0 bg-white border-t border-gray-200 text-gray-600 text-xs px-4 flex items-center justify-between z-30 select-none shadow-2xs">
+    <footer className="z-30 grid shrink-0 grid-cols-1 items-center gap-x-3 gap-y-1 border-t border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 shadow-2xs select-none sm:grid-cols-2 sm:px-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1fr)]">
       {/* Left Info: Selected Object Coordinates & Type */}
-      <div className="flex items-center gap-3">
+      <div className="order-2 flex min-w-0 items-center justify-center gap-3 sm:justify-start xl:order-1">
         {selected ? (
-          <div className="flex items-center gap-2 text-xs font-mono text-slate-800">
+          <div className="flex flex-wrap items-center justify-center gap-2 font-mono text-xs sm:justify-start text-slate-800">
             <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 uppercase font-sans text-2xs">
               {selected.type}
             </span>
@@ -67,7 +69,7 @@ export const DesignerBottomBar: React.FC<DesignerBottomBarProps> = ({
             )}
           </div>
         ) : (
-          <div className="flex items-center gap-2 text-slate-600 text-xs">
+          <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-slate-600 sm:justify-start">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
             <span className="font-medium text-slate-800">
               {documentSettings.width} × {documentSettings.height} {documentSettings.unit}
@@ -80,8 +82,12 @@ export const DesignerBottomBar: React.FC<DesignerBottomBarProps> = ({
         )}
       </div>
 
-      {/* Center / Right: Print Warnings Pop-up, Guides status and Zoom controls */}
-      <div className="flex items-center gap-2 sm:gap-2.5">
+      <div className="order-1 flex min-w-0 justify-center sm:col-span-2 xl:order-2 xl:col-span-1">
+        {children}
+      </div>
+
+      {/* Print warnings, guides and zoom */}
+      <div className="order-3 flex min-w-0 flex-wrap items-center justify-center gap-2 sm:justify-end sm:gap-2.5">
         {preflightReport && (
           <PreflightBadge
             report={preflightReport}

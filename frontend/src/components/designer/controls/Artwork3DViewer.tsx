@@ -24,6 +24,7 @@ interface Artwork3DViewerProps {
   className?: string;
   isCompact?: boolean;
   autoRotateInitially?: boolean;
+  artworkCrop?: { left: number; top: number; width: number; height: number; sourceWidth: number; sourceHeight: number };
   activeSide?: 'front' | 'back';
 }
 
@@ -36,6 +37,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
   isCompact = false,
   autoRotateInitially,
   activeSide,
+  artworkCrop,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -208,7 +210,15 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
     : null;
 
   // Preserve true orientation: landscape (> 1.0) or portrait (< 1.0)
-  const aspectRatio = intrinsicRatio || settingsRatio || dimensionsRatio || 1.54;
+  const aspectRatio = artworkCrop ? artworkCrop.width / artworkCrop.height : intrinsicRatio || settingsRatio || dimensionsRatio || 1.54;
+  const artworkStyle: React.CSSProperties | undefined = artworkCrop && {
+    position: 'absolute',
+    maxWidth: 'none',
+    width: `${artworkCrop.sourceWidth / artworkCrop.width * 100}%`,
+    height: `${artworkCrop.sourceHeight / artworkCrop.height * 100}%`,
+    left: `${-artworkCrop.left / artworkCrop.width * 100}%`,
+    top: `${-artworkCrop.top / artworkCrop.height * 100}%`,
+  };
 
   // Base display sizes for responsive 3D card
   const maxAvailableWidth = isCompact ? 240 : isMobile ? 310 : 640;
@@ -295,6 +305,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
             <img
               src={previewUrl}
               alt="3D Front Artwork"
+              style={artworkStyle}
               className="w-full h-full object-fill select-none pointer-events-none block rounded-none"
             />
 
@@ -332,6 +343,7 @@ export const Artwork3DViewer: React.FC<Artwork3DViewerProps> = ({
               <img
                 src={backPreviewUrl}
                 alt="3D Back Artwork"
+                style={artworkStyle}
                 className="w-full h-full object-fill select-none pointer-events-none block rounded-none"
               />
             ) : (

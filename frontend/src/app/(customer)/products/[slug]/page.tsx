@@ -1,13 +1,16 @@
 'use client';
 
-import { use } from 'react';
+import { use, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
   Palette,
   ArrowLeft,
+  ArrowRight,
+  ChevronDown,
   Loader2,
   LayoutTemplate,
+  Search,
 } from 'lucide-react';
 import { apiClient } from '@/services/api/client';
 
@@ -52,6 +55,8 @@ interface ProductDetailPageProps {
 
 export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   const { slug } = use(params);
+  const [search, setSearch] = useState('');
+  const [style, setStyle] = useState('');
 
   const { data: product, isLoading: loading, error: queryError } = useQuery({
     queryKey: ['public-product', slug],
@@ -78,6 +83,11 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   const error = queryError
     ? ((queryError as any).response?.data?.message || (queryError as Error).message || 'Failed to load product details.')
     : null;
+  const filteredTemplates = useMemo(() => templates.filter(template => {
+    const matchesSearch = `${template.name} ${template.category || ''}`.toLowerCase().includes(search.trim().toLowerCase());
+    const matchesStyle = !style || template.name.toLowerCase().includes(style.toLowerCase());
+    return matchesSearch && matchesStyle;
+  }), [templates, search, style]);
 
   if (loading) {
     return (
@@ -104,174 +114,45 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
-      {/* Breadcrumb & Navigation */}
-      <div className="flex items-center justify-between">
-        <Link
-          href="/products"
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-sky-600 transition"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>All Products</span>
-        </Link>
-
-        <span className="text-xs text-slate-400">
-          Product ID: <code className="text-slate-600 font-mono text-[11px]">{product.id.slice(0, 8)}</code>
-        </span>
-      </div>
-
-      {/* Product Hero Info */}
-      <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-        <div className="space-y-2 max-w-2xl">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-sky-50 text-sky-700 border border-sky-200">
-              {product.category?.name || 'Commercial Print'}
-            </span>
-            {(() => {
-              const rawPrice = product.starting_price ?? product.sale_price ?? product.base_price ?? product.display_price ?? product.price ?? 0;
-              const priceNum = Number(rawPrice) || 0;
-              if (priceNum > 0) {
-                return (
-                  <span className="px-3 py-1 rounded-full text-[11px] font-bold tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    From ${priceNum.toFixed(2)} inc GST
-                  </span>
-                );
-              }
-              return null;
-            })()}
+    <main className="min-h-[calc(100vh-72px)] bg-[#f8f7fb] text-slate-900">
+      <header className="bg-gradient-to-br from-[#d9f7f7] via-white to-[#eadcff] px-4 pb-8 pt-6 sm:px-6">
+        <div className="mx-auto flex max-w-6xl flex-col items-center">
+          <div className="mb-3 flex items-center gap-2 text-[11px] text-slate-500">
+            <Link href="/" className="rounded-full border border-white/80 bg-white/70 px-3 py-1 hover:text-violet-700">Home</Link>
+            <ChevronDown className="h-3 w-3 -rotate-90" />
+            <span className="rounded-full border border-violet-300 bg-violet-50 px-3 py-1 font-medium text-violet-700">Templates</span>
           </div>
-
-          <h1 className="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight">
-            {product.name}
-          </h1>
-
-          <p className="text-sm text-slate-600 leading-relaxed">
-            {product.description || 'Select an Admin-created starter template to customize in our online studio or launch with a blank print-ready canvas.'}
-          </p>
+          <h1 className="text-center text-2xl font-semibold tracking-tight text-violet-700 sm:text-3xl">What will you design today?</h1>
+          <div className="relative mt-5 w-full max-w-[600px]">
+            <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${product.name} templates`} aria-label="Search templates" className="h-11 w-full rounded-xl border border-violet-200 bg-white px-11 text-sm shadow-[0_4px_16px_rgba(112,63,245,0.10)] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100" />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <span className="rounded-full border border-violet-300 bg-violet-100 px-3 py-1.5 text-xs font-medium text-violet-800">{product.name}<ChevronDown className="ml-1 inline h-3 w-3" /></span>
+            <label className="relative flex cursor-pointer items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">Style<ChevronDown className="h-3 w-3" /><select aria-label="Filter templates by style" value={style} onChange={e => setStyle(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0">{['', 'Modern', 'Minimal', 'Elegant', 'Corporate', 'Floral'].map(value => <option key={value} value={value}>{value || 'All styles'}</option>)}</select></label>
+            <button type="button" disabled className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-500">Language<ChevronDown className="h-3 w-3" /></button>
+          </div>
         </div>
+      </header>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
-          <Link
-            href={`/design/${product.id}`}
-            className="px-5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-2 transition shadow-md"
-          >
-            <Palette className="w-4 h-4 text-sky-400" />
-            <span>Blank Canvas Studio</span>
+      <section className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
+        {templatesError && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">Templates could not be loaded right now. Please refresh and try again.</div>}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+          <Link href={`/design/${product.id}`} aria-label={`Create a blank ${product.name}`} className="group flex aspect-[1.75] flex-col items-center justify-center rounded-xl border border-slate-300 bg-[#f2f3f5] text-slate-600 transition hover:border-violet-300 hover:bg-violet-50 hover:shadow-md">
+            <span className="text-2xl font-light">+</span><span className="mt-1 px-3 text-center text-[11px] font-medium text-slate-700">Create a blank {product.name}</span>
           </Link>
+          {templatesLoading ? Array.from({ length: 10 }, (_, index) => <div key={`skeleton-${index}`} className="aspect-[1.75] animate-pulse rounded-xl border border-slate-200 bg-white" aria-label="Loading template" />) : filteredTemplates.map(template => {
+            const cfg = template.artwork_config || {};
+            const dims = cfg.width && cfg.height ? `${cfg.width} × ${cfg.height} ${cfg.unit || 'mm'}` : null;
+            return <Link key={template.id} data-template-editor href={`/design/${product.id}?templateId=${encodeURIComponent(template.id)}`} aria-label={`Open ${template.name}`} className="group relative block aspect-[1.75] overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-lg">
+              {template.thumbnail_url ? <img src={template.thumbnail_url} alt={template.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" loading="lazy" decoding="async" /> : <div className="flex h-full flex-col items-center justify-center gap-2 bg-white text-slate-400"><LayoutTemplate className="h-8 w-8" /><span className="px-3 text-center text-xs font-medium">{template.name}</span></div>}
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent px-3 pb-2 pt-8 opacity-0 transition group-hover:opacity-100"><p className="truncate text-xs font-semibold text-white">{template.name}</p></div>
+              {dims && <span className="absolute right-2 top-2 rounded-md bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-sm">{dims}</span>}
+            </Link>;
+          })}
         </div>
-      </div>
-
-      {/* Admin Templates Section */}
-      <div className="space-y-6">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-          <div className="space-y-0.5">
-            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              <LayoutTemplate className="w-5 h-5 text-sky-600" />
-              <span>Admin-Created Templates ({templates.length})</span>
-            </h2>
-            <p className="text-xs text-slate-500">
-              Select any template to edit. Your edits create an independent customer artwork; the Admin template remains protected.
-            </p>
-          </div>
-        </div>
-
-        {templatesLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" aria-label="Loading templates">
-            {Array.from({ length: 4 }, (_, index) => <div key={index} className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="aspect-[3/2] animate-pulse bg-slate-100"/><div className="space-y-3 p-4"><div className="h-4 w-2/3 animate-pulse rounded bg-slate-100"/><div className="h-9 animate-pulse rounded-xl bg-slate-100"/></div></div>)}
-          </div>
-        ) : templatesError ? (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">Templates could not be loaded right now. Please refresh the page to try again.</div>
-        ) : templates.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center space-y-4">
-            <LayoutTemplate className="w-10 h-10 text-slate-400 mx-auto" />
-            <h3 className="text-base font-bold text-slate-800">No Pre-designed Templates Available</h3>
-            <p className="text-xs text-slate-500 max-w-md mx-auto">
-              You can start designing directly on a clean canvas with pre-configured print dimensions.
-            </p>
-            <Link
-              href={`/design/${product.id}`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition shadow-sm"
-            >
-              <Palette className="w-4 h-4" />
-              <span>Start Blank Design</span>
-            </Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {templates.map((template) => {
-              const cfg = template.artwork_config || {};
-              const dims = cfg.width && cfg.height ? `${cfg.width} × ${cfg.height} ${cfg.unit || 'mm'}` : null;
-              const bleed = cfg.bleed ? `Bleed: ${cfg.bleed}mm` : null;
-
-              return (
-                <Link
-                  key={template.id}
-                  href={`/design/${product.id}?templateId=${template.id}`}
-                  aria-label={`Customize ${template.name}`}
-                  className="group bg-white rounded-2xl border border-slate-200 hover:border-sky-300 hover:shadow-lg transition-all duration-200 flex flex-col overflow-hidden"
-                >
-                  {/* Thumbnail */}
-                  <div className="relative aspect-[3/2] bg-slate-100 flex items-center justify-center p-4 overflow-hidden border-b border-slate-100">
-                    {template.thumbnail_url ? (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
-                        src={template.thumbnail_url}
-                        alt={template.name}
-                        className="max-h-full max-w-full object-contain rounded-md shadow-xs group-hover:scale-105 transition-transform duration-200"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center gap-1.5 text-slate-400">
-                        <LayoutTemplate className="w-8 h-8 text-sky-500/70" />
-                        <span className="text-[10px] font-bold text-slate-500">{template.name}</span>
-                      </div>
-                    )}
-
-                    {dims && (
-                      <span className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-white/95 backdrop-blur-xs text-[10px] font-bold text-slate-700 border border-slate-200/80 shadow-2xs">
-                        {dims}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Body */}
-                  <div className="p-4 flex-1 flex flex-col justify-between space-y-4">
-                    <div className="space-y-1.5">
-                      <h4 className="text-sm font-bold text-slate-900 group-hover:text-sky-600 transition-colors line-clamp-1">
-                        {template.name}
-                      </h4>
-
-                      <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
-                        {bleed && (
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 font-medium">
-                            {bleed}
-                          </span>
-                        )}
-                        {cfg.safe_area && (
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 font-medium">
-                            Safe: {cfg.safe_area}mm
-                          </span>
-                        )}
-                        {cfg.dpi && (
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 font-medium">
-                            {cfg.dpi} DPI
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <span className="w-full py-2 px-3 bg-sky-600 group-hover:bg-sky-700 text-white font-bold text-xs rounded-xl shadow-sm group-hover:shadow transition flex items-center justify-center gap-1.5 text-center">
-                      <Palette className="w-3.5 h-3.5" />
-                      <span>Customize Template</span>
-                    </span>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
+        {!templatesLoading && !templatesError && filteredTemplates.length === 0 && <div className="mt-8 text-center text-sm text-slate-500">{search || style ? 'No templates match your filters.' : 'No pre-designed templates are available yet. Start with a blank design.'}</div>}
+      </section>
+    </main>
   );
 }

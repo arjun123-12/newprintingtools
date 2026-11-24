@@ -40,6 +40,7 @@ import { FloatingDrawToolbar } from './toolbar/FloatingDrawToolbar';
 import { ArtworkPreviewModal } from './controls/ArtworkPreviewModal';
 import { CustomBannerSizeModal } from './controls/CustomBannerSizeModal';
 import { AddToCartModal } from './controls/AddToCartModal';
+import { TemplatePreviewDrawer } from '@/components/customer/TemplatePreviewDrawer';
 import { PageManagerTray, PageData } from './controls/PageManagerTray';
 import { renderCanvasJsonToThumbnail } from './utils/canvasThumbnail';
 import {
@@ -285,13 +286,20 @@ export default function Designer({
   const [isPanMode, setIsPanMode] = useState<boolean>(false);
   const [activeSidebarTab, setActiveSidebarTab] = useState<ActiveSidebarTab>(null);
   const [selected, setSelected] = useState<SelectedObjectState | null>(null);
-  const [isPropertiesOpen, setIsPropertiesOpen] = useState<boolean>(true);
+  const [isPropertiesOpen, setIsPropertiesOpen] = useState<boolean>(false);
   const [showGuides, setShowGuides] = useState<boolean>(true);
   const [showRulers, setShowRulers] = useState<boolean>(true);
   const [preflightReport, setPreflightReport] = useState<PreflightReport | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [isCustomSizeOpen, setIsCustomSizeOpen] = useState<boolean>(false);
   const [isAddToCartOpen, setIsAddToCartOpen] = useState<boolean>(false);
+  const [printPanelOpen, setPrintPanelOpen] = useState(false);
+  const [printTemplate, setPrintTemplate] = useState<{
+    id: string;
+    productId: string;
+    productName: string;
+    thumbnail: string | null;
+  } | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
   const [previewThumbnailUrl, setPreviewThumbnailUrl] = useState<string | null>(null);
   const [isAutoFit, setIsAutoFit] = useState<boolean>(true);
@@ -729,19 +737,19 @@ export default function Designer({
     const fabricCanvas = manager.getCanvas();
     if (!fabricCanvas) return pagesRef.current && pagesRef.current.length > 0 ? pagesRef.current : pages;
 
+    const currentIdx = activePageIndexRef.current ?? activePageIndex;
     const rawCanvasJson = manager.getSerializableJson();
     let thumbDataUrl = '';
 
     try {
       thumbDataUrl =
-        (await manager.getCleanPreviewDataUrl(0.2)) ?? '';
+        (await manager.getPageThumbnail()) ?? '';
     } catch (error) {
       // A thumbnail problem must not block saving editable canvas JSON.
       console.warn('Could not create the page thumbnail:', error);
     }
 
     const currentPages = pagesRef.current && pagesRef.current.length > 0 ? pagesRef.current : pages;
-    const currentIdx = activePageIndexRef.current ?? activePageIndex;
 
     const updatedPages = [...currentPages];
     if (updatedPages.length === 0) {
@@ -769,55 +777,6 @@ export default function Designer({
     setPages(updatedPages);
     return updatedPages;
   }, [activePageIndex, pages]);
-
-  const handleSwitchSide = useCallback(async (targetSide: 'front' | 'back') => {
-    if (targetSide === activeSide) return;
-    if (!canvasManagerRef.current) return;
-
-    // Snapshot current active canvas to pages without losing unsaved changes
-    const currentPages = await getCurrentPagesState();
-
-    const targetIndex = targetSide === 'front' ? 0 : 1;
-
-    if (targetIndex === 1 && currentPages.length < 2) {
-      const newPage: PageData = {
-        id: `page-back-${Date.now()}`,
-        thumbnail: null,
-        canvasJson: {
-          version: '6.0.0',
-          objects: [],
-          background: documentSettingsRef.current.backgroundColor || '#ffffff',
-        },
-      };
-      const updated = [...currentPages, newPage];
-      setPages(updated);
-      pagesRef.current = updated;
-      setSideNames(['Front', 'Back']);
-      setActiveSide('back');
-      canvasManagerRef.current.setActiveSide('back');
-      activePageIndexRef.current = 1;
-      setActivePageIndex(1);
-      await canvasManagerRef.current.loadTemplate({
-        canvas_json: newPage.canvasJson,
-        backgroundColor: documentSettingsRef.current.backgroundColor,
-      } as any);
-      return;
-    }
-
-    if (targetIndex === activePageIndex) return;
-    setActiveSide(targetSide);
-    canvasManagerRef.current.setActiveSide(targetSide);
-    activePageIndexRef.current = targetIndex;
-    setActivePageIndex(targetIndex);
-
-    const targetPage = currentPages[targetIndex];
-    if (targetPage) {
-      await canvasManagerRef.current.loadTemplate({
-        canvas_json: targetPage.canvasJson,
-        backgroundColor: documentSettingsRef.current.backgroundColor,
-      } as any);
-    }
-  }, [activeSide, activePageIndex, getCurrentPagesState]);
 
   const handleApplyDesignToBack = useCallback(async () => {
     if (!canvasManagerRef.current) return;
@@ -1217,7 +1176,7 @@ export default function Designer({
     if (publish) adminTemplateActiveRef.current = true;
   }, [canvasManager, templateId, productId, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex, printSides]);
 
-  const handleSaveDraft = useCallback(async (): Promise<void> => {
+  const handleSaveDraft = useCallback(async (forCart = false): Promise<void> => {
     // If we're in admin-template mode, delegate to the admin template save logic
     const isAdminTemplateMode =
       mode === 'admin-template' ||
@@ -1257,6 +1216,7 @@ export default function Designer({
 
     // Never allow two POST requests to race and create duplicate artwork rows.
     if (saveInProgressRef.current) {
+      if (forCart) throw new Error('Artwork is still saving. Please try again in a moment.');
       saveQueuedRef.current = true;
       return;
     }
@@ -1382,6 +1342,7 @@ export default function Designer({
           console.error('Artwork autosave failed:', error);
           setSaveStatus('error');
           setSaveError(message);
+          if (forCart) throw new Error(message);
 
           // Stop retrying until the user makes another change or manually presses Save.
           saveQueuedRef.current = false;
@@ -1401,6 +1362,12 @@ export default function Designer({
   useEffect(() => {
     handleSaveDraftRef.current = handleSaveDraft;
   }, [handleSaveDraft]);
+
+  const prepareArtworkForCart = async () => {
+    await handleSaveDraft(true);
+    if (!artworkIdRef.current) throw new Error('Could not save your artwork. Please try again.');
+    return artworkIdRef.current;
+  };
 
   const handleAddToCartClick = useCallback(async () => {
     if (canvasManagerRef.current) {
@@ -1730,7 +1697,7 @@ export default function Designer({
             } as any);
 
             // Generate first page thumbnail immediately
-            const frontThumb = await canvasManager.getCleanPreviewDataUrl(0.35);
+            const frontThumb = await canvasManager.getPageThumbnail();
             if (frontThumb) {
               setPages((prev) => {
                 const next = [...prev];
@@ -1740,6 +1707,15 @@ export default function Designer({
                 return next;
               });
             }
+          }
+          if (isMounted && firstPage && p?.id && !isAdminMode) {
+            setPrintTemplate({
+              id: String(t.id),
+              productId: String(p.id),
+              productName: p.name || t.name,
+              thumbnail: t.thumbnail_url ?? null,
+            });
+            setPrintPanelOpen(true);
           }
           if (mode === 'admin-template') {
             adminTemplateReadyRef.current = true;
@@ -1848,7 +1824,7 @@ export default function Designer({
           if (!isMounted || currentSequence !== loadSequenceRef.current) return;
 
           // Generate front thumbnail
-          const frontThumb = await canvasManager.getCleanPreviewDataUrl(0.35);
+          const frontThumb = await canvasManager.getPageThumbnail();
           if (frontThumb && isMounted) {
             setPages((prev) => {
               const next = [...prev];
@@ -2309,7 +2285,7 @@ export default function Designer({
         } as any);
 
         // Generate first page thumbnail immediately
-        const frontThumb = await canvasManagerRef.current.getCleanPreviewDataUrl(0.35);
+        const frontThumb = await canvasManagerRef.current.getPageThumbnail();
         if (frontThumb) {
           setPages((prev) => {
             const next = [...prev];
@@ -2524,19 +2500,7 @@ export default function Designer({
       // Listen for selection events
       const unsubscribeSelection = manager.onSelectionChange((state) => {
         setSelected(state);
-        if (state) {
-          setIsPropertiesOpen(true);
-        }
-      });
-
-      // Automatically open Text panel in sidebar when text in artwork is clicked (like Canva)
-      const unsubscribeTextClick = manager.onCanvasTextClick(() => {
-        setActiveSidebarTab((currentTab) => {
-          if (currentTab === 'draw') {
-            manager.disableDrawingMode();
-          }
-          return currentTab === 'text' ? currentTab : 'text';
-        });
+        setIsPropertiesOpen(Boolean(state));
       });
 
       // Listen for zoom events
@@ -2570,7 +2534,6 @@ export default function Designer({
       manager.setZoom(fitZ);
 
       return () => {
-        unsubscribeTextClick();
         unsubscribeSelection();
         unsubscribeZoom();
         unsubscribeGuides();
@@ -2683,6 +2646,9 @@ export default function Designer({
   ]);
 
 
+  const activePrintTemplate = printTemplate?.id === templateId ? printTemplate : null;
+  const showPrintPanel = Boolean(activePrintTemplate && printPanelOpen);
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col h-screen w-screen max-h-screen max-w-screen overflow-hidden bg-white text-gray-900 font-sans select-none">
       {/* Top Toolbar */}
@@ -2719,7 +2685,8 @@ export default function Designer({
         onOpenExportModal={() => setIsExportModalOpen(true)}
         canvasManager={canvasManager}
         preflightReport={preflightReport}
-        onAddToCart={handleAddToCartClick}
+        onAddToCart={activePrintTemplate ? () => setPrintPanelOpen(true) : handleAddToCartClick}
+        printOptionsLabel={activePrintTemplate ? 'Print options' : undefined}
         isAdminTemplateMode={
           mode === 'admin-template' ||
           (typeof window !== 'undefined'
@@ -2790,32 +2757,6 @@ export default function Designer({
             </div>
           )}
 
-          {/* Front / Back Side Switcher for print_sides === 'both' and 2 pages */}
-          {printSides === 'both' && pages.length === 2 && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center bg-white/95 backdrop-blur-md px-1.5 py-1 rounded-2xl shadow-lg border border-gray-200">
-              <button
-                type="button"
-                onClick={() => handleSwitchSide('front')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${activeSide === 'front'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                  }`}
-              >
-                <span>Front Side</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSwitchSide('back')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${activeSide === 'back'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                  }`}
-              >
-                <span>Back Side</span>
-              </button>
-            </div>
-          )}
-
           <DesignerCanvas
             zoom={zoom}
             setZoom={handleZoomChange}
@@ -2828,40 +2769,13 @@ export default function Designer({
             onSelectSidebarTab={setActiveSidebarTab}
             activeSidebarTab={activeSidebarTab}
             onUpdateDocumentSettings={handleUpdateDocumentSettings}
-            onApplyDesignToBack={handleApplyDesignToBack}
+            isPanMode={isPanMode}
           />
 
-          {/* Page Manager Tray */}
-          <PageManagerTray
-            pages={pages}
-            activePageIndex={activePageIndex}
-            onPageSelect={handlePageSelect}
-            onAddPage={handleAddPage}
-            onDuplicatePage={handleDuplicatePage}
-            onDeletePage={handleDeletePage}
-            onApplyDesignToBack={handleApplyDesignToBack}
-            onUpdatePageThumbnail={(idx, thumb) => {
-              setPages((prev) => {
-                if (prev[idx]?.thumbnail === thumb) return prev;
-                const next = [...prev];
-                if (next[idx]) {
-                  next[idx] = { ...next[idx], thumbnail: thumb };
-                }
-                return next;
-              });
-            }}
-            onOpenPreview={async () => {
-              await getCurrentPagesState();
-              setIsPreviewOpen(true);
-            }}
-            canvasManager={canvasManager}
-            printSides={printSides}
-            sideNames={sideNames}
-          />
         </div>
 
         {/* Right Properties Panel */}
-        {isPropertiesOpen && (
+        {isPropertiesOpen && !showPrintPanel && (
           <DesignerProperties
             selected={selected}
             documentSettings={documentSettings}
@@ -2870,6 +2784,21 @@ export default function Designer({
             canvasManager={canvasManager}
             onOpenPreview={() => setIsPreviewOpen(true)}
             onClose={() => setIsPropertiesOpen(false)}
+          />
+        )}
+        {showPrintPanel && activePrintTemplate && (
+          <TemplatePreviewDrawer
+            key={activePrintTemplate.id}
+            template={{
+              name: designName,
+              thumbnail_url: pages[activePageIndex]?.thumbnail || activePrintTemplate.thumbnail,
+              artwork_config: documentSettings,
+            }}
+            product={{ id: activePrintTemplate.productId, name: activePrintTemplate.productName }}
+            onClose={() => setPrintPanelOpen(false)}
+            prepareArtwork={prepareArtworkForCart}
+            printSides={printSides}
+            pageCount={pages.length}
           />
         )}
       </div>
@@ -2889,7 +2818,30 @@ export default function Designer({
         onToggleGuides={handleToggleGuides}
         preflightReport={preflightReport}
         canvasManager={canvasManager}
-      />
+      >
+        <PageManagerTray
+          pages={pages}
+          activePageIndex={activePageIndex}
+          onPageSelect={handlePageSelect}
+          onAddPage={handleAddPage}
+          onDuplicatePage={handleDuplicatePage}
+          onDeletePage={handleDeletePage}
+          onApplyDesignToBack={handleApplyDesignToBack}
+          onUpdatePageThumbnail={(idx, thumb) => {
+            setPages((prev) => {
+              if (prev[idx]?.thumbnail === thumb) return prev;
+              const next = [...prev];
+              if (next[idx]) {
+                next[idx] = { ...next[idx], thumbnail: thumb };
+              }
+              return next;
+            });
+          }}
+          canvasManager={canvasManager}
+          printSides={printSides}
+          sideNames={sideNames}
+        />
+      </DesignerBottomBar>
 
       {/* Print Preview Modal */}
       <ArtworkPreviewModal

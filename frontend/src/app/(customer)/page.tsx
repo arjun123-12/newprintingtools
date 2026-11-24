@@ -216,7 +216,7 @@ export default function CustomerHomePage() {
               Apparel
             </Link>
             <Link
-              href="/design"
+              href="/templates"
               className="px-3 py-2 text-xs font-semibold text-slate-700 hover:text-blue-600 hover:bg-slate-50 rounded-lg transition-colors shrink-0"
             >
               Templates

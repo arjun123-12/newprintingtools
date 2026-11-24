@@ -75,6 +75,7 @@ interface DesignerToolbarProps {
   preflightReport?: PreflightReport | null;
   isAdminTemplateMode?: boolean;
   onAddToCart?: () => void;
+  printOptionsLabel?: string;
 }
 
 export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
@@ -112,6 +113,7 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
   preflightReport = null,
   isAdminTemplateMode = false,
   onAddToCart,
+  printOptionsLabel,
 }) => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [activeMenu, setActiveMenu] = useState<'file' | 'view' | 'export' | 'align' | null>(null);
@@ -469,11 +471,12 @@ export const DesignerToolbar: React.FC<DesignerToolbarProps> = ({
           <button
             type="button"
             onClick={onAddToCart}
-            title="Add this customized print product to your cart"
+            title={printOptionsLabel ?? 'Add this customized print product to your cart'}
+            aria-label={printOptionsLabel}
             className="flex items-center gap-1.5 px-2 2xl:px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition"
           >
             <ShoppingCart className="w-3.5 h-3.5" />
-            <span className="hidden 2xl:inline">Add to Cart</span>
+            <span className="hidden 2xl:inline">{printOptionsLabel ?? 'Add to Cart'}</span>
           </button>
         )}
 

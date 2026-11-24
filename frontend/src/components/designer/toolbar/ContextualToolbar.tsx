@@ -34,7 +34,6 @@ import {
   Group as GroupIcon,
   Ungroup,
   Maximize2,
-  Copy,
   GripVertical,
   Palette,
 } from 'lucide-react';
@@ -97,7 +96,7 @@ interface ContextualToolbarProps {
   zoom: number;
   onSelectSidebarTab?: (tab: ActiveSidebarTab) => void;
   activeSidebarTab?: ActiveSidebarTab;
-  onApplyDesignToBack?: () => void;
+  backgroundSelected?: boolean;
 }
 
 type ActivePopoverType =
@@ -117,9 +116,9 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
   selected,
   canvasManager,
   zoom,
-  onSelectSidebarTab,
+  onSelectSidebarTab: setSidebarTab,
   activeSidebarTab,
-  onApplyDesignToBack,
+  backgroundSelected = false,
 }) => {
   const [activePopover, setActivePopover] = useState<ActivePopoverType>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -361,7 +360,29 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
     }
   }, [selected?.id]);
 
-  const isCanvasBackgroundActive = !selected && !isDrawing;
+  const isCanvasBackgroundActive = backgroundSelected && !selected && !isDrawing;
+  const selectionContext = isCanvasBackgroundActive ? 'background' : selected ? `element:${selected.id}` : null;
+  const contextualTab = useRef<{ tab: ActiveSidebarTab; context: string | null } | null>(null);
+
+  const onSelectSidebarTab = setSidebarTab && ((tab: ActiveSidebarTab) => {
+    contextualTab.current = tab ? { tab, context: selectionContext } : null;
+    setSidebarTab(tab);
+  });
+
+  useEffect(() => {
+    const opened = contextualTab.current;
+    if (!opened) return;
+    if (opened.tab !== activeSidebarTab) {
+      contextualTab.current = null;
+    } else if (opened.context !== selectionContext) {
+      contextualTab.current = null;
+      setSidebarTab?.(null);
+    }
+  }, [activeSidebarTab, selectionContext, setSidebarTab]);
+
+  useEffect(() => {
+    setActivePopover(null);
+  }, [selectionContext]);
 
   const isText =
     selected &&
@@ -494,10 +515,19 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
     BRUSH_TOOLS_LIST.find((t) => t.id === brushSettings.tool) || BRUSH_TOOLS_LIST[0];
   const CurrentBrushIcon = currentBrushPreset.icon;
 
-  const currentCanvasBg = (canvasManager?.getBackgroundSettings()?.color as string) || '#ffffff';
-  const bgSettings = canvasManager?.getBackgroundSettings();
+  const [bgSettings, setBackgroundSettings] = useState(() => canvasManager?.getBackgroundSettings());
+  useEffect(() => {
+    setBackgroundSettings(canvasManager?.getBackgroundSettings());
+    return canvasManager?.onBackgroundChange(setBackgroundSettings);
+  }, [canvasManager]);
+  const currentCanvasBg = bgSettings?.color || '#ffffff';
   const hasBgImage = Boolean(bgSettings?.type === 'image' && bgSettings.image?.url);
   const currentBgOpacity = bgSettings?.image?.opacity ?? (bgSettings as any)?.opacity ?? 1;
+
+  const backgroundButton = (active: boolean) =>
+    `flex h-8 w-8 items-center justify-center rounded-md transition-colors ${active
+      ? 'bg-violet-100 text-violet-700'
+      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`;
 
   const renderMultiColorSwatches = () => {
     if (editableColors.length <= 1) return null;
@@ -539,8 +569,12 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
     );
   };
 
+  if (!selectionContext && !isDrawing) return null;
+
   return (
     <div
+      role="toolbar"
+      aria-label={isCanvasBackgroundActive ? 'Canvas background toolbar' : 'Canvas editing toolbar'}
       ref={toolbarRef}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
@@ -549,7 +583,7 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
           ? { left: `${position.x}px`, top: `${position.y}px` }
           : undefined
       }
-      className={`absolute ${position ? '' : 'top-3 left-4'} z-40 flex items-center gap-2 bg-white px-3 py-2.5 rounded-2xl shadow-xl border border-gray-200/90 text-gray-700 animate-in fade-in slide-in-from-top-2 duration-150 select-none max-w-[95vw] overflow-visible`}
+      className={`absolute ${position ? '' : 'top-3 left-4'} z-40 flex items-center bg-white shadow-sm border border-slate-200 text-gray-700 animate-in fade-in duration-150 select-none max-w-[95vw] overflow-visible ${isCanvasBackgroundActive ? 'gap-1 rounded-lg p-1' : 'gap-2 rounded-xl px-2 py-1.5'}`}
     >
       {/* Drag Grip Handle - user can adjust toolbar to any side */}
       <div
@@ -559,156 +593,88 @@ export const ContextualToolbar: React.FC<ContextualToolbarProps> = ({
       >
         <GripVertical className="w-4 h-4" />
       </div>
-      {/* ================================================================ */}
-      {/* 0A. CANVAS BACKGROUND CONTROLS (When No Element Is Selected)     */}
-      {/* ================================================================ */}
       {isCanvasBackgroundActive && (
-        <>
-          {/* Canvas Background Colour Button (Canva style - opens in sidebar) */}
-          <button
-            type="button"
-            onClick={() => {
-              if (onSelectSidebarTab) {
-                onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color');
-              }
-            }}
-            title="Canvas Background Colour (Open in Sidebar)"
-            className={`h-9 px-3 rounded-xl border flex items-center gap-2 text-sm font-semibold transition ${activeSidebarTab === 'color'
-              ? 'bg-[#f0ebff] border-[#8b5cf6] text-[#7c3aed] shadow-2xs font-bold'
-              : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
-              }`}
-          >
-            <div
-              className="w-4.5 h-4.5 rounded-full border border-gray-300 shadow-2xs flex-shrink-0"
-              style={{ backgroundColor: currentCanvasBg }}
-            />
-            <span className="text-sm font-semibold text-gray-800">Background Colour</span>
-            <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-          </button>
-
-          <div className="h-5 w-px bg-gray-200 mx-0.5" />
-
-          {/* Button to open Background / Photos Side Panel */}
+        <div className="flex items-center gap-1" role="group" aria-label="Background options">
           {onSelectSidebarTab && (
-            <button
-              type="button"
-              onClick={() => onSelectSidebarTab(activeSidebarTab === 'background' ? null : 'background')}
-              title="Browse Photo & Gradient Backgrounds"
-              className={`h-9 px-3 rounded-xl border text-sm font-semibold flex items-center gap-2 transition ${activeSidebarTab === 'background'
-                ? 'bg-purple-50 border-purple-400 text-purple-700 font-bold shadow-2xs'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
-            >
-              <Wallpaper className="w-4 h-4 text-blue-600" />
-              <span>Backgrounds</span>
-            </button>
+            <>
+              <button
+                type="button"
+                aria-label="Background colour"
+                title="Background colour"
+                aria-expanded={activeSidebarTab === 'color'}
+                onClick={() => onSelectSidebarTab(activeSidebarTab === 'color' ? null : 'color')}
+                className={backgroundButton(activeSidebarTab === 'color')}
+              >
+                <span className="h-4 w-4 rounded-full border border-slate-400" style={{ backgroundColor: currentCanvasBg }} />
+              </button>
+              <button
+                type="button"
+                aria-label="Background images and gradients"
+                title="Background images and gradients"
+                aria-expanded={activeSidebarTab === 'background'}
+                onClick={() => onSelectSidebarTab(activeSidebarTab === 'background' ? null : 'background')}
+                className={backgroundButton(activeSidebarTab === 'background')}
+              >
+                <Wallpaper aria-hidden="true" className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                aria-label="Background effects"
+                title="Background effects"
+                aria-expanded={activeSidebarTab === 'effects'}
+                onClick={() => onSelectSidebarTab(activeSidebarTab === 'effects' ? null : 'effects')}
+                className={backgroundButton(activeSidebarTab === 'effects')}
+              >
+                <Sparkles aria-hidden="true" className="h-4 w-4" />
+              </button>
+            </>
           )}
 
-          <div className="h-5 w-px bg-gray-200 mx-0.5" />
-
-          {/* Background Effects Button (Filters, Adjustments & Photo Effects) */}
-          {onSelectSidebarTab && (
-            <button
-              type="button"
-              onClick={() => {
-                onSelectSidebarTab(activeSidebarTab === 'effects' ? null : 'effects');
-              }}
-              title="Background Effects (Filters, Adjustments & Photo Effects)"
-              className={`h-9 px-3.5 rounded-xl border text-sm font-semibold flex items-center gap-2 transition ${activeSidebarTab === 'effects'
-                ? 'bg-purple-50 border-purple-400 text-purple-700 font-bold shadow-2xs'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
-            >
-              <Sparkles className="w-4 h-4 text-purple-600" />
-              <span>Effects</span>
-            </button>
-          )}
-
-          <div className="h-5 w-px bg-gray-200 mx-0.5" />
-
-          {/* Background Transparency / Opacity Popover Button (Checkerboard Icon) */}
           <div className="relative">
             <button
               type="button"
+              aria-label="Background transparency"
+              title="Background transparency"
+              aria-expanded={activePopover === 'opacity'}
               onClick={() => togglePopover('opacity')}
-              title="Background Transparency / Opacity"
-              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${activePopover === 'opacity'
-                ? 'bg-blue-50 border-blue-400 text-blue-700'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
+              className={backgroundButton(activePopover === 'opacity')}
             >
-              <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
-                <rect x="0" y="0" width="4" height="4" fill="#64748b" />
-                <rect x="8" y="0" width="4" height="4" fill="#64748b" />
-                <rect x="4" y="4" width="4" height="4" fill="#64748b" />
-                <rect x="12" y="4" width="4" height="4" fill="#64748b" />
-                <rect x="0" y="8" width="4" height="4" fill="#64748b" />
-                <rect x="8" y="8" width="4" height="4" fill="#64748b" />
-                <rect x="4" y="12" width="4" height="4" fill="#64748b" />
-                <rect x="12" y="12" width="4" height="4" fill="#64748b" />
-              </svg>
+              <span aria-hidden="true" className="h-4 w-4 rounded-sm border border-slate-400 bg-[repeating-conic-gradient(#64748b_0%_25%,#fff_0%_50%)] bg-[length:8px_8px]" />
             </button>
 
             {activePopover === 'opacity' && (
               <TransparencyPopover
                 opacity={currentBgOpacity}
-                onChange={(val) => {
-                  canvasManager?.setBackgroundOpacity(val);
-                }}
+                onChange={(value) => canvasManager?.setBackgroundOpacity(value)}
                 onClose={() => setActivePopover(null)}
               />
             )}
           </div>
 
-          {/* Detach Image from Background (Make it a regular movable element) */}
           {hasBgImage && (
-            <>
-              <div className="h-5 w-px bg-gray-200 mx-0.5" />
-              <button
-                type="button"
-                onClick={() => {
-                  canvasManager?.convertBackgroundToLayer();
-                }}
-                title="Detach image from background to make it a movable element layer"
-                className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 flex items-center gap-1.5 text-xs font-semibold transition shadow-2xs"
-              >
-                <Unlink className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Detach image</span>
-              </button>
-            </>
+            <button
+              type="button"
+              aria-label="Detach background image"
+              title="Detach background image"
+              onClick={() => canvasManager?.convertBackgroundToLayer()}
+              className={backgroundButton(false)}
+            >
+              <Unlink aria-hidden="true" className="h-4 w-4" />
+            </button>
           )}
 
-          <div className="h-5 w-px bg-gray-200 mx-0.5" />
-
-          {/* Delete BG Button (Clears background image, gradient, or color back to default white) */}
-          <button
-            type="button"
-            onClick={() => {
-              canvasManager?.resetBackground();
-            }}
-            title="Delete Background (Reset to white)"
-            className="h-9 px-3 rounded-xl border border-gray-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-gray-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
-          >
-            <Trash2 className="w-4 h-4 text-red-500" />
-            <span>Delete BG</span>
-          </button>
-
-          {/* Apply this design to back page button */}
-          {onApplyDesignToBack && (
-            <>
-              <div className="h-5 w-px bg-gray-200 mx-0.5" />
-              <button
-                type="button"
-                onClick={onApplyDesignToBack}
-                title="Copy and apply current design to the back page"
-                className="h-9 px-3 rounded-xl border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-700 flex items-center gap-2 text-sm font-semibold transition shadow-2xs"
-              >
-                <Copy className="w-4 h-4 text-sky-600" />
-                <span>Apply design to back</span>
-              </button>
-            </>
+          {bgSettings && (bgSettings.type !== 'color' || currentCanvasBg.toLowerCase() !== '#ffffff' || currentBgOpacity !== 1) && (
+            <button
+              type="button"
+              aria-label="Reset background"
+              title="Reset background to white"
+              onClick={() => canvasManager?.resetBackground()}
+              className={backgroundButton(false)}
+            >
+              <Trash2 aria-hidden="true" className="h-4 w-4" />
+            </button>
           )}
-        </>
+        </div>
       )}
 
       {/* ================================================================ */}

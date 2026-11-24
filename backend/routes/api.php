@@ -226,6 +226,7 @@ Route::post('/pricing/calculate', [
 ]);
 
 // Public active templates
+Route::get('/designer/template-gallery', [DesignerController::class, 'gallery']);
 Route::get('/designer/templates/{productId}', [
     DesignerController::class,
     'templates',

@@ -54,7 +54,7 @@ export interface DesignerCanvasProps {
     settings: Partial<DocumentSettings>
   ) => void;
 
-  onApplyDesignToBack?: () => void;
+  isPanMode?: boolean;
 }
 
 function makeAbsoluteStorageUrl(url: string): string {
@@ -77,7 +77,7 @@ export function DesignerCanvas({
   onSelectSidebarTab,
   activeSidebarTab,
   onUpdateDocumentSettings,
-  onApplyDesignToBack,
+  isPanMode = false,
 }: DesignerCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
@@ -116,6 +116,7 @@ export function DesignerCanvas({
   const [eraserSize, setEraserSize] = useState(20);
   const [dropError, setDropError] = useState<string | null>(null);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const [backgroundSelected, setBackgroundSelected] = useState(false);
   const [isViewportPanning, setIsViewportPanning] = useState(false);
 
   const [mousePos, setMousePos] = useState({
@@ -141,6 +142,38 @@ export function DesignerCanvas({
       canvasManager.setViewportElement(scrollViewportRef.current);
     }
   }, [canvasManager]);
+
+  useEffect(() => {
+    const canvas = canvasManager?.getCanvas();
+    if (!canvas || !canvasManager || isPanMode) return;
+
+    const unsubscribeClick = canvas.on('mouse:down', ({ e, target }) => {
+      if ('button' in e && e.button !== 0) return;
+      if (canvasManager.isDrawingMode() || isViewportPanningRef.current) return;
+      setBackgroundSelected(!target && !canvas.getActiveObject());
+    });
+    const unsubscribeDrawing = canvasManager.onDrawingModeChange((drawing) => {
+      if (drawing) setBackgroundSelected(false);
+    });
+
+    return () => {
+      unsubscribeClick();
+      unsubscribeDrawing();
+    };
+  }, [canvasManager, isPanMode]);
+
+  useEffect(() => {
+    if (!backgroundSelected) return;
+    const dismissBackground = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setBackgroundSelected(false);
+    };
+    window.addEventListener('keydown', dismissBackground);
+    return () => window.removeEventListener('keydown', dismissBackground);
+  }, [backgroundSelected]);
+
+  useEffect(() => {
+    if (selected || isPanMode) setBackgroundSelected(false);
+  }, [selected, isPanMode]);
 
   /*
    * Initialize Fabric canvas only when this component mounts.
@@ -1271,7 +1304,7 @@ export function DesignerCanvas({
         zoom={zoom}
         onSelectSidebarTab={onSelectSidebarTab}
         activeSidebarTab={activeSidebarTab}
-        onApplyDesignToBack={onApplyDesignToBack}
+        backgroundSelected={backgroundSelected}
       />
 
       {isEraserActive && mousePos.visible && (
@@ -1329,7 +1362,15 @@ export function DesignerCanvas({
             (isSpacePressedRef.current && event.button === 0) ||
             event.button === 1;
 
-          if (!shouldPan) return;
+          if (!shouldPan) {
+            if (event.button === 0 && !paperRef.current?.contains(event.target as Node)) {
+              setBackgroundSelected(false);
+              const canvas = canvasManager?.getCanvas();
+              canvas?.discardActiveObject();
+              canvas?.requestRenderAll();
+            }
+            return;
+          }
 
           event.preventDefault();
           event.stopPropagation();
@@ -1392,11 +1433,12 @@ export function DesignerCanvas({
               }}
               onPointerDown={(e) => {
                 if (e.target === paperRef.current) {
+                  setBackgroundSelected(false);
                   canvasManager?.getCanvas()?.discardActiveObject();
                   canvasManager?.getCanvas()?.requestRenderAll();
                 }
               }}
-              className="relative shrink-0 rounded-sm bg-white shadow-2xl ring-1 ring-black/15"
+              className={`relative shrink-0 rounded-sm bg-white shadow-2xl ring-1 ${backgroundSelected ? "ring-violet-500" : "ring-black/15"}`}
             >
               {/* Inner container keeps React overlays aligned to canvasHostRef coordinates */}
               <div className="relative">

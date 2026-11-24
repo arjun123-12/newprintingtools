@@ -34,6 +34,7 @@ interface AddToCartModalProps {
   dimensionsText?: string;
   printSides?: string;
   pageCount?: number;
+  prepareArtwork?: () => Promise<string>;
 }
 
 function isDoubleSidedPrintingOption(opt: any): boolean {
@@ -81,8 +82,10 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
   dimensionsText,
   printSides,
   pageCount,
+  prepareArtwork,
 }) => {
   const router = useRouter();
+  const isInline = Boolean(prepareArtwork);
 
   const [quantity, setQuantity] = useState(100);
   const [selectedGsmId, setSelectedGsmId] = useState<string>('');
@@ -106,6 +109,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
       sideCount?: number;
   } | null>(null);
 
+  const [productReady, setProductReady] = useState(false);
   const [loadingPrice, setLoadingPrice] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [addedSuccess, setAddedSuccess] = useState(false);
@@ -133,7 +137,8 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
       try {
         const res = await apiClient.get(`/products/${productId}`);
         const p = res.data?.data;
-        if (!isMounted || !p) return;
+        if (!p) throw new Error('Product configuration is unavailable.');
+        if (!isMounted) return;
 
         // 1. GSM Options
         if (p?.printing_pricing?.gsm_options && Array.isArray(p.printing_pricing.gsm_options)) {
@@ -206,8 +211,10 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
           setFoldingOptions([]);
           setSelectedFolding('no_fold');
         }
+        setProductReady(true);
       } catch (err) {
         console.warn('Could not load product configuration:', err);
+        if (isInline && isMounted) setError('Could not load print options. Reopen Review to try again.');
       }
     };
 
@@ -216,7 +223,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, productId, printSides, pageCount]);
+  }, [isOpen, productId, printSides, pageCount, isInline]);
 
   const activeGsmObj = gsmOptions.find((g) => g.id === selectedGsmId) || gsmOptions[0] || null;
   const currentPrintingConfig = printingOptions.find((o) => o.id === printingSide) || printingOptions[0] || null;
@@ -246,9 +253,12 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     }
   }, [availableQuantities, quantity]);
 
+  const quoteKey = JSON.stringify([quantity, selectedGsmId, printingSide, selectedFolding]);
+  const [quotedOptions, setQuotedOptions] = useState<string | null>(null);
+
   // Fetch dynamic authoritative price whenever quantity, GSM, printingSide, or folding changes
   useEffect(() => {
-    if (!isOpen || !productId) return;
+    if (!isOpen || !productId || (isInline && !productReady)) return;
 
     if (!shouldFetchProductConfiguration(productId)) {
       setLoadingPrice(false);
@@ -259,6 +269,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     let isMounted = true;
     const calculatePricing = async () => {
       setLoadingPrice(true);
+      setQuotedOptions(null);
       setError(null);
       try {
         const selected_options: Record<string, any> = {
@@ -300,6 +311,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
               name: printingDetails.option_name || currentPrintingConfig?.name,
             }) ? 2 : 1,
           });
+          setQuotedOptions(quoteKey);
         }
       } catch (err: any) {
         if (isMounted) {
@@ -317,12 +329,14 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, productId, quantity, selectedGsmId, printingSide, selectedFolding, activeGsmObj, activeFoldingObj]);
+  }, [isOpen, productId, quantity, selectedGsmId, printingSide, selectedFolding, activeGsmObj, activeFoldingObj, isInline, productReady, quoteKey]);
 
   const { openEnquiryModal, isAdmin } = useEnquiry();
 
   const handleAddToCart = async () => {
-    if (!isAdmin) {
+    if (submitting || (prepareArtwork && quotedOptions !== quoteKey)) return;
+
+    if (!isAdmin && !prepareArtwork) {
       onClose();
       openEnquiryModal({
         productId: productId === 'default' ? undefined : productId,
@@ -343,11 +357,11 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
     }
 
     let effectiveArtworkId = artworkId;
-    if (!effectiveArtworkId && productId) {
+    if (!prepareArtwork && !effectiveArtworkId && productId) {
       effectiveArtworkId = safeLocalStorage.getItem<string>('remembered_artwork_id_' + productId) || null;
     }
 
-    if (!effectiveArtworkId) {
+    if (!prepareArtwork && !effectiveArtworkId) {
       setError('Please wait a moment while your artwork is saving to the database.');
       return;
     }
@@ -379,7 +393,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
 
       await cartService.addItem({
         product_id: productId,
-        artwork_id: effectiveArtworkId,
+        artwork_id: prepareArtwork ? await prepareArtwork() : effectiveArtworkId,
         quantity,
         selected_options: selectedOpts,
       });
@@ -399,13 +413,13 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Add Customized Design to Cart"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+      role={prepareArtwork ? undefined : 'dialog'}
+      aria-modal={prepareArtwork ? undefined : true}
+      aria-label={prepareArtwork ? undefined : 'Add Customized Design to Cart'}
+      className={prepareArtwork ? undefined : 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150'}
     >
-      <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
-        {/* Header */}
+      <div className={prepareArtwork ? undefined : 'bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col animate-in zoom-in-95 duration-150'}>
+        {!prepareArtwork && (
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-slate-50/50">
           <div className="flex items-center gap-2 text-slate-800">
             <ShoppingCart className="w-5 h-5 text-emerald-600" />
@@ -421,8 +435,9 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
+        )}
+
+        <div className={prepareArtwork ? 'space-y-5' : 'p-6 space-y-6 max-h-[80vh] overflow-y-auto custom-scrollbar'}>
           {addedSuccess ? (
             <div className="py-8 text-center space-y-4">
               <div className="w-16 h-16 rounded-3xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto shadow-sm">
@@ -467,8 +482,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
                 </div>
               )}
 
-              {/* Artwork Summary preview */}
-              <div className="flex items-center gap-4 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
+              {!prepareArtwork && <div className="flex items-center gap-4 p-3 bg-slate-50 rounded-2xl border border-slate-200/80">
                 <div className="w-20 h-16 bg-white rounded-xl border border-slate-200 flex items-center justify-center p-1 overflow-hidden shrink-0">
                   {previewDataUrl ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
@@ -494,6 +508,8 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
                   </span>
                 </div>
               </div>
+
+              }
 
               {/* Printing Configuration / Sides (Locked to chosen product sides: single or double) */}
               {printingOptions.length > 0 && (
@@ -703,7 +719,7 @@ export const AddToCartModal: React.FC<AddToCartModalProps> = ({
               <button
                 type="button"
                 onClick={handleAddToCart}
-                disabled={submitting || loadingPrice}
+                disabled={submitting || loadingPrice || Boolean(prepareArtwork && quotedOptions !== quoteKey)}
                 className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-emerald-600/20 hover:shadow-xl transition flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {submitting ? (

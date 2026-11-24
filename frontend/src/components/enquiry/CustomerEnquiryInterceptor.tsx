@@ -31,6 +31,7 @@ export const CustomerEnquiryInterceptor: React.FC<CustomerEnquiryInterceptorProp
       // 1. Never intercept within dialogs or the enquiry modal itself
       if (
         target.closest('[role="dialog"]') ||
+        target.closest('[data-template-cart]') ||
         target.closest('#enquiry-modal-root') ||
         target.closest('.enquiry-modal-container')
       ) {
@@ -54,6 +55,7 @@ export const CustomerEnquiryInterceptor: React.FC<CustomerEnquiryInterceptorProp
       if (!clickable) return;
 
       const href = link?.getAttribute('href') || '';
+      if (link?.hasAttribute('data-template-editor') && href.startsWith('/design/')) return;
 
       // Allow informational and essential navigation:
       // Home, about, contact, terms, privacy, auth login/register, admin login, tel, mailto

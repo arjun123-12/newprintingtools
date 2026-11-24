@@ -672,10 +672,33 @@ export const ArtworkPreviewModal: React.FC<ArtworkPreviewModalProps> = ({
           (() => {
             /* 1. 3D INTERACTIVE PRESENTATION VIEW */
             if (viewMode === '3d') {
+              const safeMargin = printLayout?.safeMargin;
+              const dpi = dimensions.dpi || 300;
+              const toPx = (mm: number) => Math.round(mm * dpi / 25.4);
+              const inset = Math.min(
+                Math.max(0, Number(dimensions.marginPx ?? dimensions.safeZonePx ?? 0)),
+                Math.max(0, Math.min(trimWidthPx, trimHeightPx) / 2 - 1)
+              );
+              const left = safeMargin ? toPx(safeMargin.left) : inset;
+              const top = safeMargin ? toPx(safeMargin.top) : inset;
+              const right = safeMargin ? toPx(safeMargin.right) : inset;
+              const bottom = safeMargin ? toPx(safeMargin.bottom) : inset;
+              const width = trimWidthPx - left - right;
+              const height = trimHeightPx - top - bottom;
+              const artworkCrop = width > 0 && height > 0 ? {
+                left: bleedPx + left,
+                top: bleedPx + top,
+                width,
+                height,
+                sourceWidth: totalWidthPx,
+                sourceHeight: totalHeightPx,
+              } : undefined;
+
               return (
                 <Artwork3DViewer
                   previewUrl={front3dUrl}
                   backPreviewUrl={back3dUrl}
+                  artworkCrop={artworkCrop}
                   documentSettings={documentSettings}
                   dimensions={dimensions}
                 />
