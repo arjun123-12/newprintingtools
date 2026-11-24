@@ -79,6 +79,14 @@ export default function CategoryDetailPage({ params }: CategoryDetailPageProps) 
   });
   const category = data?.category ?? null;
   const products = data?.products ?? [];
+  const cardColors = [
+    ['#eee1fa', '#c5a3ef'],
+    ['#dcf7eb', '#88cfab'],
+    ['#fff0d0', '#eed08a'],
+    ['#e0f5f8', '#9ad6dd'],
+    ['#f9e5f3', '#e2a5d6'],
+    ['#ffe7da', '#efa989'],
+  ];
   const error = isError ? 'Could not load category products. Please try again.' : null;
 
   const categoryTitle =
@@ -89,7 +97,7 @@ export default function CategoryDetailPage({ params }: CategoryDetailPageProps) 
       .join(' ');
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
+    <div className="mx-auto w-full max-w-7xl space-y-7 px-4 py-7 sm:px-6 lg:px-8">
       {/* Navigation / Breadcrumb */}
       <div className="flex items-center justify-between">
         <Link
@@ -114,23 +122,23 @@ export default function CategoryDetailPage({ params }: CategoryDetailPageProps) 
       </div>
 
       {/* Hero Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-sky-950 text-white p-8 sm:p-12 shadow-xl border border-slate-800">
-        <div className="relative z-10 max-w-2xl space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-400/30">
+      <div className="relative overflow-hidden rounded-2xl border border-violet-100 bg-[#f7f1ff] p-5 text-slate-900 sm:p-7">
+        <div className="relative z-10 max-w-2xl space-y-3">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-white/70 text-violet-700 border border-violet-200">
             <Sparkles className="w-3.5 h-3.5 text-sky-400" />
             <span>Category Collection</span>
           </div>
 
-          <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
             {categoryTitle}
           </h1>
 
-          <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
+          <p className="text-sm leading-relaxed text-slate-600">
             {category?.description ||
               `High-definition commercial print solutions for ${categoryTitle}. Select from starter templates or design your own in our studio.`}
           </p>
 
-          <div className="flex flex-wrap items-center gap-4 pt-2 text-xs text-slate-300">
+          <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-slate-700">
             <span className="flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
               Heavyweight Cardstocks
@@ -147,7 +155,7 @@ export default function CategoryDetailPage({ params }: CategoryDetailPageProps) 
         </div>
 
         {/* Ambient background decoration */}
-        <div className="absolute -right-12 -bottom-12 w-80 h-80 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -right-12 -bottom-12 w-80 h-80 bg-violet-400/15 rounded-full blur-3xl pointer-events-none" />
       </div>
 
       {/* Product Grid / Content */}
@@ -199,55 +207,51 @@ export default function CategoryDetailPage({ params }: CategoryDetailPageProps) 
             <span className="text-xs text-slate-400">All prices inc. GST</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-            {products.map((product) => {
+          <div
+            aria-label="Available products"
+            className={`grid grid-flow-col auto-cols-[min(78vw,230px)] gap-4 overflow-x-auto pb-3 sm:auto-cols-[230px] ${products.length > 4 ? 'grid-rows-2' : 'grid-rows-1'}`}
+          >
+            {products.map((product, index) => {
               const primaryImg =
                 product.images?.find((img) => img.is_primary)?.url || product.images?.[0]?.url;
+              const [surface, accent] = cardColors[index % cardColors.length];
               const catLabel = product.category?.name || product.category_name || categoryTitle;
 
               return (
                 <div
                   key={product.id}
-                  className="group bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-lg hover:border-sky-300 transition-all duration-200 flex flex-col overflow-hidden"
+                  className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white transition-shadow hover:shadow-md"
                 >
-                  {/* Product Thumbnail */}
-                  <div className="relative aspect-[4/3] bg-gradient-to-tr from-slate-100 to-slate-50 flex items-center justify-center p-4 overflow-hidden border-b border-slate-100">
-                    {primaryImg ? (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
-                        src={primaryImg}
-                        alt={product.name}
-                        className="max-h-full max-w-full object-contain drop-shadow-sm group-hover:scale-105 transition-transform duration-300"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center gap-1.5 text-slate-400">
-                        <div className="w-12 h-12 rounded-xl bg-sky-100/50 text-sky-600 flex items-center justify-center">
-                          <Layers className="w-6 h-6" />
+                  <div
+                    className="relative flex min-h-[76px] items-center overflow-hidden px-3 py-2"
+                    style={{ backgroundColor: surface }}
+                  >
+                    <div className="relative z-10 max-w-[58%]">
+                      <h3 className="line-clamp-2 text-sm font-semibold leading-tight text-slate-900">{product.name}</h3>
+                      <p className="mt-1 truncate text-[10px] text-slate-600">{catLabel}</p>
+                    </div>
+                    <div aria-hidden="true" className="absolute -bottom-1 right-2 h-14 w-[78px] -rotate-6 rounded-md opacity-80" style={{ backgroundColor: accent }} />
+                    <div aria-hidden="true" className="absolute -bottom-1 right-1 flex h-[60px] w-[76px] rotate-[7deg] items-center justify-center overflow-hidden rounded-md bg-white p-1 shadow-md transition-transform group-hover:rotate-3">
+                      {primaryImg ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={primaryImg} alt="" className="h-full w-full object-contain" loading="lazy" decoding="async" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center rounded" style={{ backgroundColor: accent }}>
+                          <Layers className="h-6 w-6 text-slate-700" />
                         </div>
-                        <span className="text-[11px] font-semibold text-slate-500 text-center px-2 line-clamp-1">{product.name}</span>
-                      </div>
-                    )}
-
-                    <span className="absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded-full bg-white/95 backdrop-blur-xs text-[10px] font-bold text-slate-700 border border-slate-200/80 shadow-2xs">
-                      {catLabel}
-                    </span>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Content */}
-                  <div className="p-4 flex-1 flex flex-col justify-between space-y-3.5">
-                    <div className="space-y-1">
-                      <h3 className="text-base font-bold text-slate-900 group-hover:text-sky-600 transition-colors line-clamp-1">
-                        {product.name}
-                      </h3>
+                  <div className="flex flex-1 flex-col justify-between space-y-2 px-3 py-2.5">
+                    <div>
                       <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
                         {product.description ||
                           'Full-color high-resolution offset and digital commercial printing with fast dispatch.'}
                       </p>
                     </div>
 
-                    <div className="space-y-2.5 pt-3 border-t border-slate-100">
+                    <div className="space-y-2 border-t border-slate-100 pt-2">
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-slate-400">Starting from</span>
                         {(() => {

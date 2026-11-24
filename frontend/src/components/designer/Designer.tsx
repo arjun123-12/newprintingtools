@@ -324,6 +324,9 @@ export default function Designer({
     },
   ]);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
+  const [switchingPage, setSwitchingPage] = useState(false);
+  const switchingPageRef = useRef(false);
+  const [pageSwitchError, setPageSwitchError] = useState('');
   const [printSides, setPrintSides] = useState<PrintSides>('front');
   const [activeSide, setActiveSide] = useState<'front' | 'back'>('front');
   const [sideNames, setSideNames] = useState<string[]>(['Front']);
@@ -730,7 +733,7 @@ export default function Designer({
   }, [replaceEmbeddedImageSourcesInJson]);
 
   // Ensure the current active canvas is saved to the pages array before doing operations
-  const getCurrentPagesState = useCallback(async () => {
+  const getCurrentPagesState = useCallback(async (captureThumbnail = true) => {
     const manager = canvasManagerRef.current;
     if (!manager) return pagesRef.current && pagesRef.current.length > 0 ? pagesRef.current : pages;
 
@@ -742,8 +745,7 @@ export default function Designer({
     let thumbDataUrl = '';
 
     try {
-      thumbDataUrl =
-        (await manager.getPageThumbnail()) ?? '';
+      if (captureThumbnail) thumbDataUrl = (await manager.getPageThumbnail()) ?? '';
     } catch (error) {
       // A thumbnail problem must not block saving editable canvas JSON.
       console.warn('Could not create the page thumbnail:', error);
@@ -858,35 +860,41 @@ export default function Designer({
   }, [activePageIndex, getCurrentPagesState]);
 
   const handlePageSelect = useCallback(async (index: number) => {
-    if (index === activePageIndex) return;
-    if (!canvasManagerRef.current) return;
+    const manager = canvasManagerRef.current;
+    if (!manager || switchingPageRef.current || index === activePageIndexRef.current) return;
 
-    // Snapshot current active canvas to pages before switching
-    const currentPages = await getCurrentPagesState();
+    switchingPageRef.current = true;
+    setSwitchingPage(true);
+    setPageSwitchError('');
+    try {
+      const currentPages = await getCurrentPagesState(false);
+      const nextPage = currentPages[index];
+      if (!nextPage) return;
 
-    if (index === 0) {
-      setActiveSide('front');
-    } else if (index === 1 && currentPages.length === 2) {
-      setActiveSide('back');
-    }
-
-    activePageIndexRef.current = index;
-    setActivePageIndex(index);
-    const nextPage = currentPages[index] || currentPages[0];
-    if (nextPage) {
-      await canvasManagerRef.current.loadTemplate({
+      await manager.loadTemplate({
         canvas_json: nextPage.canvasJson,
         backgroundColor: documentSettingsRef.current.backgroundColor,
-      } as any);
+      }, true);
+
+      if (index === 0) setActiveSide('front');
+      else if (index === 1 && currentPages.length === 2) setActiveSide('back');
+      activePageIndexRef.current = index;
+      setActivePageIndex(index);
 
       const { w, h } = containerDimensionsRef.current;
       if (w > 0 && h > 0 && isAutoFitRef.current) {
-        canvasManagerRef.current.fitToViewport(w, h, 32, 48);
+        manager.fitToViewport(w, h, 32, 48);
       } else {
-        canvasManagerRef.current.centerViewport();
+        manager.centerViewport();
       }
+    } catch (error) {
+      console.warn('Could not switch artwork page:', error);
+      setPageSwitchError('This page could not be loaded. Please try again.');
+    } finally {
+      switchingPageRef.current = false;
+      setSwitchingPage(false);
     }
-  }, [activePageIndex, getCurrentPagesState]);
+  }, [getCurrentPagesState]);
 
   const handleAddPage = useCallback(async () => {
     const updatedPages = await getCurrentPagesState();
@@ -1177,6 +1185,10 @@ export default function Designer({
   }, [canvasManager, templateId, productId, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex, printSides]);
 
   const handleSaveDraft = useCallback(async (forCart = false): Promise<void> => {
+    if (switchingPageRef.current) {
+      if (forCart) throw new Error('Wait for the artwork page to finish loading.');
+      return;
+    }
     // If we're in admin-template mode, delegate to the admin template save logic
     const isAdminTemplateMode =
       mode === 'admin-template' ||
@@ -2757,6 +2769,14 @@ export default function Designer({
             </div>
           )}
 
+          {switchingPage && (
+            <div className="absolute inset-0 z-50 flex items-start justify-center pt-3 cursor-wait">
+              <span role="status" className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow-sm">Loading page…</span>
+            </div>
+          )}
+          {pageSwitchError && (
+            <p role="alert" className="absolute left-1/2 top-3 z-50 -translate-x-1/2 rounded-lg bg-red-50 px-3 py-1 text-xs text-red-700">{pageSwitchError}</p>
+          )}
           <DesignerCanvas
             zoom={zoom}
             setZoom={handleZoomChange}
@@ -2823,6 +2843,7 @@ export default function Designer({
           pages={pages}
           activePageIndex={activePageIndex}
           onPageSelect={handlePageSelect}
+          disabled={switchingPage}
           onAddPage={handleAddPage}
           onDuplicatePage={handleDuplicatePage}
           onDeletePage={handleDeletePage}

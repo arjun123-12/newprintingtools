@@ -18,6 +18,7 @@ interface PageManagerTrayProps {
   activePageIndex: number;
   onPageSelect: (index: number) => void;
   onAddPage: () => void;
+  disabled?: boolean;
   canAddPage?: boolean;
   onDuplicatePage: (index: number) => void;
   onDeletePage: (index: number) => void;
@@ -33,6 +34,7 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
   activePageIndex,
   onPageSelect,
   onAddPage,
+  disabled = false,
   canAddPage = pages.length < 2,
   onDuplicatePage,
   onDeletePage,
@@ -189,6 +191,7 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
               <div className="relative">
                 <button
                   type="button"
+                  disabled={disabled}
                   onClick={() => onPageSelect(idx)}
                   aria-label={`Switch to ${label}`}
                   aria-current={isActive ? 'page' : undefined}
@@ -211,6 +214,7 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
                 <div className="absolute right-1 top-0.5 flex h-6 items-center gap-0.5 rounded-md border border-slate-200 bg-white p-px shadow-sm transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100">
                   <button
                     type="button"
+                    disabled={disabled}
                     onClick={() => onDuplicatePage(idx)}
                     className="rounded p-1 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                     aria-label={`Duplicate ${label}`}
@@ -221,6 +225,7 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
                   {displayPages.length > 1 && (
                     <button
                       type="button"
+                      disabled={disabled}
                       onClick={() => onDeletePage(idx)}
                       className="rounded p-1 text-slate-600 hover:bg-red-50 hover:text-red-700"
                       aria-label={`Delete ${label}`}
@@ -239,6 +244,7 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
               {idx === 0 && onApplyDesignToBack && (
                 <button
                   type="button"
+                  disabled={disabled}
                   onClick={onApplyDesignToBack}
                   title="Copy and apply front-page design to back page"
                   className="mt-0.5 w-full rounded px-0.5 py-1 text-center text-[10px] font-medium text-violet-700 hover:bg-violet-50"
@@ -253,6 +259,7 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
         {canAddPage && (
           <button
             type="button"
+            disabled={disabled}
             onClick={onAddPage}
             aria-label="Add page"
             title="Add a new blank page"

@@ -3241,7 +3241,7 @@ export class CanvasManager {
     return json;
   }
 
-  public async loadTemplate(template: DesignerTemplate | any): Promise<void> {
+  public async loadTemplate(template: DesignerTemplate | any, pageSwitch = false): Promise<void> {
     if (!this.canvas) return;
 
     // If template includes an artwork configuration, dynamically initialize canvas to match
@@ -3255,20 +3255,17 @@ export class CanvasManager {
       this.initializeArtwork(config);
     }
 
-    this.canvas.discardActiveObject();
-    const existing = [...this.canvas.getObjects()];
-    existing.forEach((obj) => {
-      if (!obj.get('isGuide' as any)) {
-        this.canvas?.remove(obj);
-      }
-    });
+    const clearArtwork = () => {
+      this.canvas?.discardActiveObject();
+      this.canvas?.getObjects().forEach((obj) => {
+        if (!obj.get('isGuide' as any)) this.canvas?.remove(obj);
+      });
+      if (template.backgroundColor) this.setBackgroundColor(template.backgroundColor);
+    };
+    if (!pageSwitch) clearArtwork();
 
     const canvasW = this.dimensions.widthPx;
     const canvasH = this.dimensions.heightPx;
-
-    if (template.backgroundColor) {
-      this.setBackgroundColor(template.backgroundColor);
-    }
 
     const rawCanvasJson =
       (template as any).template_json ??
@@ -3288,7 +3285,23 @@ export class CanvasManager {
           const exportSafeJson =
             await this.prepareBackendTemplateJson(json);
 
-          await this.canvas.loadFromJSON(exportSafeJson);
+          const canvas = this.canvas;
+          if (!canvas) return;
+
+          if (pageSwitch && exportSafeJson.background == null && template.backgroundColor) {
+            exportSafeJson.background = template.backgroundColor;
+          }
+          const renderOnAddRemove = canvas.renderOnAddRemove;
+          try {
+            // Fabric builds the next page before committing it to the live canvas.
+            await canvas.loadFromJSON(exportSafeJson);
+          } finally {
+            canvas.renderOnAddRemove = renderOnAddRemove;
+          }
+          if (pageSwitch && typeof canvas.backgroundColor === 'string') {
+            this.backgroundSettings = { type: 'color', color: canvas.backgroundColor };
+            this.notifyBackground();
+          }
 
           // Guarantee that canvas dimensions, bleed margins, and boundary lines are strictly initialized
           this.setDimensions(this.dimensions);
@@ -3301,7 +3314,7 @@ export class CanvasManager {
             obj.setCoords();
           });
           this.canvas.requestRenderAll();
-          await this.waitForAllImagesToLoad();
+          if (!pageSwitch) await this.waitForAllImagesToLoad();
           this.syncAllVisualEffects();
           this.centerViewport();
 
@@ -3309,10 +3322,12 @@ export class CanvasManager {
           return;
         }
       } catch (jsonErr) {
+        if (pageSwitch) throw jsonErr;
         console.warn('Failed to load raw canvas_json, proceeding with objects parsing:', jsonErr);
       }
     }
 
+    if (pageSwitch) clearArtwork();
     const objects = Array.isArray(template.objects) ? template.objects : [];
 
     for (const objDef of objects) {
