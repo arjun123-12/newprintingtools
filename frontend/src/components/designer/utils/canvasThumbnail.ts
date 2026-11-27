@@ -30,7 +30,7 @@ export async function renderCanvasJsonToThumbnail(
       backgroundColor: parsedJson?.background || fallbackBg,
     });
 
-    if (parsedJson && (parsedJson.objects?.length > 0 || parsedJson.background)) {
+    if (parsedJson && (parsedJson.objects?.length > 0 || parsedJson.background || parsedJson.backgroundImage)) {
       await staticCanvas.loadFromJSON(parsedJson);
       const scale = Math.min(canvasEl.width / logicalWidth, canvasEl.height / logicalHeight);
       const offsetX = (canvasEl.width - logicalWidth * scale) / 2;

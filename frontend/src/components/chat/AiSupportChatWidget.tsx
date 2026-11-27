@@ -224,21 +224,9 @@ export const AiSupportChatWidget: React.FC = () => {
               setIsMinimized(false);
             }}
             aria-label="Open AI Customer Support Chat"
-            className="group flex items-center gap-3 px-4 py-3 rounded-full bg-slate-950 hover:bg-slate-900 text-white font-bold text-xs shadow-2xl shadow-slate-950/40 hover:shadow-sky-500/20 hover:scale-105 active:scale-95 transition-all duration-200 border border-slate-800"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-800 bg-slate-950 text-white shadow-lg transition-colors hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
           >
-            <div className="relative flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-tr from-sky-500 to-indigo-600 text-white shadow-inner">
-              <Bot className="w-4 h-4 text-white" />
-              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-slate-950 animate-pulse" />
-            </div>
-            <div className="text-left">
-              <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-white tracking-tight">Erry AI Support</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30">
-                  Online
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-400 font-normal">Instant product specs, pricing & FAQs</p>
-            </div>
+            <Bot aria-hidden="true" className="h-5 w-5" />
           </button>
         </div>
       )}

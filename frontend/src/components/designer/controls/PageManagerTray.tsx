@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Plus, Trash2, Copy } from 'lucide-react';
+import { CanvasDimensions } from '@/types/designer';
 import { CanvasManager } from '../canvas/CanvasManager';
 import { renderCanvasJsonToThumbnail } from '../utils/canvasThumbnail';
 
@@ -15,6 +16,7 @@ export interface PageData {
 
 interface PageManagerTrayProps {
   pages: PageData[];
+  dimensions: CanvasDimensions;
   activePageIndex: number;
   onPageSelect: (index: number) => void;
   onAddPage: () => void;
@@ -31,6 +33,7 @@ interface PageManagerTrayProps {
 
 export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
   pages,
+  dimensions,
   activePageIndex,
   onPageSelect,
   onAddPage,
@@ -52,6 +55,10 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
   const onUpdatePageThumbnailRef = useRef(onUpdatePageThumbnail);
   onUpdatePageThumbnailRef.current = onUpdatePageThumbnail;
 
+  const bleed = Math.max(0, Number(dimensions.bleedPx) || 0);
+  const artworkWidth = dimensions.widthPx + 2 * bleed;
+  const artworkHeight = dimensions.heightPx + 2 * bleed;
+
   // Initialize and synchronize thumbnails from incoming `pages` prop
   useEffect(() => {
     let cancelled = false;
@@ -66,9 +73,9 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
       } else if (
         // The active page is captured from the live canvas below. Rendering it
         // again from JSON during startup competes with the editor's first paint.
-        idx !== activePageIndex &&
+        canvasManager && idx !== activePageIndex &&
         page.canvasJson &&
-        (page.canvasJson.objects?.length > 0 || page.canvasJson.background)
+        (page.canvasJson.objects?.length > 0 || page.canvasJson.background || page.canvasJson.backgroundImage)
       ) {
         pagesNeedingThumbnails.push({ page, index: idx });
       }
@@ -78,10 +85,19 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
     // render them one at a time so large documents do not create a startup burst.
     let nextPageTimer: ReturnType<typeof setTimeout> | null = null;
     const renderNextThumbnail = async (position: number) => {
-      if (cancelled || position >= pagesNeedingThumbnails.length) return;
+      if (cancelled || !canvasManager || position >= pagesNeedingThumbnails.length) return;
 
       const { page, index } = pagesNeedingThumbnails[position];
-      const thumb = await renderCanvasJsonToThumbnail(page.canvasJson, 320, 200);
+      let thumb: string | null = null;
+      try {
+        const json = await canvasManager.prepareBackendTemplateJson(page.canvasJson);
+        if (!cancelled) {
+          const scale = Math.min(320 / artworkWidth, 200 / artworkHeight, 1);
+          thumb = await renderCanvasJsonToThumbnail(json, Math.round(artworkWidth * scale), Math.round(artworkHeight * scale), undefined, artworkWidth, artworkHeight);
+        }
+      } catch (error) {
+        console.warn("Could not prepare artwork thumbnail:", error);
+      }
       if (!cancelled && thumb) {
         setLiveThumbnails((prev) => ({ ...prev, [index]: thumb }));
         onUpdatePageThumbnailRef.current?.(index, thumb);
@@ -104,7 +120,7 @@ export const PageManagerTray: React.FC<PageManagerTrayProps> = ({
       cancelled = true;
       if (nextPageTimer) clearTimeout(nextPageTimer);
     };
-  }, [pages, activePageIndex]);
+  }, [pages, activePageIndex, canvasManager, artworkWidth, artworkHeight]);
 
   // Refresh the active thumbnail when artwork changes. The save path shares this snapshot.
   useEffect(() => {

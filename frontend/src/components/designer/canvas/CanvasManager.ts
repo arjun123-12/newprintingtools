@@ -3160,7 +3160,7 @@ export class CanvasManager {
 
   // --- Templates Engine ---
 
-  private async prepareBackendTemplateJson(rawJson: any): Promise<any> {
+  public async prepareBackendTemplateJson(rawJson: any): Promise<any> {
     let baseJson = rawJson;
     if (Array.isArray(rawJson) && rawJson.length > 0) {
       const firstItem = rawJson[0];

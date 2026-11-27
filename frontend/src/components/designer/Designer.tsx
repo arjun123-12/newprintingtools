@@ -42,7 +42,6 @@ import { CustomBannerSizeModal } from './controls/CustomBannerSizeModal';
 import { AddToCartModal } from './controls/AddToCartModal';
 import { TemplatePreviewDrawer } from '@/components/customer/TemplatePreviewDrawer';
 import { PageManagerTray, PageData } from './controls/PageManagerTray';
-import { renderCanvasJsonToThumbnail } from './utils/canvasThumbnail';
 import {
   updateTemplateDesign,
 } from '@/services/designTemplateService';
@@ -1675,27 +1674,6 @@ export default function Designer({
           setActiveSide('front');
           setPrintSides(extracted.printSides);
 
-          // Render thumbnails for non-active pages (like Back side) asynchronously
-          extracted.pages.forEach((p, idx) => {
-            if (idx > 0 && !p.thumbnail && p.canvasJson && (p.canvasJson.objects?.length > 0 || p.canvasJson.background)) {
-              void renderCanvasJsonToThumbnail(
-                p.canvasJson,
-                Math.round(dimensionsRef.current?.widthPx ? dimensionsRef.current.widthPx * 0.25 : 320),
-                Math.round(dimensionsRef.current?.heightPx ? dimensionsRef.current.heightPx * 0.25 : 200),
-                templateArtworkConfig.backgroundColor
-              ).then((thumb) => {
-                if (thumb) {
-                  setPages((prev) => {
-                    const next = [...prev];
-                    if (next[idx]) {
-                      next[idx] = { ...next[idx], thumbnail: thumb };
-                    }
-                    return next;
-                  });
-                }
-              });
-            }
-          });
 
           const firstPage = extracted.pages[0];
           if (firstPage) {
@@ -1768,7 +1746,6 @@ export default function Designer({
         }
 
         // Restore document settings
-        let currentDims = dimensionsRef.current;
         if (artwork.document_settings) {
           const layout = artwork.document_settings.printLayout || (artwork.document_settings as any).print_layout || null;
           setDocumentSettings(artwork.document_settings);
@@ -1779,7 +1756,6 @@ export default function Designer({
           }
           setDimensions(newDims);
           canvasManager.setDimensions(newDims);
-          currentDims = newDims;
           const { w, h } = containerDimensionsRef.current;
           if (w > 0 && h > 0) {
             canvasManager.fitToViewport(w, h, 32, 48);
@@ -1848,29 +1824,6 @@ export default function Designer({
             });
           }
 
-          // Render thumbnails for non-active pages asynchronously
-          const targetW = Math.round(currentDims?.widthPx ? currentDims.widthPx * 0.25 : 320);
-          const targetH = Math.round(currentDims?.heightPx ? currentDims.heightPx * 0.25 : 200);
-          loadedPages.forEach((pJson, idx) => {
-            if (idx > 0 && pJson) {
-              void renderCanvasJsonToThumbnail(
-                pJson,
-                targetW,
-                targetH,
-                artwork.document_settings?.backgroundColor
-              ).then((thumb) => {
-                if (thumb && isMounted && currentSequence === loadSequenceRef.current) {
-                  setPages((prev) => {
-                    const next = [...prev];
-                    if (next[idx]) {
-                      next[idx] = { ...next[idx], thumbnail: thumb };
-                    }
-                    return next;
-                  });
-                }
-              });
-            }
-          });
         }
 
         // Keep track of IDs so saves update the same row
@@ -2226,27 +2179,6 @@ export default function Designer({
     setActiveSide('front');
     setPrintSides(extracted.printSides);
 
-    // Render thumbnails for non-active pages (like Back side) asynchronously
-    extracted.pages.forEach((p, idx) => {
-      if (idx > 0 && !p.thumbnail && p.canvasJson && (p.canvasJson.objects?.length > 0 || p.canvasJson.background)) {
-        void renderCanvasJsonToThumbnail(
-          p.canvasJson,
-          Math.round(dimensionsRef.current?.widthPx ? dimensionsRef.current.widthPx * 0.25 : 320),
-          Math.round(dimensionsRef.current?.heightPx ? dimensionsRef.current.heightPx * 0.25 : 200),
-          templateArtworkConfig.backgroundColor
-        ).then((thumb) => {
-          if (thumb) {
-            setPages((prev) => {
-              const next = [...prev];
-              if (next[idx]) {
-                next[idx] = { ...next[idx], thumbnail: thumb };
-              }
-              return next;
-            });
-          }
-        });
-      }
-    });
 
     const resolvedPrintLayout =
       product?.print_layout ||
@@ -2841,6 +2773,7 @@ export default function Designer({
       >
         <PageManagerTray
           pages={pages}
+          dimensions={dimensions}
           activePageIndex={activePageIndex}
           onPageSelect={handlePageSelect}
           disabled={switchingPage}
