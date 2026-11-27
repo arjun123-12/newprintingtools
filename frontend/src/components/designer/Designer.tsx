@@ -2737,10 +2737,11 @@ export default function Designer({
         {/* Center Canvas Area with Live Zone Alert Banners */}
         <div className="relative flex-1 h-full w-full min-h-0 min-w-0 overflow-hidden flex flex-col">
 
-          {productArtworkModule && (
+          {productArtworkModule && (productArtworkModule.type !== 'generic' || productArtworkModule.customer_note || productArtworkModule.shape === 'custom_die_cut') && (
             <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 max-w-[min(90%,42rem)] rounded-xl border border-violet-200 bg-white/95 px-4 py-2 text-center text-xs text-violet-950 shadow-md backdrop-blur-sm">
-              <span className="font-bold capitalize">{productArtworkModule.type} artwork</span>
-              <span> · Follow the cut line when positioning artwork.</span>
+              {productArtworkModule.type !== 'generic' && (
+                <span className="font-bold capitalize">{productArtworkModule.type} artwork · Follow the cut line when positioning artwork.</span>
+              )}
               {productArtworkModule.customer_note && <span className="block mt-0.5 text-violet-800">{productArtworkModule.customer_note}</span>}
               {productArtworkModule.shape === 'custom_die_cut' && <span className="block mt-0.5 text-amber-700">Custom die-cut contour preview has not been supplied; rectangular guide is shown.</span>}
             </div>
