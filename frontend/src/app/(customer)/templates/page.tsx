@@ -2,7 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import Link from 'next/link';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useDebounce } from '@/hooks/useDebounce';
 import { ArrowLeft, ArrowRight, ChevronRight, LayoutTemplate, Loader2, Palette, Search, CreditCard, Image as ImageIcon, Mail, Youtube, Workflow, FileText, BadgeCheck, Presentation, Link2 } from 'lucide-react';
 import { apiClient } from '@/services/api/client';
@@ -25,6 +25,7 @@ const templateCategories = [
 ];
 
 export default function CustomerTemplatesPage() {
+  const queryClient = useQueryClient();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const stripRef = useRef<HTMLDivElement>(null);
@@ -53,7 +54,9 @@ export default function CustomerTemplatesPage() {
   const visibleTemplates = gallery.data?.pages.flatMap((page) => page.items) ?? [];
   const featured = firstPage?.items ?? [];
   const selectCategory = (name: string) => { setSelectedCategory(name); setSearch(''); };
-  const renderTemplateCard = (item: TemplateItem) => <Link key={`${item.product.id}-${item.template.id}`} data-template-editor href={`/design/${item.product.id}?templateId=${encodeURIComponent(item.template.id)}`} className="group block min-w-0 text-left"><div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl bg-[#f1f2f4] p-3 transition duration-200 group-hover:-translate-y-1 group-hover:shadow-lg">{item.template.thumbnail_url ? <img src={item.template.thumbnail_url} alt={item.template.name} className="h-full w-full rounded-md object-contain" loading="lazy"/> : <div className="flex flex-col items-center gap-2 text-slate-400"><LayoutTemplate className="h-9 w-9"/><span className="text-xs">{item.template.name}</span></div>}<span className="absolute inset-x-3 bottom-3 rounded-lg bg-violet-600 py-2 text-center text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">Open template</span></div><h3 className="mt-3 truncate text-sm font-medium text-slate-900">{item.template.name}</h3><p className="mt-1 truncate text-xs text-slate-500">{item.template.artwork_config?.width && item.template.artwork_config?.height ? `${item.template.artwork_config.width} × ${item.template.artwork_config.height} ${item.template.artwork_config.unit || 'mm'}` : item.product.name}</p></Link>;
+  const renderTemplateCard = (item: TemplateItem) => <Link key={`${item.product.id}-${item.template.id}`} data-template-editor onClick={() => {
+    queryClient.setQueryData(['template-opening-preview', item.template.id], item.template.thumbnail_url ?? null);
+  }} href={`/design/${item.product.id}?templateId=${encodeURIComponent(item.template.id)}`} className="group block min-w-0 text-left"><div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl bg-[#f1f2f4] p-3 transition duration-200 group-hover:-translate-y-1 group-hover:shadow-lg">{item.template.thumbnail_url ? <img src={item.template.thumbnail_url} alt={item.template.name} className="h-full w-full rounded-md object-contain" loading="lazy"/> : <div className="flex flex-col items-center gap-2 text-slate-400"><LayoutTemplate className="h-9 w-9"/><span className="text-xs">{item.template.name}</span></div>}<span className="absolute inset-x-3 bottom-3 rounded-lg bg-violet-600 py-2 text-center text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">Open template</span></div><h3 className="mt-3 truncate text-sm font-medium text-slate-900">{item.template.name}</h3><p className="mt-1 truncate text-xs text-slate-500">{item.template.artwork_config?.width && item.template.artwork_config?.height ? `${item.template.artwork_config.width} × ${item.template.artwork_config.height} ${item.template.artwork_config.unit || 'mm'}` : item.product.name}</p></Link>;
 
   const galleryError = (
     <div role="alert" className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-600">

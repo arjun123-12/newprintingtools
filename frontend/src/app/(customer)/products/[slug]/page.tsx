@@ -2,7 +2,7 @@
 
 import { use, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Palette,
   ArrowLeft,
@@ -55,6 +55,7 @@ interface ProductDetailPageProps {
 
 export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   const { slug } = use(params);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [style, setStyle] = useState('');
 
@@ -144,7 +145,9 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
           {templatesLoading ? Array.from({ length: 10 }, (_, index) => <div key={`skeleton-${index}`} className="aspect-[1.75] animate-pulse rounded-xl border border-slate-200 bg-white" aria-label="Loading template" />) : filteredTemplates.map(template => {
             const cfg = template.artwork_config || {};
             const dims = cfg.width && cfg.height ? `${cfg.width} × ${cfg.height} ${cfg.unit || 'mm'}` : null;
-            return <Link key={template.id} data-template-editor href={`/design/${product.id}?templateId=${encodeURIComponent(template.id)}`} aria-label={`Open ${template.name}`} className="group relative block aspect-[1.75] overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-lg">
+            return <Link key={template.id} data-template-editor onClick={() => {
+              queryClient.setQueryData(['template-opening-preview', template.id], template.thumbnail_url ?? null);
+            }} href={`/design/${product.id}?templateId=${encodeURIComponent(template.id)}`} aria-label={`Open ${template.name}`} className="group relative block aspect-[1.75] overflow-hidden rounded-xl border border-slate-200 bg-white transition hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-lg">
               {template.thumbnail_url ? <img src={template.thumbnail_url} alt={template.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" loading="lazy" decoding="async" /> : <div className="flex h-full flex-col items-center justify-center gap-2 bg-white text-slate-400"><LayoutTemplate className="h-8 w-8" /><span className="px-3 text-center text-xs font-medium">{template.name}</span></div>}
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent px-3 pb-2 pt-8 opacity-0 transition group-hover:opacity-100"><p className="truncate text-xs font-semibold text-white">{template.name}</p></div>
               {dims && <span className="absolute right-2 top-2 rounded-md bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-sm">{dims}</span>}

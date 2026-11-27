@@ -45,6 +45,7 @@ import { PageManagerTray, PageData } from './controls/PageManagerTray';
 import {
   updateTemplateDesign,
 } from '@/services/designTemplateService';
+import { useQueryClient } from '@tanstack/react-query';
 import { formatImageUrl, urlToSafeDataUrl } from '@/utils/imageUrl';
 import { AlertTriangle } from 'lucide-react';
 import {
@@ -356,6 +357,7 @@ export default function Designer({
   const activePageIndexRef = useRef<number>(activePageIndex);
   activePageIndexRef.current = activePageIndex;
   const designTemplateIdRef = useRef<string | null>(null);
+  const readyTemplateIdRef = useRef<string | null>(null);
   const loadedTemplateKeyRef = useRef<string | null>(null);
   const adminTemplateActiveRef = useRef(false);
   const adminTemplateReadyRef = useRef(false);
@@ -1184,6 +1186,10 @@ export default function Designer({
   }, [canvasManager, templateId, productId, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex, printSides]);
 
   const handleSaveDraft = useCallback(async (forCart = false): Promise<void> => {
+    if (templateId && !artworkIdProp && readyTemplateIdRef.current !== templateId) {
+      if (forCart) throw new Error('Wait for the template to finish loading.');
+      return;
+    }
     if (switchingPageRef.current) {
       if (forCart) throw new Error('Wait for the artwork page to finish loading.');
       return;
@@ -1368,7 +1374,7 @@ export default function Designer({
     } finally {
       saveInProgressRef.current = false;
     }
-  }, [handleSaveAdminTemplate, mode, orderId, orderItemId, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex]);
+  }, [handleSaveAdminTemplate, mode, templateId, artworkIdProp, orderId, orderItemId, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex]);
 
   useEffect(() => {
     handleSaveDraftRef.current = handleSaveDraft;
@@ -1470,6 +1476,8 @@ export default function Designer({
     }
   }, []);
 
+  const queryClient = useQueryClient();
+  const [openingTemplate, setOpeningTemplate] = useState<{ id: string; thumbnail?: string; ready?: boolean; failed?: boolean } | null>(null);
   const [templateSavedMsg, setTemplateSavedMsg] = useState<string | null>(null);
 
   // Load template from DB if templateId is provided (and not editing an existing artwork)
@@ -1538,8 +1546,9 @@ export default function Designer({
             });
           }
         }
-        if (!res.ok) return;
+        if (!res.ok) throw new Error('Template request failed.');
         const result = await res.json();
+        if (!result.success || !result.data) throw new Error('Template is unavailable.');
         if (result.success && result.data && isMounted) {
           loadedTemplateKeyRef.current = loadKey;
           designTemplateIdRef.current = String(result.data.id);
@@ -1557,6 +1566,9 @@ export default function Designer({
           }
 
           const t = result.data;
+          if (!isAdminMode && t.thumbnail_url) {
+            setOpeningTemplate({ id: activeTmplId, thumbnail: t.thumbnail_url });
+          }
           let p = t.product || null;
 
           if (!p && loadedProductId && loadedProductId !== 'default') {
@@ -1684,19 +1696,10 @@ export default function Designer({
               template_json: firstPage.canvasJson,
               canvas_json: firstPage.canvasJson,
               backgroundColor: templateArtworkConfig.backgroundColor,
-            } as any);
-
-            // Generate first page thumbnail immediately
-            const frontThumb = await canvasManager.getPageThumbnail();
-            if (frontThumb) {
-              setPages((prev) => {
-                const next = [...prev];
-                if (next[0]) {
-                  next[0] = { ...next[0], thumbnail: frontThumb };
-                }
-                return next;
-              });
-            }
+            }, !isAdminMode);
+            if (!isMounted) return;
+            readyTemplateIdRef.current = activeTmplId;
+            setOpeningTemplate({ id: activeTmplId, ready: true });
           }
           if (isMounted && firstPage && p?.id && !isAdminMode) {
             setPrintTemplate({
@@ -1717,6 +1720,7 @@ export default function Designer({
         }
       } catch (err) {
         if (mode === 'admin-template') adminTemplateReadyRef.current = false;
+        if (isMounted) setOpeningTemplate({ id: activeTmplId, failed: true });
         console.warn('Could not pre-load template:', err);
       }
     };
@@ -2590,6 +2594,14 @@ export default function Designer({
   ]);
 
 
+  const openingCustomerTemplate = Boolean(templateId && !artworkIdProp && mode !== 'admin-template' && mode !== 'order-artwork'
+    && (openingTemplate?.id !== templateId || !openingTemplate?.ready));
+  const openingFailed = openingTemplate?.id === templateId && openingTemplate?.failed;
+  const openingThumbnail = formatImageUrl(
+    (openingTemplate?.id === templateId ? openingTemplate?.thumbnail : undefined)
+    || queryClient.getQueryData<string>(['template-opening-preview', templateId])
+  );
+
   const activePrintTemplate = printTemplate?.id === templateId ? printTemplate : null;
   const showPrintPanel = Boolean(activePrintTemplate && printPanelOpen);
 
@@ -2701,6 +2713,21 @@ export default function Designer({
             </div>
           )}
 
+          {openingCustomerTemplate && (
+            <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-[#f0f2f5] p-6">
+              {!openingFailed && openingThumbnail && (
+                <img src={openingThumbnail} alt="Selected template preview" className="max-h-[75%] max-w-[90%] rounded-sm object-contain shadow-md" />
+              )}
+              {openingFailed ? (
+                <div role="alert" className="text-center text-sm text-slate-700">
+                  <p>This template could not be opened.</p>
+                  <button type="button" onClick={() => window.location.reload()} className="mt-2 font-semibold text-violet-700 underline">Try again</button>
+                </div>
+              ) : (
+                <p role="status" className="text-sm font-medium text-slate-600">Opening template…</p>
+              )}
+            </div>
+          )}
           {switchingPage && (
             <div className="absolute inset-0 z-50 flex items-start justify-center pt-3 cursor-wait">
               <span role="status" className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow-sm">Loading page…</span>
