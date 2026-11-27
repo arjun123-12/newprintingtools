@@ -46,6 +46,7 @@ import {
   updateTemplateDesign,
 } from '@/services/designTemplateService';
 import { useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '@/services/api/client';
 import { formatImageUrl, urlToSafeDataUrl } from '@/utils/imageUrl';
 import { AlertTriangle } from 'lucide-react';
 import {
@@ -358,6 +359,7 @@ export default function Designer({
   activePageIndexRef.current = activePageIndex;
   const designTemplateIdRef = useRef<string | null>(null);
   const readyTemplateIdRef = useRef<string | null>(null);
+  const readyArtworkIdRef = useRef<string | null>(null);
   const loadedTemplateKeyRef = useRef<string | null>(null);
   const adminTemplateActiveRef = useRef(false);
   const adminTemplateReadyRef = useRef(false);
@@ -1186,6 +1188,10 @@ export default function Designer({
   }, [canvasManager, templateId, productId, uploadBase64ImagesInCanvas, uploadBase64ImagesInPages, getCurrentPagesState, activePageIndex, printSides]);
 
   const handleSaveDraft = useCallback(async (forCart = false): Promise<void> => {
+    if (artworkIdProp && readyArtworkIdRef.current !== artworkIdProp) {
+      if (forCart) throw new Error('Wait for your saved artwork to finish loading.');
+      return;
+    }
     if (templateId && !artworkIdProp && readyTemplateIdRef.current !== templateId) {
       if (forCart) throw new Error('Wait for the template to finish loading.');
       return;
@@ -1322,6 +1328,8 @@ export default function Designer({
           );
 
           artworkIdRef.current = savedArtwork.id;
+          readyArtworkIdRef.current = savedArtwork.id;
+          setOpeningArtwork({ id: savedArtwork.id, ready: true });
           lastSavedPayloadFingerprintRef.current = payloadFingerprint;
           setCurrentArtworkId(savedArtwork.id);
           designerService.rememberArtworkId(
@@ -1439,10 +1447,10 @@ export default function Designer({
       artworkIdRef.current = artworkIdProp;
       return;
     }
-    artworkIdRef.current = !orderId && productId
+    artworkIdRef.current = !templateId && !orderId && productId
       ? designerService.loadRememberedArtworkId(productId)
       : null;
-  }, [productId, artworkIdProp, orderId]);
+  }, [productId, artworkIdProp, templateId, orderId]);
 
   // Autosave every meaningful CanvasManager mutation, including template loads.
   useEffect(() => {
@@ -1478,6 +1486,8 @@ export default function Designer({
 
   const queryClient = useQueryClient();
   const [openingTemplate, setOpeningTemplate] = useState<{ id: string; thumbnail?: string; ready?: boolean; failed?: boolean } | null>(null);
+  const [openingArtwork, setOpeningArtwork] = useState<{ id: string; ready?: boolean; failed?: boolean } | null>(null);
+  const [blankSavedFront, setBlankSavedFront] = useState<{ artworkId: string; templateId: string } | null>(null);
   const [templateSavedMsg, setTemplateSavedMsg] = useState<string | null>(null);
 
   // Load template from DB if templateId is provided (and not editing an existing artwork)
@@ -1734,7 +1744,7 @@ export default function Designer({
 
   // Load artwork from DB if artworkIdProp is provided
   useEffect(() => {
-    if (!artworkIdProp || !canvasManager) return;
+    if (!artworkIdProp || !canvasManager || readyArtworkIdRef.current === artworkIdProp) return;
 
     let isMounted = true;
     const currentSequence = ++loadSequenceRef.current;
@@ -1767,7 +1777,8 @@ export default function Designer({
         }
 
         // Load fully editable JSON into CanvasManager
-        if (artwork.canvas_json) {
+        if (!artwork.canvas_json) throw new Error('Saved artwork has no canvas data.');
+        {
           let rawJson = artwork.canvas_json;
           if (typeof rawJson === 'string') {
             try {
@@ -1785,6 +1796,15 @@ export default function Designer({
             }
             return p;
           });
+
+          const front = loadedPages[0];
+          if (!front || typeof front !== 'object' || !Array.isArray(front.objects)) {
+            throw new Error('Saved artwork Front has invalid canvas data.');
+          }
+          const sourceTemplateId = templateId || artwork.design_template_id || artwork.template_id;
+          if (sourceTemplateId && front.objects.length === 0 && !front.backgroundImage && !front.overlayImage) {
+            setBlankSavedFront({ artworkId: artworkIdProp, templateId: sourceTemplateId });
+          }
 
           const detectedSides = (artwork.print_sides || (loadedPages.length > 1 ? 'both' : 'front')) as PrintSides;
           setPrintSides(detectedSides);
@@ -1809,26 +1829,17 @@ export default function Designer({
           await canvasManager.loadTemplate({
             canvas_json: loadedPages[0],
             backgroundColor: artwork.document_settings?.backgroundColor || undefined,
-          } as any);
+          }, true);
 
           canvasManager.refreshCanvasInteractivity();
 
           if (!isMounted || currentSequence !== loadSequenceRef.current) return;
 
-          // Generate front thumbnail
-          const frontThumb = await canvasManager.getPageThumbnail();
-          if (frontThumb && isMounted) {
-            setPages((prev) => {
-              const next = [...prev];
-              if (next[0]) {
-                next[0] = { ...next[0], thumbnail: frontThumb };
-              }
-              pagesRef.current = next;
-              return next;
-            });
-          }
 
         }
+
+        readyArtworkIdRef.current = artworkIdProp;
+        setOpeningArtwork({ id: artworkIdProp, ready: true });
 
         // Keep track of IDs so saves update the same row
         artworkIdRef.current = artwork.id;
@@ -1839,6 +1850,7 @@ export default function Designer({
           productIdRef.current = String(artwork.product_id);
         }
       } catch (err) {
+        if (isMounted && currentSequence === loadSequenceRef.current) setOpeningArtwork({ id: artworkIdProp, failed: true });
         console.warn('Could not pre-load artwork:', err);
       }
     };
@@ -1848,7 +1860,42 @@ export default function Designer({
     return () => {
       isMounted = false;
     };
-  }, [artworkIdProp, canvasManager]);
+  }, [artworkIdProp, canvasManager, templateId]);
+
+  const restoreTemplateFront = async () => {
+    const manager = canvasManagerRef.current;
+    const prodId = productIdRef.current;
+    if (!manager || !blankSavedFront || !prodId || switchingPageRef.current || activePageIndexRef.current !== 0) return;
+    const currentFront = manager.getSerializableJson();
+    if (currentFront.objects?.length || currentFront.backgroundImage || currentFront.overlayImage) {
+      setBlankSavedFront(null);
+      return;
+    }
+
+    switchingPageRef.current = true;
+    setSwitchingPage(true);
+    setPageSwitchError('');
+    try {
+      const { data } = await apiClient.get(`/designer/templates/${encodeURIComponent(prodId)}/${encodeURIComponent(blankSavedFront.templateId)}`);
+      const front = data.success && data.data ? extractTemplatePages(data.data).pages[0] : null;
+      if (!front || (!front.canvasJson.objects?.length && !front.canvasJson.backgroundImage)) {
+        throw new Error('Template Front is unavailable.');
+      }
+      await manager.loadTemplate({ canvas_json: front.canvasJson }, true);
+      const updated = pagesRef.current.map((page, index) => index === 0
+        ? { ...page, canvasJson: manager.getSerializableJson(), thumbnail: front.thumbnail }
+        : page);
+      pagesRef.current = updated;
+      setPages(updated);
+      setBlankSavedFront(null);
+    } catch (error) {
+      console.warn('Could not restore template Front:', error);
+      setPageSwitchError('Could not restore the template Front. Please try again.');
+    } finally {
+      switchingPageRef.current = false;
+      setSwitchingPage(false);
+    }
+  };
 
   // Synchronize active canvas side with CanvasGuides
   useEffect(() => {
@@ -2596,7 +2643,10 @@ export default function Designer({
 
   const openingCustomerTemplate = Boolean(templateId && !artworkIdProp && mode !== 'admin-template' && mode !== 'order-artwork'
     && (openingTemplate?.id !== templateId || !openingTemplate?.ready));
-  const openingFailed = openingTemplate?.id === templateId && openingTemplate?.failed;
+  const openingSavedArtwork = Boolean(artworkIdProp && (openingArtwork?.id !== artworkIdProp || !openingArtwork?.ready));
+  const openingFailed = openingSavedArtwork
+    ? openingArtwork?.id === artworkIdProp && openingArtwork?.failed
+    : openingTemplate?.id === templateId && openingTemplate?.failed;
   const openingThumbnail = formatImageUrl(
     (openingTemplate?.id === templateId ? openingTemplate?.thumbnail : undefined)
     || queryClient.getQueryData<string>(['template-opening-preview', templateId])
@@ -2713,19 +2763,26 @@ export default function Designer({
             </div>
           )}
 
-          {openingCustomerTemplate && (
+          {(openingCustomerTemplate || openingSavedArtwork) && (
             <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-[#f0f2f5] p-6">
-              {!openingFailed && openingThumbnail && (
+              {openingCustomerTemplate && !openingFailed && openingThumbnail && (
                 <img src={openingThumbnail} alt="Selected template preview" className="max-h-[75%] max-w-[90%] rounded-sm object-contain shadow-md" />
               )}
               {openingFailed ? (
                 <div role="alert" className="text-center text-sm text-slate-700">
-                  <p>This template could not be opened.</p>
+                  <p>{openingSavedArtwork ? 'This saved artwork could not be opened.' : 'This template could not be opened.'}</p>
                   <button type="button" onClick={() => window.location.reload()} className="mt-2 font-semibold text-violet-700 underline">Try again</button>
                 </div>
               ) : (
-                <p role="status" className="text-sm font-medium text-slate-600">Opening template…</p>
+                <p role="status" className="text-sm font-medium text-slate-600">{openingSavedArtwork ? 'Opening saved artwork…' : 'Opening template…'}</p>
               )}
+            </div>
+          )}
+          {!openingSavedArtwork && blankSavedFront?.artworkId === artworkIdProp && activePageIndex === 0 && !switchingPage && (
+            <div className="absolute left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow-sm">
+              Saved Front is empty.
+              <button type="button" onClick={() => void restoreTemplateFront()} className="font-semibold text-violet-700 underline">Restore Front from template</button>
+              <button type="button" onClick={() => setBlankSavedFront(null)} className="font-medium text-slate-600">Dismiss</button>
             </div>
           )}
           {switchingPage && (
@@ -2734,7 +2791,7 @@ export default function Designer({
             </div>
           )}
           {pageSwitchError && (
-            <p role="alert" className="absolute left-1/2 top-3 z-50 -translate-x-1/2 rounded-lg bg-red-50 px-3 py-1 text-xs text-red-700">{pageSwitchError}</p>
+            <p role="alert" className="absolute left-1/2 top-12 z-50 -translate-x-1/2 rounded-lg bg-red-50 px-3 py-1 text-xs text-red-700">{pageSwitchError}</p>
           )}
           <DesignerCanvas
             zoom={zoom}

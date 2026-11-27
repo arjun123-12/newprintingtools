@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { Check, LayoutTemplate, Search } from 'lucide-react';
 import { CanvasManager } from '../canvas/CanvasManager';
@@ -104,6 +104,7 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
 }) => {
   const [templates, setTemplates] = useState<PanelTemplate[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const headingId = useId();
   const [activeTemplateId, setActiveTemplateId] = useState<
     string | null
   >(null);
@@ -215,116 +216,87 @@ export const TemplatesPanel: React.FC<TemplatesPanelProps> = ({
   };
 
   return (
-    <div className="custom-scrollbar select-none space-y-4 p-4">
-      <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
-        <div className="flex items-center gap-1.5">
-          <LayoutTemplate className="h-4 w-4 text-blue-600" />
-          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-800">
-            Templates
-          </h3>
-        </div>
-
-        <span className="text-[10px] text-gray-400">
-          Print Ready
-        </span>
-      </div>
-
+    <div className="space-y-4 px-3 pb-4 pt-3">
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+        <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-600" />
         <input
-          type="text"
-          placeholder="Search print templates..."
+          type="search"
+          aria-label="Search templates for this product"
+          placeholder="Search templates"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
-          className="w-full rounded-xl border border-gray-200 bg-gray-50/70 py-1.5 pl-9 pr-3 text-xs text-gray-800 placeholder-gray-400 transition focus:border-blue-500 focus:bg-white focus:outline-none"
+          className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-500 focus:border-violet-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-100"
         />
       </div>
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
-          {error}
-        </div>
-      )}
+      <section aria-labelledby={headingId} aria-busy={loading}>
+        <h3 id={headingId} className="mb-2.5 text-xs font-semibold text-slate-800">
+          Templates for this product
+        </h3>
 
-      {loading ? (
-        <div className="space-y-3 pt-1">
-          {[1, 2, 3].map((item) => (
-            <div
-              key={item}
-              className="h-28 animate-pulse rounded-2xl bg-gray-100"
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-3 pt-1">
-          {filteredTemplates.map((template) => {
-            const isApplied = activeTemplateId === template.id;
+        {error && (
+          <p role="alert" className="mb-2 rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+            {error}
+          </p>
+        )}
 
-            return (
-              <button
-                key={template.id}
-                type="button"
-                onClick={() => void handleApplyTemplate(template)}
-                title={`Open ${template.title} in artwork`}
-                className={`group relative block w-full cursor-pointer overflow-hidden rounded-2xl border bg-white text-left shadow-2xs transition hover:shadow-md ${isApplied
-                  ? 'border-blue-500 ring-2 ring-blue-500/20'
-                  : 'border-gray-200 hover:border-blue-400'
+        {loading ? (
+          <div aria-hidden="true" className="grid grid-cols-2 gap-2">
+            {Array.from({ length: 6 }, (_, index) => (
+              <div key={index} className="aspect-video animate-pulse rounded-lg bg-slate-100" />
+            ))}
+          </div>
+        ) : filteredTemplates.length > 0 ? (
+          <div className="grid grid-cols-2 gap-2">
+            {filteredTemplates.map((template) => {
+              const isApplied = activeTemplateId === template.id;
+
+              return (
+                <button
+                  key={template.id}
+                  type="button"
+                  onClick={() => void handleApplyTemplate(template)}
+                  aria-label={`Open ${template.title} in artwork`}
+                  aria-pressed={isApplied}
+                  title={template.description ? `${template.title} · ${template.description}` : template.title}
+                  className={`group relative aspect-video min-w-0 overflow-hidden rounded-lg border bg-slate-50 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600 ${isApplied
+                    ? 'border-violet-600 ring-1 ring-violet-600'
+                    : 'border-slate-200 hover:border-violet-400'
                   }`}
-              >
-                <div
-                  className="relative flex h-28 w-full flex-col justify-between overflow-hidden p-4 transition group-hover:scale-[1.02]"
-                  style={{ background: template.thumbnailBg }}
                 >
-                  {template.thumbnailUrl && (
+                  {template.thumbnailUrl ? (
                     <Image
                       src={template.thumbnailUrl}
-                      alt={template.title || 'Template thumbnail'}
+                      alt=""
                       fill
                       unoptimized
-                      sizes="(max-width: 768px) 100vw, 320px"
-                      className="object-cover"
+                      sizes="160px"
+                      className="object-contain transition-transform group-hover:scale-[1.02]"
                     />
+                  ) : (
+                    <span className="flex h-full flex-col justify-center gap-1 px-2 text-white" style={{ background: template.thumbnailBg }}>
+                      <LayoutTemplate aria-hidden="true" className="h-4 w-4" />
+                      <span className="line-clamp-2 text-xs font-semibold leading-tight">{template.title}</span>
+                    </span>
                   )}
 
-                  <div className="absolute inset-0 bg-black/15" />
-
-                  <div className="relative z-10 flex items-start justify-between">
-                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white backdrop-blur-xs">
-                      {template.category}
+                  {isApplied && (
+                    <span className="absolute bottom-1 right-1 rounded-full bg-violet-700 p-1 text-white shadow-sm">
+                      <Check aria-hidden="true" className="h-3 w-3" />
                     </span>
-
-                    <div className="flex items-center gap-1">
-                      {isApplied && (
-                        <span className="flex items-center gap-1 rounded-full bg-blue-500 px-2 py-0.5 text-[9px] font-bold text-white shadow-xs">
-                          <Check className="h-3 w-3" />
-                          Active
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="relative z-10">
-                    <h4 className="truncate text-sm font-extrabold text-white drop-shadow-xs">
-                      {template.title}
-                    </h4>
-                    <p className="mt-0.5 truncate text-[10px] text-white/70">
-                      {template.description}
-                    </p>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-
-          {filteredTemplates.length === 0 && !error && (
-            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 py-8 text-center text-xs text-gray-400">
-              {templates.length === 0
-                ? 'No templates are available for this product.'
-                : `No templates matching "${searchQuery}"`}
-            </div>
-          )}
-        </div>
-      )}
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ) : !error && (
+          <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-600">
+            {templates.length === 0
+              ? 'No templates are available for this product.'
+              : `No templates matching "${searchQuery}"`}
+          </p>
+        )}
+      </section>
     </div>
   );
 };
