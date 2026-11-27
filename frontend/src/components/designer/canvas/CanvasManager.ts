@@ -524,7 +524,7 @@ export class CanvasManager {
     smoothness: 1.0,
     strokeLineCap: 'round',
     strokeLineJoin: 'round',
-    sprayDensity: 25,
+    sprayDensity: 40,
     sprayDotWidth: 2,
     calligraphyAngle: 30,
   };
@@ -2125,7 +2125,7 @@ export class CanvasManager {
       const spray = new SprayBrush(this.canvas);
       spray.width = Math.max(size * 2.5, 6);
       spray.color = rgbaColor;
-      spray.density = sprayDensity || 25;
+      spray.density = sprayDensity || 40;
       spray.dotWidth = sprayDotWidth || 2;
       this.canvas.freeDrawingBrush = spray;
       return;
@@ -2135,6 +2135,7 @@ export class CanvasManager {
     // NORMAL BRUSHES
     // =========================
     const pencil = new PencilBrush(this.canvas);
+    pencil.decimate = 0.2;
 
     if (tool === 'pencil') {
       pencil.width = Math.max(size * 0.5, 1);

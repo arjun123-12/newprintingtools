@@ -94,7 +94,7 @@ export const BrushPanel: React.FC<BrushPanelProps> = ({ canvasManager }) => {
     smoothness: 1.0,
     strokeLineCap: 'round',
     strokeLineJoin: 'round',
-    sprayDensity: 25,
+    sprayDensity: 40,
     sprayDotWidth: 2,
     calligraphyAngle: 45,
   });
