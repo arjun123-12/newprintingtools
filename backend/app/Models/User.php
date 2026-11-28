@@ -101,6 +101,11 @@ class User extends Authenticatable
             'description' => 'View operational, revenue, and production analytics',
             'category' => 'General',
         ],
+        'attendance' => [
+            'name' => 'Attendance',
+            'description' => 'View employee attendance logs, working hours, breaks, and real-time activity status',
+            'category' => 'Operations',
+        ],
         'settings' => [
             'name' => 'Settings',
             'description' => 'Manage store configurations and platform settings',
@@ -177,6 +182,11 @@ class User extends Authenticatable
     public function assignedArtworks(): HasMany
     {
         return $this->hasMany(Artwork::class, 'assigned_designer_id');
+    }
+
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(Attendance::class);
     }
 
     /*

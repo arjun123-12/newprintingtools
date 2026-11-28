@@ -508,6 +508,17 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/my-rewards', [\App\Http\Controllers\Api\V1\Rewards\SpinRewardController::class, 'customerRewards']);
         Route::post('/claim-spin-reward', [\App\Http\Controllers\Api\V1\Rewards\SpinRewardController::class, 'claimReward']);
     });
+
+    // Employee Attendance Tracking Routes
+    Route::prefix('attendance')->group(function () {
+        Route::get('/current', [\App\Http\Controllers\Api\V1\Attendance\AttendanceController::class, 'current']);
+        Route::post('/login', [\App\Http\Controllers\Api\V1\Attendance\AttendanceController::class, 'login']);
+        Route::post('/heartbeat', [\App\Http\Controllers\Api\V1\Attendance\AttendanceController::class, 'heartbeat']);
+        Route::post('/status', [\App\Http\Controllers\Api\V1\Attendance\AttendanceController::class, 'status']);
+        Route::post('/break/start', [\App\Http\Controllers\Api\V1\Attendance\AttendanceController::class, 'startBreak']);
+        Route::post('/break/end', [\App\Http\Controllers\Api\V1\Attendance\AttendanceController::class, 'endBreak']);
+        Route::post('/logout', [\App\Http\Controllers\Api\V1\Attendance\AttendanceController::class, 'logout']);
+    });
 });
 
 // ==========================================
@@ -1048,6 +1059,12 @@ Route::middleware(['auth:sanctum', 'admin.access'])
             Route::get('/campaign-recipients', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'getCampaignRecipients']);
             Route::post('/campaign-recipients', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'storeCampaignRecipient']);
             Route::post('/send-invitation', [\App\Http\Controllers\Api\V1\Admin\AdminSpinRewardController::class, 'sendInvitation']);
+        });
+
+        // Attendance Management & Dashboard
+        Route::middleware('permission:attendance')->prefix('attendances')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\V1\Attendance\AttendanceController::class, 'adminIndex']);
+            Route::get('/summary', [\App\Http\Controllers\Api\V1\Attendance\AttendanceController::class, 'adminSummary']);
         });
     });
 Route::prefix('client-brief-auth')->group(function () {

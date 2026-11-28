@@ -705,11 +705,6 @@ class ArtworkController extends Controller
             return;
         }
 
-        // Legacy / guest without session restriction fallback
-        if (!$artwork->user_id && empty($artwork->session_id)) {
-            return;
-        }
-
         abort(403, 'You do not have permission to access this artwork.');
     }
 

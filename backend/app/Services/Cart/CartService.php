@@ -10,6 +10,7 @@ use App\Models\CartItem;
 use App\Models\Product;
 use App\Services\Pricing\PricingCalculatorService;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class CartService
 {
@@ -25,38 +26,31 @@ class CartService
         $cart = null;
 
         if ($userId) {
-            // Find user's existing cart
-            $cart = Cart::where('user_id', $userId)->first();
+            $cart = DB::transaction(function () use ($sessionId, $userId) {
+                $cart = Cart::where('user_id', $userId)->lockForUpdate()->first();
+                if (!empty($sessionId)) {
+                    $guestCart = Cart::where('session_id', $sessionId)
+                        ->whereNull('user_id')
+                        ->lockForUpdate()
+                        ->first();
 
-            // If user previously had a guest cart in this session, merge items into user cart
-            if (!empty($sessionId)) {
-                $guestCart = Cart::where('session_id', $sessionId)
-                    ->where(function ($q) use ($userId) {
-                        $q->whereNull('user_id')->orWhere('user_id', '!=', $userId);
-                    })
-                    ->first();
-
-                if ($guestCart && $guestCart->id !== $cart?->id) {
-                    if (!$cart) {
-                        // Reassign guest cart to this user
+                    if ($guestCart && !$cart) {
                         $guestCart->update(['user_id' => $userId]);
-                        $cart = $guestCart;
-                    } else {
-                        // Move guest cart items into user cart
-                        CartItem::where('cart_id', $guestCart->id)
-                            ->update(['cart_id' => $cart->id]);
+                        return $guestCart;
+                    }
+
+                    if ($guestCart && $cart) {
+                        CartItem::where('cart_id', $guestCart->id)->update(['cart_id' => $cart->id]);
                         $guestCart->delete();
                     }
                 }
-            }
 
-            if (!$cart) {
-                $cart = Cart::create([
+                return $cart ?? Cart::create([
                     'user_id' => $userId,
                     'session_id' => $sessionId,
                     'currency' => 'AUD',
                 ]);
-            }
+            }, 3);
         } elseif (!empty($sessionId)) {
             $cart = Cart::where('session_id', $sessionId)->whereNull('user_id')->first();
 

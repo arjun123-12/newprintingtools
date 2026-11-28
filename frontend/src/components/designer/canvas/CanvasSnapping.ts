@@ -1,4 +1,4 @@
-import { Canvas, FabricObject } from 'fabric';
+import { ActiveSelection, Canvas, FabricObject } from 'fabric';
 import { CanvasDimensions } from '@/types/designer';
 import { UserRulerGuide } from './CanvasGuides';
 
@@ -127,33 +127,39 @@ export class CanvasSnapping {
     this.lastSnapY = null;
 
     try {
-      const otherObjects = this.canvas
-        .getObjects()
-        .filter(
-          (obj) =>
-            obj !== target &&
-            obj.visible &&
-            !obj.get('isGuide' as any) &&
-            !obj.get('isPrintGuide' as any) &&
-            !obj.get('excludeFromSelection' as any) &&
-            !obj.get('isBackground' as any)
-        );
-
-      this.cachedOtherBounds = otherObjects.map((obj) => {
-        const b = obj.getBoundingRect();
-        return {
-          obj,
-          left: b.left,
-          right: b.left + b.width,
-          centerX: b.left + b.width / 2,
-          top: b.top,
-          bottom: b.top + b.height,
-          centerY: b.top + b.height / 2,
-        };
-      });
+      this.cachedOtherBounds = this.getStationaryBounds(target);
     } catch {
       this.cachedOtherBounds = [];
     }
+  }
+
+  private getStationaryBounds(target: FabricObject): StationaryObjectBound[] {
+    const moving = new Set<FabricObject>([target]);
+    if (target instanceof ActiveSelection) {
+      target.getObjects().forEach((obj) => moving.add(obj));
+    }
+
+    return (this.canvas?.getObjects() ?? [])
+      .filter((obj) =>
+        !moving.has(obj) &&
+        obj.visible &&
+        !obj.get('isGuide' as any) &&
+        !obj.get('isPrintGuide' as any) &&
+        !obj.get('excludeFromSelection' as any) &&
+        !obj.get('isBackground' as any)
+      )
+      .map((obj) => {
+        const bounds = obj.getBoundingRect();
+        return {
+          obj,
+          left: bounds.left,
+          right: bounds.left + bounds.width,
+          centerX: bounds.left + bounds.width / 2,
+          top: bounds.top,
+          bottom: bounds.top + bounds.height,
+          centerY: bounds.top + bounds.height / 2,
+        };
+      });
   }
 
   /**
@@ -266,6 +272,8 @@ export class CanvasSnapping {
       }
       const b = this.cachedBoundaries!;
 
+      const startLeft = target.left;
+      const startTop = target.top;
       const bound = target.getBoundingRect();
       const targetW = bound.width;
       const targetH = bound.height;
@@ -689,29 +697,7 @@ export class CanvasSnapping {
       let otherBounds = this.cachedOtherBounds;
       if (otherBounds.length === 0 && !this.isDragging) {
         // Fallback if beginDrag was not called (e.g. programmatically or scaling)
-        const otherObjects = this.canvas
-          .getObjects()
-          .filter(
-            (obj) =>
-              obj !== target &&
-              obj.visible &&
-              !obj.get('isGuide' as any) &&
-              !obj.get('isPrintGuide' as any) &&
-              !obj.get('excludeFromSelection' as any) &&
-              !obj.get('isBackground' as any)
-          );
-        otherBounds = otherObjects.map((obj) => {
-          const ob = obj.getBoundingRect();
-          return {
-            obj,
-            left: ob.left,
-            right: ob.left + ob.width,
-            centerX: ob.left + ob.width / 2,
-            top: ob.top,
-            bottom: ob.top + ob.height,
-            centerY: ob.top + ob.height / 2,
-          };
-        });
+        otherBounds = this.getStationaryBounds(target);
       }
 
       // Object X Alignments (Vertical Guides)
@@ -952,7 +938,14 @@ export class CanvasSnapping {
         }
       }
 
-      target.setCoords();
+      if (target.left !== startLeft || target.top !== startTop) {
+        if (this.isDragging && target instanceof ActiveSelection) {
+          // Members keep their local coordinates while the selection translates.
+          FabricObject.prototype.setCoords.call(target);
+        } else {
+          target.setCoords();
+        }
+      }
     } catch (snapErr) {
       console.warn('Snapping computation error:', snapErr);
     }

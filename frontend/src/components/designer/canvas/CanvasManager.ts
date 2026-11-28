@@ -754,6 +754,17 @@ export class CanvasManager {
     const workspaceOffset = this.getWorkspacePaddingPx() * this.zoom;
     canvas.setViewportTransform([this.zoom, 0, 0, this.zoom, workspaceOffset, workspaceOffset]);
 
+    const drawControls = canvas.drawControls.bind(canvas);
+    canvas.drawControls = (ctx) => {
+      const active = canvas.getActiveObject();
+      if (active instanceof ActiveSelection && active.isMoving) {
+        // The selection outline is sufficient while moving; restore child outlines on release.
+        FabricObject.prototype._renderControls.call(active, ctx);
+      } else {
+        drawControls(ctx);
+      }
+    };
+
     this.canvas = canvas;
     if (typeof window !== 'undefined') {
       (window as any).__fabricCanvas = canvas;
@@ -13024,7 +13035,7 @@ export class CanvasManager {
         this.snapping.handleObjectMove(target);
         this.smartSpacingManager.handleObjectMove(target);
         this.handleShapeImageHover(target, pointer);
-        target.setCoords();
+        if (!(target instanceof ActiveSelection)) target.setCoords();
 
         // Canva-style Alt-drag duplication: place stationary clone at starting position
         if (this.altDragState && !this.altDragState.clonedPlaced) {

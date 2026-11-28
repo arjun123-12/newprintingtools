@@ -126,6 +126,13 @@ export const ADMIN_PERMISSIONS: AdminPermissionDef[] = [
     routePath: '/admin/reports',
   },
   {
+    key: 'attendance',
+    name: 'Attendance',
+    description: 'View employee attendance logs, working hours, breaks, and real-time activity status',
+    category: 'Operations',
+    routePath: '/admin/attendance',
+  },
+  {
     key: 'settings',
     name: 'Settings',
     description: 'Store platform settings and configuration',

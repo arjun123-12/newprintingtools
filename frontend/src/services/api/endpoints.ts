@@ -71,5 +71,15 @@ export const API_ENDPOINTS = {
   ADMIN_SHIPPING_DELIVERY_CHOICES: '/admin/shipping/delivery-choices',
   ADMIN_SHIPPING_BOOK_PICKUP: '/admin/shipping/book-pickup',
   CUSTOMER_ORDER_TRACKING: (orderId: string | number) => `/orders/${orderId}/tracking`,
+  // Attendance Tracking & Dashboard
+  ATTENDANCE_CURRENT: '/attendance/current',
+  ATTENDANCE_LOGIN: '/attendance/login',
+  ATTENDANCE_HEARTBEAT: '/attendance/heartbeat',
+  ATTENDANCE_STATUS: '/attendance/status',
+  ATTENDANCE_BREAK_START: '/attendance/break/start',
+  ATTENDANCE_BREAK_END: '/attendance/break/end',
+  ATTENDANCE_LOGOUT: '/attendance/logout',
+  ADMIN_ATTENDANCES: '/admin/attendances',
+  ADMIN_ATTENDANCES_SUMMARY: '/admin/attendances/summary',
 } as const;
 

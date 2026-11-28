@@ -14,7 +14,8 @@ use Illuminate\Support\Str;
 class AuthController extends Controller
 {
     public function __construct(
-        protected \App\Services\Cart\CartService $cartService
+        protected \App\Services\Cart\CartService $cartService,
+        protected \App\Services\Attendance\AttendanceService $attendanceService
     ) {}
 
     /** Send a short-lived password reset code to an active customer account. */
@@ -338,7 +339,21 @@ class AuthController extends Controller
      */
     public function logout(Request $request): JsonResponse
     {
-        $request->user()
+        $user = $request->user();
+
+        // Automatically close attendance session when an employee explicitly logs out
+        if ($user && $user->canAccessAdminPanel()) {
+            try {
+                $this->attendanceService->logout($user);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Attendance session auto-close error on logout', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $user
             ?->currentAccessToken()
             ?->delete();
 

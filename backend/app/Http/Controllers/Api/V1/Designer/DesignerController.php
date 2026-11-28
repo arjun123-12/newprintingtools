@@ -346,9 +346,24 @@ class DesignerController extends Controller
                 ? $localMatches[3]
                 : preg_replace('#^/?(storage/|storage/app/public/|public/storage/)?#i', '', $target);
 
-            $localFilePath = storage_path('app/public/' . ltrim($storageRelative, '/'));
+            $publicRoot = realpath(storage_path('app/public'));
+            $relative = ltrim(rawurldecode($storageRelative), '/');
+            $localFilePath = $publicRoot && !str_contains($relative, "\0")
+                ? realpath($publicRoot . DIRECTORY_SEPARATOR . $relative)
+                : false;
 
-            if (file_exists($localFilePath) && !is_dir($localFilePath)) {
+            if ($publicRoot !== false && $localFilePath !== false) {
+                $rootPrefix = $publicRoot . DIRECTORY_SEPARATOR;
+                $insidePublicStorage = DIRECTORY_SEPARATOR === '\\'
+                    ? strncasecmp($localFilePath, $rootPrefix, strlen($rootPrefix)) === 0
+                    : str_starts_with($localFilePath, $rootPrefix);
+
+                if (!$insidePublicStorage) {
+                    return response()->json(['success' => false, 'message' => 'Asset is outside public storage.'], 403);
+                }
+            }
+
+            if ($localFilePath !== false && is_file($localFilePath)) {
                 $ext = strtolower(pathinfo($localFilePath, PATHINFO_EXTENSION));
                 $fontMimes = [
                     'otf' => 'font/otf',
@@ -357,7 +372,12 @@ class DesignerController extends Controller
                     'woff2' => 'font/woff2',
                 ];
                 $mimeType = $fontMimes[$ext] ?? (mime_content_type($localFilePath) ?: 'image/png');
+                if (!$this->isProxyAssetType($mimeType)) {
+                    return response()->json(['success' => false, 'message' => 'Unsupported asset type.'], 415);
+                }
                 return response()->file($localFilePath, [
+                    'X-Content-Type-Options' => 'nosniff',
+                    'Content-Security-Policy' => "sandbox; default-src 'none'; style-src 'unsafe-inline'",
                     'Content-Type' => $mimeType,
                     'Access-Control-Allow-Origin' => '*',
                     'Access-Control-Allow-Methods' => 'GET, HEAD, OPTIONS',
@@ -375,12 +395,7 @@ class DesignerController extends Controller
             ], 400);
         }
 
-        $parsedUrl = parse_url($target);
-        $host = strtolower($parsedUrl['host'] ?? '');
-
         $allowedHosts = array_filter([
-            'localhost',
-            '127.0.0.1',
             'erryimprints.com.au',
             'artwork.erryimprints.com.au',
             'artwork.printecommerce.com.au',
@@ -408,17 +423,29 @@ class DesignerController extends Controller
             $allowedHosts = array_merge($allowedHosts, $extraDomains);
         }
 
-        $isAllowedHost = false;
-        foreach ($allowedHosts as $allowed) {
-            $allowed = strtolower(trim((string) $allowed));
-            if ($allowed === '') {
-                continue;
+        $isAllowedOrigin = static function ($uri) use ($allowedHosts): bool {
+            $host = strtolower($uri->getHost());
+            if (!in_array($uri->getScheme(), ['http', 'https'], true)
+                || $uri->getUserInfo() !== ''
+                || !in_array($uri->getPort(), [null, 80, 443], true)
+                || in_array($host, ['localhost', '127.0.0.1'], true)
+                || filter_var(trim($host, '[]'), FILTER_VALIDATE_IP)) {
+                return false;
             }
 
-            if ($host === $allowed || str_ends_with($host, '.' . $allowed)) {
-                $isAllowedHost = true;
-                break;
+            foreach ($allowedHosts as $allowed) {
+                $allowed = strtolower(trim((string) $allowed));
+                if ($allowed !== '' && ($host === $allowed || str_ends_with($host, '.' . $allowed))) {
+                    return true;
+                }
             }
+            return false;
+        };
+
+        try {
+            $isAllowedHost = $isAllowedOrigin(new \GuzzleHttp\Psr7\Uri($target));
+        } catch (\InvalidArgumentException) {
+            $isAllowedHost = false;
         }
 
         if (!$isAllowedHost) {
@@ -429,7 +456,17 @@ class DesignerController extends Controller
         }
 
         try {
-            $response = \Illuminate\Support\Facades\Http::timeout(10)->get($target);
+            $response = \Illuminate\Support\Facades\Http::timeout(10)->withOptions([
+                'allow_redirects' => [
+                    'max' => 3,
+                    'protocols' => ['http', 'https'],
+                    'on_redirect' => static function ($request, $response, $uri) use ($isAllowedOrigin): void {
+                        if (!$isAllowedOrigin($uri)) {
+                            throw new \RuntimeException('Redirect destination is not an approved asset origin.');
+                        }
+                    },
+                ],
+            ])->get($target);
 
             if (!$response->successful()) {
                 return response()->json([
@@ -440,7 +477,13 @@ class DesignerController extends Controller
 
             $contentType = $response->header('Content-Type') ?? 'image/png';
 
+            if (!$this->isProxyAssetType($contentType)) {
+                return response()->json(['success' => false, 'message' => 'Unsupported asset type.'], 415);
+            }
+
             return response($response->body(), 200, [
+                'X-Content-Type-Options' => 'nosniff',
+                'Content-Security-Policy' => "sandbox; default-src 'none'; style-src 'unsafe-inline'",
                 'Content-Type' => $contentType,
                 'Access-Control-Allow-Origin' => '*',
                 'Access-Control-Allow-Methods' => 'GET, HEAD, OPTIONS',
@@ -450,8 +493,17 @@ class DesignerController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error proxying image asset: ' . $e->getMessage(),
+                'message' => 'Could not load the requested image asset.',
             ], 500);
         }
+    }
+
+    private function isProxyAssetType(string $contentType): bool
+    {
+        $mime = strtolower(trim(explode(';', $contentType)[0]));
+
+        return str_starts_with($mime, 'image/')
+            || str_starts_with($mime, 'font/')
+            || in_array($mime, ['application/octet-stream', 'application/font-woff', 'application/x-font-ttf', 'application/vnd.ms-fontobject'], true);
     }
 }

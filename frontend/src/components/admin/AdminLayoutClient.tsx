@@ -5,6 +5,9 @@ import { usePathname } from 'next/navigation';
 import AdminSidebar from '@/components/admin/AdminSidebar';
 import AdminAuthGuard from '@/components/admin/AdminAuthGuard';
 import AdminAssistantLauncher from '@/components/admin/AdminAssistantLauncher';
+import { AttendanceProvider } from '@/context/AttendanceContext';
+import { EmployeeAttendanceBar } from '@/components/admin/attendance/EmployeeAttendanceBar';
+import { IdleConfirmationModal } from '@/components/admin/attendance/IdleConfirmationModal';
 
 interface AdminLayoutClientProps {
   children: ReactNode;
@@ -45,14 +48,18 @@ export default function AdminLayoutClient({
 
   return (
     <AdminAuthGuard>
-      <div className={`${isQrOrderView ? 'min-h-screen w-full overflow-x-hidden bg-slate-950' : 'min-h-screen bg-slate-50'} font-sans text-slate-900`}>
-        {!isQrOrderView && <AdminSidebar />}
+      <AttendanceProvider>
+        <div className={`${isQrOrderView ? 'min-h-screen w-full overflow-x-hidden bg-slate-950' : 'min-h-screen bg-slate-50'} font-sans text-slate-900`}>
+          {!isQrOrderView && <AdminSidebar />}
 
-        <div className={`flex min-w-0 flex-1 flex-col min-h-screen ${isQrOrderView ? 'w-full' : 'pl-60'}`}>
-          {children}
+          <div className={`flex min-w-0 flex-1 flex-col min-h-screen ${isQrOrderView ? 'w-full' : 'pl-60'}`}>
+            {!isQrOrderView && <EmployeeAttendanceBar />}
+            {children}
+          </div>
+          {!isQrOrderView && <AdminAssistantLauncher />}
+          <IdleConfirmationModal />
         </div>
-        {!isQrOrderView && <AdminAssistantLauncher />}
-      </div>
+      </AttendanceProvider>
     </AdminAuthGuard>
   );
 }
