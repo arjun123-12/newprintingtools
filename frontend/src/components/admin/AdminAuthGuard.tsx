@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getAuthToken, removeAuthToken } from '@/utils/storageHelper';
+import { getAuthToken, removeAuthToken, safeSessionStorage } from '@/utils/storageHelper';
 import type { CustomerUser } from '@/context/AuthContext';
 import {
   isSuperAdmin,
@@ -17,13 +17,13 @@ interface AdminAuthGuardProps {
   children: ReactNode;
 }
 
-type AuthStatus = 'checking' | 'authorized' | 'unauthorized' | 'forbidden';
+type AuthStatus = 'checking' | 'authorized' | 'unauthorized' | 'forbidden' | 'unavailable';
 
 function rememberAdminReturnPath(): void {
   if (typeof window === 'undefined') return;
   const returnPath = `${window.location.pathname}${window.location.search}`;
   if (returnPath.startsWith('/admin/') && !returnPath.startsWith('/admin/login')) {
-    window.sessionStorage.setItem('admin_login_return_to', returnPath);
+    safeSessionStorage.setItem('admin_login_return_to', returnPath);
   }
 }
 
@@ -40,10 +40,9 @@ export default function AdminAuthGuard({
   const isLoginPage = pathname === '/admin/login';
   const isChangePasswordPage = pathname === '/admin/change-password';
 
-  const [authStatus, setAuthStatus] = useState<AuthStatus>(() => {
-    if (typeof window === 'undefined') return 'checking';
-    return getAuthToken() ? 'authorized' : 'checking';
-  });
+  const [authStatus, setAuthStatus] = useState<AuthStatus>('checking');
+  const [verifiedPath, setVerifiedPath] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   const [currentUser, setCurrentUser] = useState<CustomerUser | null>(null);
   const [deniedSection, setDeniedSection] = useState<string>('');
@@ -53,6 +52,7 @@ export default function AdminAuthGuard({
       return;
     }
 
+    setAuthStatus('checking');
     const token = getAuthToken();
 
     if (!token) {
@@ -63,6 +63,10 @@ export default function AdminAuthGuard({
     }
 
     const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      controller.abort();
+      setAuthStatus('unavailable');
+    }, 10000);
 
     const verifyAdmin = async () => {
       try {
@@ -75,6 +79,8 @@ export default function AdminAuthGuard({
           signal: controller.signal,
         });
 
+        if (controller.signal.aborted) return;
+
         // Explicit unauthorized or forbidden response from backend
         if (response.status === 401 || response.status === 403) {
           removeAuthToken();
@@ -86,10 +92,12 @@ export default function AdminAuthGuard({
 
         // Non-auth server error (e.g. 500, 502, 503) during reload
         if (!response.ok) {
+          setAuthStatus('unavailable');
           return;
         }
 
         const result = await response.json();
+        if (controller.signal.aborted) return;
         const user: CustomerUser = result?.data;
 
         // Verify active and admin/staff status
@@ -149,20 +157,22 @@ export default function AdminAuthGuard({
           }
         }
 
+        setVerifiedPath(pathname);
         setAuthStatus('authorized');
-      } catch (err: any) {
-        if (controller.signal.aborted || err?.name === 'AbortError') {
-          return;
-        }
+      } catch {
+        if (!controller.signal.aborted) setAuthStatus('unavailable');
+      } finally {
+        window.clearTimeout(timeout);
       }
     };
 
     verifyAdmin();
 
     return () => {
+      window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [isLoginPage, isChangePasswordPage, pathname, router]);
+  }, [attempt, isLoginPage, isChangePasswordPage, pathname, router]);
 
   // Login page is always accessible
   if (isLoginPage) {
@@ -177,7 +187,20 @@ export default function AdminAuthGuard({
     );
   }
 
-  if (authStatus === 'checking') {
+  if (authStatus === 'unavailable') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-center">
+        <div role="alert" className="space-y-3">
+          <p className="text-sm text-slate-200">Could not verify administrator permissions. Please try again.</p>
+          <button type="button" onClick={() => setAttempt((value) => value + 1)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (authStatus === 'checking' || (authStatus === 'authorized' && verifiedPath !== pathname)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950">
         <div className="text-center space-y-3">

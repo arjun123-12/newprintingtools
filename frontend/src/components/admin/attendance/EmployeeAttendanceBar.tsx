@@ -34,11 +34,6 @@ export const EmployeeAttendanceBar: React.FC = () => {
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
-  // Only render for staff / admin employees
-  if (!user || (!user.is_admin && user.role !== 'staff' && !user.is_super_admin)) {
-    return null;
-  }
-
   const isClockedIn = status !== 'logged_out';
   const isOnBreak = status === 'on_break';
 
@@ -72,6 +67,11 @@ export const EmployeeAttendanceBar: React.FC = () => {
         };
     }
   }, [status, currentBreakDurationSeconds]);
+
+  // Only render for staff / admin employees
+  if (!user || (!user.is_admin && user.role !== 'staff' && !user.is_super_admin)) {
+    return null;
+  }
 
   const handleConfirmLogout = async () => {
     setShowLogoutConfirm(false);
